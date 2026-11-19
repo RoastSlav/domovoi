@@ -6,6 +6,8 @@ mod coverage;
 #[cfg(test)]
 mod memory;
 #[cfg(test)]
+mod operations;
+#[cfg(test)]
 mod scenarios;
 #[cfg(test)]
 mod sweep;

@@ -7,20 +7,20 @@ use domovoi_core::{OperationId, StepId};
 use serde_json::{Value, json};
 
 /// Attempts allowed to collect evidence.
-pub(super) const COLLECT_ATTEMPTS: u32 = 3;
+pub(crate) const COLLECT_ATTEMPTS: u32 = 3;
 /// Attempts allowed to dispatch an approved execution.
-pub(super) const DISPATCH_ATTEMPTS: u32 = 5;
+pub(crate) const DISPATCH_ATTEMPTS: u32 = 5;
 /// Attempts allowed to reconcile a dispatched execution.
-pub(super) const RECONCILE_ATTEMPTS: u32 = 5;
+pub(crate) const RECONCILE_ATTEMPTS: u32 = 5;
 /// Attempts allowed to re-run a check for a verification.
-pub(super) const VERIFY_ATTEMPTS: u32 = 5;
+pub(crate) const VERIFY_ATTEMPTS: u32 = 5;
 /// Attempts allowed to a timed wake.
-pub(super) const WAKE_ATTEMPTS: u32 = 3;
+pub(crate) const WAKE_ATTEMPTS: u32 = 3;
 /// Attempts allowed to build the context of a new cycle.
-pub(super) const BUILD_CONTEXT_ATTEMPTS: u32 = 3;
+pub(crate) const BUILD_CONTEXT_ATTEMPTS: u32 = 3;
 
 /// Payload of `collect_evidence`, `dispatch` and `reconcile`.
-pub(super) fn step_payload(operation: OperationId, step: StepId) -> Value {
+pub(crate) fn step_payload(operation: OperationId, step: StepId) -> Value {
     json!({ "v": 1, "operation": operation.to_string(), "step": step.to_string() })
 }
 
@@ -63,7 +63,7 @@ pub(super) fn dispatch_key(step: StepId) -> String {
 }
 
 /// Dedup key of the reconcile of Execution step `step`.
-pub(super) fn reconcile_key(step: StepId) -> String {
+pub(crate) fn reconcile_key(step: StepId) -> String {
     format!("reconcile:{step}")
 }
 

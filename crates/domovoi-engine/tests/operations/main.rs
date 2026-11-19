@@ -7,6 +7,10 @@ mod decide_execution;
 #[cfg(test)]
 mod decide_finish;
 #[cfg(test)]
+mod harness;
+#[cfg(test)]
 mod properties;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod writer;

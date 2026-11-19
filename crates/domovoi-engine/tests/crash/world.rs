@@ -10,14 +10,17 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, CheckRecheck, Clock, EffectQueue,
-    EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo, Page,
-    Presence, SkillOutput,
+    EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
+    OperationRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, AgentId, AgentIdentity, CheckKey, Evidence, HostId,
-    Incident, IncidentId, JournalEpoch, KeyFingerprint, ParamKind, ParamName, ParamSpec, Principal,
-    Risk, Severity, Signal, SignalClass, SignalStatus, SkillManifest, SkillSummary, SourceKind,
-    TargetKey, UserId, Verdict, VerifySpec,
+    ActionId, ActionRequest, ActionStatus, Actor, AgentId, AgentIdentity, CheckKey, Evidence,
+    HostId, Incident, IncidentId, JournalEpoch, KeyFingerprint, OperationKind, ParamKind,
+    ParamName, ParamSpec, PinnedSubject, Principal, Risk, Severity, Signal, SignalClass,
+    SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+};
+use domovoi_engine::operations::{
+    OperationDeps, OperationHandle, OperationSeed, OperationService, OperationSettings,
 };
 use domovoi_engine::triage::{mint_token, token_hash};
 use domovoi_engine::{
@@ -26,12 +29,32 @@ use domovoi_engine::{
 };
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::crash::{CrashingStore, SweepStore, check_invariants};
-use domovoi_testkit::link::action_caps;
-use domovoi_testkit::{FakeAgentLink, FakeClock};
+use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
+use domovoi_testkit::{FakeAgentLink, FakeCapabilityRegistry, FakeClock, FakeTargetResolver};
 use jiff::{SignedDuration, Timestamp};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+
+/// What an operation over the world's container incident is seeded with.
+#[must_use]
+pub fn operation_seed(incidents: Vec<IncidentId>) -> OperationSeed {
+    OperationSeed {
+        kind: OperationKind::Investigate,
+        goal: "find out why nginx is restarting".to_owned(),
+        pinned: vec![PinnedSubject {
+            host: host_id(),
+            check: CheckKey::parse("docker.container").expect("a valid check"),
+            target: Some(TargetKey::parse("nginx").expect("a valid target")),
+        }],
+        incidents,
+        parent: None,
+        budgets: None,
+        first_steps: Vec::new(),
+        effects: Vec::new(),
+        actor: Actor::System("crash-sweep".to_owned()),
+    }
+}
 
 /// The host whose agent offers the skills and whose container incident the world seeds.
 #[must_use]
@@ -234,9 +257,12 @@ pub struct World<S: SweepStore> {
     pub manager: ManagerHandle,
     /// The action service.
     pub service: ActionHandle,
+    /// The operation service.
+    pub operations: OperationHandle,
     shutdown: CancellationToken,
     manager_task: Option<JoinHandle<()>>,
     action_task: Option<JoinHandle<()>>,
+    operation_task: Option<JoinHandle<()>>,
 }
 
 impl<S: SweepStore> Drop for World<S> {
@@ -245,7 +271,7 @@ impl<S: SweepStore> Drop for World<S> {
     }
 }
 
-impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo> World<S> {
+impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> World<S> {
     /// A world over a fresh store, with one open container incident already stored.
     pub async fn new(store: Arc<S>) -> Self {
         let incident = open_incident(host_id(), "docker.container", Some("nginx"))
@@ -328,6 +354,34 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             },
             settings(),
         );
+        let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
+        let caps = action_caps(link.clone());
+        let (operations, operation_task) = OperationService::spawn(
+            OperationDeps {
+                operations: store.clone(),
+                uow: crashing.clone(),
+                effects: store.clone(),
+                effect_read: store.clone(),
+                advisories: store.clone(),
+                incidents: store.clone(),
+                hosts: store.clone(),
+                evidence: domovoi_engine::Evidence::new(
+                    evidence_caps(link.clone()),
+                    clock.clone(),
+                    registry.clone(),
+                ),
+                registry,
+                resolver: Arc::new(FakeTargetResolver::new()),
+                observer: observer_of(link.clone()),
+                journal: caps.journal,
+                handoff: caps.handoff,
+                rerun: caps.rerun,
+                redactor: Arc::new(PatternRedactor::default()),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+            },
+            OperationSettings::default(),
+        );
         Self {
             crashing,
             store,
@@ -335,9 +389,11 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + domovoi_core::ports::HostRepo>
             link,
             manager,
             service,
+            operations,
             shutdown,
             manager_task: Some(manager_task),
             action_task: Some(action_task),
+            operation_task: Some(operation_task),
         }
     }
 }
@@ -587,6 +643,7 @@ impl<S: SweepStore> World<S> {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
         join(self.action_task.take()).await;
+        join(self.operation_task.take()).await;
     }
 
     /// Lets the restarted services do their start-up work: one tick, the writer's expiry
@@ -627,6 +684,21 @@ impl<S: SweepStore> World<S> {
             }
             self.service.reconcile_host(host).await;
         }
+    }
+
+    /// Proves the restarted operation service still takes a command: a new operation is
+    /// stored and admitted.
+    pub async fn assert_operations_work(&self) {
+        let id = self
+            .operations
+            .create(operation_seed(Vec::new()))
+            .await
+            .expect("the operation service stores a new operation");
+        // Only a running (admitted) operation can be paused.
+        self.operations
+            .pause(id, Actor::System("crash-sweep".to_owned()))
+            .await
+            .expect("the new operation was admitted");
     }
 
     /// Proves the restarted services still do their work: one new incident, one approved
@@ -691,6 +763,7 @@ impl<S: SweepStore> World<S> {
             })
             .await;
         self.quiesce().await;
+        self.assert_operations_work().await;
         if let Err(violations) = check_invariants(&*self.store).await {
             panic!("invariants after recovery: {violations:#?}");
         }

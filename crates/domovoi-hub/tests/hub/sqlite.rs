@@ -15,13 +15,14 @@ use domovoi_core::ports::{
     AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateKind, AggregateRef, AuditEvent,
     AuditFilter, AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue,
     EffectRead, EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter,
-    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, Page, Paged, SignalRepo,
-    StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
+    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, OperationFilter, OperationRepo,
+    Page, Paged, SignalRepo, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
     AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    AgentReport, AuthenticatedReport, Fingerprint, Host, HostId, HostName, Incident, IncidentId,
-    MaintenanceWindow, Note, NoteId, ReportOutcome, Signal, SkillName,
+    AgentReport, AuthenticatedReport, ContractId, ExecutionId, ExecutionRecord, Fingerprint, Host,
+    HostId, HostName, Incident, IncidentId, MaintenanceWindow, Note, NoteId, Operation,
+    OperationId, OperationSnapshot, ReportOutcome, Signal, SkillName,
 };
 use domovoi_store::Store;
 use domovoi_testkit::crash::{IntegrityRead, Orphan, OrphanStorage, check_invariants};
@@ -259,6 +260,57 @@ impl ActionRepo for SqliteStore {
         host: HostId,
     ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
         ActionRepo::last_run_by_skill(&*self.0, host).await
+    }
+}
+
+#[async_trait]
+impl OperationRepo for SqliteStore {
+    async fn get(&self, id: OperationId) -> Result<Option<Versioned<Operation>>, StoreError> {
+        OperationRepo::get(&*self.0, id).await
+    }
+
+    async fn load(&self, id: OperationId) -> Result<Option<OperationSnapshot>, StoreError> {
+        OperationRepo::load(&*self.0, id).await
+    }
+
+    async fn list(
+        &self,
+        filter: &OperationFilter,
+        page: &Page,
+    ) -> Result<Paged<Operation>, StoreError> {
+        OperationRepo::list(&*self.0, filter, page).await
+    }
+
+    async fn for_incident(&self, incident: IncidentId) -> Result<Vec<Operation>, StoreError> {
+        OperationRepo::for_incident(&*self.0, incident).await
+    }
+
+    async fn execution(
+        &self,
+        id: ExecutionId,
+    ) -> Result<Option<Versioned<ExecutionRecord>>, StoreError> {
+        OperationRepo::execution(&*self.0, id).await
+    }
+
+    async fn dispatched_on(&self, host: HostId) -> Result<Vec<ExecutionRecord>, StoreError> {
+        OperationRepo::dispatched_on(&*self.0, host).await
+    }
+
+    async fn dispatched_since(
+        &self,
+        host: HostId,
+        contract: &ContractId,
+        since: Timestamp,
+    ) -> Result<u32, StoreError> {
+        OperationRepo::dispatched_since(&*self.0, host, contract, since).await
+    }
+
+    async fn with_status(
+        &self,
+        statuses: &[&str],
+        limit: u16,
+    ) -> Result<Vec<Operation>, StoreError> {
+        OperationRepo::with_status(&*self.0, statuses, limit).await
     }
 }
 
