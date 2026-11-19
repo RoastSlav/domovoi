@@ -5,6 +5,7 @@
 //! host, `WsAgentLink` for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
+mod admin;
 mod compat;
 mod conn;
 mod error;
@@ -41,6 +42,7 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 
+pub use admin::AgentAdmin;
 pub use compat::{ProtocolState, protocol_state};
 pub use error::AgentServerError;
 pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
@@ -150,7 +152,7 @@ impl AgentServer {
     ///
     /// The runtime turns it into the engine's narrow capability objects and the capability
     /// registry's view (ADR 0023); a transport reaches agents through
-    /// [`crate::api::AgentAdmin`] (EXEC-4).
+    /// [`AgentAdmin`] (EXEC-4).
     pub(crate) fn link(&self) -> Arc<WsAgentLink> {
         self.inner.link.clone()
     }
@@ -168,7 +170,7 @@ impl AgentServer {
     }
 
     /// The connection state of `host`'s agent, for a transport reading it through
-    /// [`crate::api::AgentAdmin`].
+    /// [`AgentAdmin`].
     #[must_use]
     pub fn host_presence(&self, host: HostId) -> domovoi_core::ports::Presence {
         self.inner.link.presence(host)

@@ -20,5 +20,6 @@ pub mod runtime;
 pub mod selftest;
 pub mod settings;
 pub mod spa;
+pub(crate) mod version;
 
 pub use domovoi_engine::PatternRedactor;

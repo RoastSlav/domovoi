@@ -15,8 +15,8 @@ use super::dto_admin::{
 };
 use super::error::{ApiError, ErrorBody};
 use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};
-use super::version::{HUB_VERSION, is_older};
 use super::{ApiState, Authed, host_named};
+use crate::version::{HUB_VERSION, is_older};
 
 /// How far back host detail looks for digest facts.
 pub const FACT_WINDOW: SignedDuration = SignedDuration::from_hours(24);
