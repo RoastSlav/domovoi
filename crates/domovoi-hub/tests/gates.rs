@@ -624,7 +624,27 @@ mod api {
                 "/api/v1/hosts/nas/skills/zpool_status".to_owned(),
             ),
             (Method::POST, "/api/v1/hosts/nas/profile".to_owned()),
-            (Method::POST, "/api/v1/chat".to_owned()),
+            (Method::POST, "/api/v1/conversations".to_owned()),
+            (
+                Method::POST,
+                "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001/messages".to_owned(),
+            ),
+            (
+                Method::POST,
+                "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001/turns/0196ac01-0000-7000-8000-000000000001/cancel".to_owned(),
+            ),
+            (
+                Method::POST,
+                "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001/messages/0196ac01-0000-7000-8000-000000000001/retry".to_owned(),
+            ),
+            (
+                Method::PUT,
+                "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001/operation".to_owned(),
+            ),
+            (
+                Method::DELETE,
+                "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001".to_owned(),
+            ),
             (Method::POST, "/api/v1/system/update/check".to_owned()),
             (Method::POST, "/api/v1/ack-rules".to_owned()),
             (
@@ -1110,5 +1130,59 @@ fn summary_edit_has_one_production_call_site() {
             .collect::<String>()
             .contains(".operations.edit_summary_field("),
         "the endpoint goes through the operation commands"
+    );
+}
+
+/// INV-1, INV-9: the Operator's HTTP code can reach no executor, approval or plan. It parses a
+/// request, reads the world for the model and calls the conversation use cases, nothing more.
+#[test]
+fn operator_has_no_executor() {
+    const FORBIDDEN: &[&str] = &[
+        "HumanApproval",
+        "Authorization",
+        "ActionRequest",
+        "ActionHandle",
+        "OperationHandle",
+        "AuthorizedExecution",
+        "AuthorizedStep",
+        "execute_step",
+        "PlanHash",
+        "ProcessExecutor",
+        "AgentLink",
+        "HandoffRunner",
+        "run_skill",
+        "run_capability",
+        "start_skill",
+        "PolicyPermit",
+    ];
+    fn scan(dir: &std::path::Path, files: &mut usize, offenders: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan(&path, files, offenders);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                *files += 1;
+                let text = std::fs::read_to_string(&path).unwrap();
+                for (number, line) in text.lines().enumerate() {
+                    if line.trim_start().starts_with("//") {
+                        continue;
+                    }
+                    for name in FORBIDDEN {
+                        if line.contains(name) {
+                            offenders.push(format!("{}:{}: {name}", path.display(), number + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api/operator");
+    let mut files = 0;
+    let mut offenders = Vec::new();
+    scan(&root, &mut files, &mut offenders);
+    assert!(files >= 5, "the scan found only {files} files");
+    assert!(
+        offenders.is_empty(),
+        "executor names in the Operator API: {offenders:?}"
     );
 }

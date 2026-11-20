@@ -22,7 +22,6 @@ pub mod notes_import;
 mod actions;
 mod auth;
 mod capability;
-mod chat;
 mod events;
 mod experience;
 mod followups;
@@ -36,6 +35,7 @@ mod notes;
 mod operation_controls;
 pub(crate) mod operation_errors;
 pub(crate) mod operations;
+pub mod operator;
 mod overview;
 mod plan_binding;
 mod policy;
@@ -125,6 +125,11 @@ pub struct ApiDeps {
     /// The profile task's handles; `None` when the hub runs without one, where the
     /// profile endpoints answer 503.
     pub profiles: Option<crate::profile::ProfileDeps>,
+    /// Operator conversations and their messages, read only; changes go through
+    /// `services.conversations`.
+    pub conversations: Arc<dyn domovoi_core::ports::ConversationRepo>,
+    /// Where live events of answers being written are published and read by event streams.
+    pub live: Arc<operator::live::LiveBus>,
     /// Time.
     pub clock: Arc<dyn Clock>,
     /// The journal the event stream and the snapshot positions read.
@@ -279,6 +284,7 @@ pub(crate) async fn host_named(
         (name = "experience", description = "Summaries of finished operations, similar past operations and search"),
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
         (name = "knowledge", description = "Facts, relations and entities the hub knows"),
+        (name = "operator", description = "Operator conversations: read-only questions about the hosts"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "system", description = "Settings, advisories, digest, events and health")
@@ -315,7 +321,18 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(incidents::unmute))
         .routes(routes!(incidents::dismiss))
         .routes(routes!(incidents::ask))
-        .routes(routes!(chat::chat))
+        .routes(routes!(
+            operator::list_conversations,
+            operator::create_conversation
+        ))
+        .routes(routes!(
+            operator::get_conversation,
+            operator::delete_conversation
+        ))
+        .routes(routes!(operator::send_message))
+        .routes(routes!(operator::cancel_turn))
+        .routes(routes!(operator::retry_message))
+        .routes(routes!(operator::set_conversation_operation))
         .routes(routes!(followups::history, followups::clear))
         .routes(routes!(incidents::retry_triage))
         .routes(routes!(actions::list))

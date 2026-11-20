@@ -47,12 +47,12 @@ async fn commit(a: &Api, rows: Vec<JournalDraft>) -> Vec<u64> {
     a.store.commit(tx).await.unwrap().journal_seqs
 }
 
-struct Stream {
-    status: StatusCode,
+pub(crate) struct Stream {
+    pub(crate) status: StatusCode,
     body: BodyDataStream,
 }
 
-async fn open(a: &Api, login: &Login, uri: &str, last_event_id: Option<&str>) -> Stream {
+pub(crate) async fn open(a: &Api, login: &Login, uri: &str, last_event_id: Option<&str>) -> Stream {
     let mut req = Request::get(uri).header(header::COOKIE, &login.cookie);
     if let Some(id) = last_event_id {
         req = req.header("last-event-id", id);
@@ -70,7 +70,7 @@ async fn open(a: &Api, login: &Login, uri: &str, last_event_id: Option<&str>) ->
 }
 
 impl Stream {
-    async fn next(&mut self) -> String {
+    pub(crate) async fn next(&mut self) -> String {
         let chunk = tokio::time::timeout(Duration::from_secs(10), self.body.next())
             .await
             .expect("a frame arrives")
@@ -80,7 +80,7 @@ impl Stream {
     }
 
     /// Nothing is waiting on the stream right now.
-    async fn is_quiet(&mut self) -> bool {
+    pub(crate) async fn is_quiet(&mut self) -> bool {
         for _ in 0..20 {
             tokio::task::yield_now().await;
         }
@@ -88,21 +88,21 @@ impl Stream {
     }
 }
 
-fn name(frame: &str) -> &str {
+pub(crate) fn name(frame: &str) -> &str {
     frame
         .lines()
         .find_map(|l| l.strip_prefix("event: "))
         .unwrap_or("")
 }
 
-fn id(frame: &str) -> Option<u64> {
+pub(crate) fn id(frame: &str) -> Option<u64> {
     frame
         .lines()
         .find_map(|l| l.strip_prefix("id: "))
         .map(|v| v.parse().unwrap())
 }
 
-fn data(frame: &str) -> Value {
+pub(crate) fn data(frame: &str) -> Value {
     let text = frame
         .lines()
         .find_map(|l| l.strip_prefix("data: "))

@@ -496,6 +496,25 @@ async fn build(
             clock: clock.clone(),
         },
     ));
+    let live = domovoi_hub::api::operator::live::LiveBus::new();
+    let chat_model: Arc<dyn domovoi_engine::conversations::ChatModel> = match triage.clone() {
+        Some(handle) => Arc::new(handle),
+        None => Arc::new(domovoi_engine::conversations::DisabledModel),
+    };
+    let (conversation_handle, _conversation_task) =
+        domovoi_engine::conversations::ConversationService::spawn(
+            domovoi_engine::conversations::ConversationDeps {
+                conversations: store.clone(),
+                uow: store.clone(),
+                model: chat_model,
+                live: live.clone(),
+                redactor: Arc::new(PatternRedactor::default()),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+            },
+        )
+        .await
+        .unwrap();
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: triage.clone(),
@@ -516,6 +535,7 @@ async fn build(
             store.clone(),
             auth.clone(),
         ),
+        conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -531,6 +551,8 @@ async fn build(
         services: services.clone(),
         triage,
         operation_repo: store.clone(),
+        conversations: store.clone(),
+        live,
         experience: store.clone(),
         policy: store.clone(),
         agents,

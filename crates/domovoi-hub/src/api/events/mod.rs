@@ -55,9 +55,14 @@ impl Drop for StreamGuard {
 /// Committed journal rows as server-sent events.
 ///
 /// Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal
-/// `seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client
+/// `seq`), `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client
 /// that reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.
 /// An idle stream sends a `: keepalive` comment every 15 seconds.
+///
+/// A connection that follows `conversations:<uuid>` also receives the ephemeral `live.start`,
+/// `live.text`, `live.tool` and `live.end` events of an answer being written. They carry no `id`,
+/// are never replayed and may be dropped when a client is slow; the committed message arrives as
+/// a `journal` frame.
 #[utoipa::path(
     get, path = "/api/v1/events", operation_id = "stream_events", tag = "system",
     params(EventsQuery),
@@ -80,6 +85,12 @@ pub(super) async fn stream(
     let guard = StreamGuard::acquire(&state.event_streams)
         .ok_or_else(|| ApiError::Unavailable("too many open event streams".to_owned()))?;
     let deps = &state.deps;
+    // Only a connection that follows a conversation listens for its live events.
+    let live = topics
+        .wire()
+        .iter()
+        .any(|topic| topic.starts_with("conversations:"))
+        .then(|| deps.live.subscribe());
     let machine = Machine {
         feed: deps.journal.clone(),
         clock: deps.clock.clone(),
@@ -90,6 +101,7 @@ pub(super) async fn stream(
         cursor: 0,
         pending: VecDeque::new(),
         last_send: deps.clock.now(),
+        live,
         _guard: guard,
     };
     let frames = futures::stream::unfold(machine, |mut machine| async move {

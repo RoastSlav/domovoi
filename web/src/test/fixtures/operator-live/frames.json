@@ -1,0 +1,74 @@
+{
+  "frames": [
+    {
+      "data": {
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "message": "0190a0a0-0000-7000-8000-0000000000c3",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.start",
+      "name": "live_start"
+    },
+    {
+      "data": {
+        "attempt": 1,
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "text": "The journal shows two restarts of nginx at ",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.text",
+      "name": "live_text_attempt1"
+    },
+    {
+      "data": {
+        "attempt": 2,
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "text": "",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.text",
+      "name": "live_text_attempt2"
+    },
+    {
+      "data": {
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "failed": false,
+        "state": "started",
+        "tool": "journal",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.tool",
+      "name": "live_tool_started"
+    },
+    {
+      "data": {
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "failed": false,
+        "state": "finished",
+        "tool": "journal",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.tool",
+      "name": "live_tool_finished"
+    },
+    {
+      "data": {
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "status": "complete",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.end",
+      "name": "live_end_complete"
+    },
+    {
+      "data": {
+        "conversation": "0190a0a0-0000-7000-8000-0000000000c1",
+        "status": "discarded",
+        "turn": "0190a0a0-0000-7000-8000-0000000000c2"
+      },
+      "event": "live.end",
+      "name": "live_end_discarded"
+    }
+  ],
+  "schema_version": 1
+}

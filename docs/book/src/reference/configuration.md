@@ -244,7 +244,7 @@ How long each kind of raw data is kept.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `conversations_days` | integer | Days a follow-up question and answer on an incident are kept. Default 180. |
+| `conversations_days` | integer | Days follow-up questions on an incident and Operator conversation messages are kept. Default 180. |
 | `execution_outputs_days` | integer | Days raw execution output is kept. Not applied yet: applies once execution outputs are stored apart from the audit log. Default 30. |
 | `incident_timeline_days` | integer | Days an incident timeline entry other than a follow-up conversation is kept. Default 90. |
 | `notifications_days` | integer | Days the notification state of a resolved incident is kept. Default 30. |

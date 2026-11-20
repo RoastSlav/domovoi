@@ -5,6 +5,8 @@ use domovoi_core::ports::{JournalEntry, Redactor, topics_of};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::api::operator::live::LiveFrame;
+
 /// The largest serialized payload a `journal` frame carries; bigger ones are dropped.
 pub(crate) const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024;
 
@@ -95,6 +97,12 @@ pub(crate) fn reset(reason: &str, head: u64) -> Option<Event> {
         .ok()
 }
 
+/// A live event: ephemeral, with no `id`, so the client's cursor never moves and a reconnect
+/// never replays it.
+pub(crate) fn live_event(frame: &LiveFrame) -> Event {
+    Event::default().event(frame.name).data(&*frame.data)
+}
+
 /// A comment line that keeps idle connections open.
 pub(crate) fn keepalive() -> Event {
     Event::default().comment("keepalive")
@@ -158,6 +166,119 @@ mod tests {
         fn redact(&self, text: &str) -> String {
             text.to_owned()
         }
+    }
+
+    /// The live frames as the fixture records them: one entry per event, rendered by the
+    /// production serializer for fixed ids. `OPERATOR_LIVE_UPDATE=1` rewrites the file.
+    fn live_fixture() -> Value {
+        use domovoi_core::ports::{LiveEnd, LiveEvent, ToolPhase};
+        use domovoi_core::{ConversationId, MessageId, TurnId};
+
+        let conversation: ConversationId = "0190a0a0-0000-7000-8000-0000000000c1".parse().unwrap();
+        let turn: TurnId = "0190a0a0-0000-7000-8000-0000000000c2".parse().unwrap();
+        let message: MessageId = "0190a0a0-0000-7000-8000-0000000000c3".parse().unwrap();
+        let events = [
+            ("live_start", LiveEvent::Start { turn, message }),
+            (
+                "live_text_attempt1",
+                LiveEvent::Text {
+                    turn,
+                    attempt: 1,
+                    text: "The journal shows two restarts of nginx at ".to_owned(),
+                },
+            ),
+            (
+                "live_text_attempt2",
+                LiveEvent::Text {
+                    turn,
+                    attempt: 2,
+                    text: String::new(),
+                },
+            ),
+            (
+                "live_tool_started",
+                LiveEvent::Tool {
+                    turn,
+                    tool: "journal".to_owned(),
+                    phase: ToolPhase::Started,
+                    failed: false,
+                },
+            ),
+            (
+                "live_tool_finished",
+                LiveEvent::Tool {
+                    turn,
+                    tool: "journal".to_owned(),
+                    phase: ToolPhase::Finished,
+                    failed: false,
+                },
+            ),
+            (
+                "live_end_complete",
+                LiveEvent::End {
+                    turn,
+                    outcome: LiveEnd::Complete,
+                },
+            ),
+            (
+                "live_end_discarded",
+                LiveEvent::End {
+                    turn,
+                    outcome: LiveEnd::Discarded,
+                },
+            ),
+        ];
+        let frames: Vec<Value> = events
+            .iter()
+            .map(|(label, event)| {
+                let frame = LiveFrame::of(conversation, event);
+                json!({
+                    "name": label,
+                    "event": frame.name,
+                    "data": serde_json::from_str::<Value>(&frame.data).unwrap(),
+                })
+            })
+            .collect();
+        json!({ "schema_version": 1, "frames": frames })
+    }
+
+    #[test]
+    fn live_frames_match_the_committed_fixture() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web/src/test/fixtures/operator-live/frames.json"
+        );
+        let rendered = live_fixture();
+        if std::env::var_os("OPERATOR_LIVE_UPDATE").is_some() {
+            std::fs::create_dir_all(std::path::Path::new(path).parent().unwrap()).unwrap();
+            let text = serde_json::to_string_pretty(&rendered).unwrap();
+            std::fs::write(
+                path,
+                format!(
+                    "{text}
+"
+                ),
+            )
+            .unwrap();
+        }
+        let committed: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(
+            committed, rendered,
+            "run with OPERATOR_LIVE_UPDATE=1 to rewrite"
+        );
+    }
+
+    #[test]
+    fn a_live_event_frame_has_a_name_and_no_id() {
+        let frame = LiveFrame {
+            conversation: "c".to_owned(),
+            name: "live.text",
+            data: std::sync::Arc::from("{}"),
+        };
+        let text = format!("{:?}", live_event(&frame));
+        assert!(text.contains("live.text"), "{text}");
+        assert!(!text.contains("id: Some"), "{text}");
     }
 
     #[test]

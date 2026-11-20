@@ -8,13 +8,15 @@ mod api_admin;
 #[cfg(test)]
 mod api_auth;
 #[cfg(test)]
-mod api_chat;
-#[cfg(test)]
 mod api_events;
 #[cfg(test)]
 mod api_harness;
 #[cfg(test)]
 mod api_logs;
+#[cfg(test)]
+mod api_operator;
+#[cfg(test)]
+mod api_operator_live;
 #[cfg(test)]
 mod api_overview;
 #[cfg(test)]
