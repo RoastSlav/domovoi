@@ -88,4 +88,6 @@ The controls are:
 
 A step that needs approval shows its plan code, marked `v2 binding`. Check what the action will do, then approve or deny it. Approval is the only way an action runs. A destructive action, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
 
+When an operation ends, Domovoi writes a summary of it. See [Experience](experience.md).
+
 Click any step in the list to open the step inspector beside the page, or as a full-width sheet on a narrow window. Press Escape to close it.

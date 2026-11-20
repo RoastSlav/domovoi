@@ -15,6 +15,11 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 
 | Table | Contents |
 | --- | --- |
+| `resolution_summary_fields` | Append-only revisions of each field of a finished operation's summary: field, revision number, value, source (`code`, `model` or `user`), actor and time. Triggers reject every update and delete. |
+| `operation_resolutions` | One row per operation with a summary: the current value of each field, rewritten in the same transaction as every revision. It feeds the full-text index. |
+| `operation_resolutions_fts` | Full-text index of the current summary text, kept in step by triggers. |
+| `operation_resolution_hosts` | The hosts of each summary, so a search can stay on one host. |
+| `operation_resolution_subjects` | The host, check and target of each summary, to find similar operations. |
 | `hosts` | Every host Domovoi knows: name, kind (local, remote, external), labels. Names are unique. |
 | `agents` | Agent identities: public key, version, enrolled and revoked times, plus what the agent last reported after authenticating: its protocol, release, last authentication and, when the hub rejected its protocol, the time it did so. A host has at most one agent that is not revoked, and a revoked agent never returns. An agent id names one enrollment for life: only its reported version changes; its host, public key and enrollment time are fixed. |
 | `enrollment_tokens` | Hashes of single-use enrollment tokens with their host and expiry. Consuming one is a single atomic update. |
@@ -69,6 +74,8 @@ after the anchor breaks the chain.
 
 ## Search
 
+Resolution summaries are searched the same way, in two passes: operations that contain every word come first, then operations that contain any word. A search on one host returns only operations whose hosts are exactly that host.
+
 Notes and incident titles are searched with SQLite FTS5. Search text is split into words and every word must appear; FTS5 operators such as `OR`, `NEAR`, `*` and column filters in the search text are treated as plain words. Notes rank by how often the words occur, a title occurrence counting ten times a body or tag occurrence, so title matches come first.
 
 ## Retention
@@ -87,7 +94,7 @@ Every period is a setting in `[retention]`; the [Retention guide](../guide/reten
 | Raw execution outputs (not built yet) | `execution_outputs_days` | 30 days |
 | Retracted fact content | `retracted_facts_days` | 30 days |
 
-Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples (formerly digest facts) are kept.
+Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples (formerly digest facts) are kept. Resolution summaries hold no raw output and stay with their operation; deleting data does not remove it from backups until they rotate.
 
 ## Backups
 
