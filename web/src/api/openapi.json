@@ -407,36 +407,78 @@
         }
       }
     },
-    "/api/v1/chat": {
-      "post": {
+    "/api/v1/conversations": {
+      "get": {
         "tags": [
-          "hosts"
+          "operator"
         ],
-        "summary": "Answers a general question about the operator's hosts. With a connected `host` the model\nmay use that host's read-only tools and read skills; without one, or with an offline host,\nit answers from an overview and calls no tools. It never proposes or runs actions.",
-        "operationId": "chat",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChatRequest"
-              }
+        "summary": "Lists conversations, newest first.",
+        "operationId": "list_conversations",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Continue after this cursor.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
-          "required": true
-        },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The page size.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "description": "Only conversations about this host (a host name).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "operation",
+            "in": "query",
+            "description": "Only conversations with this operation attached.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "The answer",
+            "description": "A page of conversations",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatResponse"
+                  "$ref": "#/components/schemas/ConversationPage"
                 }
               }
             }
           },
           "400": {
-            "description": "The question or a turn is empty or too long",
+            "description": "A filter is not valid",
             "content": {
               "application/json": {
                 "schema": {
@@ -464,9 +506,255 @@
                 }
               }
             }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Starts a conversation. The scope is required: one host or all hosts.",
+        "operationId": "create_conversation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConversationRequest"
+              }
+            }
           },
-          "429": {
-            "description": "The hourly model limit is reached; Retry-After says when to come back",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The new conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The scope is missing or malformed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host or operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "A conversation with all its kept messages.",
+        "operationId": "get_conversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Deletes a conversation and its messages. Refused while an answer is being written.",
+        "operationId": "delete_conversation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An answer is being written; stop it first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/messages": {
+      "post": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Asks a question. The question and a pending answer are committed together and the call\nanswers at once; the answer is written in the background and arrives as a journal event,\npreceded by `live.*` events on the event stream. Sending the same `turn` again returns the\nstored pair and asks the model nothing.",
+        "operationId": "send_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "This turn was sent before; the stored pair",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Committed; the answer is being written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The question is empty or too long, or the turn is not a uuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An answer is being written, or the conversation is full",
             "content": {
               "application/json": {
                 "schema": {
@@ -476,7 +764,221 @@
             }
           },
           "503": {
-            "description": "Triage is off, the monthly model budget is spent, or the model is unavailable",
+            "description": "Triage is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/messages/{message}/retry": {
+      "post": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Asks the last failed or stopped question again, under a new turn.",
+        "operationId": "retry_message",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message",
+            "in": "path",
+            "description": "The assistant message to retry",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Committed; the answer is being written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation or message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Only the last answer can be retried, after it failed or was stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Triage is off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/operation": {
+      "put": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Attaches an operation to a conversation, or detaches it with `null`. The Operator only\nreads a short summary of it.",
+        "operationId": "set_conversation_operation",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetOperationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The updated conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The operation id is not a uuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation or operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/turns/{turn}/cancel": {
+      "post": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Stops the answer of a turn. A turn that already settled is left as it is.",
+        "operationId": "cancel_turn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Conversation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "turn",
+            "in": "path",
+            "description": "The turn to stop",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer's status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such conversation or turn",
             "content": {
               "application/json": {
                 "schema": {
@@ -576,7 +1078,7 @@
           "system"
         ],
         "summary": "Committed journal rows as server-sent events.",
-        "description": "Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal\n`seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client\nthat reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.\nAn idle stream sends a `: keepalive` comment every 15 seconds.",
+        "description": "Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal\n`seq`), `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client\nthat reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.\nAn idle stream sends a `: keepalive` comment every 15 seconds.\n\nA connection that follows `conversations:<uuid>` also receives the ephemeral `live.start`,\n`live.text`, `live.tool` and `live.end` events of an answer being written. They carry no `id`,\nare never replayed and may be dropped when a client is slow; the committed message arrives as\na `journal` frame.",
         "operationId": "stream_events",
         "parameters": [
           {
@@ -6860,6 +7362,19 @@
           }
         }
       },
+      "CancelResponse": {
+        "type": "object",
+        "description": "The answer's status after a stop.",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "`cancelled` only when this call stopped it."
+          }
+        }
+      },
       "CapabilitiesDto": {
         "type": "object",
         "description": "One host's whole inventory, plus the ids the agent reported that the hub does not know.",
@@ -7043,64 +7558,6 @@
           }
         }
       },
-      "ChatRequest": {
-        "type": "object",
-        "description": "A general question, the host it is about and the conversation so far.",
-        "required": [
-          "question"
-        ],
-        "properties": {
-          "history": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChatTurnDto"
-            },
-            "description": "The earlier turns, oldest first."
-          },
-          "host": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The host to look at; absent or `null` asks about every host."
-          },
-          "question": {
-            "type": "string",
-            "description": "The question to answer."
-          }
-        }
-      },
-      "ChatResponse": {
-        "type": "object",
-        "description": "The model's answer.",
-        "required": [
-          "answer"
-        ],
-        "properties": {
-          "answer": {
-            "type": "string",
-            "description": "The answer, in Markdown."
-          }
-        }
-      },
-      "ChatTurnDto": {
-        "type": "object",
-        "description": "One earlier turn of the chat.",
-        "required": [
-          "role",
-          "text"
-        ],
-        "properties": {
-          "role": {
-            "type": "string",
-            "description": "Who said it: `user` or `assistant`."
-          },
-          "text": {
-            "type": "string",
-            "description": "What was said."
-          }
-        }
-      },
       "CheckSettingsDto": {
         "type": "object",
         "description": "One check's settings: on or off, interval, thresholds.",
@@ -7255,6 +7712,156 @@
           }
         ],
         "description": "A condition on a rule."
+      },
+      "ConversationDetailDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ConversationSummaryDto",
+            "description": "The summary fields."
+          },
+          {
+            "type": "object",
+            "required": [
+              "messages",
+              "as_of_seq"
+            ],
+            "properties": {
+              "as_of_seq": {
+                "type": "integer",
+                "format": "int64",
+                "description": "The journal position this was read at.",
+                "minimum": 0
+              },
+              "messages": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MessageDto"
+                },
+                "description": "Every kept message, oldest first."
+              },
+              "turn_in_progress": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/TurnInProgressDto",
+                    "description": "The pending answer, if any."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "A conversation with its messages."
+      },
+      "ConversationPage": {
+        "type": "object",
+        "description": "A page of conversations, newest first.",
+        "required": [
+          "items",
+          "as_of_seq"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position this was read at.",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationSummaryDto"
+            },
+            "description": "The conversations."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass as `cursor` for the next page."
+          }
+        }
+      },
+      "ConversationSummaryDto": {
+        "type": "object",
+        "description": "A conversation without its messages.",
+        "required": [
+          "id",
+          "title",
+          "scope",
+          "message_count",
+          "created_at",
+          "updated_at",
+          "version"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "When it was created."
+          },
+          "id": {
+            "type": "string",
+            "description": "The conversation id."
+          },
+          "message_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many messages it holds.",
+            "minimum": 0
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The attached operation."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeDto",
+            "description": "What it is about."
+          },
+          "title": {
+            "type": "string",
+            "description": "The first question, or empty before one is asked."
+          },
+          "updated_at": {
+            "type": "string",
+            "description": "When it last changed."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The stored version.",
+            "minimum": 0
+          }
+        }
+      },
+      "CreateConversationRequest": {
+        "type": "object",
+        "description": "Starts a conversation. `scope` is required: there is no implicit \"all hosts\".",
+        "properties": {
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An operation to attach for read-only context."
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ScopeRequest",
+                "description": "What the conversation is about."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
       },
       "DigestHostDto": {
         "type": "object",
@@ -9175,6 +9782,98 @@
           }
         }
       },
+      "MessageDto": {
+        "type": "object",
+        "description": "One message of a conversation.",
+        "required": [
+          "id",
+          "ordinal",
+          "role",
+          "status",
+          "turn",
+          "text",
+          "tools",
+          "created_at"
+        ],
+        "properties": {
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it settled."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "When it was created."
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why an answer failed or was stopped."
+          },
+          "failure_detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "More about the failure."
+          },
+          "id": {
+            "type": "string",
+            "description": "The message id."
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1-based position in the conversation.",
+            "minimum": 0
+          },
+          "role": {
+            "type": "string",
+            "description": "`user` or `assistant`."
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending`, `complete`, `failed` or `cancelled`."
+          },
+          "text": {
+            "type": "string",
+            "description": "The text; empty while pending, failed or cancelled."
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageToolDto"
+            },
+            "description": "The read tools the model used."
+          },
+          "turn": {
+            "type": "string",
+            "description": "The turn the question and its answer share."
+          }
+        }
+      },
+      "MessageToolDto": {
+        "type": "object",
+        "description": "One tool the model used.",
+        "required": [
+          "tool",
+          "failed"
+        ],
+        "properties": {
+          "failed": {
+            "type": "boolean",
+            "description": "Whether the call failed or was refused."
+          },
+          "tool": {
+            "type": "string",
+            "description": "A read tool name, or `unknown tool`."
+          }
+        }
+      },
       "ModelsDto": {
         "type": "object",
         "description": "Models available to a candidate provider.",
@@ -10775,6 +11474,96 @@
           }
         }
       },
+      "ScopeDto": {
+        "type": "object",
+        "description": "What a conversation is about, as shown.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "host_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host's id, for `host`."
+          },
+          "host_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host's name; `null` when the host is gone."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`global` or `host`."
+          }
+        }
+      },
+      "ScopeRequest": {
+        "type": "object",
+        "description": "What a conversation is about, chosen when it is created.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The host's name; required for `host`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`global` or `host`."
+          }
+        }
+      },
+      "SendMessageRequest": {
+        "type": "object",
+        "description": "A question.",
+        "required": [
+          "turn",
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The question, 1 to 1000 characters."
+          },
+          "turn": {
+            "type": "string",
+            "description": "A client-generated uuid: sending it again changes nothing."
+          }
+        }
+      },
+      "SendResponse": {
+        "type": "object",
+        "description": "The committed question and its answer.",
+        "required": [
+          "user",
+          "assistant",
+          "as_of_seq"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal position after the commit.",
+            "minimum": 0
+          },
+          "assistant": {
+            "$ref": "#/components/schemas/MessageDto",
+            "description": "The answer: pending, or its current state for a repeated send."
+          },
+          "user": {
+            "$ref": "#/components/schemas/MessageDto",
+            "description": "The finished question."
+          }
+        }
+      },
       "SessionDto": {
         "type": "object",
         "description": "The current session.",
@@ -10790,6 +11579,19 @@
           "user": {
             "$ref": "#/components/schemas/UserDto",
             "description": "Who is logged in."
+          }
+        }
+      },
+      "SetOperationRequest": {
+        "type": "object",
+        "description": "Attaches or detaches an operation.",
+        "properties": {
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The operation to attach, or `null` to detach."
           }
         }
       },
@@ -12209,6 +13011,24 @@
           }
         }
       },
+      "TurnInProgressDto": {
+        "type": "object",
+        "description": "The answer being written.",
+        "required": [
+          "turn",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The assistant message."
+          },
+          "turn": {
+            "type": "string",
+            "description": "The turn."
+          }
+        }
+      },
       "UpdateDto": {
         "type": "object",
         "description": "The newest release this hub knows about, with commands ready to copy.",
@@ -12550,6 +13370,10 @@
     {
       "name": "knowledge",
       "description": "Facts, relations and entities the hub knows"
+    },
+    {
+      "name": "operator",
+      "description": "Operator conversations: read-only questions about the hosts"
     },
     {
       "name": "hosts",

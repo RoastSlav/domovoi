@@ -130,7 +130,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/chat": {
+    "/api/v1/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists conversations, newest first. */
+        get: operations["list_conversations"];
+        put?: never;
+        /** Starts a conversation. The scope is required: one host or all hosts. */
+        post: operations["create_conversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A conversation with all its kept messages. */
+        get: operations["get_conversation"];
+        put?: never;
+        post?: never;
+        /** Deletes a conversation and its messages. Refused while an answer is being written. */
+        delete: operations["delete_conversation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/messages": {
         parameters: {
             query?: never;
             header?: never;
@@ -140,11 +176,66 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answers a general question about the operator's hosts. With a connected `host` the model
-         *     may use that host's read-only tools and read skills; without one, or with an offline host,
-         *     it answers from an overview and calls no tools. It never proposes or runs actions.
+         * Asks a question. The question and a pending answer are committed together and the call
+         *     answers at once; the answer is written in the background and arrives as a journal event,
+         *     preceded by `live.*` events on the event stream. Sending the same `turn` again returns the
+         *     stored pair and asks the model nothing.
          */
-        post: operations["chat"];
+        post: operations["send_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/messages/{message}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Asks the last failed or stopped question again, under a new turn. */
+        post: operations["retry_message"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/operation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Attaches an operation to a conversation, or detaches it with `null`. The Operator only
+         *     reads a short summary of it.
+         */
+        put: operations["set_conversation_operation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/turns/{turn}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stops the answer of a turn. A turn that already settled is left as it is. */
+        post: operations["cancel_turn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -195,9 +286,14 @@ export interface paths {
         /**
          * Committed journal rows as server-sent events.
          * @description Frames: `ready` (`head_seq`, `resumed`, `topics`), `journal` (one row; its `id` is the journal
-         *     `seq`) and `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client
+         *     `seq`), `reset` (`reason` is `pruned`, `ahead` or `lagged`: refetch what you hold). A client
          *     that reconnects sends `Last-Event-ID` (or `after`) and receives every matching row after it.
          *     An idle stream sends a `: keepalive` comment every 15 seconds.
+         *
+         *     A connection that follows `conversations:<uuid>` also receives the ephemeral `live.start`,
+         *     `live.text`, `live.tool` and `live.end` events of an answer being written. They carry no `id`,
+         *     are never replayed and may be dropped when a client is slow; the committed message arrives as
+         *     a `journal` frame.
          */
         get: operations["stream_events"];
         put?: never;
@@ -1813,6 +1909,11 @@ export interface components {
             /** @description Why, at most 500 characters. Empty or missing records "cancelled by a person". */
             reason?: string | null;
         };
+        /** @description The answer's status after a stop. */
+        CancelResponse: {
+            /** @description `cancelled` only when this call stopped it. */
+            status: string;
+        };
         /** @description One host's whole inventory, plus the ids the agent reported that the hub does not know. */
         CapabilitiesDto: {
             /** @description One row per capability this hub knows. */
@@ -1883,27 +1984,6 @@ export interface components {
             /** @description `complete`, `partial` or `stale`. */
             state: string;
         };
-        /** @description A general question, the host it is about and the conversation so far. */
-        ChatRequest: {
-            /** @description The earlier turns, oldest first. */
-            history?: components["schemas"]["ChatTurnDto"][];
-            /** @description The host to look at; absent or `null` asks about every host. */
-            host?: string | null;
-            /** @description The question to answer. */
-            question: string;
-        };
-        /** @description The model's answer. */
-        ChatResponse: {
-            /** @description The answer, in Markdown. */
-            answer: string;
-        };
-        /** @description One earlier turn of the chat. */
-        ChatTurnDto: {
-            /** @description Who said it: `user` or `assistant`. */
-            role: string;
-            /** @description What was said. */
-            text: string;
-        };
         /** @description One check's settings: on or off, interval, thresholds. */
         CheckSettingsDto: {
             /** @description Whether the check runs; `None` keeps the agent's value. */
@@ -1959,6 +2039,60 @@ export interface components {
              * @description Seconds.
              */
             max_ttl_secs: number;
+        };
+        /** @description A conversation with its messages. */
+        ConversationDetailDto: components["schemas"]["ConversationSummaryDto"] & {
+            /**
+             * Format: int64
+             * @description The journal position this was read at.
+             */
+            as_of_seq: number;
+            /** @description Every kept message, oldest first. */
+            messages: components["schemas"]["MessageDto"][];
+            turn_in_progress?: components["schemas"]["TurnInProgressDto"] | null;
+        };
+        /** @description A page of conversations, newest first. */
+        ConversationPage: {
+            /**
+             * Format: int64
+             * @description The journal position this was read at.
+             */
+            as_of_seq: number;
+            /** @description The conversations. */
+            items: components["schemas"]["ConversationSummaryDto"][];
+            /** @description Pass as `cursor` for the next page. */
+            next_cursor?: string | null;
+        };
+        /** @description A conversation without its messages. */
+        ConversationSummaryDto: {
+            /** @description When it was created. */
+            created_at: string;
+            /** @description The conversation id. */
+            id: string;
+            /**
+             * Format: int32
+             * @description How many messages it holds.
+             */
+            message_count: number;
+            /** @description The attached operation. */
+            operation_id?: string | null;
+            /** @description What it is about. */
+            scope: components["schemas"]["ScopeDto"];
+            /** @description The first question, or empty before one is asked. */
+            title: string;
+            /** @description When it last changed. */
+            updated_at: string;
+            /**
+             * Format: int64
+             * @description The stored version.
+             */
+            version: number;
+        };
+        /** @description Starts a conversation. `scope` is required: there is no implicit "all hosts". */
+        CreateConversationRequest: {
+            /** @description An operation to attach for read-only context. */
+            operation_id?: string | null;
+            scope?: components["schemas"]["ScopeRequest"] | null;
         };
         /** @description One host's part of the daily digest. */
         DigestHostDto: {
@@ -2726,6 +2860,41 @@ export interface components {
             /** @description The paths, by range. */
             paths: components["schemas"]["ManagementPathDto"][];
         };
+        /** @description One message of a conversation. */
+        MessageDto: {
+            /** @description When it settled. */
+            completed_at?: string | null;
+            /** @description When it was created. */
+            created_at: string;
+            /** @description Why an answer failed or was stopped. */
+            failure?: string | null;
+            /** @description More about the failure. */
+            failure_detail?: string | null;
+            /** @description The message id. */
+            id: string;
+            /**
+             * Format: int32
+             * @description 1-based position in the conversation.
+             */
+            ordinal: number;
+            /** @description `user` or `assistant`. */
+            role: string;
+            /** @description `pending`, `complete`, `failed` or `cancelled`. */
+            status: string;
+            /** @description The text; empty while pending, failed or cancelled. */
+            text: string;
+            /** @description The read tools the model used. */
+            tools: components["schemas"]["MessageToolDto"][];
+            /** @description The turn the question and its answer share. */
+            turn: string;
+        };
+        /** @description One tool the model used. */
+        MessageToolDto: {
+            /** @description Whether the call failed or was refused. */
+            failed: boolean;
+            /** @description A read tool name, or `unknown tool`. */
+            tool: string;
+        };
         /** @description Models available to a candidate provider. */
         ModelsDto: {
             /** @description Sorted model IDs. */
@@ -3316,12 +3485,52 @@ export interface components {
              */
             revision: number;
         };
+        /** @description What a conversation is about, as shown. */
+        ScopeDto: {
+            /** @description The host's id, for `host`. */
+            host_id?: string | null;
+            /** @description The host's name; `null` when the host is gone. */
+            host_name?: string | null;
+            /** @description `global` or `host`. */
+            kind: string;
+        };
+        /** @description What a conversation is about, chosen when it is created. */
+        ScopeRequest: {
+            /** @description The host's name; required for `host`. */
+            host?: string | null;
+            /** @description `global` or `host`. */
+            kind: string;
+        };
+        /** @description A question. */
+        SendMessageRequest: {
+            /** @description The question, 1 to 1000 characters. */
+            text: string;
+            /** @description A client-generated uuid: sending it again changes nothing. */
+            turn: string;
+        };
+        /** @description The committed question and its answer. */
+        SendResponse: {
+            /**
+             * Format: int64
+             * @description The journal position after the commit.
+             */
+            as_of_seq: number;
+            /** @description The answer: pending, or its current state for a repeated send. */
+            assistant: components["schemas"]["MessageDto"];
+            /** @description The finished question. */
+            user: components["schemas"]["MessageDto"];
+        };
         /** @description The current session. */
         SessionDto: {
             /** @description Send as `X-CSRF-Token` on every `POST`, `PUT`, `PATCH` and `DELETE`. */
             csrf_token: string;
             /** @description Who is logged in. */
             user: components["schemas"]["UserDto"];
+        };
+        /** @description Attaches or detaches an operation. */
+        SetOperationRequest: {
+            /** @description The operation to attach, or `null` to detach. */
+            operation_id?: string | null;
         };
         /** @description The effective settings. */
         SettingsDto: {
@@ -3883,6 +4092,13 @@ export interface components {
             /** @description What the operator asked. */
             question: string;
         };
+        /** @description The answer being written. */
+        TurnInProgressDto: {
+            /** @description The assistant message. */
+            message: string;
+            /** @description The turn. */
+            turn: string;
+        };
         /** @description The newest release this hub knows about, with commands ready to copy. */
         UpdateDto: {
             /** @description Reinstalls an agent and restarts its service. */
@@ -4333,29 +4549,34 @@ export interface operations {
             };
         };
     };
-    chat: {
+    list_conversations: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Continue after this cursor. */
+                cursor?: string | null;
+                /** @description The page size. */
+                limit?: number | null;
+                /** @description Only conversations about this host (a host name). */
+                host?: string | null;
+                /** @description Only conversations with this operation attached. */
+                operation?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChatRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description The answer */
+            /** @description A page of conversations */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ChatResponse"];
+                    "application/json": components["schemas"]["ConversationPage"];
                 };
             };
-            /** @description The question or a turn is empty or too long */
+            /** @description A filter is not valid */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4382,8 +4603,32 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description The hourly model limit is reached; Retry-After says when to come back */
-            429: {
+        };
+    };
+    create_conversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description The new conversation */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetailDto"];
+                };
+            };
+            /** @description The scope is missing or malformed */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4391,8 +4636,345 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description Triage is off, the monthly model budget is spent, or the model is unavailable */
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host or operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_conversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_conversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An answer is being written; stop it first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    send_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description This turn was sent before; the stored pair */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResponse"];
+                };
+            };
+            /** @description Committed; the answer is being written */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResponse"];
+                };
+            };
+            /** @description The question is empty or too long, or the turn is not a uuid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An answer is being written, or the conversation is full */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Triage is off */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    retry_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+                /** @description The assistant message to retry */
+                message: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Committed; the answer is being written */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SendResponse"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation or message */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Only the last answer can be retried, after it failed or was stopped */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Triage is off */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_conversation_operation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOperationRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated conversation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationSummaryDto"];
+                };
+            };
+            /** @description The operation id is not a uuid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation or operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    cancel_turn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Conversation id */
+                id: string;
+                /** @description The turn to stop */
+                turn: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer's status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelResponse"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such conversation or turn */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

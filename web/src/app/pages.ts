@@ -26,7 +26,6 @@ function page(load: () => Promise<ComponentType>): LazyPage {
  */
 export const PAGES = {
   approvals: page(() => import("../features/approvals/ApprovalsPage").then((m) => m.ApprovalsPage)),
-  chat: page(() => import("../features/chat/ChatPage").then((m) => m.ChatPage)),
   digest: page(() => import("../features/digest/DigestPage").then((m) => m.DigestPage)),
   firstRun: page(() => import("../features/setup/FirstRun").then((m) => m.FirstRun)),
   host: page(() => import("../features/hosts/HostDetailPage").then((m) => m.HostDetailPage)),

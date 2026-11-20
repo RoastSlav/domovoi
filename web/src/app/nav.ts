@@ -62,7 +62,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         count: { field: "approvals_waiting", tone: "pending", label: "waiting" },
         preload: PAGES.approvals.preload,
       },
-      { to: "/chat", label: "Chat", icon: "chat", preload: PAGES.chat.preload },
     ],
   },
   {
