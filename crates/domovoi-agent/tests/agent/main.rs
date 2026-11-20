@@ -1,6 +1,9 @@
 //! Agent runtime tests against a test hub on loopback, with a fake clock.
 
 #[cfg(test)]
+#[cfg(target_os = "linux")]
+mod capability;
+#[cfg(test)]
 #[path = "../common/skills.rs"]
 mod common;
 #[cfg(test)]
@@ -13,6 +16,12 @@ mod harness;
 mod hub;
 #[cfg(test)]
 mod link;
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+#[path = "../common/packages.rs"]
+mod package_rig;
+#[cfg(test)]
+mod packages;
 #[cfg(test)]
 mod relay;
 #[cfg(test)]

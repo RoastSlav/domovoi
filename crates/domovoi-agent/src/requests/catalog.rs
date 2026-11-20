@@ -17,10 +17,14 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::capability::{ContractId, ContractVersion, ExecutionPath, builtin_contracts};
+use domovoi_core::capability::{
+    ContractId, ContractVersion, ExecutionPath, builtin_contracts, package_contracts,
+};
 use domovoi_proto::messages::{CatalogEntry, CatalogPage, GetCatalog};
 use domovoi_runner::SkillCatalog;
 use serde_json::json;
+
+use crate::packages::PackageSurface;
 
 /// Most entries one page carries, the wire cap.
 pub const MAX_PAGE_ENTRIES: u32 = 100;
@@ -31,13 +35,26 @@ pub const MAX_PAGE_ENTRIES: u32 = 100;
 pub const MAX_PAGE_INDEX: u32 = u32::MAX / MAX_PAGE_ENTRIES;
 
 /// Every implementation this agent offers, keyed by contract id and ordered by it: the
-/// built-in contracts it runs itself, plus one echo per loaded skill.
+/// built-in contracts it runs itself, the package contracts `surface` allows, plus one echo
+/// per loaded skill. The same list feeds `get_catalog` and `hello.catalog_hash`.
 #[must_use]
-pub fn catalog_entries(catalog: &SkillCatalog) -> BTreeMap<ContractId, ContractVersion> {
+pub fn catalog_entries(
+    catalog: &SkillCatalog,
+    surface: PackageSurface,
+) -> BTreeMap<ContractId, ContractVersion> {
+    let packages = package_contracts().into_iter().filter(|contract| {
+        if contract.id.as_str() == "agent.package.list" {
+            surface.list
+        } else {
+            surface.mutate
+        }
+    });
     builtin_contracts()
         .iter()
         .filter(|contract| contract.execution == ExecutionPath::Agent)
-        .map(|contract| (contract.id.clone(), contract.version))
+        .cloned()
+        .chain(packages)
+        .map(|contract| (contract.id, contract.version))
         .chain(
             catalog
                 .summaries()
@@ -87,6 +104,7 @@ mod tests {
     use super::MAX_PAGE_ENTRIES;
     use super::catalog_entries;
     use super::page;
+    use crate::packages::PackageSurface;
     use domovoi_core::capability::{ContractId, ContractVersion, catalog_hash};
     use domovoi_proto::messages::GetCatalog;
     use domovoi_runner::SkillCatalog;
@@ -149,7 +167,7 @@ mod tests {
 
     /// The contract ids `catalog` offers, as text.
     fn listed(catalog: &SkillCatalog) -> Vec<String> {
-        catalog_entries(catalog)
+        catalog_entries(catalog, PackageSurface::default())
             .keys()
             .map(|id| id.as_str().to_owned())
             .collect::<Vec<String>>()
@@ -157,7 +175,7 @@ mod tests {
 
     /// Whether the catalogue offers a contract id, as text.
     fn offers(catalog: &SkillCatalog, id: &str) -> bool {
-        catalog_entries(catalog)
+        catalog_entries(catalog, PackageSurface::default())
             .iter()
             .any(|(contract, _version)| contract.as_str() == id)
     }
@@ -189,7 +207,7 @@ mod tests {
             ids.iter().all(|id| !id.starts_with("skill.")),
             "a catalogue with no skills lists skills: {ids:?}"
         );
-        let versions = catalog_entries(&catalog)
+        let versions = catalog_entries(&catalog, PackageSurface::default())
             .values()
             .map(|version| version.get())
             .collect::<Vec<u32>>();
@@ -212,7 +230,7 @@ mod tests {
     #[test]
     fn catalog_lists_every_loaded_skill() {
         let (root, catalog) = loaded(&["beta_skill", "alpha_skill", "gamma_skill"]);
-        let size = catalog_entries(&catalog).len();
+        let size = catalog_entries(&catalog, PackageSurface::default()).len();
         assert_eq!(size, 11, "the fixture answers {size} entries not 11");
         for name in ["alpha_skill", "beta_skill", "gamma_skill"] {
             let wanted = &format!("skill.{name}");
@@ -234,7 +252,7 @@ mod tests {
     #[test]
     fn catalog_lists_no_skill_echoes_on_windows() {
         let (root, catalog) = loaded(&["beta_skill"]);
-        let size = catalog_entries(&catalog).len();
+        let size = catalog_entries(&catalog, PackageSurface::default()).len();
         assert_eq!(
             size, 8,
             "the Windows fixture answers {size} entries, the 8 built-ins only"
@@ -250,7 +268,7 @@ mod tests {
     #[test]
     fn catalog_pages_are_deterministic_and_end_with_none() {
         let (root, catalog) = loaded(&NO_SKILLS);
-        let entries = catalog_entries(&catalog);
+        let entries = catalog_entries(&catalog, PackageSurface::default());
         let size = entries.len();
         assert_eq!(size, 8, "the fixture has {size} entries");
         let first = page(
@@ -295,7 +313,7 @@ mod tests {
     #[test]
     fn catalog_page_beyond_the_end_is_empty_not_an_error() {
         let (root, catalog) = loaded(&NO_SKILLS);
-        let entries = catalog_entries(&catalog);
+        let entries = catalog_entries(&catalog, PackageSurface::default());
         let beyond = page(
             &entries,
             &GetCatalog {
@@ -313,7 +331,7 @@ mod tests {
     #[test]
     fn catalog_page_size_is_clamped() {
         let (root, catalog) = loaded(&NO_SKILLS);
-        let entries = catalog_entries(&catalog);
+        let entries = catalog_entries(&catalog, PackageSurface::default());
         let zero = page(
             &entries,
             &GetCatalog {
@@ -365,7 +383,7 @@ mod tests {
     #[test]
     fn catalog_hash_matches_the_served_entries() {
         let (root, catalog) = loaded(&NO_SKILLS);
-        let entries = catalog_entries(&catalog);
+        let entries = catalog_entries(&catalog, PackageSurface::default());
         let announced = catalog_hash(&entries);
         let announced_len = announced.len();
         assert_eq!(
@@ -405,7 +423,7 @@ mod tests {
     #[test]
     fn catalog_hash_matches_the_served_entries_with_skills() {
         let (root, catalog) = loaded(&["prune_logs"]);
-        let entries = catalog_entries(&catalog);
+        let entries = catalog_entries(&catalog, PackageSurface::default());
         let announced = catalog_hash(&entries);
         let served = page(
             &entries,
@@ -440,11 +458,11 @@ mod tests {
     #[test]
     fn catalog_hash_changes_when_a_skill_is_added() {
         let (root, catalog) = loaded(&["prune_logs"]);
-        let without = catalog_hash(&catalog_entries(&catalog));
+        let without = catalog_hash(&catalog_entries(&catalog, PackageSurface::default()));
         let (second_root, second) = loaded(&["prune_logs", "extra_skill"]);
-        let with = catalog_hash(&catalog_entries(&second));
+        let with = catalog_hash(&catalog_entries(&second, PackageSurface::default()));
         assert_ne!(without, with, "adding a skill leaves the hash at {without}");
-        let again = catalog_hash(&catalog_entries(&second));
+        let again = catalog_hash(&catalog_entries(&second, PackageSurface::default()));
         assert_eq!(
             again, with,
             "the same set hashes twice as {again} and {with}"

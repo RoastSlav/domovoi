@@ -22,7 +22,7 @@ Unknown fields in the envelope or a payload are ignored, so newer peers can add 
 
 ## Versioning
 
-The current version is **1.1**. Peers talk only when their protocol `major.minor` are equal: patch releases never matter, and there is no backward or forward window. An agent whose reported version differs in either number is refused with `reject` and the reason `incompatible`.
+The current version is **1.2**. Peers talk only when their protocol `major.minor` are equal: patch releases never matter, and there is no backward or forward window. An agent whose reported version differs in either number is refused with `reject` and the reason `incompatible`.
 
 The envelope's `v` is the sender's protocol major. A frame whose `v` is not this build's major is not decoded: the receiver refuses it as an unsupported major before reading the payload, so that peer is never authenticated, never recorded, and gets no reject frame. A `hello` payload can still claim another major or minor inside a decodable frame; that claim is unauthenticated until the challenge signature verifies, and only then is the exact rule applied.
 
@@ -94,12 +94,41 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `run_check` | hub → agent | Re-run one check now. |
 | `check_result` | agent → hub | One fresh observation per target. |
 | `config_update` | hub → agent | New hub-managed settings, replacing the previous ones. |
+| `transfer_begin` | hub → agent | Start a file transfer for a package archive or signature. |
+| `transfer_chunk` | hub → agent | One piece of a transfer. |
+| `transfer_end` | hub → agent | End of a transfer. The agent answers with `transfer_result`. |
+| `transfer_result` | agent → hub | Whether the transfer was stored, or why it was refused. Sent as the reply to `transfer_end`. |
 | `error` | both | A structured error, as a reply or on its own. |
 | `unsupported` | both | Reply to a frame whose kind the receiver does not know. |
 
 ## Agent safety on requests
 
 The agent never runs anything on the hub's word alone. For `run_skill` it looks up the skill in its own manifests, checks the skill's risk against its local policy, validates `args` against the manifest's parameters and recomputes the plan hash. Any mismatch is answered with a `skill_result` error (`not_found`, `risk_not_allowed`, `invalid_args` or `plan_mismatch`), and nothing runs. The hub cannot send scripts or commands, only skill names and argument values.
+
+## Package transfers
+
+The hub sends a package in three steps: `transfer_begin`, one or more `transfer_chunk` frames, then `transfer_end`. The `kind` in `transfer_begin` is one of:
+
+- `package_artifact`: the archive bytes (`<name>-<version>.tar.zst`).
+- `package_manifest`: the detached signature file (`<name>-<version>.sig.toml`) bytes.
+
+Rules:
+
+- A chunk is at most 64 KiB. Chunk `seq` numbers start at 0 and have no gaps.
+- Each transfer gets exactly one `transfer_result`, sent as the reply to its `transfer_end`.
+- Use a fresh transfer UUID for every attempt. A `transfer_begin` for an id that is still arriving is ignored and the first transfer carries on, because `transfer_end` carries only the id.
+- The agent keeps at most 8 records of arriving or failed transfers. A failed transfer past that bound is not remembered, and its `transfer_end` is answered as `aborted` ("unknown transfer").
+- At most 2 transfers are active and 8 are staged. An active transfer is dropped after 60 s without a chunk, or 10 minutes in total. A staged transfer that is not used is dropped after 15 minutes.
+
+The agent advertises these capabilities when `[packages]` is set in its config. A refused call returns a failed capability result with code `refused`, and the message is `<reason_code>: <detail>`. Reason codes include `untrusted_key`, `revoked_key`, `bad_signature`, `digest_mismatch`, `identity_mismatch`, `archive_invalid`, `path_escape`, `link_entry`, `version_conflict`, `no_space`, `packages_dir_unsafe` and `store_corrupt`.
+
+| Capability | Arguments | Outputs |
+| --- | --- | --- |
+| `agent.package.install` | `package`, `version`, `artifact_transfer`, `signature_transfer` | `package`, `version`, `key_id`, `archive_sha256`, `installed_at`, `skills`, `replaced_version`, `already_installed`, `signer_updated`, `enabled` (always `"false"`), `privilege_boundary` |
+| `agent.package.uninstall` | `package`, `version` | `package`, `version`, `removed`, `privilege_boundary` |
+| `agent.package.list` | none | `count`, `install_allowed`, `privilege_boundary`, `packages` (a JSON array) |
+
+`artifact_transfer` and `signature_transfer` refer to the archive and signature transfers sent before the call.
 
 ## Examples
 

@@ -22,7 +22,7 @@ pub mod updates;
 use std::sync::Arc;
 
 use domovoi_config::{Secrets, hub::HubConfig};
-use domovoi_core::capability::{ContractIndex, builtin_contracts};
+use domovoi_core::capability::{ContractIndex, known_contracts};
 use domovoi_core::ports::{
     AgentLink, ChatGateway, Clock, InteractionSink, LogSource, ProcessExecutor,
 };
@@ -225,7 +225,7 @@ impl HubRuntime {
         let registry = Arc::new(
             HubRegistry::new(RegistryDeps {
                 contracts: Arc::new(
-                    ContractIndex::new(builtin_contracts()).map_err(RegistryError::Index)?,
+                    ContractIndex::new(known_contracts()).map_err(RegistryError::Index)?,
                 ),
                 agent: Arc::new(LinkCapabilities::new(link.clone())),
                 hosts: store.clone(),

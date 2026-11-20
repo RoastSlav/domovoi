@@ -32,6 +32,8 @@ These hold however the model behaves. Each one is enforced by code and by named 
 
 [ARCHITECTURE.md §15](https://github.com/RoastSlav/domovoi/blob/main/ARCHITECTURE.md#15-security-invariants) lists how each one is enforced.
 
+Owner-signed packages are trusted only as far as the files you place on the host yourself. The agent accepts a package only when its signature matches a key you listed in `agent.toml`, and the hub cannot add or change those keys. A signed package still needs a person's approval to install, and installing it does not enable or run anything. Its skills cannot run until a skill runner that executes packaged code exists, and that runner is not yet available.
+
 ## What could go wrong, and what stops it
 
 | Scenario | What happens |

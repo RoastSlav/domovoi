@@ -261,6 +261,8 @@ flowchart LR
 - **Check scheduler**: runs each enabled check on its cadence, turns results into signals, applies the local baseline.
 - **Request handler**: serves `RunTool` and `RunSkill` requests. Every request is re-validated against the agent's local manifests and local policy before the runner sees it.
 - **Spool**: an append-only JSONL file (size-capped) that buffers signals while the hub is unreachable and replays them on reconnect.
+- **Transfer receiver**: takes package archives and signatures in chunks from the hub, within the transfer limits in the [agent protocol reference](docs/book/src/reference/protocol.md#package-transfers).
+- **Package service**: checks a package's signature against the owner's trusted keys, installs and removes it under `packages_dir`, and keeps the registry. It never enables or runs what it installs.
 
 ### 7.3 Single-box mode
 
@@ -285,6 +287,7 @@ flowchart LR
 | hub → agent | `run_skill` | action id, skill name, args, plan hash, deadline |
 | agent → hub | `tool_result`, `skill_result` | exit status, redacted output (capped), duration |
 | hub → agent | `config_update` | check schedules, thresholds and the container runtime switch managed from the hub |
+| hub → agent | `transfer_begin`, `transfer_chunk`, `transfer_end` | package archive and signature transfers; the agent answers `transfer_end` with `transfer_result` |
 | both | `error`, `unsupported` | structured errors |
 
 ## 9. Persistence (`domovoi-store`)
@@ -325,6 +328,7 @@ flowchart LR
 ## 12. Skills and actions
 
 - Manifests live on the agent host in `skills/<name>/skill.toml`. The hub only ever sees names, hashes and metadata.
+- Packages are owner-signed archives of skills, installed under `packages_dir` beside the skill catalogue. Package skills are not added to the catalogue or `hello.skills`, and they cannot run until the skill runner exists.
 - Parameters are validated against `ParamSpec` and passed as separate argv elements and as `DOMOVOI_PARAM_<NAME>` environment variables. The entry is executed directly, never through a shell.
 - Execution: dedicated user (`run_as`), cleared environment plus an allowlist, working directory inside the skill folder, own process group killed on timeout, stdout and stderr capped at `max_output`, output redacted.
 - Write and destructive actions follow the `ActionRequest` state machine (§5.6). Destructive skills also need a typed confirmation in the web UI and can never be approved from a chat button.
@@ -348,6 +352,7 @@ flowchart LR
 - Secrets in files use `{ env = .. }` or `{ file = .. }`. Secrets entered in the UI are encrypted at rest with a key in `<data_dir>/secret.key`, are write-only through the API and are held as `secrecy::SecretString`.
 - A settings change is validated as a whole, audited, and applied by an in-process restart of the hub runtime, with rollback to the last good settings if the restart fails.
 - `domovoi check config <file>` validates without starting and reports every problem with its TOML path.
+- The agent's `agent.toml` has `[agent] packages_dir` and an optional `[packages]` section (`allow_install`, `revoked`, `[[packages.trusted_keys]]`, `[packages.limits]`). Keys are read at agent start-up only. The section is absent by default, which disables package installs.
 - Config structs derive `schemars::JsonSchema`; the reference documentation and the UI's field help are generated from them.
 
 ## 15. Security invariants
@@ -366,6 +371,8 @@ flowchart LR
 | INV-10 | Agent links are mutually authenticated; revoked agents are rejected. | protocol integration tests |
 | INV-11 | Alerts are delivered even when triage fails. | engine fallback tests |
 | INV-12 | Webhooks are rejected without a valid HMAC signature or token. | hub ingest tests |
+
+Package invariants (agent side, covered by the agent's package tests): the hub cannot add, replace or remove trusted keys, and installing a package never enables or runs it.
 
 A step is approved only by `POST /api/v1/operations/{id}/steps/{step}/approve`, behind a session and the CSRF token. The body names the whole stored v2 plan hash (a missing or malformed hash is a 400; there is no prefix binding for steps), and a destructive skill, or one whose risk is not known when the person approves, needs its name typed exactly before anything is written. The route builds its authorization with the web helper in `auth/` and hands it to the operation writer, which refuses a policy authorization, a different hash, an expired window and a second approval. No chat command can approve a step.
 

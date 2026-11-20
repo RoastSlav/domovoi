@@ -11,12 +11,14 @@ pub mod env;
 pub mod hub;
 pub mod issue;
 pub mod layered;
+pub mod packages;
 pub mod provenance;
 mod schema;
 pub mod secret;
 mod snowflake;
 pub mod time;
 pub mod validate;
+mod validate_packages;
 
 use std::path::Path;
 
@@ -31,6 +33,7 @@ pub use layered::{
     BOOTSTRAP_KEYS, Layered, LayeredError, LayeredResult, bootstrap_data_dir,
     bootstrap_keep_pre_migrate, load_hub_layered,
 };
+pub use packages::{PackageLimits, PackagesSection, TrustedKey};
 pub use provenance::{Provenance, Source};
 pub use secret::{NoStoredSecrets, Secret, SecretSource, Secrets, StoredSecrets};
 pub use time::{LocalTime, TimeZone};

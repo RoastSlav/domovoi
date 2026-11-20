@@ -9,7 +9,7 @@ use domovoi_agent::LinkError;
 use domovoi_agent::identity::{Identity, generate_key};
 use domovoi_agent::link::tls::PinnedVerifier;
 use domovoi_agent::link::ws::TlsConnector;
-use domovoi_agent::link::{IncomingRequest, Link, LinkHandle, LinkParts};
+use domovoi_agent::link::{IncomingRequest, IncomingTransfer, Link, LinkHandle, LinkParts};
 use domovoi_agent::spool::{SharedSpool, Spool};
 use domovoi_checks::framework::{Check, CheckContext, CheckError, CheckReport, Observation};
 use domovoi_core::{AgentId, CheckKey, HostId, Severity, SignalClass, TargetKey};
@@ -87,6 +87,7 @@ pub fn start_link_with(
         dir,
         spool,
         domovoi_agent::link::handshake::AgentStatusSource::default(),
+        None,
     )
 }
 
@@ -99,7 +100,20 @@ pub fn start_link_with_status(
     status: domovoi_agent::link::handshake::AgentStatusSource,
 ) -> RunningLink {
     let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
-    start_link_full(hub, identity, clock, dir, spool, status)
+    start_link_full(hub, identity, clock, dir, spool, status, None)
+}
+
+/// A link that forwards `transfer_*` frames to `transfers`.
+pub fn start_link_transfers(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    transfers: mpsc::Sender<IncomingTransfer>,
+) -> RunningLink {
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    let status = domovoi_agent::link::handshake::AgentStatusSource::default();
+    start_link_full(hub, identity, clock, dir, spool, status, Some(transfers))
 }
 
 fn start_link_full(
@@ -109,6 +123,7 @@ fn start_link_full(
     dir: &tempfile::TempDir,
     spool: Arc<SharedSpool>,
     status: domovoi_agent::link::handshake::AgentStatusSource,
+    transfers: Option<mpsc::Sender<IncomingTransfer>>,
 ) -> RunningLink {
     let connector = Arc::new(TlsConnector::new(
         hub.url.clone(),
@@ -132,6 +147,7 @@ fn start_link_full(
         spool,
         jitter: Box::new(|| 1.0),
         status_dir: Some(dir.path().to_path_buf()),
+        transfers,
     };
     let (link, handle, requests) = Link::new(parts);
     let shutdown = CancellationToken::new();

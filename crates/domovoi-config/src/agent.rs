@@ -34,6 +34,9 @@ pub struct AgentConfig {
     /// A local listener for webhooks from services on this host. Omit to disable.
     #[serde(default)]
     pub local_webhooks: Option<LocalWebhooks>,
+    /// Package installation. Omit to disable: nothing is installed or advertised.
+    #[serde(default)]
+    pub packages: Option<crate::packages::PackagesSection>,
 }
 
 /// `[agent]`.
@@ -55,6 +58,9 @@ pub struct AgentSection {
     /// Default `/`.
     #[serde(default = "default_host_root")]
     pub host_root: PathBuf,
+    /// Where installed packages live. Must be absolute. Default `/var/lib/domovoi-packages`.
+    #[serde(default = "default_packages_dir")]
+    pub packages_dir: PathBuf,
     /// How many mutating capability executions this agent accepts. Local and root-owned;
     /// the hub cannot send, widen or override it.
     #[serde(default)]
@@ -269,6 +275,8 @@ pub struct AgentDirs {
     pub skills_dir: PathBuf,
     /// `host_root`.
     pub host_root: PathBuf,
+    /// `packages_dir`.
+    pub packages_dir: PathBuf,
 }
 
 impl AgentSection {
@@ -279,6 +287,7 @@ impl AgentSection {
             state_dir: default_state_dir(),
             skills_dir: default_skills_dir(),
             host_root: default_host_root(),
+            packages_dir: default_packages_dir(),
         }
     }
 }
@@ -288,6 +297,9 @@ fn default_state_dir() -> PathBuf {
 }
 fn default_skills_dir() -> PathBuf {
     PathBuf::from("/etc/domovoi/skills")
+}
+fn default_packages_dir() -> PathBuf {
+    PathBuf::from("/var/lib/domovoi-packages")
 }
 fn default_host_root() -> PathBuf {
     PathBuf::from("/")

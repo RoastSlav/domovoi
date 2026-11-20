@@ -10,6 +10,7 @@ use domovoi_checks::system::FsStats;
 use domovoi_config::AgentConfig;
 use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
 use domovoi_runner::SkillCatalog;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::checks::{CheckSet, check_settings};
@@ -22,6 +23,7 @@ use crate::link::tls::PinnedVerifier;
 use crate::link::ws::{Connector, TlsConnector};
 use crate::link::{Link, LinkParts};
 use crate::overrides::EffectiveChecks;
+use crate::packages::{PackageDeps, PackageDirs, PackageService, TransferReceiver};
 use crate::requests::{RequestCtx, serve};
 use crate::scheduler::{CheckEnv, Scheduler};
 use crate::spool::{SharedSpool, Spool};
@@ -70,6 +72,8 @@ pub struct AgentRuntime {
     relay: Option<crate::relay::Relay>,
     jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
     state_dir: std::path::PathBuf,
+    /// `allow_install` and `compressed_bytes` from `[packages]`, when it exists.
+    transfer_policy: Option<(bool, u64)>,
 }
 
 /// The container policy from `[containers]`.
@@ -116,6 +120,25 @@ fn load_catalog(dir: &Path) -> SkillCatalog {
     catalog
 }
 
+/// Builds the package service when `agent.toml` has a `[packages]` section. An invalid
+/// trusted key is fatal; an unusable directory only fences the service.
+fn open_packages(
+    config: &AgentConfig,
+    deps: &AgentDeps,
+) -> Result<Option<Arc<PackageService>>, AgentError> {
+    let Some(section) = &config.packages else {
+        return Ok(None);
+    };
+    let dirs = PackageDirs::new(
+        config.agent.packages_dir.clone(),
+        config.agent.state_dir.clone(),
+        config.agent.skills_dir.clone(),
+    );
+    let package_deps = PackageDeps::production(deps.clock.clone(), runs_as_root());
+    let service = PackageService::open(section, dirs, package_deps)?;
+    Ok(Some(Arc::new(service)))
+}
+
 impl AgentRuntime {
     /// Loads the identity, the skill catalogue, check settings and state for `config`.
     ///
@@ -157,6 +180,7 @@ impl AgentRuntime {
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
         let journal = open_journal(&config, &deps).await?;
+        let packages = open_packages(&config, &deps)?;
         let check_env = CheckEnv {
             host: identity.host_id,
             fs: deps.hostfs.clone(),
@@ -181,6 +205,7 @@ impl AgentRuntime {
             store: store.clone(),
             logs: deps.logs.clone(),
             journal: Some(journal.clone()),
+            packages,
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -208,6 +233,10 @@ impl AgentRuntime {
             relay,
             jitter: random_jitter(),
             state_dir: state_dir.clone(),
+            transfer_policy: config
+                .packages
+                .as_ref()
+                .map(|section| (section.allow_install, section.limits.compressed_bytes)),
         })
     }
 
@@ -230,7 +259,10 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
-        let entries = crate::requests::catalog_entries(&self.requests.catalog);
+        let entries = crate::requests::catalog_entries(
+            &self.requests.catalog,
+            self.requests.package_surface(),
+        );
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
@@ -238,6 +270,23 @@ impl AgentRuntime {
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
+        let (transfers, receiver) = match (&self.requests.packages, self.transfer_policy) {
+            (Some(service), Some((allow_install, compressed_bytes))) => match service.staging() {
+                Some(staging) => {
+                    let (tx, rx) = mpsc::channel(64);
+                    let receiver = TransferReceiver::new(
+                        staging,
+                        allow_install,
+                        compressed_bytes,
+                        self.deps.clock.clone(),
+                        service.events(),
+                    );
+                    (Some(tx), Some((receiver, rx)))
+                }
+                None => (None, None),
+            },
+            _ => (None, None),
+        };
         let parts = LinkParts {
             connector: self.connector,
             identity: self.identity,
@@ -252,6 +301,7 @@ impl AgentRuntime {
             spool: self.spool.clone(),
             jitter: self.jitter,
             status_dir: Some(self.state_dir),
+            transfers,
         };
         let (link, handle, requests) = Link::new(parts);
         let scheduler = Scheduler::new(
@@ -269,12 +319,19 @@ impl AgentRuntime {
                 stop.clone(),
             ))
         });
+        let transfers = receiver
+            .map(|(receiver, rx)| tokio::spawn(receiver.serve(rx, handle.clone(), stop.clone())));
         let scheduler = tokio::spawn(scheduler.run(stop.clone()));
         let served = tokio::spawn(serve(self.requests, requests, handle, stop.clone()));
         let result = link.run(stop.clone()).await;
         stop.cancel();
         if let Err(err) = scheduler.await {
             tracing::error!(%err, "the scheduler stopped abnormally");
+        }
+        if let Some(transfers) = transfers
+            && let Err(err) = transfers.await
+        {
+            tracing::error!(%err, "the transfer receiver stopped abnormally");
         }
         if let Err(err) = served.await {
             tracing::error!(%err, "the request handler stopped abnormally");

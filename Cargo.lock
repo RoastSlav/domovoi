@@ -938,11 +938,13 @@ dependencies = [
  "rand 0.10.3",
  "rcgen",
  "rustls",
+ "ruzstd",
  "secrecy",
  "serde",
  "serde_json",
  "sha2 0.11.1",
  "subtle",
+ "tar",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1219,13 +1221,21 @@ name = "domovoi-testkit"
 version = "0.0.10"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "domovoi-core",
  "domovoi-proto",
+ "ed25519-dalek",
  "futures",
+ "hex",
  "jiff",
+ "rand 0.10.3",
+ "ruzstd",
  "serde_json",
+ "sha2 0.11.1",
+ "tar",
  "thiserror",
  "tokio",
+ "toml",
  "uuid",
 ]
 
@@ -3035,6 +3045,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4167,6 +4186,12 @@ checksum = "b60c92a02111538020a9d3f19fade997c81ab20554d38abecd0c9c10dc9b5ad9"
 dependencies = [
  "twilight-model",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
 
 [[package]]
 name = "typenum"
