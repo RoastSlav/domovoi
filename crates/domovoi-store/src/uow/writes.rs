@@ -139,10 +139,7 @@ pub(super) async fn apply(
         StateWrite::Operation(write) => super::operations::apply(conn, write, receipt).await,
         StateWrite::Policy(write) => crate::policy::apply(conn, write, receipt).await,
         StateWrite::Knowledge(write) => crate::facts::apply(conn, write, receipt).await,
-        // Filled in by the conversation store step.
-        StateWrite::Conversation(_) => Err(CommitError::Backend(
-            "conversation writes are not supported yet".to_owned(),
-        )),
+        StateWrite::Conversation(write) => super::conversations::apply(conn, write, receipt).await,
     }
 }
 

@@ -19,6 +19,8 @@ pub const PURGED_TABLES: &[&str] = &[
     "advisories",
     "maintenance_windows",
     "sessions",
+    "messages",
+    "conversations",
 ];
 
 /// Purged tables that have a full-text index, with the statement that removes the index
@@ -83,6 +85,10 @@ pub struct PurgeReport {
     pub sessions: u64,
     /// Retracted facts and relations whose content was cleared.
     pub retracted_facts: u64,
+    /// Operator conversation messages.
+    pub operator_messages: u64,
+    /// Operator conversations left empty and not attached to an operation.
+    pub operator_conversations: u64,
 }
 
 const DELETE_SIGNALS: &str = "DELETE FROM signals WHERE observed_at < ?";
@@ -96,6 +102,9 @@ const DELETE_ADVISORIES: &str =
 const DELETE_WINDOWS: &str = "DELETE FROM maintenance_windows WHERE ends_at <= ?";
 const CLEAR_FACTS: &str = "UPDATE facts SET value = NULL, search_text = NULL, live = 0,     content_purged_at = ?1, version = version + 1     WHERE status = 'retracted' AND retracted_at < ?2 AND content_purged_at IS NULL";
 const CLEAR_RELATIONS: &str = "UPDATE relations SET from_ref = NULL, to_ref = NULL, live = 0,     content_purged_at = ?1, version = version + 1     WHERE status = 'retracted' AND retracted_at < ?2 AND content_purged_at IS NULL";
+const DELETE_OPERATOR_MESSAGES: &str =
+    "DELETE FROM messages WHERE created_at < ? AND status <> 'pending'";
+const DELETE_OPERATOR_CONVERSATIONS: &str = "DELETE FROM conversations WHERE updated_at < ?     AND operation_id IS NULL     AND NOT EXISTS (SELECT 1 FROM messages WHERE messages.conversation_id = conversations.id)";
 const DELETE_SESSIONS: &str = "DELETE FROM sessions WHERE expires_at <= ?";
 
 fn cutoff(now: Timestamp, keep: SignedDuration) -> i64 {
@@ -110,6 +119,7 @@ fn keep_for(table: &str, policy: &RetentionPolicy) -> Option<SignedDuration> {
         "notify_state" => Some(policy.notifications),
         "triage_cache" => Some(policy.triage),
         "advisories" => Some(policy.resolved_advisories),
+        "messages" | "conversations" => Some(policy.conversations),
         _ => None,
     }
 }
@@ -196,6 +206,19 @@ impl Store {
                 .map_err(db)?
                 .rows_affected();
         }
+        let operator_before = cutoff(now, policy.conversations);
+        let operator_messages = sqlx::query(DELETE_OPERATOR_MESSAGES)
+            .bind(operator_before)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?
+            .rows_affected();
+        let operator_conversations = sqlx::query(DELETE_OPERATOR_CONVERSATIONS)
+            .bind(operator_before)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?
+            .rows_affected();
         tx.commit().await.map_err(db)?;
         let report = PurgeReport {
             signals,
@@ -207,6 +230,8 @@ impl Store {
             windows,
             sessions,
             retracted_facts,
+            operator_messages,
+            operator_conversations,
         };
         tracing::info!(?report, "purged old records");
         Ok(report)

@@ -4,6 +4,8 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod conversations;
+mod conversations_rows;
 mod hosts;
 mod incidents;
 mod knowledge;
