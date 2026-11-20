@@ -1,8 +1,8 @@
 //! Resolution summaries of finished operations: what Domovoi fills in, what the model
 //! drafted from its own report, and what the owner edited or confirmed.
 //!
-//! Every revision is written by the operation writer. The pure parts are [`plan_draft`] and
-//! [`plan_edit`]; the effect handler, the start-up backfill and the writer commands around
+//! Every revision is written by the operation writer. The pure parts are `plan_draft` and
+//! `plan_edit`; the effect handler, the start-up backfill and the writer commands around
 //! them do the I/O.
 
 mod backfill;

@@ -365,7 +365,7 @@ impl OperationHandle {
 impl OperationHandle {
     /// Edits or confirms a narrative field of a finished operation's summary. Confirming a
     /// model draft is an edit with the same text. Nothing is committed unless every rule of
-    /// [`SummaryError`] holds.
+    /// [`EditSummaryError`] holds.
     pub async fn edit_summary_field(
         &self,
         operation: OperationId,
