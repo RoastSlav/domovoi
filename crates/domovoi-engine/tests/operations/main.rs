@@ -29,6 +29,8 @@ mod investigate_effects;
 #[cfg(test)]
 mod investigate_limits;
 #[cfg(test)]
+mod plan;
+#[cfg(test)]
 mod policy_shadow;
 #[cfg(test)]
 mod properties;
