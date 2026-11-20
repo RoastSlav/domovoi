@@ -341,6 +341,16 @@ impl Validate for AgentConfig {
                 "must be unix:///path/to/engine.sock or tcp://host:port",
             ));
         }
+        let packages_dir = self.agent.packages_dir.to_string_lossy();
+        if !self.agent.packages_dir.is_absolute() && !packages_dir.starts_with('/') {
+            issues.push(ConfigIssue::error(
+                "agent.packages_dir",
+                "must be an absolute path such as \"/var/lib/domovoi-packages\"",
+            ));
+        }
+        if let Some(packages) = &self.packages {
+            crate::validate_packages::package_rules(packages, issues);
+        }
         if let Some(relay) = &self.local_webhooks
             && !relay.bind.ip().is_loopback()
             && !relay.allow_non_loopback

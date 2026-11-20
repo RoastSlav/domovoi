@@ -43,6 +43,17 @@ expression: "AgentConfig::json_schema()"
         }
       ]
     },
+    "packages": {
+      "description": "Package installation. Omit to disable: nothing is installed or advertised.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PackagesSection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "policy": {
       "description": "What skills this agent is willing to run.",
       "$ref": "#/$defs/PolicySection"
@@ -75,6 +86,11 @@ expression: "AgentConfig::json_schema()"
         "mutation_limits": {
           "description": "How many mutating capability executions this agent accepts. Local and root-owned;\nthe hub cannot send, widen or override it.",
           "$ref": "#/$defs/MutationLimits"
+        },
+        "packages_dir": {
+          "description": "Where installed packages live. Must be absolute. Default `/var/lib/domovoi-packages`.",
+          "type": "string",
+          "default": "/var/lib/domovoi-packages"
         },
         "skills_dir": {
           "description": "Where skill manifests are read from. Default `/etc/domovoi/skills`.",
@@ -253,6 +269,90 @@ expression: "AgentConfig::json_schema()"
       },
       "additionalProperties": false
     },
+    "PackageLimits": {
+      "description": "`[packages.limits]`.",
+      "type": "object",
+      "properties": {
+        "compressed_bytes": {
+          "description": "Largest archive received, in bytes. 1 KiB to 256 MiB; default 20 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 20971520,
+          "minimum": 0
+        },
+        "entries": {
+          "description": "Most entries in an archive. 1 to 20000; default 2000.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 2000,
+          "minimum": 0
+        },
+        "extraction_time": {
+          "description": "Longest time unpacking may take. 1 second to 15 minutes; default 60 seconds.",
+          "$ref": "#/$defs/Duration"
+        },
+        "file_bytes": {
+          "description": "Largest single file, in bytes. At least 1, at most `uncompressed_bytes`; default 20 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 20971520,
+          "minimum": 0
+        },
+        "path_bytes": {
+          "description": "Longest path, in bytes. 16 to 1024; default 255.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 255,
+          "minimum": 0
+        },
+        "path_depth": {
+          "description": "Deepest path, counting the package directory. 2 to 32; default 8.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 8,
+          "minimum": 0
+        },
+        "uncompressed_bytes": {
+          "description": "Most bytes of file content in an archive. 1 KiB to 1 GiB; default 100 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 104857600,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "PackagesSection": {
+      "description": "`[packages]`. Absent means this agent installs nothing and advertises nothing.",
+      "type": "object",
+      "properties": {
+        "allow_install": {
+          "description": "Whether the hub may ask this agent to install or remove packages. Default false;\nlisting installed packages is allowed either way.",
+          "type": "boolean",
+          "default": false
+        },
+        "limits": {
+          "description": "Size and time caps applied while receiving and unpacking a package.",
+          "$ref": "#/$defs/PackageLimits"
+        },
+        "revoked": {
+          "description": "Key ids (16 lowercase hex characters) that are never trusted, even when also listed\nin `trusted_keys`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "trusted_keys": {
+          "description": "Keys whose signatures this agent accepts. Read at start; the hub cannot change them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "PolicySection": {
       "description": "`[policy]`.",
       "type": "object",
@@ -306,6 +406,33 @@ expression: "AgentConfig::json_schema()"
             "file"
           ]
         }
+      ]
+    },
+    "TrustedKey": {
+      "description": "One `[[packages.trusted_keys]]` entry.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The key id: the first 16 hex characters of the SHA-256 of the raw public key.",
+          "type": "string"
+        },
+        "label": {
+          "description": "A note for people, at most 64 characters.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "public_key": {
+          "description": "The Ed25519 public key, 32 bytes in standard padded base64.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "public_key"
       ]
     }
   }

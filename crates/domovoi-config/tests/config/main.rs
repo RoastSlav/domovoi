@@ -3,6 +3,7 @@
 mod examples;
 mod helpers;
 mod layered;
+mod packages;
 mod parsing;
 mod schema;
 mod secrets;

@@ -330,6 +330,7 @@ Identity of this agent and where it connects.
 | `host_name` | string | This host's name as shown in Domovoi. |
 | `host_root` | string | Where the host filesystem is mounted; `/host` when running in a container. Default `/`. |
 | `hub_url` | URL | The hub's agent server, such as `wss://hub.example.net:7421`. Must use `wss`. |
+| `packages_dir` | string | Where installed packages live. Must be absolute. Default `/var/lib/domovoi-packages`. |
 | `skills_dir` | string | Where skill manifests are read from. Default `/etc/domovoi/skills`. |
 | `state_dir` | string | Where the agent keeps its key and spool. Default `/var/lib/domovoi-agent`. |
 
@@ -381,6 +382,39 @@ A local listener for webhooks from services on this host. Omit to disable.
 | `allow_non_loopback` | boolean | Allow a `bind` address other than loopback. Default false: services on this host reach the relay, and nothing else does. |
 | `bind` | string | Listen address. Default `127.0.0.1:7422`. |
 | `token` | secret | A bearer token callers must send. Optional. |
+
+### `[packages]`
+
+Package installation. Omit to disable: nothing is installed or advertised.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `allow_install` | boolean | Whether the hub may ask this agent to install or remove packages. Default false; listing installed packages is allowed either way. |
+| `revoked` | list of string | Key ids (16 lowercase hex characters) that are never trusted, even when also listed in `trusted_keys`. |
+
+#### `[packages.limits]`
+
+Size and time caps applied while receiving and unpacking a package.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `compressed_bytes` | integer | Largest archive received, in bytes. 1 KiB to 256 MiB; default 20 MiB. |
+| `entries` | integer | Most entries in an archive. 1 to 20000; default 2000. |
+| `extraction_time` | duration | Longest time unpacking may take. 1 second to 15 minutes; default 60 seconds. |
+| `file_bytes` | integer | Largest single file, in bytes. At least 1, at most `uncompressed_bytes`; default 20 MiB. |
+| `path_bytes` | integer | Longest path, in bytes. 16 to 1024; default 255. |
+| `path_depth` | integer | Deepest path, counting the package directory. 2 to 32; default 8. |
+| `uncompressed_bytes` | integer | Most bytes of file content in an archive. 1 KiB to 1 GiB; default 100 MiB. |
+
+#### `[[packages.trusted_keys]]`
+
+Keys whose signatures this agent accepts. Read at start; the hub cannot change them.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | The key id: the first 16 hex characters of the SHA-256 of the raw public key. |
+| `label` | string | A note for people, at most 64 characters. |
+| `public_key` | string | The Ed25519 public key, 32 bytes in standard padded base64. |
 
 ### `[policy]`
 
