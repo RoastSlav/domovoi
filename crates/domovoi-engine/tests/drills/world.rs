@@ -60,6 +60,8 @@ pub struct Outcome {
     pub requests: Vec<LlmRequest>,
     pub link: Vec<LinkRequest>,
     pub latest: Option<Signal>,
+    /// The `EvidenceRequest` steps of the investigation, in order: tool name and outcome.
+    pub evidence_steps: Vec<(String, domovoi_core::StepOutcome)>,
 }
 
 /// Records every request on the way to another provider.
@@ -456,6 +458,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         .unwrap()
         .items;
     let requests = recording.requests.lock().unwrap().clone();
+    let mut evidence_steps = Vec::new();
     let proposals = {
         let skills: Vec<SkillSummary> = drill
             .setup
@@ -472,6 +475,12 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
                 .await
                 .unwrap()
                 .unwrap();
+            for record in &snapshot.steps {
+                if let domovoi_core::StepIntent::EvidenceRequest { tool, .. } = &record.step.intent
+                {
+                    evidence_steps.push((tool.clone(), record.progress.outcome));
+                }
+            }
             views.extend(from_snapshot(&snapshot, &skills));
         }
         views
@@ -486,6 +495,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         requests,
         link: link.requests(),
         latest: Some(latest),
+        evidence_steps,
     }
 }
 

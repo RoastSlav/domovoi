@@ -192,6 +192,41 @@ mod tests {
         }
     }
 
+    /// Every parsed read the script made is one evidence step of the investigation, in the
+    /// order the script made it, and none is left pending.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn evidence_steps_match_the_tool_calls_the_script_made() {
+        use crate::format::Turn;
+        for drill in &load_all() {
+            let made: Vec<String> = drill
+                .model
+                .iter()
+                .filter_map(|turn| match turn {
+                    Turn::Calls { calls } => Some(calls),
+                    Turn::Report { .. } => None,
+                })
+                .flatten()
+                .filter(|call| ReadToolCall::from_json(&call.tool, call.input.clone()).is_ok())
+                .map(|call| call.tool.clone())
+                .collect();
+            let outcome = run(drill, Model::Scripted).await;
+            let steps: Vec<String> = outcome
+                .evidence_steps
+                .iter()
+                .map(|(tool, _)| tool.clone())
+                .collect();
+            assert_eq!(steps, made, "{}", drill.name);
+            assert!(
+                outcome
+                    .evidence_steps
+                    .iter()
+                    .all(|(_, step)| step.is_final()),
+                "{}",
+                drill.name
+            );
+        }
+    }
+
     /// The recorded snapshots hold only redacted drill output: no drill's secret appears in
     /// any of them.
     #[test]

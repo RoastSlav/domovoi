@@ -245,6 +245,45 @@ async fn tool_call_budget_is_enforced() {
     assert_eq!(seen.model_requests, 2);
 }
 
+/// With 20 `request_evidence` calls the run executes 15, asks the model twice, and records
+/// every parsed call as an evidence step: 15 charged, 5 refused and not charged.
+#[tokio::test]
+async fn tool_call_budget_is_enforced_the_same() {
+    use domovoi_core::ports::OperationRepo;
+    use domovoi_core::{StepKind, StepOutcome};
+    let w = world(setup()).await;
+    let ids: Vec<String> = (1..=20).map(|n| format!("c{n}")).collect();
+    let list: Vec<(&str, &str, Value)> = ids
+        .iter()
+        .map(|id| (id.as_str(), "docker_ps", json!({})))
+        .collect();
+    w.primary.push_ok(read_calls(&list));
+    w.primary.push_text(report());
+    let outcome = w.run().await;
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+
+    assert_eq!(w.primary.requests().len(), 2, "the same request count");
+    let operation = OperationRepo::for_incident(&*w.store, w.incident.id())
+        .await
+        .unwrap()
+        .remove(0);
+    let snapshot = OperationRepo::load(&*w.store, operation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let steps: Vec<_> = snapshot
+        .steps
+        .iter()
+        .filter(|record| record.step.kind == StepKind::EvidenceRequest)
+        .collect();
+    let refused = steps
+        .iter()
+        .filter(|record| record.progress.outcome == StepOutcome::Refused)
+        .count();
+    assert_eq!((steps.len(), refused), (20, 5));
+    assert_eq!(snapshot.operation.budgets.used.evidence_requests, 15);
+}
+
 #[tokio::test]
 async fn output_token_budget_and_deadline_are_enforced() {
     // The run's total output budget runs out on the retry.
