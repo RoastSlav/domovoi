@@ -23,7 +23,7 @@ use serde_json::json;
 use tokio::task::yield_now;
 
 use crate::harness::{
-    SECRET, Setup, World, add_signal, calls, disk, host_id, report, results, seen, world,
+    SECRET, Setup, World, add_signal, disk, host_id, read_calls, report, results, seen, world,
     world_over,
 };
 use domovoi_core::ports::ToolOutput;
@@ -702,7 +702,7 @@ async fn prompt_over_the_cap_is_trimmed_from_old_tool_results() {
     for call in 1..=6 {
         let id = format!("c{call}");
         w.primary
-            .push_ok(calls(&[(id.as_str(), "host_overview", json!({}))]));
+            .push_ok(read_calls(&[(id.as_str(), "host_overview", json!({}))]));
     }
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
@@ -832,7 +832,7 @@ async fn measure_prompt_sizes() {
     for call in 1..=15 {
         let id = format!("c{call}");
         w.primary
-            .push_ok(calls(&[(id.as_str(), "host_overview", json!({}))]));
+            .push_ok(read_calls(&[(id.as_str(), "host_overview", json!({}))]));
     }
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));

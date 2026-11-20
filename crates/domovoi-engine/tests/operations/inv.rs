@@ -324,6 +324,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
         ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         capabilities: caps.clone(),
+        resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),

@@ -32,6 +32,12 @@ impl ContextSourceId {
         }
     }
 
+    /// The source that answers exact reads on a host, `evidence`.
+    #[must_use]
+    pub fn evidence() -> Self {
+        Self("evidence".to_owned())
+    }
+
     /// The name.
     #[must_use]
     pub fn as_str(&self) -> &str {

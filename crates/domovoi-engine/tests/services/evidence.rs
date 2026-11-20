@@ -9,7 +9,7 @@ use domovoi_testkit::build::manifest;
 use domovoi_testkit::link::LinkRequest;
 use serde_json::json;
 
-use crate::harness::{Setup, calls, host_id, report, results, world};
+use crate::harness::{Setup, host_id, read_calls, report, results, world};
 
 /// A read skill the host announced, as the agent would list it.
 fn read_skill() -> SkillSummary {
@@ -47,7 +47,7 @@ async fn the_triage_tool_path_reads_through_the_boundary() {
         })
     });
     w.primary
-        .push_ok(calls(&[("c1", "docker_ps", json!({"all": true}))]));
+        .push_ok(read_calls(&[("c1", "docker_ps", json!({"all": true}))]));
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 
@@ -99,7 +99,7 @@ async fn an_unavailable_host_reaches_the_model_as_not_connected() {
     // A write skill would be refused for its own reason if enablement ran first.
     w.link
         .set_skills(host_id(), vec![crate::harness::restart_skill()]);
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "run_read_skill",
         json!({"skill": "restart_container", "args": {}}),
@@ -111,7 +111,8 @@ async fn an_unavailable_host_reaches_the_model_as_not_connected() {
     assert!(
         shown
             .iter()
-            .any(|(content, is_error)| *is_error && content == "error: agent not connected"),
+            .any(|(content, is_error)| *is_error
+                && content.starts_with("error: agent not connected")),
         "the model was told the host is away: {shown:?}"
     );
     assert!(
@@ -126,7 +127,7 @@ async fn an_unavailable_host_reaches_the_model_as_not_connected() {
 async fn a_read_skill_with_unexpected_arguments_never_reaches_the_agent() {
     let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![read_skill()]);
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "run_read_skill",
         json!({"skill": "disk_report", "args": {"unexpected": "1"}}),

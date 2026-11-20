@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
 use domovoi_core::HostId;
-use domovoi_core::ports::{ActionCaps, Clock, HostReconciler};
+use domovoi_core::ports::{ActionCaps, Clock, HostReconciler, TargetResolver};
 use domovoi_engine::TriageHandle;
 use domovoi_engine::events::DomainEvent;
 use domovoi_engine::operations::{
@@ -72,10 +72,16 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         hosts: store.clone(),
         evidence: evidence.clone(),
         registry: registry.clone(),
-        resolver: Arc::new(TargetService::new(
-            Arc::new(evidence.clone()),
-            store.clone(),
-        )),
+        // One resolver per runtime: the one triage already built, or a new one without it.
+        resolver: triage.map_or_else(
+            || -> Arc<dyn TargetResolver> {
+                Arc::new(TargetService::new(
+                    Arc::new(evidence.clone()),
+                    store.clone(),
+                ))
+            },
+            TriageHandle::resolver,
+        ),
         observer: caps.observer,
         journal: caps.journal,
         handoff: caps.handoff,

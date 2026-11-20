@@ -295,6 +295,7 @@ async fn world_over_with_actions(
         ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         capabilities: capabilities.clone(),
+        resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -411,6 +412,7 @@ impl World {
             capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
                 self.link.clone(),
             )),
+            resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
             incidents: self.store.clone(),
             signals: self.store.clone(),
             notes: self.store.clone(),
@@ -526,6 +528,31 @@ pub fn calls(list: &[(&str, &str, Value)]) -> LlmResponse {
             source: domovoi_core::ports::UsageSource::Reported,
         },
     }
+}
+
+/// A model turn that reads through `request_evidence`: each `(id, read tool, args)` becomes
+/// one `request_evidence` call naming that read tool.
+pub fn read_calls(list: &[(&str, &str, Value)]) -> LlmResponse {
+    let wrapped: Vec<(&str, &str, Value)> = list
+        .iter()
+        .map(|(id, tool, args)| (*id, "request_evidence", json!({"tool": tool, "args": args})))
+        .collect();
+    calls(&wrapped)
+}
+
+/// A model turn with one `propose_plan` call holding `steps`.
+pub fn plan_call(id: &str, steps: Value) -> LlmResponse {
+    calls(&[(id, "propose_plan", json!({ "steps": steps }))])
+}
+
+/// A model turn with one `finish` call holding `report` (a report without proposals).
+pub fn finish_call(id: &str, report: Value) -> LlmResponse {
+    calls(&[(id, "finish", report)])
+}
+
+/// A model turn with one `ask_user` call.
+pub fn ask_call(id: &str, question: &str) -> LlmResponse {
+    calls(&[(id, "ask_user", json!({ "question": question }))])
 }
 
 /// The tool results in the last message of `req`.

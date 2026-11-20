@@ -97,7 +97,43 @@ pub fn starter_skill(name: &str) -> SkillSummary {
     manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
 }
 
-fn turn(turn: &Turn, index: usize) -> LlmResponse {
+/// How a scripted report reaches the hub.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carrier {
+    /// As a JSON text answer.
+    Text,
+    /// As a `propose_plan` call (when it has proposals) and a `finish` call in one response.
+    Meta,
+}
+
+fn usage(input: u32, output: u32) -> Usage {
+    Usage {
+        input_tokens: input,
+        output_tokens: output,
+        cost_micros: None,
+        source: domovoi_core::ports::UsageSource::Reported,
+    }
+}
+
+/// The `propose_plan` steps of a scripted report's proposals, as skill contracts.
+fn plan_steps(proposals: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    proposals
+        .iter()
+        .map(|proposal| {
+            let skill = proposal["skill"].as_str().unwrap_or_default();
+            let mut step = serde_json::json!({
+                "contract": format!("skill.{skill}"),
+                "reason": proposal["reason"].clone(),
+            });
+            if let Some(args) = proposal.get("args") {
+                step["args"] = args.clone();
+            }
+            step
+        })
+        .collect()
+}
+
+fn turn(turn: &Turn, index: usize, carrier: Carrier) -> LlmResponse {
     match turn {
         Turn::Calls { calls } => LlmResponse {
             parts: calls
@@ -105,27 +141,43 @@ fn turn(turn: &Turn, index: usize) -> LlmResponse {
                 .enumerate()
                 .map(|(n, call)| Part::ToolCall {
                     id: format!("t{index}c{n}"),
-                    name: call.tool.clone(),
-                    input: call.input.clone(),
+                    name: "request_evidence".to_owned(),
+                    input: serde_json::json!({"tool": call.tool, "args": call.input}),
                 })
                 .collect(),
             stop: StopReason::ToolUse,
-            usage: Usage {
-                input_tokens: 500,
-                output_tokens: 50,
-                cost_micros: None,
-                source: domovoi_core::ports::UsageSource::Reported,
-            },
+            usage: usage(500, 50),
         },
+        Turn::Report { report } if carrier == Carrier::Meta => {
+            let mut finish = report.clone();
+            let proposals = finish
+                .as_object_mut()
+                .and_then(|object| object.remove("proposals"))
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            let mut parts = Vec::new();
+            if !proposals.is_empty() {
+                parts.push(Part::ToolCall {
+                    id: format!("t{index}plan"),
+                    name: "propose_plan".to_owned(),
+                    input: serde_json::json!({ "steps": plan_steps(&proposals) }),
+                });
+            }
+            parts.push(Part::ToolCall {
+                id: format!("t{index}finish"),
+                name: "finish".to_owned(),
+                input: finish,
+            });
+            LlmResponse {
+                parts,
+                stop: StopReason::ToolUse,
+                usage: usage(800, 300),
+            }
+        }
         Turn::Report { report } => LlmResponse {
             parts: vec![Part::Text(report.to_string())],
             stop: StopReason::EndTurn,
-            usage: Usage {
-                input_tokens: 800,
-                output_tokens: 300,
-                cost_micros: None,
-                source: domovoi_core::ports::UsageSource::Reported,
-            },
+            usage: usage(800, 300),
         },
     }
 }
@@ -182,8 +234,14 @@ async fn open(store: &InMemoryStore, spec: &IncidentSpec, at: Timestamp) -> (Inc
     (incident, first)
 }
 
-/// Runs `drill` once with `model`, investigated as an operation.
+/// Runs `drill` once with `model`, investigated as an operation; a scripted report is a
+/// text answer.
 pub async fn run(drill: &Drill, model: Model) -> Outcome {
+    run_with(drill, model, Carrier::Text).await
+}
+
+/// Runs `drill` once with `model`, its scripted report delivered through `carrier`.
+pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome {
     let store = Arc::new(InMemoryStore::new());
     let mut registered = domovoi_testkit::build::host(HOST).unwrap();
     registered.id = host_id();
@@ -286,7 +344,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         Model::Scripted => {
             let scripted = ScriptedLlm::new();
             for (index, step) in drill.model.iter().enumerate() {
-                scripted.push_ok(turn(step, index));
+                scripted.push_ok(turn(step, index, carrier));
             }
             Arc::new(scripted)
         }
@@ -311,6 +369,7 @@ pub async fn run(drill: &Drill, model: Model) -> Outcome {
         capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
             link.clone(),
         )),
+        resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),

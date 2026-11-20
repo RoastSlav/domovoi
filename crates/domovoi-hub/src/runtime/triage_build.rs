@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
 use domovoi_core::ports::{Clock, ProcessExecutor};
+use domovoi_engine::targets::TargetService;
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
 use domovoi_engine::{DomainEvent, Evidence, HostCatalog, ManagerHandle, PatternRedactor};
 use domovoi_store::Store;
@@ -84,6 +85,12 @@ pub(super) async fn build(
         (None, None) => Vec::new(),
     };
     let fallbacks = std::iter::chain(configured_fallbacks, tail).collect();
+    // The runtime's one target resolver: triage's plan checks use it, and the operation
+    // service takes the same one from the triage handle.
+    let resolver = Arc::new(TargetService::new(
+        Arc::new(evidence.clone()),
+        store.clone(),
+    ));
     let (handle, task) = TriageService::spawn(
         TriageDeps {
             primary,
@@ -91,6 +98,7 @@ pub(super) async fn build(
             evidence,
             catalog,
             capabilities,
+            resolver,
             incidents: store.clone(),
             signals: store.clone(),
             notes: store.clone(),

@@ -92,7 +92,8 @@ impl EffectHandler for DraftSummary {
         };
         let triage = &runtime.triage;
         let handle = handle_of(shared);
-        let mut dropped: Vec<String> = Vec::new();
+        // The lines of the suggestions the model never corrected come first.
+        let mut dropped: Vec<String> = output.dropped.clone();
 
         if let Some(report) = &output.report {
             if caused_by(&snapshot, turn_id, StepKind::Assessment).is_empty() {

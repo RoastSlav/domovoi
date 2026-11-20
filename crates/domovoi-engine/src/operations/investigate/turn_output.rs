@@ -49,6 +49,9 @@ pub(crate) struct TurnOutput {
     /// When a skipped run may be tried again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) retry_at: Option<Timestamp>,
+    /// The "Proposals not offered" lines of the model's suggestions it never corrected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) dropped: Vec<String>,
 }
 
 impl TurnOutput {
@@ -61,6 +64,7 @@ impl TurnOutput {
             report: None,
             reason: None,
             retry_at: None,
+            dropped: Vec::new(),
         }
     }
 

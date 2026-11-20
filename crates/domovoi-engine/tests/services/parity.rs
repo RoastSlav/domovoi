@@ -13,7 +13,7 @@ use domovoi_testkit::link::LinkRequest;
 use serde_json::{Value, json};
 
 use crate::harness::{
-    SECRET, Setup, World, add_signal, calls, disk, host_id, report, restart_skill,
+    SECRET, Setup, World, add_signal, disk, host_id, read_calls, report, restart_skill,
     seen as text_seen, world,
 };
 
@@ -221,7 +221,7 @@ async fn tool_call_budget_is_enforced() {
             .iter()
             .map(|id| (id.as_str(), "docker_ps", json!({})))
             .collect();
-        w.primary.push_ok(calls(&list));
+        w.primary.push_ok(read_calls(&list));
         w.primary.push_text(report());
         let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
@@ -364,7 +364,7 @@ async fn secret_never_reaches_the_model() {
                 truncated: false,
             })
         });
-        w.primary.push_ok(calls(&[
+        w.primary.push_ok(read_calls(&[
             ("c1", "docker_logs", json!({"container": "nginx"})),
             ("c2", "notes_search", json!({"query": "password"})),
         ]));
@@ -401,7 +401,7 @@ async fn host_scoping_keeps_to_the_incident_host() {
             updated_at: T0,
         };
         NoteRepo::upsert(&*w.store, &other).await.unwrap();
-        w.primary.push_ok(calls(&[
+        w.primary.push_ok(read_calls(&[
             ("c1", "notes_search", json!({"query": "OTHERHOSTMARKER"})),
             ("c2", "docker_ps", json!({})),
         ]));

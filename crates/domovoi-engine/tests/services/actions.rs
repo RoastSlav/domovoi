@@ -4,7 +4,7 @@ use domovoi_engine::triage::{MAX_ANSWER_CHARS, TriageError};
 use domovoi_testkit::link::LinkRequest;
 use serde_json::json;
 
-use crate::harness::{Setup, calls, host_id, report, report_json, restart_skill, world};
+use crate::harness::{Setup, host_id, read_calls, report, report_json, restart_skill, world};
 
 #[tokio::test]
 async fn cli_provider_gets_prefetched_context_and_no_tools() {
@@ -75,7 +75,7 @@ async fn proposal_for_unknown_skill_or_bad_args_is_dropped() {
 async fn follow_up_that_ignores_the_proposal_protocol_creates_no_actions() {
     let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "docker_logs",
         json!({"container": "nginx"}),
