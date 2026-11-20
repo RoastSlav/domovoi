@@ -443,15 +443,22 @@ async fn contradictory_or_unasked_answers_settle_nothing() {
     w.until_outcome(op, step, StepOutcome::Succeeded).await;
     drop(w);
 
-    // Current behaviour for contradictory duplicates: the first entry for the run wins, so the
-    // order the agent used decides the result.
-    let (w, op, step) =
-        reconcile_with(|wanted| vec![(wanted, finished(false)), (wanted, finished(true))]).await;
-    w.until_outcome(op, step, StepOutcome::Failed).await;
-    drop(w);
-    let (w, op, step) =
-        reconcile_with(|wanted| vec![(wanted, finished(true)), (wanted, finished(false))]).await;
-    w.until_outcome(op, step, StepOutcome::Succeeded).await;
+    // Contradictory duplicates for the run prove nothing, in either order: the step keeps
+    // running and is asked about again.
+    for entries in [[false, true], [true, false]] {
+        let (w, op, step) = reconcile_with(move |wanted| {
+            entries
+                .iter()
+                .map(|succeeded| (wanted, finished(*succeeded)))
+                .collect()
+        })
+        .await;
+        let before = status_deadlines(&w).len();
+        w.until(op, |_| status_deadlines(&w).len() > before + 1)
+            .await;
+        assert_eq!(w.outcome(op, step).await, StepOutcome::Running);
+        assert_eq!(w.skill_requests().len(), 1);
+    }
 }
 
 #[tokio::test]

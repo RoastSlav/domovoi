@@ -1,11 +1,11 @@
 //! Unit-of-work contracts about aggregate scope: which effects a runner may claim, and
 //! cancelling an aggregate's pending effects.
 
-use domovoi_core::OperationId;
 use domovoi_core::ports::{
     AggregateKind, AggregateRef, ClaimBatch, EffectCancel, EffectCompletion, EffectDraft,
     EffectKind, Transaction,
 };
+use domovoi_core::{ActionId, OperationId};
 use jiff::SignedDuration;
 
 use super::super::ContractResult;
@@ -195,5 +195,67 @@ pub async fn claimed_of_filters_by_kind_aggregate_and_status(
         .claimed_of(EffectKind::Dispatch, AggregateKind::Operation, 1)
         .await?;
     assert_eq!(limited.len(), 1);
+    Ok(())
+}
+
+/// `pending_of` lists only pending effects of the kind and the aggregate kind it is given, in
+/// creation order, however many unrelated pending effects come first, and stops at its limit.
+pub async fn pending_of_filters_by_kind_aggregate_and_status(
+    subject: &dyn UowSubject,
+) -> ContractResult {
+    // Unrelated pending effects come first.
+    store(subject, draft(EffectKind::Wake, 0)).await?;
+    store(subject, draft(EffectKind::Dispatch, 0)).await?;
+    store(
+        subject,
+        owned_by(AggregateRef::operation(OperationId::new())),
+    )
+    .await?;
+    let first = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
+    let second = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
+    let dropped = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
+    let other_kind = EffectDraft {
+        aggregate: AggregateRef::action(ActionId::new()),
+        ..draft(EffectKind::Dispatch, 0)
+    };
+    store(subject, other_kind).await?;
+
+    let listed = subject
+        .effects()
+        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .await?;
+    let found: Vec<_> = listed.iter().map(|record| record.id).collect();
+    assert_eq!(found, vec![first, second, dropped]);
+    let limited = subject
+        .effects()
+        .pending_of(EffectKind::Wake, AggregateKind::Action, 1)
+        .await?;
+    assert_eq!(limited.len(), 1);
+    assert_eq!(limited[0].id, first);
+
+    // A cancelled effect is no longer pending.
+    let target = fetch(subject, dropped).await?.aggregate;
+    subject
+        .uow()
+        .commit(Transaction::new().cancel_effects(EffectCancel {
+            aggregate: target,
+            at: at(5),
+        }))
+        .await?;
+    let after = subject
+        .effects()
+        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .await?;
+    let found: Vec<_> = after.iter().map(|record| record.id).collect();
+    assert_eq!(found, vec![first, second]);
+
+    // A claimed effect is no longer pending either.
+    let claimed = claim_in(subject, &[EffectKind::Wake], &[AggregateKind::Action]).await?;
+    assert_eq!(claimed.claimed.len(), 2);
+    let none = subject
+        .effects()
+        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .await?;
+    assert!(none.is_empty());
     Ok(())
 }

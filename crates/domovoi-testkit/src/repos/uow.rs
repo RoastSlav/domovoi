@@ -360,4 +360,25 @@ impl EffectRead for InMemoryStore {
             .cloned()
             .collect())
     }
+
+    async fn pending_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        let state = self.begin()?;
+        Ok(state
+            .effect_order
+            .iter()
+            .filter_map(|id| state.effects.get(id))
+            .filter(|effect| {
+                effect.status == EffectStatus::Pending.as_str()
+                    && effect.kind == kind.as_str()
+                    && effect.aggregate.kind == aggregate
+            })
+            .take(limit_of(limit))
+            .cloned()
+            .collect())
+    }
 }

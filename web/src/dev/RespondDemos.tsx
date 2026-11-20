@@ -69,7 +69,7 @@ export function RespondDemos() {
   ];
   return (
     <Group title="Respond">
-      <Demo name="ActionCard: every status (approve and deny call the hub, so they fail here)">
+      <Demo name="ActionCard: every status (legacy actions are read-only)">
         <Grid min="lg">
           {values("Action status").map((status) => (
             <ActionCard

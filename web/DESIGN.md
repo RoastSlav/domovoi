@@ -312,10 +312,10 @@ act within ten seconds.
   the host (a link) and the check. The title is never repeated in a card, and the status and
   severity pills sit next to it once.
 - One primary action per view. On an incident, Acknowledge is primary; Mute and Dismiss are
-  secondary. An Approve button inside an action card is secondary (with the accent icon)
-  while another primary is on screen; on the Approvals page each card's Approve is that
-  card's primary.
-- A destructive action's Approve is a danger button that opens a `ConfirmDialog` naming the
+  secondary. An Approve button inside a step approval card is secondary (with the accent icon)
+  while another primary is on screen. Legacy actions are read-only history and carry no
+  Approve or Deny.
+- A destructive step's Approve is a danger button that opens a `ConfirmDialog` naming the
   skill, the host, the arguments and the consequence. A write action shows its arguments
   before approval.
 - An action card shows the skill name, the host, the risk pill, the arguments (key = value,
@@ -336,9 +336,7 @@ act within ten seconds.
 - An empty column shows "–" with a tooltip saying why, or is hidden when no row has a value.
 - Links inside tables are not underlined until hover.
 
-**Approve a fix.** An action card follows the rules above. Under a "Waiting for you" heading
-the "Waiting for approval" pill is redundant, so it is not drawn. "Recently decided" shows the
-decision, who decided and when, in a compact list.
+**Approve a fix.** A step approval card follows the rules above and is decided on its operation's page. The Approvals page does not yet gather pending steps across operations: its "Waiting for you" area is an empty state that points to Operations. "Recently decided" shows the decision, who decided and when, in a compact list, and legacy actions appear there read-only.
 
 **Check one host.**
 
@@ -543,7 +541,7 @@ its stripe from the same meta. (4) A new timeline kind goes in `KINDS` in `timel
 pages in the browser.
 
 **Show an action's result.** The worked examples are `useIncidentActions.ts` and
-`ApproveControl.tsx`.
+`StepApproveControl.tsx`.
 
 ```tsx
 const ack = useActionFeedback(useAck(id), {

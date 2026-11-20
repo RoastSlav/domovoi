@@ -144,6 +144,7 @@ uow_contract_tests! {
     sqlite_dedup_key_blocks_a_second_pending_effect => dedup_key_blocks_a_second_pending_effect,
     sqlite_claim_filters_by_aggregate_kind => claim_filters_by_aggregate_kind,
     sqlite_claimed_of_filters_by_kind_aggregate_and_status => claimed_of_filters_by_kind_aggregate_and_status,
+    sqlite_pending_of_filters_by_kind_aggregate_and_status => pending_of_filters_by_kind_aggregate_and_status,
     sqlite_an_empty_aggregate_scope_claims_nothing => an_empty_aggregate_scope_claims_nothing,
     sqlite_revert_claimed_at_start_is_scoped_to_aggregates => revert_claimed_at_start_is_scoped_to_aggregates,
     sqlite_cancel_effects_cancels_only_pending_effects_of_the_aggregate => cancel_effects_cancels_only_pending_effects_of_the_aggregate,

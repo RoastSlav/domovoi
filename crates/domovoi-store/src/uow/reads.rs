@@ -280,4 +280,23 @@ impl EffectRead for Store {
             .map_err(db)?;
         rows.into_iter().map(EffectRow::into_record).collect()
     }
+
+    async fn pending_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        let sql = format!(
+            "SELECT {EFFECT_COLUMNS} FROM effects              WHERE status = 'pending' AND kind = ? AND aggregate_type = ? ORDER BY seq LIMIT ?"
+        );
+        let rows: Vec<EffectRow> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .bind(kind.as_str())
+            .bind(aggregate.as_str())
+            .bind(clamp(limit))
+            .fetch_all(&self.read)
+            .await
+            .map_err(db)?;
+        rows.into_iter().map(EffectRow::into_record).collect()
+    }
 }

@@ -190,7 +190,9 @@ impl HubRuntime {
         let clock = deps.clock;
         let test_executor = deps.process_executor.clone();
         // The legacy executor is gone: settle every open legacy action before any task
-        // that could write actions or claim effects starts.
+        // that could write actions or claim effects starts. Each row is its own guarded
+        // transaction, so a store failure stops start-up and the next start resumes where
+        // this one stopped; once nothing is open it is a no-op.
         domovoi_engine::legacy::drain_legacy_actions(&domovoi_engine::legacy::LegacyDrainDeps {
             actions: store.clone(),
             incidents: store.clone(),

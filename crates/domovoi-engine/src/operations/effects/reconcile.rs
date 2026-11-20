@@ -82,11 +82,19 @@ impl EffectHandler for ReconcileHandler {
             let ending = unknown(operation, step, UnknownReason::EpochChanged, held);
             return outcome(settle(shared, ending).await);
         }
-        let answer = answers
+        // Entries for other runs are ignored. Two entries for this run that disagree prove
+        // nothing, so the run is asked about again instead of being settled by whichever
+        // entry came first.
+        let mut own = answers
             .answers
             .into_iter()
-            .find(|entry| entry.execution == wanted)
-            .and_then(|entry| from_answer(entry.answer));
+            .filter(|entry| entry.execution == wanted)
+            .map(|entry| entry.answer);
+        let first = own.next();
+        let answer = match first {
+            Some(first) if own.all(|next| next == first) => from_answer(first),
+            _ => None,
+        };
         let Some(settled) = answer else {
             return again(shared, held, operation, step).await;
         };

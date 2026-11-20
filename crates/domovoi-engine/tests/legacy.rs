@@ -12,7 +12,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{
     ActionId, ActionRequest, ActionStatus, ApprovalProvenance, Authorization, EffectId, HostId,
-    IncidentId, PlanBinding, Risk, UserId,
+    IncidentId, OperationId, PlanBinding, Risk, UserId,
 };
 use domovoi_engine::legacy::{
     LegacyDrainDeps, LegacyDrainError, LegacyDrainReport, drain_legacy_actions,
@@ -590,4 +590,141 @@ async fn no_open_legacy_action_remains_after_the_drain() {
             "{id} is still {name}"
         );
     }
+}
+
+#[tokio::test]
+async fn verification_wake_behind_many_unrelated_pending_effects_is_still_dropped() {
+    let w = World::new();
+    let mut crowd = Transaction::new();
+    for _ in 0..501 {
+        crowd = crowd.effect(EffectDraft {
+            id: EffectId::new(),
+            kind: EffectKind::Wake,
+            aggregate: AggregateRef::operation(OperationId::new()),
+            payload: json!({ "v": 1, "purpose": "other" }),
+            not_before: T0,
+            max_attempts: 3,
+            dedup_key: None,
+            created_at: T0,
+        });
+    }
+    UnitOfWork::commit(&*w.store, crowd).await.unwrap();
+    let (id, wake) = succeeded_with_wake(&w).await;
+    let ahead = EffectRead::effects_with_status(&*w.store, EffectStatus::Pending, 500)
+        .await
+        .unwrap();
+    assert!(
+        ahead.iter().all(|effect| effect.id != wake),
+        "the wake is beyond the first 500 pending effects"
+    );
+
+    let report = drain_legacy_actions(&w.deps()).await.unwrap();
+
+    assert_eq!(w.effect_status(wake).await, "cancelled");
+    assert_eq!(w.stored(id).await.status(), &ActionStatus::Succeeded);
+    let audit = w.audit(id).await;
+    assert_eq!(audit.len(), 1);
+    assert_eq!(audit[0].kind, "action.verification_dropped");
+    assert_eq!(report.verification_dropped, 1);
+    assert_eq!(report.effects_cancelled, 1);
+}
+
+/// Commits normally until its budget is spent, then refuses every transaction.
+struct FailAfter {
+    store: Arc<InMemoryStore>,
+    left: AtomicU32,
+}
+
+#[async_trait]
+impl UnitOfWork for FailAfter {
+    async fn commit(&self, tx: Transaction) -> Result<CommitReceipt, CommitError> {
+        let left = self.left.load(Ordering::SeqCst);
+        if left == 0 {
+            return Err(CommitError::Constraint("store went away".to_owned()));
+        }
+        self.left.store(left - 1, Ordering::SeqCst);
+        UnitOfWork::commit(&*self.store, tx).await
+    }
+}
+
+#[tokio::test]
+async fn a_drain_interrupted_after_some_rows_resumes_on_the_next_start() {
+    let w = World::new();
+    let first = w.seed("proposed").await.id();
+    let second = w.seed("proposed").await.id();
+    let approved = w.seed("approved").await.id();
+    let dispatched = w.seed("dispatched").await.id();
+    let ids = [first, second, approved, dispatched];
+
+    let flaky = Arc::new(FailAfter {
+        store: w.store.clone(),
+        left: AtomicU32::new(2),
+    });
+    let result = drain_legacy_actions(&w.deps_over(w.store.clone(), flaky)).await;
+
+    assert!(matches!(result, Err(LegacyDrainError::Store(_))));
+    assert_eq!(w.stored(first).await.status(), &ActionStatus::Expired);
+    assert_eq!(w.stored(second).await.status(), &ActionStatus::Expired);
+    assert_eq!(w.stored(approved).await.status(), &ActionStatus::Approved);
+    assert_eq!(w.stored(dispatched).await.status().name(), "dispatched");
+
+    let report = drain_legacy_actions(&w.deps()).await.unwrap();
+
+    assert_eq!(report.not_run, 1);
+    assert_eq!(report.outcome_unknown, 1);
+    assert_eq!(report.expired, 0);
+    assert!(matches!(
+        w.stored(approved).await.status(),
+        ActionStatus::NotRun { .. }
+    ));
+    assert!(matches!(
+        w.stored(dispatched).await.status(),
+        ActionStatus::OutcomeUnknown { .. }
+    ));
+    for id in ids {
+        assert!(!matches!(
+            w.stored(id).await.status(),
+            ActionStatus::Failed { .. }
+        ));
+        assert_eq!(w.audit(id).await.len(), 1, "one audit row for {id}");
+        assert_eq!(w.journal(id).await.len(), 1, "one journal row for {id}");
+    }
+
+    let third = drain_legacy_actions(&w.deps()).await.unwrap();
+    assert_eq!(third, LegacyDrainReport::default());
+}
+
+#[tokio::test]
+async fn a_claimed_legacy_effect_never_reaches_a_handler_after_the_drain() {
+    let w = World::new();
+    let (id, wake) = succeeded_with_wake(&w).await;
+    let batch = EffectQueue::claim_due(
+        &*w.store,
+        "old-session",
+        &[EffectKind::Wake],
+        &[AggregateKind::Action],
+        T0,
+        SignedDuration::from_mins(5),
+        10,
+    )
+    .await
+    .unwrap();
+    assert_eq!(batch.claimed.len(), 1);
+
+    drain_legacy_actions(&w.deps()).await.unwrap();
+
+    let later = EffectQueue::claim_due(
+        &*w.store,
+        "new-session",
+        &[EffectKind::Wake],
+        &[AggregateKind::Action],
+        at(10_000_000),
+        SignedDuration::from_mins(5),
+        10,
+    )
+    .await
+    .unwrap();
+    assert!(later.claimed.is_empty() && later.dead.is_empty());
+    assert_eq!(w.effect_status(wake).await, "cancelled");
+    assert_eq!(w.stored(id).await.status(), &ActionStatus::Succeeded);
 }

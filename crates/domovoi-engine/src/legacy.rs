@@ -6,14 +6,20 @@
 //! leaves every row readable. Nothing is converted or deleted.
 //!
 //! Every move is one transaction guarded by the status the row was read in, so a row someone
-//! else moved meanwhile is skipped rather than overwritten.
+//! else moved meanwhile is skipped rather than overwritten. The drain is retryable across
+//! starts rather than all-or-nothing: one transaction per row, so a run that fails part way
+//! leaves the rows it finished retired and the next start picks up the rest.
+//!
+//! A legacy action can have only a verification wake as a pending effect, because the old
+//! executor kept reconciliation in memory. Cancelling every pending effect of the aggregate in
+//! the same transaction as the move is therefore correct.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionFilter, ActionGuard, ActionRepo, AggregateKind, AggregateRef, AuditDraft, Clock,
-    CommitError, EffectCancel, EffectQueue, EffectRead, EffectStatus, IncidentRepo, JournalDraft,
+    CommitError, EffectCancel, EffectKind, EffectQueue, EffectRead, IncidentRepo, JournalDraft,
     JournalKind, Page, StateWrite, StoreError, Transaction, UnitOfWork,
 };
 use domovoi_core::{ActionRequest, Actor};
@@ -38,6 +44,9 @@ pub const VERIFICATION_DROPPED: &str = "action.verification_dropped";
 
 /// The component name the retirement acts as; it displays as `system:legacy`.
 const ACTOR: &str = "legacy";
+
+/// How many pending effects one store read returns at most.
+const PENDING_PAGE: u16 = 500;
 
 /// How many tries a listing gets before the run gives up.
 const SCAN_ATTEMPTS: usize = 3;
@@ -121,7 +130,7 @@ pub async fn drain_legacy_actions(
             }
         }
     }
-    drop_verifications(deps, &pending, &mut report).await?;
+    drop_verifications(deps, &mut report).await?;
     if !report.is_empty() {
         tracing::info!(
             expired = report.expired,
@@ -219,17 +228,29 @@ async fn retire(
     }
 }
 
+/// The effect kinds an action's pending effects are counted over.
+const ACTION_EFFECT_KINDS: [EffectKind; 5] = [
+    EffectKind::Wake,
+    EffectKind::Reconcile,
+    EffectKind::Dispatch,
+    EffectKind::Verify,
+    EffectKind::Notify,
+];
+
 /// How many pending effects each action has, keyed by the action id.
+///
+/// Each kind is read through the store-side filter, so unrelated pending effects never hide an
+/// action's. The count feeds the report only; the cancellation itself is per aggregate.
 async fn pending_by_action(
     deps: &LegacyDrainDeps,
 ) -> Result<BTreeMap<String, u64>, LegacyDrainError> {
     let mut counts = BTreeMap::new();
-    for effect in deps
-        .effect_read
-        .effects_with_status(EffectStatus::Pending, 500)
-        .await?
-    {
-        if effect.aggregate.kind == AggregateKind::Action {
+    for kind in ACTION_EFFECT_KINDS {
+        for effect in deps
+            .effect_read
+            .pending_of(kind, AggregateKind::Action, PENDING_PAGE)
+            .await?
+        {
             *counts.entry(effect.aggregate.id).or_insert(0) += 1;
         }
     }
@@ -237,53 +258,69 @@ async fn pending_by_action(
 }
 
 /// Cancels the pending verification wake of every succeeded action and records that it did.
+///
+/// A legacy action can have only a verification wake as a pending effect, because the old
+/// executor kept reconciliation in memory, so cancelling every pending effect of the aggregate
+/// in the same transaction is correct. Wakes are read through the store-side filter in batches;
+/// a wake that is skipped (not a verification, or its action is not succeeded) stays pending and
+/// would be read again, so the loop remembers the effect ids it has seen and stops when a batch
+/// holds none it has not.
 async fn drop_verifications(
     deps: &LegacyDrainDeps,
-    counts: &BTreeMap<String, u64>,
     report: &mut LegacyDrainReport,
 ) -> Result<(), LegacyDrainError> {
-    let pending = deps
-        .effect_read
-        .effects_with_status(EffectStatus::Pending, 500)
-        .await?;
-    let mut seen = std::collections::BTreeSet::new();
-    for effect in pending {
-        if effect.kind != "wake" || effect.aggregate.kind != AggregateKind::Action {
-            continue;
+    let mut seen = BTreeSet::new();
+    loop {
+        let batch = deps
+            .effect_read
+            .pending_of(EffectKind::Wake, AggregateKind::Action, PENDING_PAGE)
+            .await?;
+        let fresh: Vec<_> = batch
+            .iter()
+            .filter(|effect| !seen.contains(&effect.id))
+            .collect();
+        if fresh.is_empty() {
+            return Ok(());
         }
-        if effect.payload.get("purpose").and_then(Value::as_str) != Some("verify_action") {
-            continue;
-        }
-        if !seen.insert(effect.aggregate.id.clone()) {
-            continue;
-        }
-        let Ok(id) = effect.aggregate.id.parse() else {
-            continue;
-        };
-        let Some(action) = deps.actions.get(id).await? else {
-            continue;
-        };
-        if action.status().name() != "succeeded" {
-            continue;
-        }
-        let now = deps.clock.now();
-        let audit = event(VERIFICATION_DROPPED, &action, now, VERIFICATION_REASON);
-        let tx = Transaction::new()
-            .audit(audit)
-            .cancel_effects(EffectCancel {
-                aggregate: AggregateRef::action(action.id()),
-                at: now,
-            });
-        match deps.uow.commit(tx).await {
-            Ok(_) => {
-                report.verification_dropped += 1;
-                report.effects_cancelled += counts.get(&effect.aggregate.id).copied().unwrap_or(0);
+        let mut handled = BTreeSet::new();
+        for effect in fresh {
+            seen.insert(effect.id);
+            if effect.payload.get("purpose").and_then(Value::as_str) != Some("verify_action") {
+                continue;
             }
-            Err(CommitError::Conflict { .. }) => {}
-            Err(err) => return Err(LegacyDrainError::Store(err.to_string())),
+            if !handled.insert(effect.aggregate.id.clone()) {
+                continue;
+            }
+            let Ok(id) = effect.aggregate.id.parse() else {
+                continue;
+            };
+            let Some(action) = deps.actions.get(id).await? else {
+                continue;
+            };
+            if action.status().name() != "succeeded" {
+                continue;
+            }
+            let now = deps.clock.now();
+            let audit = event(VERIFICATION_DROPPED, &action, now, VERIFICATION_REASON);
+            let tx = Transaction::new()
+                .audit(audit)
+                .cancel_effects(EffectCancel {
+                    aggregate: AggregateRef::action(action.id()),
+                    at: now,
+                });
+            match deps.uow.commit(tx).await {
+                Ok(_) => {
+                    report.verification_dropped += 1;
+                    report.effects_cancelled += batch
+                        .iter()
+                        .filter(|other| other.aggregate.id == effect.aggregate.id)
+                        .count() as u64;
+                }
+                Err(CommitError::Conflict { .. }) => {}
+                Err(err) => return Err(LegacyDrainError::Store(err.to_string())),
+            }
         }
     }
-    Ok(())
 }
 
 /// The audit row for one retirement: the same fields the action writer recorded for the
