@@ -5,10 +5,10 @@ use std::sync::Arc;
 use domovoi_config::hub::{HubConfig, LlmKind, LlmProvider};
 use domovoi_core::IncidentPolicy;
 use domovoi_core::ports::Clock;
+use domovoi_engine::EnginePolicy;
 use domovoi_engine::notify::{NotifySettings, QuietHours};
 use domovoi_engine::operations::OperationSettings;
 use domovoi_engine::triage::TriageSettings;
-use domovoi_engine::{ActionSettings, EnginePolicy};
 use domovoi_llm::{Price, ProviderKind, ProviderSettings};
 use jiff::SignedDuration;
 
@@ -129,10 +129,6 @@ pub(crate) fn provider(config: &LlmProvider) -> ProviderSettings {
             .timeout
             .map_or(domovoi_llm::DEFAULT_TIMEOUT, |timeout| timeout.as_signed()),
     }
-}
-
-pub(super) fn actions() -> ActionSettings {
-    ActionSettings::default()
 }
 
 /// The purge policy from `[retention]`. The three keys that cover data not built yet are

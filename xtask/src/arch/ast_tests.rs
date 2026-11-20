@@ -15,22 +15,14 @@ fn has(violations: &[Violation], rule: &str) -> bool {
     violations.iter().any(|violation| violation.rule == rule)
 }
 
-const EXECUTOR: &str = "fn run(a: Action) -> R {\n    let authorized = AuthorizedExecution::of(a)?;\n    execute::execute(authorized)\n}\n";
-const EXECUTE: &str = "fn build() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
 const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
 const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized)\n}\n";
 const OP_WRITER: &str =
     "fn write(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n";
-const WRITER: &str =
-    "fn write(command: WriteCommand) { match command { WriteCommand::Dispatch { .. } => {} } }\n";
 
-/// The engine's card sites, each holding its exact count: three for the action service and
-/// four for the operation service.
+/// The engine's card sites, each holding its exact count.
 fn engine_sites() -> Vec<(String, String)> {
     files(&[
-        ("crates/domovoi-engine/src/actions/executor.rs", EXECUTOR),
-        ("crates/domovoi-engine/src/actions/execute.rs", EXECUTE),
-        ("crates/domovoi-engine/src/actions/writer.rs", WRITER),
         (OP_EXECUTE_PATH, OP_EXECUTE),
         (OP_DISPATCH_PATH, OP_DISPATCH),
         (OP_WRITER_PATH, OP_WRITER),
@@ -85,7 +77,7 @@ fn a_second_call_in_a_card_site_is_refused() {
 fn a_call_split_across_lines_is_counted() {
     let text = "deps.link.run_tool\n    (host, call, deadline)\n    .await?;\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
@@ -110,7 +102,7 @@ fn renamed_boundary_constructors_are_resolved() {
     let text = "use super::execute::{execute as dispatch, AuthorizedExecution as Authorized};\n\
                 fn run(a: Action) {\n    let authorized = Authorized::of(a);\n    dispatch(authorized);\n}\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-2"), "{violations:#?}");
@@ -120,7 +112,7 @@ fn renamed_boundary_constructors_are_resolved() {
 fn a_macro_body_cannot_hide_an_operation() {
     let text = "macro_rules! sneak { () => { deps.link.run_tool(a, b, c) } }\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
@@ -130,7 +122,7 @@ fn a_macro_body_cannot_hide_an_operation() {
 fn an_operation_inside_a_macro_invocation_is_counted() {
     let text = "fn f() {\n    assert!(check { run_tool(a, b, c) });\n}\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
@@ -150,7 +142,7 @@ fn code_after_a_block_comment_on_the_same_line_is_counted() {
 fn a_line_starting_with_a_deref_is_counted() {
     let text = "fn f() {\n    *slot.borrow_mut() = run_tool(a, b, c);\n}\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
@@ -160,7 +152,7 @@ fn a_line_starting_with_a_deref_is_counted() {
 fn comments_and_strings_are_ignored() {
     let text = "// link.run_tool(a, b, c) in prose\nlet message = \"link.run_tool(a, b, c)\";\n";
     let violations = exec_violations(&engine_with(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     ));
     assert!(violations.is_empty(), "{violations:#?}");
@@ -170,7 +162,7 @@ fn comments_and_strings_are_ignored() {
 fn inline_test_modules_are_pruned() {
     let text = "#[cfg(test)]\nmod tests { fn f() { run_tool(a, b, c); } }\n";
     let violations = exec_violations(&engine_with(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     ));
     assert!(violations.is_empty(), "{violations:#?}");
@@ -180,7 +172,7 @@ fn inline_test_modules_are_pruned() {
 fn a_negated_cfg_test_module_is_production() {
     let text = "#[cfg(not(test))]\nmod tests { fn f() { run_tool(a, b, c); } }\n";
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     )]));
     assert!(has(&violations, "EXEC-1"), "{violations:#?}");
@@ -190,7 +182,7 @@ fn a_negated_cfg_test_module_is_production() {
 fn a_conjunction_with_cfg_test_is_pruned() {
     let text = "#[cfg(all(test, unix))]\nmod tests { fn f() { run_tool(a, b, c); } }\n";
     let violations = exec_violations(&engine_with(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         text,
     ));
     assert!(violations.is_empty(), "{violations:#?}");
@@ -199,12 +191,12 @@ fn a_conjunction_with_cfg_test_is_pruned() {
 #[test]
 fn a_missing_card_site_is_refused() {
     let mut engine = engine_sites();
-    engine.retain(|(rel, _)| !rel.ends_with("writer.rs"));
+    engine.retain(|(rel, _)| !rel.ends_with("writer/mod.rs"));
     let violations = exec_violations(&engine);
     assert!(
         violations
             .iter()
-            .any(|violation| violation.location.ends_with("writer.rs")),
+            .any(|violation| violation.location.ends_with("writer/mod.rs")),
         "{violations:#?}"
     );
 }
@@ -236,7 +228,7 @@ fn filename_test_modules_are_production() {
 #[test]
 fn an_unparseable_file_is_refused() {
     let violations = exec_violations(&files(&[(
-        "crates/domovoi-engine/src/actions/other.rs",
+        "crates/domovoi-engine/src/operations/other.rs",
         "fn broken( {\n",
     )]));
     assert!(has(&violations, "EXEC"), "{violations:#?}");
@@ -246,23 +238,26 @@ fn an_unparseable_file_is_refused() {
 fn test_only_files_follow_wiring_not_names() {
     let tree = files(&[
         (
-            "crates/domovoi-engine/src/actions/execute.rs",
+            "crates/domovoi-engine/src/operations/execute.rs",
             "#[cfg(test)]\n#[path = \"execute_tests.rs\"]\nmod tests;\n",
         ),
         (
-            "crates/domovoi-engine/src/actions/execute_tests.rs",
+            "crates/domovoi-engine/src/operations/execute_tests.rs",
             "fn f() { run_tool(a, b, c); }\n",
         ),
-        ("crates/domovoi-engine/src/actions/mod.rs", "mod tests;\n"),
         (
-            "crates/domovoi-engine/src/actions/tests.rs",
+            "crates/domovoi-engine/src/operations/mod.rs",
+            "mod tests;\n",
+        ),
+        (
+            "crates/domovoi-engine/src/operations/tests.rs",
             "fn f() { run_tool(a, b, c); }\n",
         ),
     ]);
     let test_only = cfg_test_closure(&tree);
-    assert!(test_only.contains("crates/domovoi-engine/src/actions/execute_tests.rs"));
+    assert!(test_only.contains("crates/domovoi-engine/src/operations/execute_tests.rs"));
     assert!(
-        !test_only.contains("crates/domovoi-engine/src/actions/tests.rs"),
+        !test_only.contains("crates/domovoi-engine/src/operations/tests.rs"),
         "a tests.rs module wired without cfg(test) is production"
     );
     let production: Vec<(String, String)> = tree
@@ -274,7 +269,7 @@ fn test_only_files_follow_wiring_not_names() {
     assert!(
         violations
             .iter()
-            .any(|violation| violation.location.contains("actions/tests.rs")),
+            .any(|violation| violation.location.contains("operations/tests.rs")),
         "{violations:#?}"
     );
 }
@@ -366,9 +361,9 @@ fn the_accessor_paths_are_allowed_where_the_link_is_owned() {
 
 // ---- Dispatch: construction and match are separate cards (EXEC-2) ----
 
-const EXECUTE_PATH: &str = "crates/domovoi-engine/src/actions/execute.rs";
-const WRITER_PATH: &str = "crates/domovoi-engine/src/actions/writer.rs";
-const OTHER_PATH: &str = "crates/domovoi-engine/src/actions/other.rs";
+const EXECUTE_PATH: &str = OP_EXECUTE_PATH;
+const WRITER_PATH: &str = OP_WRITER_PATH;
+const OTHER_PATH: &str = "crates/domovoi-engine/src/operations/other.rs";
 
 /// The engine's card sites with the file at `rel` replaced by `text`.
 fn engine_with_site(rel: &str, text: &str) -> Vec<(String, String)> {
@@ -395,8 +390,9 @@ fn one_construction_in_execute_and_one_pattern_in_writer_pass() {
 
 #[test]
 fn a_second_construction_in_execute_is_refused() {
-    let text =
-        format!("{EXECUTE}fn again() -> WriteCommand {{ WriteCommand::Dispatch {{ id: 2 }} }}\n");
+    let text = format!(
+        "{OP_EXECUTE}fn again() -> OperationCommand {{ OperationCommand::Dispatch {{ id: 2 }} }}\n"
+    );
     let violations = exec_violations(&engine_with_site(EXECUTE_PATH, &text));
     assert!(
         messages(&violations).contains("struct expression"),
@@ -412,7 +408,7 @@ fn a_second_construction_in_execute_is_refused() {
 #[test]
 fn a_second_pattern_in_writer_is_refused() {
     let text = format!(
-        "{WRITER}fn again(c: WriteCommand) {{ if let WriteCommand::Dispatch {{ .. }} = c {{}} }}\n"
+        "{OP_WRITER}fn again(c: OperationCommand) {{ if let OperationCommand::Dispatch {{ .. }} = c {{}} }}\n"
     );
     let violations = exec_violations(&engine_with_site(WRITER_PATH, &text));
     assert!(
@@ -423,8 +419,9 @@ fn a_second_pattern_in_writer_is_refused() {
 
 #[test]
 fn a_construction_in_writer_is_refused_even_beside_its_pattern() {
-    let text =
-        format!("{WRITER}fn build() -> WriteCommand {{ WriteCommand::Dispatch {{ id: 1 }} }}\n");
+    let text = format!(
+        "{OP_WRITER}fn build() -> OperationCommand {{ OperationCommand::Dispatch {{ id: 1 }} }}\n"
+    );
     let violations = exec_violations(&engine_with_site(WRITER_PATH, &text));
     assert!(
         violations
@@ -437,7 +434,7 @@ fn a_construction_in_writer_is_refused_even_beside_its_pattern() {
 #[test]
 fn a_pattern_in_execute_is_refused_even_beside_its_construction() {
     let text = format!(
-        "{EXECUTE}fn m(c: WriteCommand) {{ match c {{ WriteCommand::Dispatch {{ .. }} => {{}} }} }}\n"
+        "{OP_EXECUTE}fn m(c: OperationCommand) {{ match c {{ OperationCommand::Dispatch {{ .. }} => {{}} }} }}\n"
     );
     let violations = exec_violations(&engine_with_site(EXECUTE_PATH, &text));
     assert!(
@@ -453,17 +450,14 @@ fn the_wrong_node_kind_at_each_site_is_refused() {
     let swapped = vec![
         (
             EXECUTE_PATH.to_string(),
-            "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }\n"
+            "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n"
                 .to_string(),
         ),
         (
             WRITER_PATH.to_string(),
-            "fn build() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\n".to_string(),
+            "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\n".to_string(),
         ),
-        (
-            "crates/domovoi-engine/src/actions/executor.rs".to_string(),
-            EXECUTOR.to_string(),
-        ),
+        (OP_DISPATCH_PATH.to_string(), OP_DISPATCH.to_string()),
     ];
     let violations = exec_violations(&swapped);
     for path in [EXECUTE_PATH, WRITER_PATH] {
@@ -481,8 +475,8 @@ fn the_wrong_node_kind_at_each_site_is_refused() {
 #[test]
 fn a_dispatch_in_an_unrelated_production_module_is_refused() {
     for text in [
-        "fn b() -> WriteCommand { WriteCommand::Dispatch { id: 1 } }\n",
-        "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }\n",
+        "fn b() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\n",
+        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n",
     ] {
         let violations = exec_violations(&engine_with(OTHER_PATH, text));
         assert!(
@@ -495,9 +489,9 @@ fn a_dispatch_in_an_unrelated_production_module_is_refused() {
 #[test]
 fn other_mentions_of_dispatch_are_refused() {
     for text in [
-        "fn m(c: WriteCommand) { if matches!(c, WriteCommand::Dispatch { .. }) {} }\n",
-        "fn m() { let f = WriteCommand::Dispatch; }\n",
-        "fn m(c: WriteCommand) { match c { WriteCommand::Dispatch(..) => {} } }\n",
+        "fn m(c: OperationCommand) { if matches!(c, OperationCommand::Dispatch { .. }) {} }\n",
+        "fn m() { let f = OperationCommand::Dispatch; }\n",
+        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch(..) => {} } }\n",
     ] {
         let violations = exec_violations(&engine_with(OTHER_PATH, text));
         assert!(
@@ -509,14 +503,14 @@ fn other_mentions_of_dispatch_are_refused() {
 
 #[test]
 fn comments_and_strings_naming_dispatch_do_not_count() {
-    let text = "// WriteCommand::Dispatch { id }\nfn f() { let s = \"WriteCommand::Dispatch { id: 1 }\"; }\n/* WriteCommand::Dispatch { .. } */\n";
+    let text = "// OperationCommand::Dispatch { id }\nfn f() { let s = \"OperationCommand::Dispatch { id: 1 }\"; }\n/* OperationCommand::Dispatch { .. } */\n";
     let violations = exec_violations(&engine_with(OTHER_PATH, text));
     assert!(violations.is_empty(), "{violations:#?}");
 }
 
 #[test]
 fn renamed_dispatch_imports_are_resolved() {
-    let text = "use crate::actions::WriteCommand as Cmd;\nfn b() -> Cmd { Cmd::Dispatch { id: 1 } }\nfn m(c: Cmd) { match c { Cmd::Dispatch { .. } => {} } }\n";
+    let text = "use crate::operations::OperationCommand as Cmd;\nfn b() -> Cmd { Cmd::Dispatch { id: 1 } }\nfn m(c: Cmd) { match c { Cmd::Dispatch { .. } => {} } }\n";
     let violations = exec_violations(&engine_with(OTHER_PATH, text));
     assert!(
         violations
@@ -547,30 +541,18 @@ fn a_missing_construction_or_match_site_is_refused() {
 // ---- The operation service's dispatch boundary (EXEC-2) ----
 
 #[test]
-fn the_operation_sites_pass_in_their_exact_counts() {
-    assert!(exec_violations(&engine_sites()).is_empty());
-}
-
-#[test]
 fn a_second_hand_off_in_a_card_site_is_refused() {
-    for site in [OP_EXECUTE_PATH, EXECUTE_PATH] {
-        let current = if site == OP_EXECUTE_PATH {
-            OP_EXECUTE
-        } else {
-            EXECUTE
-        };
-        let text = format!(
-            "{current}fn again() {{ handoff.hand_off(a); }}
+    let text = format!(
+        "{OP_EXECUTE}fn again() {{ handoff.hand_off(a); }}
 "
-        );
-        let violations = exec_violations(&engine_with_site(site, &text));
-        assert!(
-            violations
-                .iter()
-                .any(|v| v.rule == "EXEC-2" && v.location.starts_with(site)),
-            "{site}: {violations:#?}"
-        );
-    }
+    );
+    let violations = exec_violations(&engine_with_site(OP_EXECUTE_PATH, &text));
+    assert!(
+        violations
+            .iter()
+            .any(|v| v.rule == "EXEC-2" && v.location.starts_with(OP_EXECUTE_PATH)),
+        "{violations:#?}"
+    );
 }
 
 #[test]
@@ -589,7 +571,7 @@ fn a_second_await_handoff_result_in_a_card_site_is_refused() {
 }
 
 #[test]
-fn a_hand_off_or_await_outside_the_two_execute_files_is_refused() {
+fn a_hand_off_or_await_outside_operations_execute_is_refused() {
     for text in [
         "fn f() { handoff.hand_off(a, b); }
 ",
@@ -657,71 +639,28 @@ fn a_second_execute_step_call_is_refused() {
 }
 
 #[test]
-fn a_second_operation_dispatch_construction_is_refused() {
-    let again = "fn again() -> OperationCommand { OperationCommand::Dispatch { id: 2 } }
-";
-    let in_site = format!("{OP_EXECUTE}{again}");
-    for violations in [
-        exec_violations(&engine_with_site(OP_EXECUTE_PATH, &in_site)),
-        exec_violations(&engine_with(OTHER_PATH, again)),
-    ] {
-        assert!(
-            messages(&violations).contains("struct expression"),
-            "{violations:#?}"
-        );
-    }
-}
-
-#[test]
-fn a_second_operation_dispatch_pattern_is_refused() {
-    let again = "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }
-";
-    let in_site = format!("{OP_WRITER}{again}");
-    for violations in [
-        exec_violations(&engine_with_site(OP_WRITER_PATH, &in_site)),
-        exec_violations(&engine_with(OTHER_PATH, again)),
-    ] {
-        assert!(
-            messages(&violations).contains("struct pattern"),
-            "{violations:#?}"
-        );
-    }
-}
-
-#[test]
-fn other_mentions_of_the_operation_dispatch_are_refused() {
-    for text in [
-        "fn m() { let f = OperationCommand::Dispatch; }
+fn a_hand_off_in_a_retired_actions_module_is_refused() {
+    for (rel, text) in [
+        (
+            "crates/domovoi-engine/src/actions/execute.rs",
+            "fn f() { handoff.hand_off(a, b); }
 ",
-        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch(..) => {} } }
+        ),
+        (
+            "crates/domovoi-engine/src/actions/other.rs",
+            "fn f() { handoff.await_handoff_result(a, b); }
 ",
-        "fn m(c: OperationCommand) { if matches!(c, OperationCommand::Dispatch { .. }) {} }
-",
+        ),
     ] {
-        let violations = exec_violations(&engine_with(OTHER_PATH, text));
+        let violations = exec_violations(&engine_with(rel, text));
         assert!(
-            violations.iter().any(|v| v.location.contains("other.rs")),
-            "{text}
+            violations
+                .iter()
+                .any(|v| v.rule == "EXEC-2" && v.location.starts_with(rel)),
+            "{rel}: {text}
 {violations:#?}"
         );
     }
-}
-
-#[test]
-fn the_wrong_node_kind_at_an_operation_site_is_refused() {
-    let swapped = engine_with_site(
-        OP_EXECUTE_PATH,
-        "fn m(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }
-fn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }
-",
-    );
-    let violations = exec_violations(&swapped);
-    assert!(
-        violations
-            .iter()
-            .any(|v| v.location.starts_with(OP_EXECUTE_PATH)),
-        "{violations:#?}"
-    );
 }
 
 // ---- Who builds a Caller (CALLER-1) ----

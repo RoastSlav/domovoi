@@ -86,7 +86,7 @@ async fn settle() {
 #[tokio::test]
 async fn untriaged_incident_triaged_after_restart() {
     let (store, open, acked, triaged) = seeded_store().await;
-    let world = world_over(Default::default(), store.clone(), store.clone()).await;
+    let world = world_over(Default::default(), store.clone()).await;
     script(&world, 4);
     settle().await;
 
@@ -108,7 +108,7 @@ async fn untriaged_incident_triaged_after_restart() {
 #[tokio::test]
 async fn lag_reload_still_queues_acked_incidents() {
     let (store, _open, acked, _triaged) = seeded_store().await;
-    let world = world_over(Default::default(), store.clone(), store.clone()).await;
+    let world = world_over(Default::default(), store.clone()).await;
     script(&world, 4);
     settle().await;
     assert!(

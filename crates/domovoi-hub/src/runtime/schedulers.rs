@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{AdvisoryRepo, BaselineRepo, Clock, HostRepo, Redactor, SettingsRepo};
 use domovoi_core::{AdvisoryKind, DigestFact};
-use domovoi_engine::ActionHandle;
 use domovoi_engine::advisories::{AdvisoryInputs, AgentVersion, HeartbeatStatus, evaluate};
 use domovoi_engine::digest::DigestService;
 use domovoi_store::Store;
@@ -36,7 +35,6 @@ pub(crate) struct Schedulers {
     config: Arc<HubConfig>,
     clock: Arc<dyn Clock>,
     store: Arc<Store>,
-    actions: ActionHandle,
     dispatcher: Dispatcher,
     digest: Arc<DigestDeps>,
     heartbeat: Arc<Mutex<HeartbeatStatus>>,
@@ -64,7 +62,6 @@ impl Schedulers {
     pub(crate) fn new(
         config: Arc<HubConfig>,
         context: RuntimeContext,
-        actions: ActionHandle,
         dispatcher: Dispatcher,
         digest: DigestDeps,
         updates: UpdateChecker,
@@ -88,7 +85,6 @@ impl Schedulers {
             config,
             clock,
             store,
-            actions,
             dispatcher,
             digest: Arc::new(digest),
             heartbeat: Arc::new(Mutex::new(heartbeat)),
@@ -139,9 +135,6 @@ impl Schedulers {
 
     pub(crate) async fn minute(&self) {
         self.dispatcher.tick().await;
-        if let Err(err) = self.actions.expire_due().await {
-            tracing::warn!(%err, "could not expire action approvals");
-        }
         self.digest_due().await;
     }
 

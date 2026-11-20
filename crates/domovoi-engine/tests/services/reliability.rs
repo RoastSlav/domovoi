@@ -143,7 +143,6 @@ async fn flaky_world(admission: Arc<FlakyAdmission>) -> World {
             admission: Some(admission),
             ..Setup::default()
         },
-        store.clone(),
         store,
     )
     .await
@@ -307,7 +306,6 @@ async fn budget_read_error_fails_closed_for_questions() {
             usage: Some(usage),
             ..Setup::default()
         },
-        store.clone(),
         store,
     )
     .await;
@@ -334,7 +332,6 @@ async fn unverifiable_admission_skips_triage_and_leaves_the_card() {
             usage: Some(usage.clone()),
             ..Setup::default()
         },
-        store.clone(),
         store,
     )
     .await;

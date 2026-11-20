@@ -19,9 +19,8 @@ use domovoi_core::ports::{
 };
 use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
 use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, ActionSettings, DomainEvent, EnginePolicy,
-    IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor, TriageDeps, TriageService,
-    TriageSettings,
+    DomainEvent, EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,
+    TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
@@ -38,7 +37,7 @@ use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest, open_incident};
-use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
+use domovoi_testkit::link::{evidence_caps, observer_of};
 use domovoi_testkit::{
     CannedLogSource, FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm,
 };
@@ -189,8 +188,6 @@ pub struct Api {
     pub audit: Arc<dyn AuditLog>,
     /// The use-case layer the API and the chat authorizer call.
     pub services: Services,
-    /// The action service, for testing what the writer commits.
-    pub actions_service: ActionHandle,
     /// The operation service, when built with [`api_with_operations`].
     pub operations: Option<domovoi_engine::operations::OperationHandle>,
     pub incident: Incident,
@@ -199,8 +196,6 @@ pub struct Api {
     pub dir: TempDir,
     /// The incident manager's task, so a test can stop it as a crash would.
     pub manager_task: tokio::task::JoinHandle<()>,
-    /// The action service's task, for the same reason.
-    pub action_task: tokio::task::JoinHandle<()>,
     /// What the policy service's publication review and simulator know of hosts.
     pub policy_env: Arc<crate::policy_env::PolicyFakeEnv>,
 }
@@ -357,32 +352,6 @@ async fn build(
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
-    let caps = action_caps(link.clone());
-    let (actions_service, action_task) = ActionService::spawn(
-        ActionDeps {
-            actions: store.clone(),
-            incidents: store.clone(),
-            audit: store.clone(),
-            uow: store.clone(),
-            effects: store.clone(),
-            advisories: store.clone(),
-            probe: caps.probe,
-            observer: caps.observer,
-            journal: caps.journal,
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
-            handoff: caps.handoff,
-            rerun: caps.rerun,
-            hosts: store.clone(),
-            redactor: Arc::new(PatternRedactor::default()),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        ActionSettings::default(),
-    );
     let llm = Arc::new(ScriptedLlm::new());
     let triage = triage.then(|| {
         let primary: Arc<dyn LlmProvider> = llm.clone();
@@ -511,8 +480,6 @@ async fn build(
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: triage.clone(),
-        actions: store.clone(),
-        actions_service: actions_service.clone(),
         operations: operations.clone(),
         operation_repo: store.clone(),
         incidents: store.clone(),
@@ -561,7 +528,6 @@ async fn build(
     Api {
         audit: store.clone(),
         services,
-        actions_service,
         app,
         state,
         store,
@@ -576,7 +542,6 @@ async fn build(
         shutdown,
         dir,
         manager_task,
-        action_task,
         policy_env,
     }
 }
@@ -708,12 +673,6 @@ impl Api {
     pub async fn stop_manager(&self) {
         self.manager_task.abort();
         let _ = self.manager_task.is_finished();
-        tokio::task::yield_now().await;
-    }
-
-    /// The same for the action service.
-    pub async fn stop_action_service(&self) {
-        self.action_task.abort();
         tokio::task::yield_now().await;
     }
 

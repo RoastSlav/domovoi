@@ -29,6 +29,8 @@ mod investigate_effects;
 #[cfg(test)]
 mod investigate_limits;
 #[cfg(test)]
+mod legacy_parity;
+#[cfg(test)]
 mod meta;
 #[cfg(test)]
 mod plan;

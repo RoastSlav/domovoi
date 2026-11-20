@@ -36,11 +36,12 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0016](0016-improvement-suggestions.md) | Suggest improvements from history, never apply them | Proposed |
 | [0017](0017-settings-managed-from-the-web-ui.md) | Manage settings from the web UI | Accepted |
 | [0018](0018-detect-the-container-runtime.md) | Detect the container runtime and let the hub switch it | Accepted |
-| [0019](0019-single-writer-for-actions.md) | Action decisions have a single writer, and the store refuses stale writes | Accepted |
+| [0019](0019-single-writer-for-actions.md) | Action decisions have a single writer, and the store refuses stale writes | Accepted; superseded in part by [0028](0028-one-execution-path.md) |
 | [0020](0020-license-polyform-noncommercial.md) | License: PolyForm Noncommercial 1.0.0; commercial use paid above €100k revenue | Accepted |
 | [0021](0021-plan-hash-v2-and-authorization.md) | Plan hash v2 and the authorization wrapper | Accepted |
-| [0022](0022-single-execution-boundary.md) | One execution boundary and one read boundary | Accepted |
+| [0022](0022-single-execution-boundary.md) | One execution boundary and one read boundary | Accepted; superseded in part by [0028](0028-one-execution-path.md) |
 | [0023](0023-capability-objects-one-checker-bounded-evidence.md) | Capability objects, one checker, bounded evidence | Accepted |
 | [0025](0025-operation-aggregate.md) | Operation aggregate: immutable steps, derived status and one writer | Accepted |
 | [0026](0026-use-case-layer.md) | The hub's use-case layer and its module-edge rules | Accepted |
 | [0027](0027-policy-shadow-recording.md) | Record policy shadow decisions beside execution, never in the writer | Proposed |
+| [0028](0028-one-execution-path.md) | One execution path: the legacy action executor is removed and open legacy actions are retired at upgrade | Accepted |

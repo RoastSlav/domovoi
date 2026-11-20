@@ -1,9 +1,7 @@
 import { useState } from "react";
-import type { Action, Report } from "../../api/types";
-import { Button, RelativeTime, Section, Spinner, StatusPill, Text } from "../../components";
+import type { Action } from "../../api/types";
+import { Button, RelativeTime, Section, Spinner, StatusPill, Tag, Text } from "../../components";
 import { actionStatusMeta } from "../../design/tone";
-import { ActionCard } from "../approvals/ActionCard";
-import { whyProposed } from "../approvals/whyProposed";
 import styles from "./incidents.module.css";
 
 /** How many finished actions show before "Show all". */
@@ -12,11 +10,18 @@ export const EARLIER_PREVIEW = 4;
 const IN_PROGRESS = new Set(["approved", "dispatched"]);
 
 /** Finished statuses with a reason worth a line of its own. */
-const SHOWS_REASON = ["failed", "verify_failed", "rejected", "outcome_unknown", "not_run"];
+const SHOWS_REASON = [
+  "failed",
+  "verify_failed",
+  "rejected",
+  "outcome_unknown",
+  "not_run",
+  "expired",
+];
 
 /** The reason's tone: a warning needs checking, a neutral one only says what happened. */
 function reasonClass(status: string): string | undefined {
-  if (status === "not_run") {
+  if (status === "not_run" || status === "expired") {
     return styles.rowNote;
   }
   return status === "outcome_unknown" ? styles.rowWarning : styles.rowFailure;
@@ -45,6 +50,7 @@ function ActionRow({ action, host }: { action: Action; host: string }) {
       <div className={styles.actionRow}>
         <span className={styles.actionLine}>
           <span className={styles.skill}>{action.skill}</span>
+          <Tag>Legacy</Tag>
         </span>
         <StatusPill size="sm" meta={actionStatusMeta(action.status)} />
         <span className={styles.rowWhen}>
@@ -70,35 +76,15 @@ function Rows({ actions, host }: { actions: readonly Action[]; host: string }) {
   );
 }
 
-/** The soonest to expire first. */
-function byExpiry(actions: readonly Action[]): Action[] {
-  return [...actions].sort((a, b) => Date.parse(a.expires_at) - Date.parse(b.expires_at));
-}
-
 /**
- * The incident's actions by what the person can do about them: the ones waiting for a
- * decision as full cards (soonest to expire first), the ones running as compact rows, and
- * every finished one as a one-line row under "Earlier actions", four at a time. Each group
- * is its own slot of the page, so the cards that need a decision are first.
+ * The incident's actions, all read-only history of the older flow: the ones still running
+ * as compact rows, and every finished one as a one-line row under "Earlier actions", four at
+ * a time. Approving is done on the operations the incident links to.
  */
-export function ActionSections({
-  actions,
-  host,
-  report,
-  ackIsPrimary,
-}: {
-  actions: readonly Action[];
-  /** Acknowledge is the page's primary button, so Approve steps back to secondary. */
-  ackIsPrimary: boolean;
-  host: string;
-  report: Report | null | undefined;
-}) {
+export function ActionSections({ actions, host }: { actions: readonly Action[]; host: string }) {
   const [all, setAll] = useState(false);
-  const waiting = byExpiry(actions.filter((action) => action.status === "proposed"));
   const running = actions.filter((action) => IN_PROGRESS.has(action.status));
-  const earlier = actions.filter(
-    (action) => action.status !== "proposed" && !IN_PROGRESS.has(action.status),
-  );
+  const earlier = actions.filter((action) => !IN_PROGRESS.has(action.status));
   const shown = all ? earlier : earlier.slice(0, EARLIER_PREVIEW);
 
   if (actions.length === 0) {
@@ -106,7 +92,7 @@ export function ActionSections({
       <div className={styles.slot} data-slot="waiting">
         <Section title="Actions">
           <Text block muted size="sm">
-            No actions proposed. Nothing runs on a host unless you approve it here.
+            No earlier actions. Steps that need you wait on the incident's operations.
           </Text>
         </Section>
       </div>
@@ -114,23 +100,6 @@ export function ActionSections({
   }
   return (
     <>
-      {waiting.length > 0 && (
-        <div className={styles.slot} data-slot="waiting">
-          <Section title={`Waiting for you · ${waiting.length}`}>
-            <div className={styles.actionCards}>
-              {waiting.map((action) => (
-                <ActionCard
-                  key={action.id}
-                  action={action}
-                  host={host}
-                  approve={ackIsPrimary ? "secondary" : "primary"}
-                  why={whyProposed(action, report)}
-                />
-              ))}
-            </div>
-          </Section>
-        </div>
-      )}
       {running.length > 0 && (
         <div className={styles.slot} data-slot="progress">
           <Section title={`In progress · ${running.length}`}>

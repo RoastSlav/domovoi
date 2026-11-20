@@ -63,5 +63,9 @@ path = "tests/crash/main.rs"
 name = "operations"
 path = "tests/operations/main.rs"
 
+[[test]]
+name = "legacy"
+path = "tests/legacy.rs"
+
 [lints]
 workspace = true

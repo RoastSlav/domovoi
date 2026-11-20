@@ -218,7 +218,7 @@ expression: spec
             "type": "string"
           },
           "legacy": {
-            "description": "Whether this action belongs to the old approval path, which is read-only history\nnext to operations: true for every action while orchestration is enabled.",
+            "description": "Whether this action belongs to the retired approval path, which survives only as\nread-only history: always true.",
             "type": "boolean"
           },
           "plan_binding": {
@@ -362,29 +362,6 @@ expression: spec
         },
         "required": [
           "text"
-        ],
-        "type": "object"
-      },
-      "ApproveRequest": {
-        "description": "Approving an action.",
-        "properties": {
-          "confirm_text": {
-            "description": "For destructive skills: the skill's name typed exactly, as confirmation.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "plan_hash": {
-            "description": "Required. The plan hash shown on the card, 64 hex characters.",
-            "maxLength": 64,
-            "minLength": 64,
-            "pattern": "^[0-9a-f]{64}$",
-            "type": "string"
-          }
-        },
-        "required": [
-          "plan_hash"
         ],
         "type": "object"
       },
@@ -5536,170 +5513,6 @@ expression: spec
         ]
       }
     },
-    "/api/v1/actions/{id}/approve": {
-      "post": {
-        "operationId": "approve_action",
-        "parameters": [
-          {
-            "description": "Action id",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionDto"
-                }
-              }
-            },
-            "description": "Approved; it runs next"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Not logged in"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Destructive without the typed confirmation"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "No such action"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Not proposed any more, expired, or the plan hash does not match"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The action service is shutting down"
-          }
-        },
-        "summary": "Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's\nname; chat buttons can never approve them.",
-        "tags": [
-          "actions"
-        ]
-      }
-    },
-    "/api/v1/actions/{id}/deny": {
-      "post": {
-        "operationId": "deny_action",
-        "parameters": [
-          {
-            "description": "Action id",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionDto"
-                }
-              }
-            },
-            "description": "Denied"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Not logged in"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "No such action"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "Not proposed any more"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The action service is shutting down"
-          }
-        },
-        "summary": "Denies a proposed action.",
-        "tags": [
-          "actions"
-        ]
-      }
-    },
     "/api/v1/advisories": {
       "get": {
         "operationId": "list_advisories",
@@ -10254,7 +10067,7 @@ expression: spec
       "name": "incidents"
     },
     {
-      "description": "Proposed actions and approvals",
+      "description": "Retired legacy actions, read only",
       "name": "actions"
     },
     {

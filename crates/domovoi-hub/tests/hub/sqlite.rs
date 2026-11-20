@@ -114,6 +114,15 @@ impl EffectRead for SqliteStore {
     ) -> Result<Vec<EffectRecord>, StoreError> {
         EffectRead::claimed_of(&*self.0, kind, aggregate, limit).await
     }
+
+    async fn pending_of(
+        &self,
+        kind: domovoi_core::ports::EffectKind,
+        aggregate: domovoi_core::ports::AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError> {
+        EffectRead::pending_of(&*self.0, kind, aggregate, limit).await
+    }
 }
 
 #[async_trait]

@@ -9,14 +9,11 @@ use domovoi_core::ports::{
     Page, ThreadRef,
 };
 use domovoi_core::{
-    ActionError, ActionRequest, ActionStatus, CardButton, IncidentStatus, Interaction,
-    InteractionKind, InteractionReply, Principal, Risk,
+    ActionRequest, ActionStatus, CardButton, IncidentStatus, Interaction, InteractionKind,
+    InteractionReply, Principal, Risk,
 };
-use domovoi_engine::ApprovalError;
 use domovoi_engine::chat_token::{mint_token, token_hash};
-use domovoi_hub::auth::interactions::{
-    ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST, approval_reason,
-};
+use domovoi_hub::auth::interactions::{ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST};
 use domovoi_testkit::build::manifest;
 use domovoi_testkit::{GatewayCall, RecordingGateway};
 use jiff::SignedDuration;
@@ -272,67 +269,6 @@ async fn ack_and_mute_reach_incident_manager() {
 }
 
 #[tokio::test]
-async fn approve_with_valid_token_approves_once() {
-    let a = api().await;
-    a.admin().await;
-    let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
-
-    let reply = c
-        .authorizer
-        .deliver(press(&a, ALLOWED, approve(&action, &token)))
-        .await;
-    assert_eq!(accepted(&reply), Some("Approved restart_container"));
-    let stored = ActionRepo::get(&*a.store, action.id())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_ne!(stored.status(), &ActionStatus::Proposed);
-    let approval = serde_json::to_value(stored.approved_by().unwrap()).unwrap();
-    assert_eq!(approval["channel"]["type"], "chat");
-    assert_eq!(approval["channel"]["platform_user"], ALLOWED);
-    assert!(
-        audit_kinds(&a)
-            .await
-            .contains(&("chat.approve".to_owned(), format!("chat:discord:{ALLOWED}")))
-    );
-}
-
-#[tokio::test]
-async fn reused_token_is_rejected() {
-    let a = api().await;
-    a.admin().await;
-    let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
-    let (other, _) = proposed(&a, Risk::Write).await;
-
-    let wrong = c
-        .authorizer
-        .deliver(press(&a, ALLOWED, approve(&other, &token)))
-        .await;
-    assert_eq!(
-        rejected(&wrong),
-        "This button no longer works",
-        "another action's token"
-    );
-    assert_eq!(status_of(&a, &other).await, ActionStatus::Proposed);
-
-    let first = c
-        .authorizer
-        .deliver(press(&a, ALLOWED, approve(&action, &token)))
-        .await;
-    assert!(accepted(&first).is_some());
-    let again = c
-        .authorizer
-        .deliver(press(&a, ALLOWED, approve(&action, &token)))
-        .await;
-    assert!(
-        accepted(&again).is_none(),
-        "the token works once: {again:?}"
-    );
-}
-
-#[tokio::test]
 async fn chat_approve_with_old_button_without_prefix_is_refused() {
     let a = api().await;
     a.admin().await;
@@ -354,74 +290,10 @@ async fn chat_approve_with_old_button_without_prefix_is_refused() {
 }
 
 #[tokio::test]
-async fn chat_approve_with_wrong_prefix_is_refused_and_keeps_the_token() {
+async fn details_posts_in_the_thread() {
     let a = api().await;
     a.admin().await;
     let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
-    let mut wrong = action.plan_hash_for_approval().as_bytes()[..3].to_vec();
-    wrong[0] ^= 0xff;
-    let stale = CardButton::Approve {
-        action: action.id(),
-        token: token.clone(),
-        plan_prefix: Some(hex::encode(wrong)),
-    };
-
-    let reply = c.authorizer.deliver(press(&a, ALLOWED, stale)).await;
-    assert_eq!(
-        rejected(&reply),
-        "This card is out of date; open the incident to review it"
-    );
-    assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
-
-    let reply = c
-        .authorizer
-        .deliver(press(&a, ALLOWED, approve(&action, &token)))
-        .await;
-    assert_eq!(
-        accepted(&reply),
-        Some("Approved restart_container"),
-        "a wrong prefix did not consume the single-use token"
-    );
-}
-
-/// A decision another writer already made, and a service mid-restart, are both
-/// answered in chat with something a person can act on.
-#[test]
-fn refused_chat_approval_explains_a_decision_already_made() {
-    assert_eq!(
-        approval_reason(&ApprovalError::Refused(ActionError::ChangedMeanwhile)),
-        "Someone already decided this action",
-        "a thread has nothing to reload, so it says the action has an outcome",
-    );
-    assert_eq!(
-        approval_reason(&ApprovalError::Unavailable),
-        "The service that decides actions is restarting; try again",
-        "a restart in progress reads as a restart, not a failure",
-    );
-}
-
-#[test]
-fn approval_reason_covers_plan_changed() {
-    assert_eq!(
-        approval_reason(&ApprovalError::PlanChanged),
-        "This card is out of date; open the incident to review it",
-    );
-}
-
-#[tokio::test]
-async fn deny_and_details() {
-    let a = api().await;
-    a.admin().await;
-    let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
-    let deny = CardButton::Deny {
-        action: action.id(),
-        token,
-    };
-    let reply = c.authorizer.deliver(press(&a, ALLOWED, deny)).await;
-    assert_eq!(accepted(&reply), Some("Denied restart_container"));
-    assert_eq!(status_of(&a, &action).await, ActionStatus::Denied);
 
     let reply = c
         .authorizer

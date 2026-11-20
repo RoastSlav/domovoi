@@ -79,7 +79,7 @@ export function OperationDemos() {
           </div>
         </Grid>
       </Demo>
-      <Demo name="ApprovalCard: waiting, destructive, unknown risk, read-only (approve and deny call the hub, so they fail here)">
+      <Demo name="ApprovalCard: waiting, destructive, unknown risk, read-only (the buttons call the hub, so they fail here)">
         <Grid min="lg">
           <Card execution={step({})} why="The container stopped answering health checks." />
           <Card

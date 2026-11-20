@@ -12,10 +12,12 @@ use domovoi_core::{ExecutionId, ExecutionRecord, OperationId, StepId, StepKind, 
 
 use super::unreadable;
 use super::{Address, Ending, address, after, defer, finish, held, load, outcome, settle, spec};
-use crate::actions::reconcile::{NOT_RUN_REASON, ReconcileOutcome, from_answer, reason_text};
 use crate::effects::{EffectHandler, EffectOutcome};
 use crate::operations::decide::{RECONCILE_ATTEMPTS, reconcile_key, step_payload};
 use crate::operations::execute::verify_delay;
+use crate::operations::reconcile_text::{
+    NOT_RUN_REASON, ReconcileOutcome, from_answer, reason_text,
+};
 use crate::operations::writer::{Held, OpShared};
 
 /// Settles a dispatched Execution step from the agent's journal.
@@ -80,11 +82,19 @@ impl EffectHandler for ReconcileHandler {
             let ending = unknown(operation, step, UnknownReason::EpochChanged, held);
             return outcome(settle(shared, ending).await);
         }
-        let answer = answers
+        // Entries for other runs are ignored. Two entries for this run that disagree prove
+        // nothing, so the run is asked about again instead of being settled by whichever
+        // entry came first.
+        let mut own = answers
             .answers
             .into_iter()
-            .find(|entry| entry.execution == wanted)
-            .and_then(|entry| from_answer(entry.answer));
+            .filter(|entry| entry.execution == wanted)
+            .map(|entry| entry.answer);
+        let first = own.next();
+        let answer = match first {
+            Some(first) if own.all(|next| next == first) => from_answer(first),
+            _ => None,
+        };
         let Some(settled) = answer else {
             return again(shared, held, operation, step).await;
         };
@@ -102,11 +112,9 @@ impl EffectHandler for ReconcileHandler {
                     .holding(held)
             }
             ReconcileOutcome::Unknown(reason) => unknown(operation, step, reason, held),
-            ReconcileOutcome::NeverRan | ReconcileOutcome::HandoffFailed => {
-                Ending::new(operation, step, StepOutcome::NotRun)
-                    .because(NOT_RUN_REASON)
-                    .holding(held)
-            }
+            ReconcileOutcome::NeverRan => Ending::new(operation, step, StepOutcome::NotRun)
+                .because(NOT_RUN_REASON)
+                .holding(held),
         };
         outcome(settle(shared, ending).await)
     }

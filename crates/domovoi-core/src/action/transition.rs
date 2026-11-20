@@ -122,6 +122,13 @@ impl ActionRequest {
         Ok(self.move_to(ActionStatus::Expired, now))
     }
 
+    /// `Proposed → Expired` at once, before the approval window closes: the executor that
+    /// would have run an approval is gone. Refused (`ActionError`) from any other status.
+    pub fn expire_at_upgrade(&mut self, now: Timestamp) -> Result<ActionChange, ActionError> {
+        self.require(self.status == ActionStatus::Proposed, "expire at upgrade")?;
+        Ok(self.move_to(ActionStatus::Expired, now))
+    }
+
     /// `Approved → Dispatched` if `current_plan_hash` (recomputed from the current manifest,
     /// arguments, target and identity in the action's own family) matches the approved plan,
     /// otherwise `Approved → Rejected` (INV-4).

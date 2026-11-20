@@ -266,6 +266,17 @@ pub trait EffectRead: Send + Sync {
         aggregate: AggregateKind,
         limit: u16,
     ) -> Result<Vec<EffectRecord>, StoreError>;
+
+    /// Up to `limit` pending effects of `kind` that belong to an aggregate of `aggregate`, in
+    /// creation order (oldest first). `limit` is clamped to 1..=500. The filter runs in the
+    /// store, so a caller reaches every such effect however many unrelated pending effects
+    /// sit ahead of it.
+    async fn pending_of(
+        &self,
+        kind: EffectKind,
+        aggregate: AggregateKind,
+        limit: u16,
+    ) -> Result<Vec<EffectRecord>, StoreError>;
 }
 
 #[cfg(test)]

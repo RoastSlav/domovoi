@@ -93,8 +93,6 @@ export function IncidentDetailPage() {
   const summary = data.incident;
   // With a report its summary and cause are shown above; the card's details repeat them.
   const details = report ? report.details : card.details;
-  // Acknowledge is the page's primary button while it is offered; Approve then steps back.
-  const ackIsPrimary = summary.status !== "acked" && summary.status !== "resolved";
   return (
     <>
       <PageHeader
@@ -133,12 +131,7 @@ export function IncidentDetailPage() {
         </div>
 
         <aside className={styles.side} aria-label="Actions and history">
-          <ActionSections
-            actions={actions}
-            host={host}
-            report={report}
-            ackIsPrimary={ackIsPrimary}
-          />
+          <ActionSections actions={actions} host={host} />
           <div className={styles.slot} data-slot="tools">
             <ToolsUsed tools={tools_used} />
           </div>

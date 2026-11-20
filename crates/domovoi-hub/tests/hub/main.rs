@@ -22,8 +22,6 @@ mod api_routes;
 #[cfg(test)]
 mod api_updates;
 #[cfg(test)]
-mod atomic_actions;
-#[cfg(test)]
 mod atomic_incidents;
 #[cfg(test)]
 mod availability;
@@ -46,6 +44,8 @@ mod gates;
 mod harness;
 #[cfg(test)]
 mod interactions;
+#[cfg(test)]
+mod legacy_retirement;
 #[cfg(test)]
 mod operation_controls;
 #[cfg(test)]

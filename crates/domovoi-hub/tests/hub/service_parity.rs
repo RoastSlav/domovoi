@@ -158,92 +158,6 @@ async fn retry_triage_answers_as_before() {
     insta::assert_json_snapshot!("retry_triage", replies(&[first, cached, refused]));
 }
 
-async fn audit_of(a: &Api) -> Value {
-    let page = AuditLog::list(&*a.store, &AuditFilter::default(), &Page::first(100))
-        .await
-        .unwrap();
-    let mut seen = Vec::new();
-    let mut rows: Vec<Value> = page
-        .items
-        .iter()
-        .map(|e| {
-            json!({
-                "kind": e.kind,
-                "subject": normalise_text(&e.subject, &mut seen),
-                "actor": normalise_text(&e.actor, &mut seen),
-            })
-        })
-        .collect();
-    rows.sort_by_key(|r| r.to_string());
-    Value::Array(rows)
-}
-
-#[tokio::test]
-async fn action_approval_answers_as_before() {
-    let a = api().await;
-    let login = a.admin().await;
-    let write = a.propose(Risk::Write).await;
-    let destructive = a.propose(Risk::Destructive).await;
-    let unknown = "/api/v1/actions/0190f2a8-0000-7000-8000-000000000000";
-    let hash = |x: &domovoi_core::ActionRequest| x.plan_hash_for_approval().to_string();
-    let url =
-        |x: &domovoi_core::ActionRequest, verb: &str| format!("/api/v1/actions/{}/{verb}", x.id());
-    let all = vec![
-        a.post(
-            &format!("{unknown}/approve"),
-            &login,
-            json!({ "plan_hash": "0".repeat(64) }),
-        )
-        .await,
-        a.post(&url(&write, "approve"), &login, json!({})).await,
-        a.post(
-            &url(&write, "approve"),
-            &login,
-            json!({ "plan_hash": "ab".repeat(32) }),
-        )
-        .await,
-        a.post(
-            &url(&write, "approve"),
-            &login,
-            json!({ "plan_hash": hash(&write) }),
-        )
-        .await,
-        a.post(&url(&write, "deny"), &login, json!({})).await,
-        a.post(&url(&destructive, "deny"), &login, json!({})).await,
-        a.post(&url(&destructive, "deny"), &login, json!({})).await,
-    ];
-    let other = a.propose(Risk::Destructive).await;
-    let mut all = all;
-    all.push(
-        a.post(
-            &url(&other, "approve"),
-            &login,
-            json!({ "plan_hash": hash(&other) }),
-        )
-        .await,
-    );
-    all.push(
-        a.post(
-            &url(&other, "approve"),
-            &login,
-            json!({ "plan_hash": hash(&other), "confirm_text": "wrong" }),
-        )
-        .await,
-    );
-    all.push(
-        a.post(
-            &url(&other, "approve"),
-            &login,
-            json!({ "plan_hash": hash(&other), "confirm_text": other.skill().to_string() }),
-        )
-        .await,
-    );
-    insta::assert_json_snapshot!(
-        "action_approval",
-        json!({ "replies": replies(&all), "audit": audit_of(&a).await })
-    );
-}
-
 #[tokio::test]
 async fn host_and_digest_reads_answer_as_before() {
     let a = api().await;
@@ -348,24 +262,4 @@ async fn chat_audit(a: &Api) -> Value {
         .collect();
     rows.sort_by_key(|r| r.to_string());
     Value::Array(rows)
-}
-
-#[tokio::test]
-async fn chat_cannot_approve_a_destructive_action() {
-    use domovoi_core::ActionStatus;
-    let a = api().await;
-    a.admin().await;
-    let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Destructive).await;
-    let press = InteractionKind::Button {
-        button: approve(&action, &token),
-        incident: a.incident.id(),
-    };
-    let reply = c.authorizer.deliver(interaction(&a, ALLOWED, press)).await;
-    assert_eq!(text_of(&reply), "rejected: Approve this one in the web UI");
-    let stored = domovoi_core::ports::ActionRepo::get(&*a.store, action.id())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(*stored.status(), ActionStatus::Proposed);
 }

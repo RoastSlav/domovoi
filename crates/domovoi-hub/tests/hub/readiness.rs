@@ -106,10 +106,4 @@ async fn readyz_reports_a_stopped_service() {
         reply.text
     );
     assert_eq!(reply.body["failing"], json!(["incident_manager"]));
-
-    let actions_down = api().await;
-    actions_down.stop_action_service().await;
-    let reply = readyz(&actions_down).await;
-    assert_eq!(reply.status, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(reply.body["failing"], json!(["action_service"]));
 }

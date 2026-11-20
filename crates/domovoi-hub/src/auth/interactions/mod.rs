@@ -24,8 +24,7 @@ use url::Url;
 
 use crate::services::{Caller, FollowUpError, Services};
 
-/// The chat-facing reason for a refused approval or denial, from the card buttons.
-pub use buttons::{approval_reason, step_reason};
+pub use buttons::{STALE_CARD, WEB_ONLY, step_reason};
 
 /// What a user who is not on the allowlist is told.
 pub const NOT_ALLOWED: &str = "Not allowed";

@@ -1,5 +1,18 @@
 # Actions and approvals
 
+> **Legacy.** Actions are the older way Domovoi suggested fixes. New work is done by [operations](operations.md): each fix is an Execution step you approve on the web or from its card. No action can be approved, denied or run any more. Actions that existed when you upgraded stay in the list, read-only and labelled Legacy, so you can read what happened.
+
+## How to read a legacy action
+
+Open ones were closed at the first start after the upgrade; see [Upgrading](../install/upgrading.md#open-legacy-actions-are-closed-at-upgrade).
+
+- **Expired** with "legacy action expired at upgrade": it was still waiting for a decision. Nothing ran.
+- **Never ran** with "legacy action expired at upgrade": it had been approved but not yet sent. Nothing ran.
+- **Result unknown** with "legacy executor removed before this run was reconciled": it had been sent to the host and may have run. Check the host before running the work again; the agent's action journal holds the real record under the same id.
+- Everything else (denied, rejected, failed, succeeded, verified, verification failed) is the final state the action reached before the upgrade.
+
+The rest of this page describes how legacy actions behaved, for reading old history.
+
 Triage may suggest up to three actions for an incident, such as restarting a container. An action is a skill installed on the agent's host, together with the arguments to run it with. Nothing runs until a person approves it, and each step afterwards is checked again and written to the audit log.
 
 ## Lifecycle

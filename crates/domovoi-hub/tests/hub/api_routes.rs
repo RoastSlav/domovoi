@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::http::{Method, StatusCode};
 use domovoi_core::Risk;
-use domovoi_core::ports::{ActionRepo, AuditFilter, AuditLog, ChatError, IncidentRepo, Page};
+use domovoi_core::ports::{ChatError, IncidentRepo};
 use domovoi_testkit::RecordingNotifier;
 use domovoi_testkit::build::{open_incident, resolved_incident};
 use futures::StreamExt;
@@ -131,146 +131,6 @@ async fn incident_detail_ack_and_mute() {
         ask.status,
         StatusCode::SERVICE_UNAVAILABLE,
         "triage is off here"
-    );
-}
-
-#[tokio::test]
-async fn approve_and_deny_flow_through_approval_service() {
-    let a = api().await;
-    let login = a.admin().await;
-    let first = a.propose(Risk::Write).await;
-    let second = a.propose(Risk::Write).await;
-
-    let approved = a
-        .post(
-            &format!("/api/v1/actions/{}/approve", first.id()),
-            &login,
-            json!({ "plan_hash": first.plan_hash_for_approval().to_string() }),
-        )
-        .await;
-    assert_eq!(approved.status, StatusCode::OK, "{}", approved.text);
-    assert_eq!(approved.body["status"], "approved");
-    assert!(
-        approved.body["approved_by"]
-            .as_str()
-            .unwrap()
-            .starts_with("user:")
-    );
-    let again = a
-        .post(
-            &format!("/api/v1/actions/{}/approve", first.id()),
-            &login,
-            json!({ "plan_hash": first.plan_hash_for_approval().to_string() }),
-        )
-        .await;
-    assert_eq!(again.status, StatusCode::CONFLICT);
-
-    let denied = a
-        .post(
-            &format!("/api/v1/actions/{}/deny", second.id()),
-            &login,
-            json!({}),
-        )
-        .await;
-    assert_eq!(denied.status, StatusCode::OK);
-    assert_eq!(denied.body["status"], "denied");
-
-    let filter = AuditFilter {
-        kind: Some("action.approved".to_owned()),
-        ..AuditFilter::default()
-    };
-    let audit = AuditLog::list(&*a.store, &filter, &Page::first(5))
-        .await
-        .unwrap()
-        .items;
-    assert_eq!(audit.len(), 1);
-    assert!(audit[0].actor.starts_with("user:"));
-
-    let listed = a.get("/api/v1/actions?status=denied", &login).await;
-    assert_eq!(listed.body["items"][0]["id"], second.id().to_string());
-    assert_eq!(
-        a.post("/api/v1/actions/not-an-id/approve", &login, json!({}))
-            .await
-            .status,
-        StatusCode::NOT_FOUND
-    );
-}
-
-#[tokio::test]
-async fn approve_api_requires_the_plan_hash() {
-    let a = api().await;
-    let login = a.admin().await;
-    let action = a.propose(Risk::Write).await;
-
-    for body in [
-        json!({}),
-        json!({ "plan_hash": null }),
-        json!({ "plan_hash": "abc" }),
-        json!({ "plan_hash": "zz".repeat(32) }),
-        json!({ "plan_hash": "a".repeat(63) }),
-    ] {
-        let reply = a
-            .post(
-                &format!("/api/v1/actions/{}/approve", action.id()),
-                &login,
-                body.clone(),
-            )
-            .await;
-        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{body}");
-    }
-    let stored = ActionRepo::get(&*a.store, action.id())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.status().name(), "proposed", "nothing changed");
-}
-
-#[tokio::test]
-async fn approve_api_refuses_a_different_plan_hash() {
-    let a = api().await;
-    let login = a.admin().await;
-    let action = a.propose(Risk::Write).await;
-    let mut other = *action.plan_hash_for_approval().as_bytes();
-    other[0] ^= 0xff;
-    let different = hex::encode(other);
-
-    let reply = a
-        .post(
-            &format!("/api/v1/actions/{}/approve", action.id()),
-            &login,
-            json!({ "plan_hash": different }),
-        )
-        .await;
-
-    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.text);
-    assert_eq!(reply.body["error"], "conflict");
-    let stored = ActionRepo::get(&*a.store, action.id())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.status().name(), "proposed", "nothing changed");
-}
-
-#[tokio::test]
-async fn approve_api_accepts_the_current_plan_hash() {
-    let a = api().await;
-    let login = a.admin().await;
-    let action = a.propose(Risk::Write).await;
-
-    let reply = a
-        .post(
-            &format!("/api/v1/actions/{}/approve", action.id()),
-            &login,
-            json!({ "plan_hash": action.plan_hash_for_approval().to_string() }),
-        )
-        .await;
-
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
-    assert_eq!(reply.body["status"], "approved");
-    assert_eq!(
-        reply.body["plan_hash"],
-        action.plan_hash_for_approval().to_string(),
-        "the DTO carries the approval-family plan hash"
     );
 }
 
@@ -539,51 +399,6 @@ fn openapi_snapshot() {
     let mut spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
     spec["info"]["version"] = json!("0.0.0");
     insta::assert_json_snapshot!("openapi", spec);
-}
-
-#[test]
-fn approve_request_schema_requires_a_non_null_plan_hash() {
-    let spec: Value = serde_json::from_str(&domovoi_hub::router::openapi_json()).unwrap();
-    let schema = &spec["components"]["schemas"]["ApproveRequest"];
-    assert_eq!(
-        schema["properties"]["plan_hash"]["type"],
-        json!("string"),
-        "a missing plan_hash is a 400, so the schema says string, never null"
-    );
-    assert_eq!(schema["properties"]["plan_hash"]["minLength"], json!(64));
-    assert_eq!(schema["properties"]["plan_hash"]["maxLength"], json!(64));
-    assert_eq!(
-        schema["properties"]["plan_hash"]["pattern"],
-        json!("^[0-9a-f]{64}$")
-    );
-    let required: Vec<&str> = schema["required"]
-        .as_array()
-        .expect("the schema lists its required fields")
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    assert!(required.contains(&"plan_hash"), "{required:?}");
-    assert!(
-        !required.contains(&"confirm_text"),
-        "the typed confirmation stays optional"
-    );
-    assert_eq!(
-        schema["properties"]["confirm_text"]["type"],
-        json!(["string", "null"])
-    );
-
-    let generated = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../web/src/api/schema.d.ts"
-    ))
-    .expect("the generated TypeScript types are checked in");
-    let start = generated
-        .find("ApproveRequest: {")
-        .expect("the generated types declare ApproveRequest");
-    let block = &generated[start..start + generated[start..].find("};").unwrap()];
-    assert!(block.contains("plan_hash: string;"), "{block}");
-    assert!(!block.contains("plan_hash?:"), "{block}");
-    assert!(block.contains("confirm_text?: string | null;"), "{block}");
 }
 
 #[tokio::test]

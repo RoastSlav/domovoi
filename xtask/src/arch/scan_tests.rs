@@ -88,7 +88,12 @@ fn authorization_constructors_are_confined() {
 fn plan_hash_v2_has_one_implementation() {
     let text = "let text = \"plan:v2\\n\";\n";
     assert_eq!(
-        check_file("crates/domovoi-engine/src/actions/executor.rs", text, false)[0].rule,
+        check_file(
+            "crates/domovoi-engine/src/operations/execute.rs",
+            text,
+            false
+        )[0]
+        .rule,
         "INV-1"
     );
     assert!(check_file("crates/domovoi-core/src/action/plan.rs", text, false).is_empty());
@@ -233,7 +238,7 @@ fn a_shell_literal_is_still_recognised() {
 #[test]
 fn a_real_plan_v2_literal_is_still_recognised() {
     let text = "fn f() {\n    /* c */ let line = \"plan:v2\\n\";\n}\n";
-    let rel = "crates/domovoi-engine/src/actions/executor.rs";
+    let rel = "crates/domovoi-engine/src/operations/execute.rs";
     let v = check_file(rel, text, false);
     assert_eq!(rules(&v), ["INV-1"], "{v:#?}");
     let raw = "fn f() { let line = r\"plan:v2\"; }\n";

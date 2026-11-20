@@ -28,7 +28,7 @@ use domovoi_testkit::build::T0;
 use domovoi_testkit::crash::Reopen;
 
 use self::operations::operation_lifecycle;
-use self::scenarios::{action_lifecycle, incident_lifecycle};
+use self::scenarios::incident_lifecycle;
 use self::sweep::{BoxFuture, Scenario, sweep};
 use super::sqlite::SqliteStore;
 
@@ -107,18 +107,6 @@ async fn incident_lifecycle_survives_a_crash_at_every_commit_on_sqlite() {
         name: "incident_lifecycle",
         run: incident_lifecycle::<SqliteStore>,
         min_commits: 14,
-    };
-    sweep(&scenario, &|| sqlite.make(), &sqlite).await;
-}
-
-#[tokio::test]
-async fn action_lifecycle_survives_a_crash_at_every_commit_on_sqlite() {
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    let sqlite = Sqlite::new(dir.path().to_path_buf());
-    let scenario = Scenario {
-        name: "action_lifecycle",
-        run: action_lifecycle::<SqliteStore>,
-        min_commits: 24,
     };
     sweep(&scenario, &|| sqlite.make(), &sqlite).await;
 }

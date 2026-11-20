@@ -22,17 +22,6 @@ pub(crate) const EPOCH_CHANGED_REASON: &str =
 /// The run was dispatched before the hub kept an epoch.
 pub(crate) const EPOCH_UNKNOWN_REASON: &str =
     "this ran before the agent kept a journal; the result cannot be recovered";
-/// The approval window closed before the action was sent.
-pub(crate) const EXPIRED_REASON: &str = "the approval expired before the action was dispatched";
-/// The token for the same, kept in the journal entry's `outcome_reason`.
-pub(crate) const EXPIRED_TOKEN: &str = "expired";
-/// The hub failed to hand the request to the agent before it was queued, so it was never
-/// sent. This is the hub's own proof, not a journal answer.
-pub(crate) const HANDOFF_FAILED_REASON: &str =
-    "The hub could not hand the request to the agent; it was never sent";
-/// The token for the same, kept in the journal entry's `outcome_reason`.
-pub(crate) const HUB_NOT_HANDED_OFF_TOKEN: &str = "hub_not_handed_off";
-
 /// What one journal answer or epoch comparison settles an action to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ReconcileOutcome {
@@ -47,24 +36,6 @@ pub(crate) enum ReconcileOutcome {
     Unknown(UnknownReason),
     /// Positive evidence the run never reached the agent.
     NeverRan,
-    /// The hub proved that no request frame was ever queued for the agent.
-    HandoffFailed,
-}
-
-impl ReconcileOutcome {
-    /// The machine-readable token kept in the journal entry's `outcome_reason`.
-    pub(crate) fn token(&self) -> &'static str {
-        match self {
-            Self::Finished { .. } => "finished",
-            Self::NeverRan => "not_run",
-            Self::HandoffFailed => HUB_NOT_HANDED_OFF_TOKEN,
-            Self::Unknown(UnknownReason::NoStartRecord) => "no_start_record",
-            Self::Unknown(UnknownReason::AgentRestarted) => "agent_restarted",
-            Self::Unknown(UnknownReason::JournalLost) => "journal_lost",
-            Self::Unknown(UnknownReason::EpochChanged) => "epoch_changed",
-            Self::Unknown(UnknownReason::EpochUnknown) => "epoch_unknown",
-        }
-    }
 }
 
 /// The sentence for a journal reason the hub decided or the agent reported.

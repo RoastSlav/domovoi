@@ -339,18 +339,9 @@ pub struct ActionDto {
     pub created_at: String,
     /// When it last changed.
     pub updated_at: String,
-    /// Whether this action belongs to the old approval path, which is read-only history
-    /// next to operations: true for every action while orchestration is enabled.
+    /// Whether this action belongs to the retired approval path, which survives only as
+    /// read-only history: always true.
     pub legacy: bool,
-}
-
-impl ActionDto {
-    /// The action with its `legacy` label set to `legacy`.
-    #[must_use]
-    pub fn labelled(mut self, legacy: bool) -> Self {
-        self.legacy = legacy;
-        self
-    }
 }
 
 impl From<&ActionRequest> for ActionDto {
@@ -386,7 +377,7 @@ impl From<&ActionRequest> for ActionDto {
             expires_at: a.expires_at().to_string(),
             created_at: a.created_at().to_string(),
             updated_at: a.updated_at().to_string(),
-            legacy: false,
+            legacy: true,
         }
     }
 }
@@ -400,23 +391,6 @@ pub struct ActionPage {
     pub next_cursor: Option<String>,
     /// The journal position this snapshot was read at; apply only events with a greater `seq`.
     pub as_of_seq: u64,
-}
-
-/// Approving an action.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, ToSchema)]
-pub struct ApproveRequest {
-    /// Required. The plan hash shown on the card, 64 hex characters.
-    #[schema(
-        value_type = String,
-        required = true,
-        nullable = false,
-        min_length = 64,
-        max_length = 64,
-        pattern = "^[0-9a-f]{64}$"
-    )]
-    pub plan_hash: Option<String>,
-    /// For destructive skills: the skill's name typed exactly, as confirmation.
-    pub confirm_text: Option<String>,
 }
 
 /// Muting an incident.

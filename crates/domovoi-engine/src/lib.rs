@@ -13,12 +13,12 @@
 //! - [`notify`] decides what to say about each event and when, [`cards`] builds the card,
 //!   [`digest`] the daily digest, [`advisories`] the hygiene findings, and [`render`] turns
 //!   them into short markdown. All pure; sending happens elsewhere.
-//! - [`actions`] approves (only with a human approval), re-validates, dispatches, verifies
-//!   and audits proposed actions.
+//! - [`operations`] approves steps (only with a human approval), re-validates, dispatches,
+//!   verifies and audits them; [`legacy`] retires the actions the first-generation executor
+//!   left open.
 //! - [`triage`] runs the model over read-only tools and attaches its report; [`redact`]
 //!   removes secrets from everything that reaches a prompt or leaves the hub.
 
-pub mod actions;
 pub mod advisories;
 pub mod cards;
 pub mod chat_token;
@@ -28,6 +28,7 @@ pub mod digest;
 pub mod effects;
 pub mod events;
 pub mod evidence;
+pub mod legacy;
 pub mod manager;
 pub mod notify;
 pub mod operations;
@@ -41,7 +42,6 @@ pub mod targets;
 pub mod telemetry;
 pub mod triage;
 
-pub use actions::{ActionDeps, ActionHandle, ActionService, ActionSettings, ApprovalError};
 pub use effects::{EffectHandler, EffectOutcome, EffectRunner, EffectRunnerDeps, EffectSettings};
 pub use events::{DomainEvent, EventKind};
 pub use evidence::{Evidence, EvidenceError, EvidenceRequest, EvidenceScope, HostCatalog};

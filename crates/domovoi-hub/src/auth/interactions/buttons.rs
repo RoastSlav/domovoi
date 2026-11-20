@@ -1,17 +1,16 @@
 //! Card buttons: Ack, Mute 1h, Details, and Approve or Deny with the action's single-use
-//! token. Destructive actions are refused here, before the approval service is asked.
+//! token. Only operation steps can be decided; a press naming a retired action is refused.
 
 use domovoi_core::{
-    ActionError, ActionId, CardButton, ExecutionError, IncidentId, PlanBinding, Risk,
-    TriageOutcome, TriageReport,
+    ActionId, CardButton, ExecutionError, IncidentId, PlanBinding, Risk, TriageOutcome,
+    TriageReport,
 };
-use domovoi_engine::ApprovalError;
 use domovoi_engine::operations::OperationError;
 use jiff::SignedDuration;
 use serde_json::json;
 
 use super::{Accepted, Actor, InteractionAuthorizer};
-use crate::services::{ApproveError, ApproveInput, OperationCommandError, StepRef, latest_triage};
+use crate::services::{OperationCommandError, StepRef, latest_triage};
 
 /// How long the Mute 1h button mutes.
 pub const MUTE_BUTTON: SignedDuration = SignedDuration::from_hours(1);
@@ -40,35 +39,6 @@ pub fn details_text(report: &TriageReport) -> String {
         text.push_str(&format!("\n\n{}", report.details));
     }
     text
-}
-
-/// Why a chat Approve or Deny was refused, in one line for the thread. Chat has
-/// nothing to reload, so a row another writer already moved says someone decided
-/// it, and a service that is restarting says to try again.
-#[must_use]
-pub fn approval_reason(err: &ApprovalError) -> String {
-    match err {
-        ApprovalError::NotFound(_) => "That action no longer exists".to_owned(),
-        ApprovalError::BadToken => "This button no longer works".to_owned(),
-        ApprovalError::PlanChanged => {
-            "This card is out of date; open the incident to review it".to_owned()
-        }
-        ApprovalError::NotYetSupported => {
-            "Policy approvals are not supported yet; a person must approve".to_owned()
-        }
-        ApprovalError::MissingAuthorization | ApprovalError::InconsistentAuthorization => {
-            "This approval is not valid; open the incident to review it".to_owned()
-        }
-        ApprovalError::Refused(ActionError::ChangedMeanwhile) => {
-            "Someone already decided this action".to_owned()
-        }
-        ApprovalError::Refused(refused) => format!("Not possible: {refused}"),
-        ApprovalError::StaleEffect => "This step was taken over; try again".to_owned(),
-        ApprovalError::Store(_) => "Something went wrong; try again".to_owned(),
-        ApprovalError::Unavailable => {
-            "The service that decides actions is restarting; try again".to_owned()
-        }
-    }
 }
 
 /// Why a chat press on a step was refused, in one line for the thread.
@@ -192,20 +162,6 @@ impl InteractionAuthorizer {
         }
     }
 
-    async fn load(
-        &self,
-        incident: IncidentId,
-        action: ActionId,
-    ) -> Result<domovoi_core::ActionRequest, String> {
-        match self.services.approvals.find(action).await {
-            Ok(found) if found.incident() == incident => Ok(found),
-            Ok(_) | Err(ApprovalError::NotFound(_)) => {
-                Err("That action no longer exists".to_owned())
-            }
-            Err(_) => Err("Something went wrong; try again".to_owned()),
-        }
-    }
-
     async fn approve(
         &self,
         actor: &Actor<'_>,
@@ -219,34 +175,7 @@ impl InteractionAuthorizer {
                 .approve_step(actor, incident, target, token, plan_prefix)
                 .await;
         }
-        let found = self.load(incident, action).await?;
-        if found.risk() == Risk::Destructive {
-            return Err(WEB_ONLY.to_owned());
-        }
-        let binding = prefix_binding(plan_prefix)?;
-        let approved = self
-            .services
-            .approvals
-            .approve(
-                &actor.caller(),
-                &found,
-                ApproveInput {
-                    binding,
-                    chat_token: Some(token),
-                    confirm_text: None,
-                },
-            )
-            .await
-            .map_err(|e| match e {
-                ApproveError::WebOnly => WEB_ONLY.to_owned(),
-                ApproveError::Approval(e) => approval_reason(&e),
-            })?;
-        Ok(Accepted::new(
-            "approve",
-            format!("action:{action}"),
-            format!("Approved {}", approved.skill()),
-        )
-        .with_detail(json!({ "incident": incident.to_string() })))
+        Err(STALE_CARD.to_owned())
     }
 
     async fn deny(
@@ -259,22 +188,11 @@ impl InteractionAuthorizer {
         if let Some(target) = self.step_for(incident, action).await? {
             return self.deny_step(actor, incident, target, token).await;
         }
-        let found = self.load(incident, action).await?;
-        self.services
-            .approvals
-            .deny(&actor.caller(), &found)
-            .await
-            .map_err(|e| approval_reason(&e))?;
-        Ok(Accepted::new(
-            "deny",
-            format!("action:{action}"),
-            format!("Denied {}", found.skill()),
-        )
-        .with_detail(json!({ "incident": incident.to_string() })))
+        Err(STALE_CARD.to_owned())
     }
 
     /// The Execution step the button's action id names, when it names one. `Ok(None)` means
-    /// the id is not an execution and the legacy action path takes over.
+    /// the id is not an execution: a retired legacy action, whose buttons are out of date.
     async fn step_for(
         &self,
         incident: IncidentId,

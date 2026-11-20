@@ -457,7 +457,7 @@ impl Counter<'_> {
 }
 
 /// Scan a macro body for the same names. Every identifier counts, and an identifier pair joined
-/// by `::` counts as a path, so `run_tool` and `AuthorizedExecution::of` cannot hide in a macro.
+/// by `::` counts as a path, so `run_tool` and `AuthorizedStep::of` cannot hide in a macro.
 fn scan_tokens(
     facts: &mut FileFacts,
     aliases: &BTreeMap<String, Vec<String>>,

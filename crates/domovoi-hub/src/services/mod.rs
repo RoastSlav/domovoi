@@ -12,7 +12,6 @@
 //! [`Caller`], and returns domain or engine types, never a DTO or an HTTP error.
 //! `cargo xtask arch-check` enforces the import rules.
 
-mod approvals;
 mod briefing;
 mod caller;
 mod hosts;
@@ -27,13 +26,12 @@ use std::sync::Arc;
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
+    AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
 };
+use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;
 use domovoi_engine::triage::TriageHandle;
-use domovoi_engine::{ActionHandle, ManagerHandle};
 
-pub use approvals::{ApprovalService, ApproveError, ApproveInput};
 pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
@@ -61,8 +59,6 @@ use crate::profile::ProfileDeps;
 pub struct Services {
     /// Acknowledge, mute, ask and triage again.
     pub incidents: IncidentService,
-    /// Approve and deny proposed actions.
-    pub approvals: ApprovalService,
     /// Approve and deny steps; cancel, pause, resume and answer operations.
     pub operations: OperationCommands,
     /// A host's status.
@@ -79,10 +75,6 @@ pub struct ServicesDeps {
     pub manager: ManagerHandle,
     /// Follow-up questions and triage; `None` when triage is off.
     pub triage: Option<TriageHandle>,
-    /// Actions, read only.
-    pub actions: Arc<dyn ActionRepo>,
-    /// The action approval service.
-    pub actions_service: ActionHandle,
     /// The operation service; `None` unless `[orchestration] enabled` is set.
     pub operations: Option<OperationHandle>,
     /// Stored operations, read only.
@@ -118,11 +110,6 @@ impl Services {
                 manager: deps.manager,
                 triage: deps.triage,
                 operations: deps.operations.clone(),
-            },
-            approvals: ApprovalService {
-                actions: deps.actions,
-                handle: deps.actions_service,
-                clock: deps.clock.clone(),
             },
             operations: OperationCommands {
                 handle: deps.operations,

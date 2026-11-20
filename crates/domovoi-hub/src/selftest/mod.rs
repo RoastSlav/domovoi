@@ -443,7 +443,6 @@ async fn stop(runtime: HubRuntime) {
         if let Some(task) = runtime.triage_task {
             let _ = task.await;
         }
-        let _ = runtime.actions_task.await;
         let _ = runtime.manager_task.await;
     };
     let clock = runtime.clock.clone();
