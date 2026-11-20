@@ -5,19 +5,23 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_core::meta::ToolSet;
 use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
-use domovoi_core::{FinishOutcome, OperationSnapshot, StepOutcome, StepUsage};
+use domovoi_core::{
+    FinishOutcome, HostId, OperationSnapshot, StepId, StepKind, StepOutcome, StepUsage,
+};
 use serde_json::json;
 
 use super::DRAFT_ATTEMPTS;
-use super::plumbing::{claim, conclude, end_operation, incident_of, runtime, short, step_of};
+use super::plumbing::{claim, end_operation, finish_turn, incident_of, runtime, short, step_of};
 use super::turn_output::{TurnKind, TurnOutput};
 use crate::effects::{EffectHandler, EffectOutcome};
+use crate::operations::decide::RecordedStep;
 use crate::operations::effects::{Address, address, after, finish, load, spec, unreadable};
 use crate::operations::writer::{Conclusion, OpShared};
 use crate::plan::PlanScope;
 use crate::triage::agent::RunUsage;
-use crate::triage::meta::LoopScope;
+use crate::triage::meta::{EvidenceRecord, LoopScope};
 use crate::triage::run::{GeneratedEnd, failed, generate, succeeded};
+use crate::triage::tools::EvidenceClass;
 
 /// The handler of `call_model` effects.
 pub(super) struct CallModel {
@@ -32,18 +36,51 @@ impl CallModel {
 }
 
 /// What the model may do in a turn of the operation in `snapshot`: the investigation tools
-/// without `ask_user`, the operation's pinned scope and its evidence budget.
-fn loop_scope(snapshot: &OperationSnapshot) -> LoopScope {
+/// (`ask_user` only when `questions` allows it), the operation's pinned scope, its evidence
+/// budget and the questions it already asked.
+fn loop_scope(snapshot: &OperationSnapshot, questions: bool) -> LoopScope {
     let budgets = &snapshot.operation.budgets;
+    let asked = snapshot
+        .steps
+        .iter()
+        .filter(|record| record.step.kind == StepKind::Question)
+        .count();
     LoopScope {
-        tools: ToolSet::Investigate { questions: false },
+        tools: ToolSet::Investigate { questions },
         plan: PlanScope::for_operation(snapshot),
         evidence_left: budgets
             .limits
             .evidence_requests
             .map(|limit| limit.saturating_sub(budgets.used.evidence_requests)),
-        questions_asked: 0,
+        questions_asked: u32::try_from(asked).unwrap_or(u32::MAX),
     }
+}
+
+/// The reads of a turn as the evidence steps the writer stores, with fresh ids.
+fn recorded(host: HostId, evidence: &[EvidenceRecord]) -> Vec<RecordedStep> {
+    evidence
+        .iter()
+        .filter_map(|record| {
+            let mut args = serde_json::to_value(&record.call).ok()?;
+            let tool = args.as_object_mut()?.remove("tool")?.as_str()?.to_owned();
+            let outcome = match record.class {
+                EvidenceClass::Observed => StepOutcome::Succeeded,
+                EvidenceClass::Unavailable(_) => StepOutcome::Unavailable,
+                EvidenceClass::Failed(_) => StepOutcome::Failed,
+                EvidenceClass::Refused(_) => StepOutcome::Refused,
+            };
+            Some(RecordedStep {
+                id: StepId::new(),
+                host,
+                tool,
+                args,
+                outcome,
+                summary: Some(record.summary.clone()),
+                reason: record.class.reason().map(short),
+                output: Some(record.output.clone()),
+            })
+        })
+        .collect()
 }
 
 /// The usage a turn stores: nothing when no response came, and no cost when any response had
@@ -103,35 +140,33 @@ impl EffectHandler for CallModel {
         let skills = triage.deps.capabilities.enabled_skills(incident.host());
         // A provider failure is a result, never a retry: a retry would spend another slot of
         // the hour.
-        let scope = loop_scope(&snapshot);
+        let scope = loop_scope(&snapshot, runtime.settings.allow_questions);
         let generated = generate(triage, &incident, &skills, bundle, scope).await;
         let usage = step_usage(generated.usage);
-        // The reads and the staged plan are not recorded as steps of the turn yet; the
-        // staged plan reaches the report as its proposals.
-        tracing::debug!(
-            reads = generated.evidence.len(),
-            staged = generated.plan.len(),
-            "the investigation turn ended",
-        );
-        let result = match generated.result {
-            Ok(GeneratedEnd::Report(report)) => Ok(report),
-            // Questions are not offered yet, so a question here is unusable.
-            Ok(GeneratedEnd::Asked(question)) => {
-                tracing::warn!(
-                    question = question.as_str(),
-                    "the model asked a question it was not offered"
-                );
-                Err("the model asked a question outside an investigation".to_owned())
-            }
-            Err(reason) => Err(reason),
-        };
-        let ended = match result {
-            Ok(report) => {
+        // The reads are recorded whether the turn succeeds or fails.
+        let evidence = recorded(incident.host(), &generated.evidence);
+        let ended = match generated.result {
+            Ok(GeneratedEnd::Report(report)) => {
                 succeeded(triage).await;
                 let summary = short(&report.headline);
                 let mut output = TurnOutput::of(TurnKind::Report);
                 output.report = Some(report);
+                output.plan = generated.plan;
                 output.dropped = generated.dropped;
+                Conclusion {
+                    step: turn,
+                    outcome: StepOutcome::Succeeded,
+                    summary: Some(summary),
+                    reason: None,
+                    output: Some(output.to_json()),
+                    usage,
+                }
+            }
+            Ok(GeneratedEnd::Asked(question)) => {
+                succeeded(triage).await;
+                let summary = short(&question);
+                let mut output = TurnOutput::of(TurnKind::Asked);
+                output.question = Some(question);
                 Conclusion {
                     step: turn,
                     outcome: StepOutcome::Succeeded,
@@ -169,6 +204,6 @@ impl EffectHandler for CallModel {
             DRAFT_ATTEMPTS,
             Some(format!("draft:{turn}")),
         );
-        conclude(shared, held, operation, Some(ended), vec![draft]).await
+        finish_turn(shared, held, operation, ended, evidence, vec![draft]).await
     }
 }

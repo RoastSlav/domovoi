@@ -286,4 +286,37 @@ mod tests {
         notification(&mut waiting, t, StepOutcome::Succeeded);
         assert!(close_decision(&waiting).is_some());
     }
+
+    #[test]
+    fn the_closer_leaves_an_investigation_with_a_pending_question_open() {
+        let mut snap = running();
+        let asking = turn(&mut snap, StepOutcome::Succeeded);
+        let question = add(
+            &mut snap,
+            StepIntent::Question {
+                text: "which one?".to_owned(),
+                expires_at: Timestamp::UNIX_EPOCH,
+            },
+            StepOutcome::Pending,
+        );
+        snap.edges.push(StepEdge {
+            operation: snap.operation.id,
+            from: question,
+            to: asking,
+            kind: EdgeKind::CausedBy,
+        });
+        assert_eq!(close_decision(&snap), None, "the question is still open");
+        // Answered: the asking turn is the newest and has no notification, so it stays open
+        // until the resumed turn's notification has succeeded.
+        for record in &mut snap.steps {
+            if record.step.id == question {
+                record.progress.outcome = StepOutcome::Succeeded;
+            }
+        }
+        assert_eq!(close_decision(&snap), None);
+        let resumed = turn(&mut snap, StepOutcome::Succeeded);
+        assert_eq!(close_decision(&snap), None);
+        notification(&mut snap, resumed, StepOutcome::Succeeded);
+        assert!(close_decision(&snap).is_some());
+    }
 }

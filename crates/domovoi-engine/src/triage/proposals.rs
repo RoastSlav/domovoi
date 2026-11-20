@@ -1,30 +1,9 @@
-//! Checking the report's action proposals. A proposal is only data: it names a skill from
-//! the host's catalogue and arguments that must pass the manifest's parameter specs.
-//! Nothing else in the report is ever acted on (INV-9).
+//! The report's "Proposals not offered" lines. A proposal is only data: the plan validator
+//! decides which ones become steps, and nothing else in the report is ever acted on (INV-9).
 
 use std::fmt::Write as _;
 
-use domovoi_core::{ActionProposal, Incident, SkillSummary, TriageReport, ValidatedArgs};
-
-/// The skill `proposal` names and its validated arguments, or why it cannot become an
-/// action on a host with `skills`.
-pub(crate) fn check<'a>(
-    proposal: &ActionProposal,
-    incident: &Incident,
-    skills: &'a [SkillSummary],
-) -> Result<(&'a SkillSummary, ValidatedArgs), String> {
-    let skill = skills
-        .iter()
-        .find(|s| s.name == proposal.skill)
-        .ok_or_else(|| "not a skill on this host".to_owned())?;
-    if !skill.applies_to.is_empty() && !skill.applies_to.contains(incident.check()) {
-        return Err(format!("does not apply to {}", incident.check()));
-    }
-    let args = skill
-        .validate_args(&proposal.args)
-        .map_err(|e| format!("bad arguments: {e}"))?;
-    Ok((skill, args))
-}
+use domovoi_core::TriageReport;
 
 /// Appends a "Proposals not offered:" list of `dropped` lines to the report's details, so
 /// the reader learns why a proposal has no action. Nothing is added for an empty list.

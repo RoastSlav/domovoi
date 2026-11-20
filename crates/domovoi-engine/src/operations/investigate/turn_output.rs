@@ -1,5 +1,6 @@
 //! What a reasoning turn stores as its output, and the report the card is built from.
 
+use domovoi_core::meta::PlanStepInput;
 use domovoi_core::{
     ContractId, EdgeKind, IncidentId, OperationSnapshot, StepId, StepIntent, StepKind, StepOutcome,
     StepRecord, TriageOutcome, TriageReport,
@@ -28,6 +29,8 @@ pub(crate) enum TurnKind {
     Skipped,
     /// The run failed.
     Failed,
+    /// The model asked the person who runs the server a question and waits for the answer.
+    Asked,
 }
 
 /// The JSON a turn stores as its output.
@@ -52,6 +55,12 @@ pub(crate) struct TurnOutput {
     /// The "Proposals not offered" lines of the model's suggestions it never corrected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) dropped: Vec<String>,
+    /// The question put to the owner, for `asked`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) question: Option<String>,
+    /// The steps the model staged, as it wrote them, for `report`; at most three.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) plan: Vec<PlanStepInput>,
 }
 
 impl TurnOutput {
@@ -65,6 +74,8 @@ impl TurnOutput {
             reason: None,
             retry_at: None,
             dropped: Vec::new(),
+            question: None,
+            plan: Vec::new(),
         }
     }
 
@@ -100,10 +111,11 @@ impl TurnOutput {
 
     /// The one line that names what the turn came to.
     pub(crate) fn headline(&self) -> String {
-        match (&self.report, &self.reason) {
-            (Some(report), _) => report.headline.clone(),
-            (None, Some(reason)) => reason.clone(),
-            (None, None) => "no result".to_owned(),
+        match (&self.report, &self.question, &self.reason) {
+            (Some(report), _, _) => report.headline.clone(),
+            (None, Some(question), _) => question.clone(),
+            (None, None, Some(reason)) => reason.clone(),
+            (None, None, None) => "no result".to_owned(),
         }
     }
 }
@@ -239,6 +251,17 @@ mod tests {
         assert_eq!(kept.summary, "s");
         assert!(!kept.details.is_empty());
         assert!(kept.details.len() < 40 * 1024);
+    }
+
+    #[test]
+    fn an_output_stored_before_questions_and_plans_still_reads() {
+        let old = r#"{"v":1,"kind":"report","dropped":["a: b"]}"#;
+        let output = TurnOutput::parse(old).expect("an old output reads");
+        assert_eq!(output.kind, TurnKind::Report);
+        assert!(output.question.is_none() && output.plan.is_empty());
+        let newer = r#"{"v":1,"kind":"asked","question":"Which one?","future":1}"#;
+        let output = TurnOutput::parse(newer).expect("unknown fields are ignored");
+        assert_eq!(output.headline(), "Which one?");
     }
 
     #[test]
