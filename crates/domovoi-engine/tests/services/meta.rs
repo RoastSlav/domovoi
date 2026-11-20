@@ -130,6 +130,13 @@ async fn a_text_report_is_an_implicit_finish() {
     let report = report_of(&outcome);
     assert_eq!(report.proposals.len(), 1, "{report:?}");
     assert_eq!(report.proposals[0].args["container"], "nginx");
+    assert!(
+        report
+            .details
+            .contains("- restart_container: bad arguments: "),
+        "the step refused beside the accepted one keeps its line: {}",
+        report.details
+    );
 }
 
 #[tokio::test]

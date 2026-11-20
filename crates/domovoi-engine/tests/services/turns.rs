@@ -328,8 +328,8 @@ async fn a_truncated_tool_call_is_never_run() {
     let w = world(Setup::default()).await;
     w.primary.push_ok(truncated(vec![Part::ToolCall {
         id: "call_cut".to_owned(),
-        name: "journal".to_owned(),
-        input: json!({"unit": "nginx"}),
+        name: "request_evidence".to_owned(),
+        input: json!({"tool": "journal", "args": {"unit": "nginx"}}),
     }]));
     w.primary.push_text(report());
 
@@ -357,8 +357,8 @@ async fn a_truncated_text_and_tool_call_is_never_run() {
         Part::Text("I will check the journal.".to_owned()),
         Part::ToolCall {
             id: "call_cut".to_owned(),
-            name: "journal".to_owned(),
-            input: json!({"unit": "nginx"}),
+            name: "request_evidence".to_owned(),
+            input: json!({"tool": "journal", "args": {"unit": "nginx"}}),
         },
     ]));
     w.primary.push_text(report());

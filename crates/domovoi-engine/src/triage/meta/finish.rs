@@ -58,18 +58,19 @@ pub(super) fn asked(state: State<'_>, question: String) -> LoopOutput {
     }
 }
 
-/// The refusals the model never corrected: a refusal for a capability that a later step
-/// staged counts as corrected, and a duplicate is not lost. Each line appears once.
+/// The refusals the model never corrected: a refusal counts as corrected when a later call
+/// staged a step of the same capability (a step refused beside an accepted one keeps its
+/// line), and a duplicate is not lost. Each line appears once.
 fn dropped(state: &State<'_>) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for logged in &state.refusals {
         if logged.duplicate {
             continue;
         }
-        let corrected = state
-            .staged
-            .iter()
-            .any(|step| family_name(&step.contract.to_string()) == family_name(&logged.contract));
+        let corrected =
+            state.staged.iter().skip(logged.staged_after).any(|step| {
+                family_name(&step.contract.to_string()) == family_name(&logged.contract)
+            });
         if !corrected && !lines.contains(&logged.line) {
             lines.push(logged.line.clone());
         }

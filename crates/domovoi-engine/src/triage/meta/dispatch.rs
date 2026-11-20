@@ -23,6 +23,9 @@ pub(super) struct Logged {
     pub(super) contract: String,
     /// Whether the step already exists, so it is not lost.
     pub(super) duplicate: bool,
+    /// How many steps were staged once the call that refused it was done: only a step staged
+    /// after that, in a later call, corrects it.
+    pub(super) staged_after: usize,
 }
 
 /// What one conversation's calls have used and staged so far. Every provider attempt starts
@@ -170,22 +173,20 @@ pub(super) async fn handle(
     }
 }
 
+/// Why `ask_user` is refused, or `None` when the question may be asked: only before any step
+/// is staged and while the operation has questions left.
+fn question_refusal(staged: usize, asked: u32) -> Option<&'static str> {
+    if staged > 0 {
+        return Some("error: you already proposed steps; call finish");
+    }
+    (asked >= MAX_QUESTIONS_PER_OPERATION)
+        .then_some("error: you have asked enough; finish with what you know")
+}
+
 /// `ask_user`: accepted only before any step is staged and while questions remain.
 fn ask(ctx: &Ctx<'_>, state: &State<'_>, question: &str) -> (ToolResult, Option<String>) {
-    if !state.staged.is_empty() {
-        return (
-            error(ctx, "error: you already proposed steps; call finish"),
-            None,
-        );
-    }
-    if state.questions_asked >= MAX_QUESTIONS_PER_OPERATION {
-        return (
-            error(
-                ctx,
-                "error: you have asked enough; finish with what you know",
-            ),
-            None,
-        );
+    if let Some(why) = question_refusal(state.staged.len(), state.questions_asked) {
+        return (error(ctx, why), None);
     }
     let text: String = ctx
         .shared
@@ -218,6 +219,7 @@ pub(super) async fn validate(ctx: &Ctx<'_>, state: &mut State<'_>, input: &PlanI
         redactor: deps.redactor.as_ref(),
     };
     let verdict = validator.validate(scope, &state.staged, input).await;
+    let staged_after = state.staged.len() + verdict.accepted.len();
     let mut accepted = Vec::new();
     for (index, step) in verdict.accepted.iter().enumerate() {
         let host = match deps.hosts.get_host(step.host).await {
@@ -250,6 +252,7 @@ pub(super) async fn validate(ctx: &Ctx<'_>, state: &mut State<'_>, input: &PlanI
                 |step: &PlanStepInput| step.contract.clone(),
             ),
             duplicate: refusal.code.is_duplicate(),
+            staged_after,
         });
     }
     // Accepted steps' indexes are positions in the call, not in `accepted`.
@@ -282,4 +285,23 @@ async fn propose(ctx: &Ctx<'_>, state: &mut State<'_>, input: &PlanInput) -> Too
 /// with a later staged step.
 pub(super) fn family_name(contract: &str) -> &str {
     contract.strip_prefix("skill.").unwrap_or(contract)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_QUESTIONS_PER_OPERATION, question_refusal};
+
+    #[test]
+    fn ask_user_is_refused_after_a_staged_step_and_after_two_questions() {
+        assert_eq!(question_refusal(0, 0), None, "the first question is asked");
+        assert_eq!(question_refusal(0, 1), None, "so is the second");
+        assert_eq!(
+            question_refusal(1, 0),
+            Some("error: you already proposed steps; call finish")
+        );
+        assert_eq!(
+            question_refusal(0, MAX_QUESTIONS_PER_OPERATION),
+            Some("error: you have asked enough; finish with what you know")
+        );
+    }
 }
