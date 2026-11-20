@@ -1,0 +1,94 @@
+---
+source: crates/domovoi-core/tests/experience.rs
+expression: revisions
+---
+[
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "outcome",
+    "revision": 1,
+    "value": "succeeded",
+    "source": "code",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "verified",
+    "revision": 1,
+    "value": true,
+    "source": "code",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "subjects",
+    "revision": 1,
+    "value": [
+      {
+        "check": "container.down",
+        "host": "01900000-0000-7000-8000-000000000001",
+        "target": "plex"
+      }
+    ],
+    "source": "code",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "contracts_executed",
+    "revision": 1,
+    "value": [
+      {
+        "contract": "skill.restart_container",
+        "host": "01900000-0000-7000-8000-000000000002",
+        "outcome": "succeeded",
+        "target": "plex"
+      }
+    ],
+    "source": "code",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "hosts",
+    "revision": 1,
+    "value": [
+      "01900000-0000-7000-8000-000000000001",
+      "01900000-0000-7000-8000-000000000002"
+    ],
+    "source": "code",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "problem",
+    "revision": 1,
+    "value": "plex was down",
+    "source": "model",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "cause",
+    "revision": 1,
+    "value": "out of memory",
+    "source": "model",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  },
+  {
+    "operation": "01900000-0000-7000-8000-000000ff0001",
+    "field": "fix",
+    "revision": 1,
+    "value": "restart it",
+    "source": "model",
+    "actor": "system:operations",
+    "created_at": "2025-10-09T08:53:20Z"
+  }
+]

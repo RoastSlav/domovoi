@@ -17,7 +17,7 @@ pub use journal::{
 pub use lifecycle::{
     ClaimBatch, ClaimedEffect, EffectCancel, EffectDeath, EffectQueue, EffectReschedule,
 };
-pub use operations::{ExecutionGuard, OperationWrite};
+pub use operations::{ExecutionGuard, OperationWrite, SummaryFieldWrite};
 pub use topic::{Topic, TopicError, TopicSet, topics_of};
 pub use transaction::{
     ActionGuard, AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected,
