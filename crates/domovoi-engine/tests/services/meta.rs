@@ -738,6 +738,7 @@ fn deps_of(w: &World) -> TriageDeps {
         manager: w.manager.clone(),
         bus: w.bus.clone(),
         shutdown: w.shutdown.clone(),
+        extra_context: Vec::new(),
     }
 }
 

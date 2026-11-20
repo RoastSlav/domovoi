@@ -10,13 +10,14 @@ mod capabilities;
 mod dispatch;
 mod evidence;
 mod finish;
+mod ledger;
 mod loop_run;
 mod record;
 
 use std::sync::Arc;
 
 use domovoi_core::meta::{MetaTool, ToolSet};
-use domovoi_core::ports::{LlmError, LlmProvider, ToolSpec};
+use domovoi_core::ports::{LlmProvider, ToolSpec};
 use domovoi_core::{ReadToolCall, SkillSummary, TriageReport};
 
 use super::Shared;
@@ -110,20 +111,6 @@ pub(crate) struct LoopOutput {
     pub(crate) plan: Vec<PlannedStep>,
     /// The "Proposals not offered" lines: refusals the model never corrected.
     pub(crate) dropped: Vec<String>,
-}
-
-/// Why one provider's attempt failed.
-pub(crate) enum Failure {
-    /// The provider failed.
-    Provider(LlmError),
-    /// The answer could not be used.
-    Invalid(String),
-}
-
-impl From<LlmError> for Failure {
-    fn from(err: LlmError) -> Self {
-        Self::Provider(err)
-    }
 }
 
 /// The fixed context of one conversation: the service, the provider, the system prompt, the

@@ -386,6 +386,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         manager,
         bus,
         shutdown: shutdown.clone(),
+        extra_context: Vec::new(),
     };
     let (triage, _triage_task) = TriageService::spawn(deps, TriageSettings::default());
     let outcome = {

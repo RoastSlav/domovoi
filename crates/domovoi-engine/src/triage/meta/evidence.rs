@@ -60,13 +60,23 @@ pub(super) async fn request(
     let read = source.read(&query, &call).await;
     let item = read.batch.items.into_iter().next();
     let (result, text) = match (&read.class, item) {
-        (EvidenceClass::Observed, Some(item)) if item.status == ItemStatus::Known => (
-            ToolResult {
-                content: item.body.clone(),
-                is_error: false,
-            },
-            item.body,
-        ),
+        (EvidenceClass::Observed, Some(item)) if item.status == ItemStatus::Known => {
+            // The read happened and is recorded with its real text; the model is told when
+            // it is the same text it already has, instead of reading it again.
+            let note = state.ledger.check(
+                &item.id,
+                &item.body,
+                u32::from(state.calls_used),
+                deps.clock.now(),
+            );
+            (
+                ToolResult {
+                    content: note.unwrap_or_else(|| item.body.clone()),
+                    is_error: false,
+                },
+                item.body,
+            )
+        }
         (class, _) => {
             let reason = class
                 .reason()

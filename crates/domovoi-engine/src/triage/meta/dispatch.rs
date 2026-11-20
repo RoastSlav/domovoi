@@ -5,6 +5,7 @@ use domovoi_core::{ReadTool, TriageReport};
 use jiff::Timestamp;
 use serde_json::{Value, json};
 
+use super::ledger::ReadLedger;
 use super::{
     Ctx, EvidenceRecord, LoopScope, MAX_QUESTIONS_PER_OPERATION, capabilities, evidence, record,
 };
@@ -39,6 +40,7 @@ pub(crate) struct State<'a> {
     pub(super) refusals: Vec<Logged>,
     pub(super) evidence_left: Option<u32>,
     pub(super) questions_asked: u32,
+    pub(super) ledger: ReadLedger,
 }
 
 impl<'a> State<'a> {
@@ -53,6 +55,7 @@ impl<'a> State<'a> {
             refusals: Vec::new(),
             evidence_left: scope.evidence_left,
             questions_asked: scope.questions_asked,
+            ledger: ReadLedger::new(),
         }
     }
 
@@ -67,6 +70,7 @@ impl<'a> State<'a> {
             refusals: Vec::new(),
             evidence_left: None,
             questions_asked: 0,
+            ledger: ReadLedger::new(),
         }
     }
 }

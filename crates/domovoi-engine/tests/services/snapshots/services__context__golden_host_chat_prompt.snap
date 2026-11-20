@@ -1,0 +1,21 @@
+---
+source: crates/domovoi-engine/tests/services/context.rs
+expression: stable(&first_opening(&w))
+---
+The NAS and the pi.
+
+## Host profile (the normal state of this host)
+
+[host | profile | known] Host profile (the normal state of this host)
+from: observed note:[uuid], observed [time]
+# Host profile: nas
+
+## Summary
+
+Debian GNU/Linux 13, 4 logical CPUs, 32 GiB memory
+
+## Read-only skills you may use on this host
+
+[capabilities | skills | known] Skills
+from: declared by a person skill manifests of host:[uuid]
+- disk_report (risk: Read): Reports the disk usage of every mount. Parameters: [].

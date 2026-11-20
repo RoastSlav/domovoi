@@ -11,12 +11,12 @@
 pub(crate) mod admission;
 pub(crate) mod agent;
 pub(crate) mod cache;
+mod chain;
 mod chat;
 mod complete;
 pub(crate) mod context;
 mod followup;
 mod history;
-mod incident_context;
 pub(crate) mod meta;
 mod prompt;
 pub(crate) mod proposals;
@@ -27,8 +27,9 @@ pub(crate) mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, HostRepo, IncidentRepo,
-    LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver, TriageCacheRepo, UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, ContextSource, HostRepo,
+    IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver, TriageCacheRepo,
+    UsageRepo,
 };
 use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
@@ -159,6 +160,9 @@ pub struct TriageDeps {
     pub bus: broadcast::Sender<DomainEvent>,
     /// Stops the service.
     pub shutdown: CancellationToken,
+    /// Context sources added by later features (knowledge, experience), asked after the
+    /// built-in ones for every purpose. Empty unless the hub registers some.
+    pub extra_context: Vec<Arc<dyn ContextSource>>,
 }
 
 /// Why a follow-up question got no answer.

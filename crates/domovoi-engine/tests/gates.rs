@@ -440,6 +440,87 @@ fn the_loop_never_stores_a_plan() {
     assert!(offenders.is_empty(), "{offenders:?}");
 }
 
+/// The context modules and the provider chain read and rank; they never reach the writer, an
+/// authorization, an agent link or a transaction.
+#[test]
+fn context_modules_cannot_reach_the_writer_or_an_authorization() {
+    let forbidden = [
+        "OperationHandle",
+        "OperationCommand",
+        "Authorization",
+        "HumanApproval",
+        "PolicyPermit",
+        "AgentLink",
+        "run_skill",
+        "run_tool",
+        "UnitOfWork",
+        "Transaction",
+        "propose_execution",
+        ".propose(",
+    ];
+    let files: Vec<(String, String)> = production_sources()
+        .into_iter()
+        .filter(|(rel, _)| rel.contains("/src/context/") || rel.ends_with("/src/triage/chain.rs"))
+        .collect();
+    assert!(
+        files
+            .iter()
+            .any(|(rel, _)| rel.ends_with("/src/triage/chain.rs"))
+            && files
+                .iter()
+                .any(|(rel, _)| rel.contains("/src/context/aggregate.rs")),
+        "the context modules and the chain are scanned"
+    );
+    let offenders: Vec<String> = files
+        .iter()
+        .flat_map(|(rel, text)| {
+            forbidden
+                .iter()
+                .filter(|word| text.contains(**word))
+                .map(move |word| format!("{rel}: {word}"))
+        })
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
+/// Triage, follow-up and chat iterate the provider chain in one place. Admission only looks
+/// the chain up to find a provider that cannot price its turns; it never runs one.
+#[test]
+fn the_provider_chain_is_iterated_in_one_place() {
+    let offenders: Vec<String> = production_sources()
+        .into_iter()
+        .filter(|(rel, _)| {
+            !rel.ends_with("/src/triage/chain.rs") && !rel.ends_with("/src/triage/admission.rs")
+        })
+        .filter(|(_, text)| text.contains(".chain()"))
+        .map(|(rel, _)| rel)
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
+/// The text of the context part of a prompt is built by the aggregator, from sources: no
+/// other triage module writes its section headings.
+#[test]
+fn context_text_is_built_only_by_the_aggregator() {
+    let headings = [
+        "## Host notes",
+        "## Recent signals",
+        "## Skills you may propose",
+    ];
+    let offenders: Vec<String> = production_sources()
+        .into_iter()
+        .filter(|(rel, _)| rel.contains("/src/triage/") && !rel.ends_with("/src/triage/context.rs"))
+        .flat_map(|(rel, text)| {
+            headings
+                .iter()
+                .filter(|heading| text.contains(**heading))
+                .map(|heading| format!("{rel}: {heading}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
 /// The production sources of the tool loop, the plan validator and the context sources.
 fn model_facing_sources() -> Vec<(String, String)> {
     let dirs = ["/src/triage/meta/", "/src/plan/", "/src/context/"];

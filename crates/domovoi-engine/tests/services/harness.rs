@@ -51,6 +51,12 @@ pub struct Setup {
     pub admission: Option<Arc<dyn domovoi_core::ports::AdmissionRepo>>,
     /// How long incident listings and note searches take, for deadline tests.
     pub store_delay: Option<std::time::Duration>,
+    /// A signal repository to use instead of the store's, for read failures.
+    pub signals: Option<Arc<dyn SignalRepo>>,
+    /// An action repository to use instead of the store's, for read failures.
+    pub actions: Option<Arc<dyn ActionRepo>>,
+    /// Extra context sources registered with the triage service.
+    pub extra_context: Vec<Arc<dyn domovoi_core::ports::ContextSource>>,
 }
 
 impl Default for Setup {
@@ -65,6 +71,9 @@ impl Default for Setup {
             usage: None,
             admission: None,
             store_delay: None,
+            signals: None,
+            actions: None,
+            extra_context: Vec::new(),
         }
     }
 }
@@ -257,10 +266,10 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         capabilities: capabilities.clone(),
         resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
-        signals: store.clone(),
+        signals: setup.signals.clone().unwrap_or_else(|| store.clone()),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: store.clone(),
+        actions: setup.actions.clone().unwrap_or_else(|| store.clone()),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
         admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
@@ -270,6 +279,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: services.clone(),
+        extra_context: setup.extra_context.clone(),
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
@@ -391,6 +401,7 @@ impl World {
             manager: self.manager.clone(),
             bus: self.bus.clone(),
             shutdown: services.clone(),
+            extra_context: Vec::new(),
         };
         let (triage, _task) = TriageService::spawn(deps, self.settings);
         spawn_ops(

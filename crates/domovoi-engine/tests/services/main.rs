@@ -8,7 +8,11 @@ mod attach;
 #[cfg(test)]
 mod capability;
 #[cfg(test)]
+mod chain;
+#[cfg(test)]
 mod chat;
+#[cfg(test)]
+mod context;
 #[cfg(test)]
 mod conversation;
 #[cfg(test)]

@@ -316,6 +316,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),
+        extra_context: Vec::new(),
     };
     let (triage, _triage_task) = TriageService::spawn(triage_deps, setup.triage);
     let gate = KindGate::new(store.clone(), &setup.held);

@@ -113,6 +113,7 @@ pub(super) async fn build(
             manager: manager.clone(),
             bus: bus.clone(),
             shutdown: shutdown.clone(),
+            extra_context: Vec::new(),
         },
         settings::triage(config),
     );

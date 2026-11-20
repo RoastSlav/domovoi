@@ -150,7 +150,7 @@ stateDiagram-v2
 
 ### 5.5 Triage
 
-- `TriageRequest`: incident snapshot, context bundle (recent signals, what changed, similar past incidents, relevant host notes), budget.
+- `TriageRequest`: incident snapshot, the layered context (items from context sources in six layers: incident, host, evidence, experience, knowledge, capabilities), budget. Each item carries a status (known, unknown, stale or disputed) and where it came from.
 - `TriageReport`: `headline` (≤ 120 chars), `summary`, `cause`, `evidence: Vec<EvidenceRef>` (≤ 3 shown on the card), `verdict`, `next_step`, `manual_steps: Vec<String>` (at most 5 steps of at most 200 chars each, what a person does by hand), `proposals: Vec<ActionProposal>`.
 - `ReadTool`: a **closed enum** of read-only tools (`DockerPs`, `DockerLogs`, `DockerInspect`, `DockerEvents`, `HostOverview`, `Journal`, `ListeningPorts`, `SmartReport`, `IncidentHistory`, `NotesSearch`, `RunReadSkill`). There is no variant that approves, executes a write skill, or changes state. `ReadTool` stays closed and is the argument enum of the `request_evidence` meta-tool.
 - `MetaTool`: the **closed enum of what the model is offered**, six names in a fixed order: `list_capabilities`, `describe_capability`, `request_evidence`, `propose_plan`, `ask_user`, `finish`. It has no variant that approves, authorizes, runs a skill or dispatches. `ToolSet` picks the subset for a conversation: `Investigate { questions }` offers all six (five without `ask_user`), `Read` offers the three read meta-tools to follow-up questions and chat. A name outside the offered set is answered `unknown tool` and changes nothing.
@@ -214,7 +214,7 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `ChatGateway` | Post or update a card, reply in a thread, receive interactions and messages | chat, testkit (recording) | engine, hub |
 | `Notifier` | One-way message (digest, alert) | chat, testkit | engine |
 | `AgentLink` | Hub side of an agent connection: send a tool or skill request, receive results and signals | hub (WebSocket and in-memory), testkit | engine |
-| `ContextSource` | Read-only context items with provenance and status (what was read, where it came from, whether it is known or unknown) | engine (`EvidenceSource`), testkit (fake) | engine |
+| `ContextSource` | Read-only context items with provenance and status (what was read, where it came from, whether it is known or unknown); later sources (knowledge, experience) register through `TriageDeps.extra_context` | engine (`EvidenceSource`), testkit (fake) | engine |
 | `CapabilityRegistry` | Read-only availability of one contract on one host, its effective effect class, enablement and the offered skills; never evaluates policy or approves | hub (the capability registry), testkit (fake) | engine, hub |
 | `ProcessExecutor` | Run an argv with limits | runner, testkit | checks (command-backed checks), llm (CLI provider), agent |
 | `HostFs` | Read files under a host root (`/proc`, `/sys`, logs) | checks (real), testkit (fixture tree) | checks |
@@ -325,8 +325,9 @@ flowchart LR
 - **Budgets:** per run (tool calls, tokens, wall time), per hour (runs), per month (spend). Over a cap, the incident is posted without triage and marked "triage skipped".
 - **Output:** the final turn is a `finish` call or a JSON object matching `TriageReport` (the two give the same report); proposals are the steps staged with `propose_plan`, each checked by the plan validator (host and target from the pinned scope through `TargetResolver`, capability, arguments, availability, budget, history), and `DraftSummary` validates them once more when it stores them. One repair retry, then fall back to a raw card.
 - **Repeat cache:** a resolved incident with the same fingerprint and equivalent evidence within 7 days reuses the previous report without a model call.
-- **Fallback chain:** primary provider → secondary provider → raw card. Repeated provider failures raise a `triage_degraded` advisory and one notice.
-- **Redaction:** the `Redactor` runs on every tool output before it enters a prompt, and on every report before it leaves the hub.
+- **Context:** an aggregator asks the context sources, re-checks what they return, removes duplicates, and applies per-layer caps and a total cap. The total cap is a quarter of the per-call prompt cap, clamped. Unknown is shown as unknown, never as empty, and whatever was left out is named.
+- **Fallback chain:** primary provider → secondary provider → raw card. One loop shared by triage, follow-up and chat. Repeated provider failures raise a `triage_degraded` advisory and one notice.
+- **Redaction:** the `Redactor` runs on every tool output before it enters a prompt, also on every context item before it is cut, and on every report before it leaves the hub.
 
 ## 12. Skills and actions
 

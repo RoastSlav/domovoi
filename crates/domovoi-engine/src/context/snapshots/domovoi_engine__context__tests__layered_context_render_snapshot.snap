@@ -1,0 +1,56 @@
+---
+source: crates/domovoi-engine/src/context/tests.rs
+expression: ctx.render()
+---
+## Incident
+
+[incident | incident | known] Plex is down
+from: observed docker_ps, observed 2023-11-14T22:13:20Z
+container exited with code 137
+
+[incident | incident | UNKNOWN: agent offline] Recent deploys
+from: observed ref:deploys, observed 2023-11-14T22:13:20Z
+no reading taken
+
+## Host profile (the normal state of this host)
+
+[host | profile | stale since 2023-11-11T22:13:20Z] Disk usage
+from: observed ref:disk, observed 2023-11-11T22:13:20Z
+disk 61% full
+
+[host | profile | disputed with notes:memory] Memory
+from: declared by a person ref:memory, observed 2023-11-14T22:13:20Z
+memory 40% used
+
+## Recent signals, newest first
+
+[evidence | signals | known] Container log
+from: observed ref:log, observed 2023-11-14T22:13:20Z
+line 1
+line 2
+line 3
+[cut]
+
+[evidence | signals | known] item spare
+from: observed ref:spare, observed 2023-11-14T22:13:20Z
+second
+
+## Historical evidence, not authorization: past_runs
+
+[experience | past_runs | known] Restarted plex last week
+from: historical evidence, not authorization ref:run, observed 2023-11-14T22:13:20Z
+restarted plex, it came back
+
+## Host notes
+
+[knowledge | notes | UNKNOWN: note store unavailable] Host notes
+nothing could be read from this source.
+
+## Skills you may propose
+
+None.
+
+## Context left out to fit the size limit
+
+- evidence: 1 item from signals
+What is listed here was not shown to you. It is unknown to you, not absent: do not assume there is nothing there.

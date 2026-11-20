@@ -3,15 +3,17 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use domovoi_core::meta::PlanStepInput;
-use domovoi_core::ports::{LlmCapability, LlmError, LlmMessage, LlmProvider, Part, Role};
+use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, Part, Role};
 use domovoi_core::{Incident, IncidentId, ReadToolCall, SkillSummary, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
 use super::admission::{ADMISSION_RETRY, Purpose, Refusal, admit, unpriced_text};
 use super::agent::{self, ToolUse};
 use super::cache::evidence_digest;
-use super::meta::{self, EvidenceRecord, Failure, LoopEnd, LoopOutput, LoopScope, meta_prompt};
+use super::chain::{Attempt, AttemptError, ChainState, run_chain};
+use super::meta::{self, EvidenceRecord, LoopEnd, LoopOutput, LoopScope, meta_prompt};
 use super::report::redact_report;
 use super::{DEGRADED_AFTER, SYSTEM_PROMPT, Shared, tools};
 use crate::advisories::triage_degraded;
@@ -142,10 +144,9 @@ pub(crate) async fn generate(
     scope: LoopScope,
 ) -> Generated {
     let deps = &shared.deps;
-    let mut tool_use: Vec<ToolUse> = Vec::new();
-    let mut evidence: Vec<EvidenceRecord> = Vec::new();
-    let mut run = agent::RunBudget::for_run(shared);
-    let input = Inputs {
+    let mut state = ChainState::new(shared);
+    let attempt = InvestigateAttempt {
+        shared,
         incident,
         skills,
         bundle,
@@ -153,7 +154,7 @@ pub(crate) async fn generate(
     };
     let mut plan = Vec::new();
     let mut dropped = Vec::new();
-    let result = match providers(shared, &input, &mut tool_use, &mut evidence, &mut run).await {
+    let result = match run_chain(shared, &mut state, &attempt).await {
         Ok(output) => {
             plan = output.plan.into_iter().map(|step| step.input).collect();
             dropped = output.dropped;
@@ -165,20 +166,22 @@ pub(crate) async fn generate(
                 LoopEnd::Asked(question) => Ok(GeneratedEnd::Asked(question)),
             }
         }
-        Err(reason) => Err(deps.redactor.redact(&reason)),
+        Err(reasons) => Err(deps.redactor.redact(&reasons.join("; "))),
     };
     Generated {
         result,
-        tool_use,
-        usage: run.usage(),
-        evidence,
+        tool_use: state.used,
+        usage: state.run.usage(),
+        evidence: state.evidence,
         plan,
         dropped,
     }
 }
 
-/// What one run is about.
-struct Inputs<'a> {
+/// One investigation run over the provider chain: the incident, the context bundle and the
+/// loop's scope.
+struct InvestigateAttempt<'a> {
+    shared: &'a Shared,
     incident: &'a Incident,
     skills: &'a [SkillSummary],
     bundle: &'a str,
@@ -217,66 +220,6 @@ pub(crate) fn provider_name(provider: &Arc<dyn LlmProvider>) -> String {
         Some(model) => format!("{} model {}", provider.id(), model),
         None => provider.id().to_owned(),
     }
-}
-
-async fn providers(
-    shared: &Shared,
-    input: &Inputs<'_>,
-    used: &mut Vec<ToolUse>,
-    evidence: &mut Vec<EvidenceRecord>,
-    run: &mut agent::RunBudget,
-) -> Result<LoopOutput, String> {
-    let chain = shared.chain();
-    let mut reasons: Vec<String> = Vec::new();
-    for (i, provider) in chain.iter().enumerate() {
-        // A provider that refuses a capability changes how the run is built (the opening
-        // prompt gathers tool output itself when tools are gone), so the attempt is rebuilt
-        // once per distinct capability from the top instead of continuing with a prompt
-        // written for the old shape. Each capability may be handled once per provider. The
-        // staged plan starts afresh with every attempt; the reads of a rebuilt attempt are
-        // forgotten together with their tool use.
-        let used_before = used.len();
-        let evidence_before = evidence.len();
-        let mut handled: Vec<LlmCapability> = Vec::new();
-        let why = loop {
-            match attempt(shared, provider, input, used, evidence, run).await {
-                Ok(output) => return Ok(output),
-                Err(Failure::Provider(LlmError::CapabilityRejected { capability, .. }))
-                    if !handled.contains(&capability) =>
-                {
-                    handled.push(capability);
-                    used.truncate(used_before);
-                    evidence.truncate(evidence_before);
-                    tracing::info!(
-                        provider = provider.id(),
-                        %capability,
-                        "the provider refused a capability; rebuilding the run without it",
-                    );
-                }
-                Err(Failure::Provider(err)) => {
-                    break shared
-                        .deps
-                        .redactor
-                        .redact(&format!("{} failed: {err}", provider_name(provider)));
-                }
-                Err(Failure::Invalid(why)) => {
-                    break shared
-                        .deps
-                        .redactor
-                        .redact(&format!("{} failed: {why}", provider_name(provider)));
-                }
-            }
-        };
-        if i + 1 < chain.len() {
-            tracing::info!(
-                provider = provider.id(),
-                reason = why.as_str(),
-                "triage falls back to the next provider",
-            );
-        }
-        reasons.push(why);
-    }
-    Err(reasons.join("; "))
 }
 
 /// The first user message: the bundle and, for providers without tools, the prefetched
@@ -321,35 +264,54 @@ async fn opening(
     Ok(text)
 }
 
-/// One provider's run: the opening, then the investigation loop. A provider that calls
-/// tools gets the meta-tools and their prompt; one that does not gets the prefetched reads
-/// and the text prompt, and its answer is read as a report.
-async fn attempt(
-    shared: &Shared,
-    provider: &Arc<dyn LlmProvider>,
-    input: &Inputs<'_>,
-    used: &mut Vec<ToolUse>,
-    evidence: &mut Vec<EvidenceRecord>,
-    run: &mut agent::RunBudget,
-) -> Result<LoopOutput, Failure> {
-    let first = opening(shared, provider, input.incident, input.bundle, used, run).await?;
-    let mut messages = vec![LlmMessage {
-        role: Role::User,
-        parts: vec![Part::Text(first)],
-    }];
-    let system = if provider.supports_tools() {
-        meta_prompt(input.scope.tools)
-    } else {
-        SYSTEM_PROMPT.to_owned()
-    };
-    let ctx = meta::Ctx {
-        shared,
-        provider,
-        system: &system,
-        scope: tools::Scope::of(input.incident),
-        skills: input.skills,
-    };
-    meta::investigate(&ctx, input.scope, &mut messages, used, evidence, run).await
+#[async_trait]
+impl Attempt for InvestigateAttempt<'_> {
+    type Output = LoopOutput;
+
+    /// One provider's run: the opening, then the investigation loop. A provider that calls
+    /// tools gets the meta-tools and their prompt; one that does not gets the prefetched
+    /// reads and the text prompt, and its answer is read as a report.
+    async fn attempt(
+        &self,
+        provider: &Arc<dyn LlmProvider>,
+        state: &mut ChainState,
+    ) -> Result<LoopOutput, AttemptError> {
+        let shared = self.shared;
+        let first = opening(
+            shared,
+            provider,
+            self.incident,
+            self.bundle,
+            &mut state.used,
+            &state.run,
+        )
+        .await?;
+        let mut messages = vec![LlmMessage {
+            role: Role::User,
+            parts: vec![Part::Text(first)],
+        }];
+        let system = if provider.supports_tools() {
+            meta_prompt(self.scope.tools)
+        } else {
+            SYSTEM_PROMPT.to_owned()
+        };
+        let ctx = meta::Ctx {
+            shared,
+            provider,
+            system: &system,
+            scope: tools::Scope::of(self.incident),
+            skills: self.skills,
+        };
+        meta::investigate(
+            &ctx,
+            self.scope,
+            &mut messages,
+            &mut state.used,
+            &mut state.evidence,
+            &mut state.run,
+        )
+        .await
+    }
 }
 
 pub(crate) async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
