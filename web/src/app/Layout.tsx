@@ -2,6 +2,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { useLiveEvents } from "../api/events";
 import { Banner, useToast } from "../components";
+import { OperatorSurface } from "../features/operator/OperatorSurface";
 import { SetupBanner } from "../features/setup/SetupBanner";
 import { UpdateBanner } from "../features/updates/UpdateBanner";
 import { AppPalette } from "./AppPalette";
@@ -79,6 +80,7 @@ export function Layout() {
               onClose={() => palette.setOpen(false)}
               onToggleRail={toggle}
             />
+            <OperatorSurface />
             <div className={styles.column}>
               <TopBar
                 menu={menu}

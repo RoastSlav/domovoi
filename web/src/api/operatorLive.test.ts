@@ -65,3 +65,26 @@ test("tools_start_and_finish", () => {
   );
   expect(state.tools).toEqual([{ tool: "journal", state: "finished", failed: true }]);
 });
+
+test("the_committed_wire_frames_drive_the_reducer_through_a_whole_turn", async () => {
+  const { default: fixture } = await import("../test/fixtures/operator-live/frames.json");
+  const frameOf = (name: string) => {
+    const found = fixture.frames.find((f) => f.name === name);
+    if (!found) {
+      throw new Error(`no ${name} frame in the fixture`);
+    }
+    return { name: found.event, data: found.data };
+  };
+  const turn = frameOf("live_start").data.turn as string;
+
+  let state = liveReducer(NO_LIVE, frameOf("live_start"), undefined);
+  expect(state.turn).toBe(turn);
+  state = liveReducer(state, frameOf("live_text_attempt1"), turn);
+  expect(state.text).toMatch(/^The journal shows/);
+  state = liveReducer(state, frameOf("live_text_attempt2"), turn);
+  expect(state).toMatchObject({ attempt: 2, text: "" });
+  state = liveReducer(state, frameOf("live_tool_started"), turn);
+  state = liveReducer(state, frameOf("live_tool_finished"), turn);
+  expect(state.tools).toEqual([{ tool: "journal", state: "finished", failed: false }]);
+  expect(liveReducer(state, frameOf("live_end_complete"), turn)).toEqual(NO_LIVE);
+});

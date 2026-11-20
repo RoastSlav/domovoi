@@ -56,6 +56,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         preload: PAGES.operations.preload,
       },
       {
+        to: "/operator",
+        label: "Operator",
+        icon: "chat",
+        preload: PAGES.operator.preload,
+      },
+      {
         to: "/approvals",
         label: "Approvals",
         icon: "approve",

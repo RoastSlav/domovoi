@@ -34,6 +34,7 @@ export const PAGES = {
   overview: page(() => import("../features/overview/OverviewPage").then((m) => m.OverviewPage)),
   note: page(() => import("../features/notes/NoteEditorPage").then((m) => m.NoteEditorPage)),
   notes: page(() => import("../features/notes/NotesPage").then((m) => m.NotesPage)),
+  operator: page(() => import("../features/operator/OperatorPage").then((m) => m.OperatorPage)),
   operations: page(() =>
     import("../features/operations/OperationsPage").then((m) => m.OperationsPage),
   ),

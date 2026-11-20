@@ -190,3 +190,18 @@ export type PastOperation = Schemas["PastOperationDto"];
 export type SimilarOperations = Schemas["SimilarOperationsDto"];
 /** The owner's search over past operations. */
 export type ExperienceSearch = Schemas["ExperienceSearchDto"];
+
+/** A conversation with the Operator, without its messages. */
+export type ConversationSummary = Schemas["ConversationSummaryDto"];
+/** A conversation with its messages and the turn in progress. */
+export type ConversationDetail = Schemas["ConversationDetailDto"];
+/** One page of conversations. */
+export type ConversationPage = Schemas["ConversationPage"];
+/** One question or answer of a conversation. */
+export type ConversationMessage = Schemas["MessageDto"];
+/** The committed question and its pending answer. */
+export type SentMessage = Schemas["SendResponse"];
+/** What a conversation is about, as the hub stores it. */
+export type ConversationScope = Schemas["ScopeDto"];
+/** What a new conversation is about. */
+export type ScopeChoice = Schemas["ScopeRequest"];

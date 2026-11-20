@@ -61,8 +61,10 @@ export function OperatorTurns({
         }
         if (turn.status === "pending") {
           return (
-            <li className={styles.answer} key={turn.id} role="status" aria-label="Answering">
-              {live && live.text !== "" ? <Markdown text={live.text} /> : <Spinner />}
+            <li className={styles.answer} key={turn.id}>
+              <div role="status" aria-label="Answering">
+                {live && live.text !== "" ? <Markdown text={live.text} /> : <Spinner />}
+              </div>
               <span className={styles.pending}>
                 <StatusPill meta={turnStatusMeta("pending")} size="sm" />
                 {onStop && (
