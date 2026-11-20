@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::LlmError;
+use domovoi_core::ports::{AnswerSink, LlmError};
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
@@ -123,9 +123,12 @@ enum Block {
 
 /// Reads `events` to the end and returns what the model said. A stream that stops before
 /// `message_stop` was cut off and is an error.
+///
+/// Every text fragment is also handed to `sink`, in order; tool and thinking blocks never are.
 pub(crate) async fn assemble(
     events: &mut Events,
     secret: Option<&SecretString>,
+    sink: Option<&dyn AnswerSink>,
 ) -> Result<WireResponse, LlmError> {
     let mut blocks: BTreeMap<usize, Block> = BTreeMap::new();
     let mut stop_reason = None;
@@ -162,6 +165,9 @@ pub(crate) async fn assemble(
             }
             Event::ContentBlockDelta { index, delta } => match (blocks.get_mut(&index), delta) {
                 (Some(Block::Text(text)), BlockDelta::TextDelta { text: more }) => {
+                    if let Some(sink) = sink {
+                        sink.text(&more);
+                    }
                     text.push_str(&more);
                 }
                 (Some(Block::Tool { json, .. }), BlockDelta::InputJsonDelta { partial_json }) => {

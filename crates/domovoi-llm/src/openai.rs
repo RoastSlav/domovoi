@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason,
+    AnswerSink, LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part,
+    Role, StopReason,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -73,14 +73,18 @@ impl OpenAiCompatible {
         &self,
         body: Value,
         secret: Option<&SecretString>,
-    ) -> Result<WireResponse, LlmError> {
+        sink: Option<&dyn AnswerSink>,
+    ) -> Result<(WireResponse, bool), LlmError> {
         let mut request = self.client.post(&self.url).json(&body);
         if let Some(key) = secret {
             request = request.bearer_auth(key.expose_secret());
         }
         match http::send_streaming::<WireResponse>(request, secret).await? {
-            Reply::Whole(response) => Ok(response),
-            Reply::Stream(mut events) => openai_stream::assemble(&mut events, secret).await,
+            Reply::Whole(response) => Ok((response, false)),
+            Reply::Stream(mut events) => Ok((
+                openai_stream::assemble(&mut events, secret, sink).await?,
+                true,
+            )),
         }
     }
 
@@ -166,15 +170,38 @@ impl LlmProvider for OpenAiCompatible {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        self.turn(req, None).await
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        sink: &dyn AnswerSink,
+    ) -> Result<LlmResponse, LlmError> {
+        self.turn(req, Some(sink)).await
+    }
+}
+
+impl OpenAiCompatible {
+    /// One turn; text is forwarded to `sink` while it streams in.
+    async fn turn(
+        &self,
+        req: LlmRequest,
+        sink: Option<&dyn AnswerSink>,
+    ) -> Result<LlmResponse, LlmError> {
         tracing::debug!(model = %self.model, messages = req.messages.len(), "openai turn");
         let secret = self.api_key.as_ref();
         let body = self.body(&req);
         let included = Self::included(&body);
-        let response = match self.send(body, secret).await {
-            Ok(response) => response,
+        let (response, streamed) = match self.send(body, secret, sink).await {
+            Ok(sent) => sent,
             Err(err) => return Err(self.refuse(err, included)),
         };
-        into_response(response, &req, self.price.as_ref(), self.api_key.as_ref())
+        let response = into_response(response, &req, self.price.as_ref(), self.api_key.as_ref())?;
+        if let (Some(sink), false) = (sink, streamed) {
+            crate::anthropic::emit_text(&response, sink);
+        }
+        Ok(response)
     }
 }
 

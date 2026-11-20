@@ -557,3 +557,81 @@ async fn openai_stream_reported_zero_is_not_missing() {
     assert_eq!(response.usage.output_tokens, 0);
     assert_eq!(response.usage.cost_micros, Some(0));
 }
+
+/// Collects the fragments and tool events a provider reports.
+#[derive(Default)]
+struct Fragments(std::sync::Mutex<Vec<String>>);
+
+impl domovoi_core::ports::AnswerSink for Fragments {
+    fn attempt_started(&self) {}
+    fn text(&self, fragment: &str) {
+        self.0.lock().unwrap().push(fragment.to_owned());
+    }
+    fn tool(&self, _tool: &str, _phase: domovoi_core::ports::ToolPhase, _failed: bool) {}
+}
+
+#[tokio::test]
+async fn anthropic_stream_forwards_text_deltas_to_the_sink() {
+    let server = serve(
+        "/v1/messages",
+        events(
+            "data: {\"type\":\"message_start\",\"message\":{}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"secret thoughts\"}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"One \"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"two \"}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"three.\"}}\n\n\
+             data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"docker_ps\",\"input\":{}}}\n\n\
+             data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{}\"}}\n\n\
+             data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n\
+             data: {\"type\":\"message_stop\"}\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&anthropic(&server.uri()), None).unwrap();
+    let sink = Fragments::default();
+    let response = provider
+        .complete_streaming(ask("Status?"), &sink)
+        .await
+        .unwrap();
+    assert_eq!(*sink.0.lock().unwrap(), ["One ", "two ", "three."]);
+    assert_eq!(response.parts[0], Part::Text("One two three.".to_owned()));
+}
+
+#[tokio::test]
+async fn openai_stream_forwards_content_deltas_to_the_sink() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hidden\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{\"content\":\"All \"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{\"content\":\"good.\"},\"finish_reason\":\"stop\"}]}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+    let sink = Fragments::default();
+    let response = provider
+        .complete_streaming(ask("Status?"), &sink)
+        .await
+        .unwrap();
+    assert_eq!(*sink.0.lock().unwrap(), ["All ", "good."]);
+    assert_eq!(response.parts, vec![Part::Text("All good.".to_owned())]);
+}
+
+#[tokio::test]
+async fn streaming_without_a_sink_is_unchanged() {
+    let server = serve(
+        "/v1/chat/completions",
+        events(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Fine.\"},\"finish_reason\":\"stop\"}]}\n\n\
+             data: [DONE]\n\n",
+        ),
+    )
+    .await;
+    let provider = build(&openai(&server.uri(), false), None).unwrap();
+    let response = provider.complete(ask("Status?")).await.unwrap();
+    assert_eq!(response.parts, vec![Part::Text("Fine.".to_owned())]);
+}

@@ -68,3 +68,46 @@ async fn call_inside_deadline_returns_the_answer() {
         vec![domovoi_core::ports::Part::Text("in time".to_owned())]
     );
 }
+
+#[derive(Default)]
+struct Seen(std::sync::Mutex<Vec<String>>);
+
+impl domovoi_core::ports::AnswerSink for Seen {
+    fn attempt_started(&self) {}
+    fn text(&self, fragment: &str) {
+        self.0.lock().unwrap().push(fragment.to_owned());
+    }
+    fn tool(&self, _tool: &str, _phase: domovoi_core::ports::ToolPhase, _failed: bool) {}
+}
+
+#[tokio::test]
+async fn deadline_wrapper_forwards_streaming_and_still_times_out() {
+    let clock = clock();
+    let llm = Arc::new(ScriptedLlm::new());
+    llm.push_text("streamed");
+    let wrapped = with_deadline(llm.clone(), SignedDuration::from_secs(30), clock.clone());
+    let sink = Seen::default();
+    let response = wrapped.complete_streaming(request(), &sink).await.unwrap();
+    assert_eq!(
+        response.parts,
+        vec![domovoi_core::ports::Part::Text("streamed".to_owned())]
+    );
+    assert_eq!(*sink.0.lock().unwrap(), ["streamed"]);
+
+    llm.push_text("late");
+    llm.hold();
+    let slow = wrapped.clone();
+    let handle = tokio::spawn(async move {
+        let sink = Seen::default();
+        slow.complete_streaming(request(), &sink).await
+    });
+    llm.wait_for_request().await;
+    tokio::task::yield_now().await;
+    clock.advance(SignedDuration::from_secs(31));
+    assert_eq!(
+        handle.await.unwrap(),
+        Err(LlmError::Timeout {
+            after: SignedDuration::from_secs(30)
+        }),
+    );
+}
