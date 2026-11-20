@@ -1220,6 +1220,44 @@ expression: spec
         ],
         "type": "object"
       },
+      "EditSummaryFieldRequest": {
+        "description": "What to write into a narrative field.",
+        "properties": {
+          "expected_revision": {
+            "description": "The field's newest revision when it was opened; 0 when it had none.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "value": {
+            "description": "The new text, 1 to 1000 characters. The same text as a model draft confirms it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "expected_revision"
+        ],
+        "type": "object"
+      },
+      "EditSummaryResponse": {
+        "description": "The result of an edit.",
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/SummaryFieldDto",
+            "description": "The revision that now holds the text."
+          },
+          "unchanged": {
+            "description": "Whether the text was already the owner's, so nothing was added.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "field",
+          "unchanged"
+        ],
+        "type": "object"
+      },
       "EditableSettings": {
         "description": "The settings as the UI edits them.",
         "properties": {
@@ -1394,6 +1432,36 @@ expression: spec
         ],
         "type": "object"
       },
+      "ExecutedContractDto": {
+        "description": "A capability run that was handed to an agent.",
+        "properties": {
+          "contract": {
+            "description": "The contract, for example `skill.restart_container`.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host it ran on.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`succeeded`, `failed`, `outcome_unknown` or `running`.",
+            "type": "string"
+          },
+          "target": {
+            "description": "The target, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contract",
+          "host_id",
+          "outcome"
+        ],
+        "type": "object"
+      },
       "ExecutionDto": {
         "description": "A run of a capability that a person approves or denies.",
         "properties": {
@@ -1504,6 +1572,80 @@ expression: spec
           "plan_binding",
           "confirm_required",
           "expires_at"
+        ],
+        "type": "object"
+      },
+      "ExperienceItemDto": {
+        "description": "One search hit.",
+        "properties": {
+          "match_pass": {
+            "description": "`all_words` or `any_word`.",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/PastOperationDto",
+            "description": "The operation."
+          },
+          "snippet": {
+            "description": "A short excerpt around the match.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "operation",
+          "match_pass"
+        ],
+        "type": "object"
+      },
+      "ExperienceSearchDto": {
+        "description": "The result of the owner's search over past operations.",
+        "properties": {
+          "as_of_seq": {
+            "description": "The journal position read before the search.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "host": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostRefDto",
+                "description": "The host searched, for scope `host`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "description": "The matches; the newest operations when the query had no words.",
+            "items": {
+              "$ref": "#/components/schemas/ExperienceItemDto"
+            },
+            "type": "array"
+          },
+          "label": {
+            "description": "Always `historical evidence, not authorization`.",
+            "type": "string"
+          },
+          "query": {
+            "description": "The search text as given.",
+            "type": "string"
+          },
+          "scope": {
+            "description": "`host` or `global`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "query",
+          "items",
+          "as_of_seq",
+          "label"
         ],
         "type": "object"
       },
@@ -1924,6 +2066,26 @@ expression: spec
           "protocol_state",
           "hub_protocol",
           "open_incidents"
+        ],
+        "type": "object"
+      },
+      "HostRefDto": {
+        "description": "A host as a person knows it.",
+        "properties": {
+          "id": {
+            "description": "Host id.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The host's name; `null` when the host was deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id"
         ],
         "type": "object"
       },
@@ -3031,6 +3193,17 @@ expression: spec
               }
             ]
           },
+          "resolution": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionBriefDto",
+                "description": "How a finished operation ended; `null` until its summary exists."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "started_at": {
             "description": "When it started.",
             "type": [
@@ -3190,6 +3363,63 @@ expression: spec
           "description",
           "required",
           "kind"
+        ],
+        "type": "object"
+      },
+      "PastOperationDto": {
+        "description": "One finished operation, the shape every list of past operations shares.",
+        "properties": {
+          "contracts": {
+            "description": "What was run.",
+            "items": {
+              "$ref": "#/components/schemas/ExecutedContractDto"
+            },
+            "type": "array"
+          },
+          "ended_at": {
+            "description": "When it ended.",
+            "type": "string"
+          },
+          "goal": {
+            "description": "What it was for.",
+            "type": "string"
+          },
+          "hosts": {
+            "description": "The hosts involved.",
+            "items": {
+              "$ref": "#/components/schemas/HostRefDto"
+            },
+            "type": "array"
+          },
+          "narrative": {
+            "description": "`problem`, `cause` and `fix`: only those that exist, each with its source.",
+            "items": {
+              "$ref": "#/components/schemas/SummaryFieldDto"
+            },
+            "type": "array"
+          },
+          "operation_id": {
+            "description": "Operation id.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`succeeded`, `failed`, `escalated` or `cancelled`.",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the fix was verified.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "goal",
+          "ended_at",
+          "outcome",
+          "verified",
+          "hosts",
+          "contracts",
+          "narrative"
         ],
         "type": "object"
       },
@@ -3979,6 +4209,87 @@ expression: spec
         ],
         "type": "object"
       },
+      "ResolutionBriefDto": {
+        "description": "The outcome of a finished operation, for a list row.",
+        "properties": {
+          "ended_at": {
+            "description": "When it ended.",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`succeeded`, `failed`, `escalated` or `cancelled`.",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the fix was verified.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "outcome",
+          "verified",
+          "ended_at"
+        ],
+        "type": "object"
+      },
+      "ResolutionSummaryDto": {
+        "description": "The summary of one operation with where each field came from.",
+        "properties": {
+          "as_of_seq": {
+            "description": "The journal position read before the summary; apply only events with a greater `seq`.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ended_at": {
+            "description": "When the operation ended.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "description": "The current revision of each field that has one.",
+            "items": {
+              "$ref": "#/components/schemas/SummaryFieldDto"
+            },
+            "type": "array"
+          },
+          "history": {
+            "description": "Every revision, oldest first; the newest 200 when there are more.",
+            "items": {
+              "$ref": "#/components/schemas/SummaryRevisionDto"
+            },
+            "type": "array"
+          },
+          "history_truncated": {
+            "description": "Whether older revisions were left out of `history`.",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "Always `historical evidence, not authorization`.",
+            "type": "string"
+          },
+          "operation_id": {
+            "description": "Operation id.",
+            "type": "string"
+          },
+          "state": {
+            "description": "`not_ready` while the operation is open, `drafting` once it has finished and has no\nsummary yet, `ready` after.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "as_of_seq",
+          "state",
+          "fields",
+          "history",
+          "history_truncated",
+          "label"
+        ],
+        "type": "object"
+      },
       "ResumeOperationRequest": {
         "description": "Resuming a paused operation.",
         "properties": {
@@ -4580,6 +4891,82 @@ expression: spec
         ],
         "type": "object"
       },
+      "SimilarOperationDto": {
+        "description": "A similar past operation.",
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/PastOperationDto",
+            "description": "The operation."
+          },
+          "reasons": {
+            "description": "Why it scored.",
+            "items": {
+              "$ref": "#/components/schemas/SimilarReasonDto"
+            },
+            "type": "array"
+          },
+          "score": {
+            "description": "The score; higher is more similar.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation",
+          "score",
+          "reasons"
+        ],
+        "type": "object"
+      },
+      "SimilarOperationsDto": {
+        "description": "Similar past operations, best first.",
+        "properties": {
+          "as_of_seq": {
+            "description": "The journal position read before the list.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "items": {
+            "description": "The matches.",
+            "items": {
+              "$ref": "#/components/schemas/SimilarOperationDto"
+            },
+            "type": "array"
+          },
+          "label": {
+            "description": "Always `historical evidence, not authorization`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "as_of_seq",
+          "label"
+        ],
+        "type": "object"
+      },
+      "SimilarReasonDto": {
+        "description": "Why a past operation was judged similar.",
+        "properties": {
+          "code": {
+            "description": "`same_check`, `same_target`, `same_contract` or `similar_words`.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "The contract id for `same_contract`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "SimulateRequest": {
         "description": "Simulate rules over recorded Execution steps.",
         "properties": {
@@ -5005,6 +5392,89 @@ expression: spec
           "outcome",
           "intent",
           "created_at"
+        ],
+        "type": "object"
+      },
+      "SummaryFieldDto": {
+        "description": "The current revision of one summary field.",
+        "properties": {
+          "actor": {
+            "description": "The actor, for example `system:operations`.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "When it was written.",
+            "type": "string"
+          },
+          "editable": {
+            "description": "Whether the owner can edit it: a narrative field of a finished operation.",
+            "type": "boolean"
+          },
+          "field": {
+            "description": "The field name, for example `problem`.",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision number, from 1.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "description": "Who wrote it: `code`, `model` or `user`.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The canonical JSON of the revision: a string, a boolean or an array."
+          }
+        },
+        "required": [
+          "field",
+          "value",
+          "source",
+          "actor",
+          "revision",
+          "created_at",
+          "editable"
+        ],
+        "type": "object"
+      },
+      "SummaryRevisionDto": {
+        "description": "One revision in a field's history.",
+        "properties": {
+          "actor": {
+            "description": "The actor.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "When it was written.",
+            "type": "string"
+          },
+          "field": {
+            "description": "The field name.",
+            "type": "string"
+          },
+          "revision": {
+            "description": "The revision number, from 1.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "source": {
+            "description": "Who wrote it: `code`, `model` or `user`.",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value of this revision."
+          }
+        },
+        "required": [
+          "field",
+          "revision",
+          "source",
+          "actor",
+          "created_at",
+          "value"
         ],
         "type": "object"
       },
@@ -6415,6 +6885,97 @@ expression: spec
         ]
       }
     },
+    "/api/v1/experience/search": {
+      "get": {
+        "operationId": "search_experience_owner",
+        "parameters": [
+          {
+            "description": "What to look for, at most 200 characters; empty lists the newest operations.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`host` (default) or `global`.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The host's name, required for scope `host`.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, 1 to 50. Default 10.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperienceSearchDto"
+                }
+              }
+            },
+            "description": "The matches"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A bad scope, a missing host or a query that is too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Searches finished operations. One host by default; every host only when asked.",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
     "/api/v1/hosts": {
       "get": {
         "operationId": "list_hosts",
@@ -7798,6 +8359,69 @@ expression: spec
         "summary": "Mutes an incident for a while.",
         "tags": [
           "incidents"
+        ]
+      }
+    },
+    "/api/v1/incidents/{id}/similar-operations": {
+      "get": {
+        "operationId": "get_similar_operations_for_incident",
+        "parameters": [
+          {
+            "description": "Incident id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, 1 to 20. Default 5.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarOperationsDto"
+                }
+              }
+            },
+            "description": "Similar past operations"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such incident"
+          }
+        },
+        "summary": "Past operations that fixed something like an incident, on its host, best first.",
+        "tags": [
+          "experience"
         ]
       }
     },
@@ -9846,6 +10470,69 @@ expression: spec
         ]
       }
     },
+    "/api/v1/operations/{id}/similar": {
+      "get": {
+        "operationId": "get_similar_operations",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many to return, 1 to 20. Default 5.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarOperationsDto"
+                }
+              }
+            },
+            "description": "Similar past operations"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such operation"
+          }
+        },
+        "summary": "Past operations that resemble an operation, on its host, best first.",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
     "/api/v1/operations/{id}/steps/{step}": {
       "get": {
         "operationId": "get_operation_step",
@@ -10207,6 +10894,169 @@ expression: spec
         "summary": "Denies an Execution step.",
         "tags": [
           "operations"
+        ]
+      }
+    },
+    "/api/v1/operations/{id}/summary": {
+      "get": {
+        "operationId": "get_operation_summary",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolutionSummaryDto"
+                }
+              }
+            },
+            "description": "The summary"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such operation"
+          }
+        },
+        "summary": "The summary of one operation: each field's current revision with its source, and the\nwhole history.",
+        "tags": [
+          "experience"
+        ]
+      }
+    },
+    "/api/v1/operations/{id}/summary/{field}": {
+      "post": {
+        "operationId": "edit_operation_summary_field",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`problem`, `cause` or `fix`",
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditSummaryFieldRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditSummaryResponse"
+                }
+              }
+            },
+            "description": "The revision that now holds the text"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a summary field, or the text is empty, too long or has control characters"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A field Domovoi fills itself"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such operation"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The operation has not finished, or the summary changed since it was opened"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Orchestration is not enabled, or the service is restarting"
+          }
+        },
+        "summary": "Writes or confirms the problem, cause or fix of a finished operation's summary.",
+        "tags": [
+          "experience"
         ]
       }
     },
@@ -11692,6 +12542,10 @@ expression: spec
     {
       "description": "Operations, their steps and step approvals",
       "name": "operations"
+    },
+    {
+      "description": "Summaries of finished operations, similar past operations and search",
+      "name": "experience"
     },
     {
       "description": "Policy versions, shadow decisions, the simulator and publication",

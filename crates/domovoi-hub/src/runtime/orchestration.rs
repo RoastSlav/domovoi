@@ -62,6 +62,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
     let deps = OperationDeps {
         bus: bus.clone(),
         operations: store.clone(),
+        experience: store.clone(),
         uow: store.clone(),
         effects: store.clone(),
         effect_read: store.clone(),

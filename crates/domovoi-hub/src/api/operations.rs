@@ -132,6 +132,7 @@ pub(super) async fn list(
         let loaded = state.deps.operation_repo.load(operation.id).await?;
         items.push(OperationSummaryDto::of(operation, loaded.as_ref()));
     }
+    super::experience::decorate(&state, &mut items).await;
     Ok(Json(OperationPage {
         items,
         next_cursor: got.next_cursor,
@@ -167,9 +168,15 @@ pub(super) async fn detail(
             executions.push(execution(&state, &snapshot, record.step.id)?);
         }
     }
+    let mut row = [OperationSummaryDto::of(
+        &snapshot.operation,
+        Some(&snapshot),
+    )];
+    super::experience::decorate(&state, &mut row).await;
+    let [operation] = row;
     Ok(Json(OperationDetailDto {
         as_of_seq,
-        operation: OperationSummaryDto::of(&snapshot.operation, Some(&snapshot)),
+        operation,
         trace: OperationTraceDto::from(&build_trace(&snapshot, as_of_seq)),
         executions,
     }))
@@ -335,5 +342,6 @@ pub(super) async fn for_incident(
         let loaded = state.deps.operation_repo.load(operation.id).await?;
         rows.push(OperationSummaryDto::of(operation, loaded.as_ref()));
     }
+    super::experience::decorate(state, &mut rows).await;
     Ok(rows)
 }

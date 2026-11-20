@@ -39,6 +39,8 @@ pub enum JournalKind {
     RelationChange,
     /// A knowledge entity changed.
     EntityChange,
+    /// A field of an operation's resolution summary got a new revision.
+    OperationSummary,
 }
 
 impl JournalKind {
@@ -59,6 +61,7 @@ impl JournalKind {
             Self::FactChange => "fact.changed",
             Self::RelationChange => "relation.changed",
             Self::EntityChange => "entity.changed",
+            Self::OperationSummary => "operation.summary",
         }
     }
 
@@ -79,6 +82,7 @@ impl JournalKind {
             "fact.changed" => Some(Self::FactChange),
             "relation.changed" => Some(Self::RelationChange),
             "entity.changed" => Some(Self::EntityChange),
+            "operation.summary" => Some(Self::OperationSummary),
             _ => None,
         }
     }
@@ -238,6 +242,7 @@ mod tests {
             JournalKind::ExecutionTransition,
             JournalKind::IncidentFolded,
             JournalKind::PolicyPublished,
+            JournalKind::OperationSummary,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }

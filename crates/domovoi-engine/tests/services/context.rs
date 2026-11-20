@@ -37,7 +37,7 @@ const PROFILE_TAG: &str = "host-profile";
 const LEFT_OUT: &str = "## Context left out to fit the size limit";
 
 /// The text of the first message of `request`.
-fn opening(request: &LlmRequest) -> String {
+pub(crate) fn opening(request: &LlmRequest) -> String {
     let first = request.messages.first().expect("a first message");
     first
         .parts
@@ -51,12 +51,12 @@ fn opening(request: &LlmRequest) -> String {
 }
 
 /// The first message of the first request the primary model received.
-fn first_opening(w: &World) -> String {
+pub(crate) fn first_opening(w: &World) -> String {
     opening(w.primary.requests().first().expect("a model request"))
 }
 
 /// The section of `text` under `## heading`, heading included, up to the next heading.
-fn section(text: &str, heading: &str) -> String {
+pub(crate) fn section(text: &str, heading: &str) -> String {
     let start = text
         .find(&format!("## {heading}\n\n"))
         .unwrap_or_else(|| panic!("no section {heading:?} in {text}"));
@@ -66,7 +66,7 @@ fn section(text: &str, heading: &str) -> String {
 }
 
 /// Where `needle` first occurs in `text`.
-fn at(text: &str, needle: &str) -> usize {
+pub(crate) fn at(text: &str, needle: &str) -> usize {
     text.find(needle)
         .unwrap_or_else(|| panic!("{needle:?} is not in {text}"))
 }

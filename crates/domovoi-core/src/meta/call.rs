@@ -6,7 +6,7 @@ use serde_json::Value;
 use super::plan_input::PlanInput;
 use super::schema::{
     ARG_KEY_MAX_CHARS, ARG_VALUE_MAX_CHARS, CHANGED_MAX_CHARS, CONTRACT_MAX_CHARS, NAME_MAX_CHARS,
-    QUESTION_MAX_CHARS, REASON_MAX_CHARS, STEP_ARGS_MAX,
+    QUERY_MAX_CHARS, QUESTION_MAX_CHARS, REASON_MAX_CHARS, STEP_ARGS_MAX,
 };
 use super::{MetaTool, PlanStepInput};
 use crate::capability::EffectClass;
@@ -29,6 +29,11 @@ pub enum MetaToolCall {
     },
     /// Read evidence.
     RequestEvidence(ReadToolCall),
+    /// Search past operations on the loop's own host.
+    SearchExperience {
+        /// The trimmed query text: 1 to 200 characters, with at least one letter or digit.
+        query: String,
+    },
     /// Suggest steps.
     ProposePlan(PlanInput),
     /// Ask the owner a question.
@@ -48,6 +53,7 @@ impl MetaToolCall {
             Self::ListCapabilities { .. } => MetaTool::ListCapabilities,
             Self::DescribeCapability { .. } => MetaTool::DescribeCapability,
             Self::RequestEvidence(_) => MetaTool::RequestEvidence,
+            Self::SearchExperience { .. } => MetaTool::SearchExperience,
             Self::ProposePlan(_) => MetaTool::ProposePlan,
             Self::AskUser { .. } => MetaTool::AskUser,
             Self::Finish(_) => MetaTool::Finish,
@@ -112,6 +118,25 @@ impl MetaToolCall {
                         },
                         ToolArgError::InvalidArgs { reason, .. } => bad(reason),
                     })
+            }
+            MetaTool::SearchExperience => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Args {
+                    query: String,
+                }
+                let args: Args = parse(input).map_err(bad)?;
+                let query = args.query.trim();
+                let length = query.chars().count();
+                if length == 0 || length > QUERY_MAX_CHARS || query.chars().any(char::is_control) {
+                    return Err(bad("query: write 1 to 200 characters".to_owned()));
+                }
+                if !query.chars().any(char::is_alphanumeric) {
+                    return Err(bad("query: needs at least one word".to_owned()));
+                }
+                Ok(Self::SearchExperience {
+                    query: query.to_owned(),
+                })
             }
             MetaTool::ProposePlan => {
                 let plan: PlanInput = parse(input).map_err(bad)?;

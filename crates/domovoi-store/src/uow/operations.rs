@@ -56,6 +56,7 @@ pub(super) async fn apply(
             operation,
             incident,
         } => link_incident(conn, *operation, *incident).await,
+        OperationWrite::SummaryField(write) => crate::experience::apply(conn, write).await,
     }
 }
 

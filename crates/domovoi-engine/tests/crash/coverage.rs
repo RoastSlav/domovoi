@@ -22,7 +22,7 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
-const COMMIT_SITES: [&str; 8] = [
+const COMMIT_SITES: [&str; 9] = [
     "effects/runner.rs",
     "knowledge/service.rs",
     "legacy.rs",
@@ -30,13 +30,14 @@ const COMMIT_SITES: [&str; 8] = [
     "operations/startup.rs",
     "operations/writer/commit.rs",
     "operations/writer/create.rs",
+    "operations/writer/summary.rs",
     "policy_shadow/recorder.rs",
 ];
 
 /// Every audit kind the legacy retirement and the operation writer can produce, plus the three
 /// the legacy scenario seeds as the first-generation executor's last word on a row. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 16] = [
+const AUDIT_KINDS: [&str; 17] = [
     "action.proposed",
     "action.approved",
     "action.expired",
@@ -50,6 +51,7 @@ const AUDIT_KINDS: [&str; 16] = [
     "operation.paused",
     "operation.resumed",
     "operation.answered",
+    "operation.summary_edited",
     "execution.proposed",
     "execution.approved",
     "execution.denied",
@@ -102,6 +104,7 @@ async fn sweep_covers_every_kind_of_write() {
         "execution:new",
         "execution:version",
         "incident_link",
+        "summary:field",
     ] {
         assert!(
             writes.contains(required),

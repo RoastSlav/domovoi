@@ -39,6 +39,8 @@ pub enum EffectKind {
     Wake,
     /// Draft a summary.
     DraftSummary,
+    /// Write the resolution summary of a finished operation.
+    DraftResolution,
 }
 
 impl EffectKind {
@@ -57,6 +59,7 @@ impl EffectKind {
             Self::Notify => "notify",
             Self::Wake => "wake",
             Self::DraftSummary => "draft_summary",
+            Self::DraftResolution => "draft_resolution",
         }
     }
 
@@ -75,6 +78,7 @@ impl EffectKind {
             "notify" => Some(Self::Notify),
             "wake" => Some(Self::Wake),
             "draft_summary" => Some(Self::DraftSummary),
+            "draft_resolution" => Some(Self::DraftResolution),
             _ => None,
         }
     }
@@ -297,6 +301,7 @@ mod tests {
             EffectKind::Notify,
             EffectKind::Wake,
             EffectKind::DraftSummary,
+            EffectKind::DraftResolution,
         ];
         for kind in kinds {
             assert_eq!(EffectKind::parse(kind.as_str()), Some(kind));

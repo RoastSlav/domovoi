@@ -13,6 +13,7 @@ mod create;
 mod dispatch;
 mod execution;
 mod shared;
+mod summary;
 mod support;
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,7 @@ use tokio::sync::mpsc;
 
 pub(crate) use commands::{Conclusion, DispatchAnswer, Held, OperationCommand, Reply, TurnEnd};
 pub(crate) use commit::queue_reconcile;
+pub(crate) use summary::queue_resolution;
 
 use commit::{Applied, Change, Edit, apply, finish_held};
 use execution::system;
@@ -370,6 +372,18 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
         OperationCommand::FinishTurn { end, reply } => {
             conclude::run_turn(shared, *end, reply).await
         }
+        OperationCommand::WriteResolution {
+            operation,
+            revisions,
+            held,
+            reply,
+        } => summary::write_resolution(shared, operation, revisions, held, reply).await,
+        OperationCommand::EditSummary {
+            operation,
+            edit,
+            actor,
+            reply,
+        } => summary::edit(shared, operation, edit, actor, reply).await,
         OperationCommand::FinishEffect { held, reply } => {
             let result = finish_held_effect(shared, held).await;
             let _ = reply.send(result);

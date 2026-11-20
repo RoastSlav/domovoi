@@ -16,6 +16,7 @@ pub mod card;
 pub mod context;
 pub mod digest;
 pub mod error;
+pub mod experience;
 pub mod fingerprint;
 pub mod history;
 pub mod host;

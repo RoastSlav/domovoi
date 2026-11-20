@@ -179,3 +179,16 @@ export type StepDetail = Schemas["StepDetailDto"];
 export type OperationControl = Schemas["OperationControlDto"];
 /** One limit to raise when resuming. */
 export type BudgetExtension = Schemas["BudgetExtensionDto"];
+
+/** The summary of a finished operation: each field with its source, and the history. */
+export type ResolutionSummary = Schemas["ResolutionSummaryDto"];
+/** One field of a summary. */
+export type SummaryField = Schemas["SummaryFieldDto"];
+/** What an edit of a narrative field returns. */
+export type EditSummaryResponse = Schemas["EditSummaryResponse"];
+/** A finished operation, as every list of past operations shows it. */
+export type PastOperation = Schemas["PastOperationDto"];
+/** Past operations that resemble an operation or an incident. */
+export type SimilarOperations = Schemas["SimilarOperationsDto"];
+/** The owner's search over past operations. */
+export type ExperienceSearch = Schemas["ExperienceSearchDto"];

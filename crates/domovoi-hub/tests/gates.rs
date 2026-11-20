@@ -1059,3 +1059,56 @@ fn policy_publish_is_a_registered_step_up_action() {
     assert!(enforced.contains(&"policy.lock_changed"));
     assert!(STEP_UP_ACTIONS.iter().all(|a| a.id != "policy.publish"));
 }
+
+/// Past operations are searched across hosts only by the owner's search endpoint: the one
+/// hub source that builds the global scope is `src/api/experience.rs`, once. Every other
+/// path (the model's tool, chat, the context sources) stays on one host.
+#[test]
+fn experience_global_scope_is_built_only_by_the_owner_search_endpoint() {
+    let sites: Vec<(String, usize)> = hub_sources()
+        .into_iter()
+        .map(|(rel, text)| (rel, text.matches("ExperienceScope::Global").count()))
+        .filter(|(_, count)| *count > 0)
+        .collect();
+    assert_eq!(
+        sites,
+        [(crate_path("api/experience.rs"), 1)],
+        "the global scope has one production builder"
+    );
+}
+
+/// A summary edit reaches the operation writer through `OperationCommands` only, so the
+/// caller, the actor and the audit row are decided in one place.
+#[test]
+fn summary_edit_has_one_production_call_site() {
+    let mut sites: Vec<String> = hub_sources()
+        .into_iter()
+        .filter(|(_, text)| {
+            text.split_whitespace()
+                .collect::<String>()
+                .contains(".edit_summary_field(")
+        })
+        .map(|(rel, _)| rel)
+        .collect();
+    sites.sort();
+    let mut expected = vec![
+        crate_path("api/experience.rs"),
+        crate_path("services/operations/summary.rs"),
+    ];
+    expected.sort();
+    assert_eq!(
+        sites, expected,
+        "the handler calls the service and the service calls the handle, nowhere else"
+    );
+    let handler = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api/experience.rs"),
+    )
+    .unwrap();
+    assert!(
+        handler
+            .split_whitespace()
+            .collect::<String>()
+            .contains(".operations.edit_summary_field("),
+        "the endpoint goes through the operation commands"
+    );
+}

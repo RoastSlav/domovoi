@@ -1,0 +1,174 @@
+{
+  "operation_id": "0190a0a0-0000-7000-8000-0000000000b1",
+  "as_of_seq": 42,
+  "state": "ready",
+  "ended_at": "2026-10-31T12:04:00Z",
+  "fields": [
+    {
+      "field": "outcome",
+      "value": "succeeded",
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": false
+    },
+    {
+      "field": "verified",
+      "value": true,
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": false
+    },
+    {
+      "field": "subjects",
+      "value": [
+        {
+          "host": "0190a0a0-0000-7000-8000-0000000000c1",
+          "check": "container.down",
+          "target": "plex"
+        }
+      ],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": false
+    },
+    {
+      "field": "contracts_executed",
+      "value": [
+        {
+          "contract": "skill.restart_container",
+          "host": "0190a0a0-0000-7000-8000-0000000000c1",
+          "target": "plex",
+          "outcome": "succeeded"
+        }
+      ],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": false
+    },
+    {
+      "field": "hosts",
+      "value": ["0190a0a0-0000-7000-8000-0000000000c1"],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": false
+    },
+    {
+      "field": "problem",
+      "value": "plex was stopped",
+      "source": "model",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": true
+    },
+    {
+      "field": "cause",
+      "value": "the disk filled up",
+      "source": "user",
+      "actor": "user:0190a0a0-0000-7000-8000-0000000000d1",
+      "revision": 2,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": true
+    },
+    {
+      "field": "fix",
+      "value": "restart plex",
+      "source": "model",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z",
+      "editable": true
+    }
+  ],
+  "history": [
+    {
+      "field": "outcome",
+      "value": "succeeded",
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "verified",
+      "value": true,
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "subjects",
+      "value": [
+        {
+          "host": "0190a0a0-0000-7000-8000-0000000000c1",
+          "check": "container.down",
+          "target": "plex"
+        }
+      ],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "contracts_executed",
+      "value": [
+        {
+          "contract": "skill.restart_container",
+          "host": "0190a0a0-0000-7000-8000-0000000000c1",
+          "target": "plex",
+          "outcome": "succeeded"
+        }
+      ],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "hosts",
+      "value": ["0190a0a0-0000-7000-8000-0000000000c1"],
+      "source": "code",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "problem",
+      "value": "plex was stopped",
+      "source": "model",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "cause",
+      "value": "the disk filled up",
+      "source": "user",
+      "actor": "user:0190a0a0-0000-7000-8000-0000000000d1",
+      "revision": 2,
+      "created_at": "2026-10-31T12:05:00Z"
+    },
+    {
+      "field": "fix",
+      "value": "restart plex",
+      "source": "model",
+      "actor": "system:operations",
+      "revision": 1,
+      "created_at": "2026-10-31T12:05:00Z"
+    }
+  ],
+  "history_truncated": false,
+  "label": "historical evidence, not authorization"
+}

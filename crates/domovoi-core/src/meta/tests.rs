@@ -22,6 +22,7 @@ fn meta_tool_names_and_order_are_pinned() {
             "list_capabilities",
             "describe_capability",
             "request_evidence",
+            "search_experience",
             "propose_plan",
             "ask_user",
             "finish"
@@ -34,9 +35,9 @@ fn meta_tool_names_and_order_are_pinned() {
 }
 
 #[test]
-fn read_set_is_the_first_three_and_investigate_depends_on_questions() {
+fn read_set_is_the_first_four_and_investigate_depends_on_questions() {
     assert_eq!(ToolSet::Read.tools(), MetaTool::READ.to_vec());
-    assert_eq!(ToolSet::Investigate { questions: false }.tools().len(), 5);
+    assert_eq!(ToolSet::Investigate { questions: false }.tools().len(), 6);
     assert!(
         !ToolSet::Investigate { questions: false }
             .tools()
@@ -97,6 +98,27 @@ fn from_json_parses_each_tool() {
     )
     .unwrap();
     assert_eq!(plan.tool(), MetaTool::ProposePlan);
+    assert_eq!(
+        MetaToolCall::from_json("search_experience", json!({"query": "  plex down "})),
+        Ok(MetaToolCall::SearchExperience {
+            query: "plex down".to_owned()
+        })
+    );
+    for bad in ["", "   ", "***", "a	b"] {
+        assert!(
+            MetaToolCall::from_json("search_experience", json!({"query": bad})).is_err(),
+            "{bad:?}"
+        );
+    }
+    assert!(
+        MetaToolCall::from_json("search_experience", json!({"query": "x".repeat(201)})).is_err()
+    );
+    for extra in ["scope", "host", "limit"] {
+        assert!(
+            MetaToolCall::from_json("search_experience", json!({"query": "x", extra: "y"}))
+                .is_err()
+        );
+    }
     assert!(matches!(
         MetaToolCall::from_json("ask_user", json!({"question": "q?"})),
         Ok(MetaToolCall::AskUser { .. })

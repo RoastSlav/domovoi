@@ -12,6 +12,7 @@ use domovoi_core::{
     NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
     TargetKey,
 };
+use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
     InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
     OperationSettings,
@@ -57,6 +58,8 @@ pub struct Setup {
     pub actions: Option<Arc<dyn ActionRepo>>,
     /// Extra context sources registered with the triage service.
     pub extra_context: Vec<Arc<dyn domovoi_core::ports::ContextSource>>,
+    /// Whether the experience source is also registered as a context source, as the hub does.
+    pub with_experience: bool,
 }
 
 impl Default for Setup {
@@ -74,6 +77,7 @@ impl Default for Setup {
             signals: None,
             actions: None,
             extra_context: Vec::new(),
+            with_experience: false,
         }
     }
 }
@@ -254,6 +258,11 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
     ));
     // The triage and operation services stop on their own token, so a restart can end them.
     let services = shutdown.child_token();
+    let experience = ExperienceSource::over(store.clone(), redactor.clone(), clock.clone());
+    let mut extra_context = setup.extra_context.clone();
+    if setup.with_experience {
+        extra_context.push(Arc::new(experience.clone()));
+    }
     let deps = TriageDeps {
         primary: primary_dyn.clone(),
         fallbacks: fallbacks.clone(),
@@ -279,7 +288,8 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: services.clone(),
-        extra_context: setup.extra_context.clone(),
+        experience: experience.clone(),
+        extra_context,
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
@@ -336,6 +346,7 @@ fn spawn_ops(
         OperationDeps {
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
+            experience: store.clone(),
             uow: store.clone(),
             effects: store.clone(),
             effect_read: store.clone(),
@@ -401,6 +412,12 @@ impl World {
             manager: self.manager.clone(),
             bus: self.bus.clone(),
             shutdown: services.clone(),
+            experience: ExperienceSource::over(
+                self.store.clone(),
+                self.redactor.clone(),
+                self.clock.clone(),
+            ),
+
             extra_context: Vec::new(),
         };
         let (triage, _task) = TriageService::spawn(deps, self.settings);

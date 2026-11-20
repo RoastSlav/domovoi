@@ -9,6 +9,7 @@
 
 mod aggregate;
 mod evidence;
+mod experience;
 mod guide;
 mod layout;
 mod normalize;
@@ -19,6 +20,7 @@ pub(crate) mod sources;
 
 pub use aggregate::Aggregator;
 pub use evidence::EvidenceSource;
+pub use experience::{ExperienceDeps, ExperienceSource, ITEM_BODY_MAX};
 pub use guide::CONTEXT_GUIDE;
 pub use layout::{Omission, Section, title_of};
 pub use plan::{ContextBudget, ContextPlan, ContextPurpose, LayerCaps};

@@ -208,6 +208,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/experience/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Searches finished operations. One host by default; every host only when asked. */
+        get: operations["search_experience_owner"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts": {
         parameters: {
             query?: never;
@@ -569,6 +586,23 @@ export interface paths {
         put?: never;
         /** Mutes an incident for a while. */
         post: operations["mute_incident"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incidents/{id}/similar-operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Past operations that fixed something like an incident, on its host, best first. */
+        get: operations["get_similar_operations_for_incident"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -966,6 +1000,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations/{id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Past operations that resemble an operation, on its host, best first. */
+        get: operations["get_similar_operations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/{id}/steps/{step}": {
         parameters: {
             query?: never;
@@ -1031,6 +1082,43 @@ export interface paths {
         put?: never;
         /** Denies an Execution step. */
         post: operations["deny_operation_step"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The summary of one operation: each field's current revision with its source, and the
+         *     whole history.
+         */
+        get: operations["get_operation_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{id}/summary/{field}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Writes or confirms the problem, cause or fix of a finished operation's summary. */
+        post: operations["edit_operation_summary_field"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1979,6 +2067,23 @@ export interface components {
             /** @description Who saved it. */
             updated_by: string;
         };
+        /** @description What to write into a narrative field. */
+        EditSummaryFieldRequest: {
+            /**
+             * Format: int32
+             * @description The field's newest revision when it was opened; 0 when it had none.
+             */
+            expected_revision: number;
+            /** @description The new text, 1 to 1000 characters. The same text as a model draft confirms it. */
+            value: string;
+        };
+        /** @description The result of an edit. */
+        EditSummaryResponse: {
+            /** @description The revision that now holds the text. */
+            field: components["schemas"]["SummaryFieldDto"];
+            /** @description Whether the text was already the owner's, so nothing was added. */
+            unchanged: boolean;
+        };
         /** @description The settings as the UI edits them. */
         EditableSettings: {
             /**
@@ -2057,6 +2162,17 @@ export interface components {
             /** @description The value. */
             value: string;
         };
+        /** @description A capability run that was handed to an agent. */
+        ExecutedContractDto: {
+            /** @description The contract, for example `skill.restart_container`. */
+            contract: string;
+            /** @description The host it ran on. */
+            host_id: string;
+            /** @description `succeeded`, `failed`, `outcome_unknown` or `running`. */
+            outcome: string;
+            /** @description The target, if any. */
+            target?: string | null;
+        };
         /** @description A run of a capability that a person approves or denies. */
         ExecutionDto: {
             /** @description The Approval step that waits for a person. */
@@ -2104,6 +2220,32 @@ export interface components {
             step: string;
             /** @description The target it is about. */
             target?: string | null;
+        };
+        /** @description One search hit. */
+        ExperienceItemDto: {
+            /** @description `all_words` or `any_word`. */
+            match_pass: string;
+            /** @description The operation. */
+            operation: components["schemas"]["PastOperationDto"];
+            /** @description A short excerpt around the match. */
+            snippet?: string | null;
+        };
+        /** @description The result of the owner's search over past operations. */
+        ExperienceSearchDto: {
+            /**
+             * Format: int64
+             * @description The journal position read before the search.
+             */
+            as_of_seq: number;
+            host?: components["schemas"]["HostRefDto"] | null;
+            /** @description The matches; the newest operations when the query had no words. */
+            items: components["schemas"]["ExperienceItemDto"][];
+            /** @description Always `historical evidence, not authorization`. */
+            label: string;
+            /** @description The search text as given. */
+            query: string;
+            /** @description `host` or `global`. */
+            scope: string;
         };
         /** @description One digest fact about a host. */
         FactDto: {
@@ -2258,6 +2400,13 @@ export interface components {
             reported_release?: string | null;
             /** @description The agent's version, while connected. */
             version?: string | null;
+        };
+        /** @description A host as a person knows it. */
+        HostRefDto: {
+            /** @description Host id. */
+            id: string;
+            /** @description The host's name; `null` when the host was deleted. */
+            name?: string | null;
         };
         /** @description The host dimension of a rule. */
         HostScopeDto: {
@@ -2693,6 +2842,7 @@ export interface components {
             /** @description The kind, for example `investigate`. */
             kind: string;
             pause_reason?: components["schemas"]["PauseReasonDto"] | null;
+            resolution?: components["schemas"]["ResolutionBriefDto"] | null;
             /** @description When it started. */
             started_at?: string | null;
             /** @description The status name, for example `running`. */
@@ -2766,6 +2916,25 @@ export interface components {
             name: string;
             /** @description Whether it must be given. */
             required: boolean;
+        };
+        /** @description One finished operation, the shape every list of past operations shares. */
+        PastOperationDto: {
+            /** @description What was run. */
+            contracts: components["schemas"]["ExecutedContractDto"][];
+            /** @description When it ended. */
+            ended_at: string;
+            /** @description What it was for. */
+            goal: string;
+            /** @description The hosts involved. */
+            hosts: components["schemas"]["HostRefDto"][];
+            /** @description `problem`, `cause` and `fix`: only those that exist, each with its source. */
+            narrative: components["schemas"]["SummaryFieldDto"][];
+            /** @description Operation id. */
+            operation_id: string;
+            /** @description `succeeded`, `failed`, `escalated` or `cancelled`. */
+            outcome: string;
+            /** @description Whether the fix was verified. */
+            verified: boolean;
         };
         /** @description The confirmation of a management path. The helper's evidence is not returned. */
         PathConfirmationDto: {
@@ -3038,6 +3207,40 @@ export interface components {
             /** @description `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`. */
             verdict: string;
         };
+        /** @description The outcome of a finished operation, for a list row. */
+        ResolutionBriefDto: {
+            /** @description When it ended. */
+            ended_at: string;
+            /** @description `succeeded`, `failed`, `escalated` or `cancelled`. */
+            outcome: string;
+            /** @description Whether the fix was verified. */
+            verified: boolean;
+        };
+        /** @description The summary of one operation with where each field came from. */
+        ResolutionSummaryDto: {
+            /**
+             * Format: int64
+             * @description The journal position read before the summary; apply only events with a greater `seq`.
+             */
+            as_of_seq: number;
+            /** @description When the operation ended. */
+            ended_at?: string | null;
+            /** @description The current revision of each field that has one. */
+            fields: components["schemas"]["SummaryFieldDto"][];
+            /** @description Every revision, oldest first; the newest 200 when there are more. */
+            history: components["schemas"]["SummaryRevisionDto"][];
+            /** @description Whether older revisions were left out of `history`. */
+            history_truncated: boolean;
+            /** @description Always `historical evidence, not authorization`. */
+            label: string;
+            /** @description Operation id. */
+            operation_id: string;
+            /**
+             * @description `not_ready` while the operation is open, `drafting` once it has finished and has no
+             *     summary yet, `ready` after.
+             */
+            state: string;
+        };
         /** @description Resuming a paused operation. */
         ResumeOperationRequest: {
             /** @description Limits to raise first, at most 7, each kind once. A spent limit must be raised. */
@@ -3253,6 +3456,37 @@ export interface components {
             /** @description `evaluated`, `unevaluable` or `skipped`. */
             status: string;
         };
+        /** @description A similar past operation. */
+        SimilarOperationDto: {
+            /** @description The operation. */
+            operation: components["schemas"]["PastOperationDto"];
+            /** @description Why it scored. */
+            reasons: components["schemas"]["SimilarReasonDto"][];
+            /**
+             * Format: int32
+             * @description The score; higher is more similar.
+             */
+            score: number;
+        };
+        /** @description Similar past operations, best first. */
+        SimilarOperationsDto: {
+            /**
+             * Format: int64
+             * @description The journal position read before the list.
+             */
+            as_of_seq: number;
+            /** @description The matches. */
+            items: components["schemas"]["SimilarOperationDto"][];
+            /** @description Always `historical evidence, not authorization`. */
+            label: string;
+        };
+        /** @description Why a past operation was judged similar. */
+        SimilarReasonDto: {
+            /** @description `same_check`, `same_target`, `same_contract` or `similar_words`. */
+            code: string;
+            /** @description The contract id for `same_contract`. */
+            detail?: string | null;
+        };
         /** @description Simulate rules over recorded Execution steps. */
         SimulateRequest: {
             /** @description Explicit steps instead of a filter; at most 100. */
@@ -3426,6 +3660,44 @@ export interface components {
             started_at?: string | null;
             /** @description One line on what it came to. */
             summary?: string | null;
+        };
+        /** @description The current revision of one summary field. */
+        SummaryFieldDto: {
+            /** @description The actor, for example `system:operations`. */
+            actor: string;
+            /** @description When it was written. */
+            created_at: string;
+            /** @description Whether the owner can edit it: a narrative field of a finished operation. */
+            editable: boolean;
+            /** @description The field name, for example `problem`. */
+            field: string;
+            /**
+             * Format: int32
+             * @description The revision number, from 1.
+             */
+            revision: number;
+            /** @description Who wrote it: `code`, `model` or `user`. */
+            source: string;
+            /** @description The canonical JSON of the revision: a string, a boolean or an array. */
+            value: unknown;
+        };
+        /** @description One revision in a field's history. */
+        SummaryRevisionDto: {
+            /** @description The actor. */
+            actor: string;
+            /** @description When it was written. */
+            created_at: string;
+            /** @description The field name. */
+            field: string;
+            /**
+             * Format: int32
+             * @description The revision number, from 1.
+             */
+            revision: number;
+            /** @description Who wrote it: `code`, `model` or `user`. */
+            source: string;
+            /** @description The value of this revision. */
+            value: unknown;
         };
         /** @description The target dimension of a rule. */
         TargetsDto: {
@@ -4252,6 +4524,62 @@ export interface operations {
             };
             /** @description Too many open event streams */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    search_experience_owner: {
+        parameters: {
+            query?: {
+                /** @description What to look for, at most 200 characters; empty lists the newest operations. */
+                q?: string;
+                /** @description `host` (default) or `global`. */
+                scope?: string;
+                /** @description The host's name, required for scope `host`. */
+                host?: string;
+                /** @description How many to return, 1 to 50. Default 10. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperienceSearchDto"];
+                };
+            };
+            /** @description A bad scope, a missing host or a query that is too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5313,6 +5641,50 @@ export interface operations {
                 };
             };
             /** @description No active incident */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_similar_operations_for_incident: {
+        parameters: {
+            query?: {
+                /** @description How many to return, 1 to 20. Default 5. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Incident id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Similar past operations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimilarOperationsDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such incident */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6863,6 +7235,50 @@ export interface operations {
             };
         };
     };
+    get_similar_operations: {
+        parameters: {
+            query?: {
+                /** @description How many to return, 1 to 20. Default 5. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Similar past operations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimilarOperationsDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_operation_step: {
         parameters: {
             query?: never;
@@ -7114,6 +7530,130 @@ export interface operations {
                 };
             };
             /** @description Already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_operation_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolutionSummaryDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    edit_operation_summary_field: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description `problem`, `cause` or `fix` */
+                field: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditSummaryFieldRequest"];
+            };
+        };
+        responses: {
+            /** @description The revision that now holds the text */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditSummaryResponse"];
+                };
+            };
+            /** @description Not a summary field, or the text is empty, too long or has control characters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A field Domovoi fills itself */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The operation has not finished, or the summary changed since it was opened */
             409: {
                 headers: {
                     [name: string]: unknown;

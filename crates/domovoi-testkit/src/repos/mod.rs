@@ -4,6 +4,7 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod experience;
 mod health;
 mod hosts;
 mod incidents;
@@ -104,6 +105,8 @@ struct State {
     /// Execution rows by Execution step, with their versions.
     executions: BTreeMap<StepId, (ExecutionRecord, u64)>,
     op_incidents: BTreeMap<OperationId, BTreeSet<IncidentId>>,
+    /// Resolution summary revisions and outcome words per operation.
+    summaries: BTreeMap<OperationId, experience::SummaryState>,
     /// Every policy version, draft and published, with its rules in ordinal order.
     policy_versions: Vec<(
         domovoi_core::policy_store::PolicyVersionRecord,

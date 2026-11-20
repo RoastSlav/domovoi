@@ -376,6 +376,7 @@ impl HubRuntime {
                 services: services.clone(),
                 triage: triage.0,
                 operation_repo: store.clone(),
+                experience: store.clone(),
                 policy: store.clone(),
                 agents: Arc::new(server.clone()),
                 capabilities: registry.clone(),

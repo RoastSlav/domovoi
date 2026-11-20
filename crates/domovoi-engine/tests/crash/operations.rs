@@ -8,12 +8,13 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::experience::SummaryField;
 use domovoi_core::ports::OperationRepo;
 use domovoi_core::{
     Actor, CheckKey, ContractId, ExecutionIntent, Incident, PlanBinding, StepId, StepIntent,
     StepKind, TargetKey, UserId,
 };
-use domovoi_engine::operations::{ExecutionRequest, NewStep};
+use domovoi_engine::operations::{EditSummaryField, ExecutionRequest, NewStep};
 use domovoi_testkit::approvals::{authorize, human, provenance};
 use domovoi_testkit::crash::SweepStore;
 use jiff::SignedDuration;
@@ -61,7 +62,7 @@ fn restart() -> ExecutionRequest {
 
 /// An operation from its creation to its cancellation: a first evidence step, a restart
 /// that is approved, a restart that is denied, a question that is paused over and answered,
-/// and the cancellation.
+/// the cancellation and an edit of its summary.
 pub fn operation_lifecycle<S: SweepStore + OperationRepo>(
     world: &mut World<S>,
 ) -> BoxFuture<'_, ()> {
@@ -165,7 +166,22 @@ pub fn operation_lifecycle<S: SweepStore + OperationRepo>(
             NAME,
             world
                 .operations
-                .cancel(op, actor, "no longer needed".to_owned())
+                .cancel(op, actor.clone(), "no longer needed".to_owned())
+        );
+
+        // 6. The owner writes the problem of the finished operation's summary.
+        step!(
+            world,
+            NAME,
+            world.operations.edit_summary_field(
+                op,
+                EditSummaryField {
+                    field: SummaryField::Problem,
+                    value: "nginx kept restarting".to_owned(),
+                    expected_revision: 0,
+                },
+                actor,
+            )
         );
     })
 }

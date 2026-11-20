@@ -260,6 +260,7 @@ impl World {
             OperationDeps {
                 bus: self.bus.clone(),
                 operations: self.store.clone(),
+                experience: self.store.clone(),
                 uow: self.uow.clone(),
                 effects: self.queue.clone(),
                 effect_read: self.store.clone(),

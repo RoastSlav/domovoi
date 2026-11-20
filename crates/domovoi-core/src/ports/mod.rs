@@ -10,6 +10,7 @@ pub mod caps;
 pub mod chat;
 pub mod clock;
 pub mod context;
+pub mod experience;
 pub mod hostfs;
 pub mod knowledge;
 pub mod llm;
@@ -39,6 +40,7 @@ pub use chat::{
 };
 pub use clock::Clock;
 pub use context::ContextSource;
+pub use experience::ExperienceRead;
 pub use hostfs::{FsError, HostFs};
 pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};
 pub use llm::{

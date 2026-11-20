@@ -12,6 +12,7 @@ use domovoi_core::{
     AgentIdentity, Evidence, EvidenceValue, Incident, JournalEpoch, Severity, Signal, SourceKind,
     UserId,
 };
+use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
     InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
     OperationSettings,
@@ -316,6 +317,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: shutdown.clone(),
+        experience: ExperienceSource::over(store.clone(), redactor.clone(), clock.clone()),
         extra_context: Vec::new(),
     };
     let (triage, _triage_task) = TriageService::spawn(triage_deps, setup.triage);
@@ -326,6 +328,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
     let deps = OperationDeps {
         bus: bus.clone(),
         operations: store.clone(),
+        experience: store.clone(),
         uow: store.clone(),
         effects: gate.clone(),
         effect_read: store.clone(),

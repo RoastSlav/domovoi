@@ -7,6 +7,7 @@
 
 pub mod dto;
 pub mod dto_admin;
+pub mod dto_experience;
 pub mod dto_knowledge;
 pub mod dto_operations;
 pub mod dto_policy;
@@ -23,6 +24,7 @@ mod auth;
 mod capability;
 mod chat;
 mod events;
+mod experience;
 mod followups;
 mod host_docker;
 pub(crate) mod hosts;
@@ -110,6 +112,9 @@ pub struct ApiDeps {
     pub triage: Option<TriageHandle>,
     /// Stored operations, read only; changes go through `services.operations`.
     pub operation_repo: Arc<dyn domovoi_core::ports::OperationRepo>,
+    /// Resolution summaries of finished operations, read only; edits go through
+    /// `services.operations`.
+    pub experience: Arc<dyn domovoi_core::ports::ExperienceRead>,
     /// Policy versions and recorded shadow decisions, read only; changes go through
     /// `services.policy`.
     pub policy: Arc<dyn PolicyRepo>,
@@ -271,6 +276,7 @@ pub(crate) async fn host_named(
         (name = "incidents", description = "Incidents and their triage"),
         (name = "actions", description = "Retired legacy actions, read only"),
         (name = "operations", description = "Operations, their steps and step approvals"),
+        (name = "experience", description = "Summaries of finished operations, similar past operations and search"),
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
         (name = "knowledge", description = "Facts, relations and entities the hub knows"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
@@ -323,6 +329,11 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(operation_controls::pause))
         .routes(routes!(operation_controls::resume))
         .routes(routes!(operation_controls::answer))
+        .routes(routes!(experience::get_operation_summary))
+        .routes(routes!(experience::edit_operation_summary_field))
+        .routes(routes!(experience::get_similar_operations))
+        .routes(routes!(experience::get_similar_operations_for_incident))
+        .routes(routes!(experience::search_experience_owner))
         .routes(routes!(policy::overview))
         .routes(routes!(policy::versions))
         .routes(routes!(policy::version))

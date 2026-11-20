@@ -39,6 +39,12 @@ export const keys = {
   operationList: (filters: object) => ["operations", "list", filters] as const,
   operationStep: (operation: string, step: string | undefined) =>
     ["operations", "detail", operation, "step", step ?? ""] as const,
+  operationSummary: (id: string) => ["operations", "detail", id, "summary"] as const,
+  operationSimilar: (id: string, limit: number | undefined) =>
+    ["operations", "detail", id, "similar", limit ?? ""] as const,
+  incidentSimilar: (id: string, limit: number | undefined) =>
+    ["operations", "incident-similar", id, limit ?? ""] as const,
+  experienceSearch: (params: object) => ["experience", "search", params] as const,
   logs: (level: string | undefined, lines: number | undefined) =>
     ["system", "logs", level ?? "", lines ?? ""] as const,
 };

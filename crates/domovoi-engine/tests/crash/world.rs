@@ -251,6 +251,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
             OperationDeps {
                 bus: tokio::sync::broadcast::channel(16).0,
                 operations: store.clone(),
+                experience: store.clone(),
                 uow: crashing.clone(),
                 effects: store.clone(),
                 effect_read: store.clone(),

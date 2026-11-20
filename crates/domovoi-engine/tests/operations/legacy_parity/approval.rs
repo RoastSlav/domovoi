@@ -542,6 +542,7 @@ async fn serve_with_incidents(w: &mut World, incidents: Arc<dyn IncidentRepo>) {
         OperationDeps {
             bus: w.bus.clone(),
             operations: w.store.clone(),
+            experience: w.store.clone(),
             uow: w.uow.clone(),
             effects: w.queue.clone(),
             effect_read: w.store.clone(),

@@ -1,5 +1,8 @@
 //! The state writes of the operation aggregate, applied inside a [`Transaction`](super::Transaction).
 
+use jiff::Timestamp;
+
+use crate::experience::{SummaryField, SummarySource};
 use crate::id::{IncidentId, OperationId, StepId};
 use crate::operation::{ExecutionRecord, Operation, Step, StepEdge, StepOutcome, StepProgress};
 
@@ -12,6 +15,32 @@ pub enum ExecutionGuard {
     New,
     /// The stored row is at this version.
     Version(u64),
+}
+
+/// One new revision of a resolution summary field.
+///
+/// Built only by the operation writer. The unit of work checks that the source may write the
+/// field, that the operation is finished, that revisions stay dense and that the value has the
+/// documented shape, then refreshes the search projection in the same transaction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SummaryFieldWrite {
+    /// The operation.
+    pub operation: OperationId,
+    /// The field.
+    pub field: SummaryField,
+    /// The field's newest existing revision, 0 when it has none; the new revision is one more.
+    pub expected_revision: u32,
+    /// The canonical JSON value, already redacted.
+    pub value: serde_json::Value,
+    /// Who wrote it.
+    pub source: SummarySource,
+    /// The actor in string form.
+    pub actor: String,
+    /// When it was written.
+    pub at: Timestamp,
+    /// The full outcome-tag set on a code write, which replaces the stored one; `None` on a
+    /// narrative write.
+    pub tags: Option<Vec<String>>,
 }
 
 /// One typed change to an operation and what it owns.
@@ -56,4 +85,6 @@ pub enum OperationWrite {
         /// The incident.
         incident: IncidentId,
     },
+    /// Appends a revision of a resolution summary field.
+    SummaryField(SummaryFieldWrite),
 }

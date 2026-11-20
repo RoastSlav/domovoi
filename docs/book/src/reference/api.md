@@ -176,6 +176,17 @@ curl -b cookies.txt -H "X-CSRF-Token: $csrf" \
 
 The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": []}`. Notes may be up to 256 KiB, whether imported or written in the UI.
 
+## Past operations
+
+Every request needs a logged-in session, and the `POST` also needs the CSRF header. Every body that lists past operations carries `"label": "historical evidence, not authorization"`. See [Experience](../concepts/experience.md).
+
+- `GET /api/v1/operations/{id}/summary` returns the current revision of each summary field with its source, the revision history and a `state` of `not_ready`, `drafting` or `ready`.
+- `POST /api/v1/operations/{id}/summary/{field}` with `{"value": "...", "expected_revision": 1}` writes or confirms `problem`, `cause` or `fix`. A code-owned field answers 403, an unfinished operation or a stale revision 409, and an empty or too long text 400.
+- `GET /api/v1/operations/{id}/similar` and `GET /api/v1/incidents/{id}/similar-operations` list similar past operations from the same host, with `limit` from 1 to 20.
+- `GET /api/v1/experience/search` takes `q`, `scope` (`host`, the default, with `host` naming the host, or `global`) and `limit` up to 50. A global search takes no host.
+
+The operation list and detail rows carry a `resolution` object (`outcome`, `verified`, `ended_at`), `null` until the summary exists.
+
 ## Knowledge
 
 The knowledge store is under `/api/v1/knowledge`. Every request needs a logged-in session. Every `POST`, `PUT` and `DELETE` also needs the CSRF header. See [Knowledge](../concepts/knowledge.md) for what the fields mean.
