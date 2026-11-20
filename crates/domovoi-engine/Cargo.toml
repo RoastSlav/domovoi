@@ -64,6 +64,10 @@ name = "operations"
 path = "tests/operations/main.rs"
 
 [[test]]
+name = "conversations"
+path = "tests/conversations/main.rs"
+
+[[test]]
 name = "legacy"
 path = "tests/legacy.rs"
 
