@@ -5,8 +5,9 @@ use serde_json::Value;
 
 use super::dispatch::{Handled, State, handle};
 use super::finish::{Carrier, accept, asked};
-use super::{Ctx, EvidenceRecord, Failure, LoopOutput, LoopScope, offered_tools};
+use super::{Ctx, EvidenceRecord, LoopOutput, LoopScope, offered_tools};
 use crate::triage::agent::{self, BUDGET_EXHAUSTED, RunBudget, ToolUse, deadline_error, text_of};
+use crate::triage::chain::AttemptError;
 use crate::triage::report::parse_report;
 
 /// What the model is told to do after an answer that could not be used.
@@ -26,9 +27,9 @@ fn tool_calls(parts: &[Part]) -> Vec<(String, String, Value)> {
 }
 
 /// Spends the run's one repair, or ends the attempt when it is already spent.
-fn repair(repairs_left: &mut u8, why: &str) -> Result<(), Failure> {
+fn repair(repairs_left: &mut u8, why: &str) -> Result<(), AttemptError> {
     if *repairs_left == 0 {
-        return Err(Failure::Invalid(format!(
+        return Err(AttemptError::Invalid(format!(
             "the model gave no usable report: {why}"
         )));
     }
@@ -50,7 +51,7 @@ pub(crate) async fn investigate(
     used: &mut Vec<ToolUse>,
     evidence: &mut Vec<EvidenceRecord>,
     run: &mut RunBudget,
-) -> Result<LoopOutput, Failure> {
+) -> Result<LoopOutput, AttemptError> {
     let shared = ctx.shared;
     let offered = ctx.provider.supports_tools();
     let specs = if offered {

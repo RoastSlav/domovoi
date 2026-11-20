@@ -270,6 +270,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: services.clone(),
+        extra_context: Vec::new(),
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();
@@ -391,6 +392,7 @@ impl World {
             manager: self.manager.clone(),
             bus: self.bus.clone(),
             shutdown: services.clone(),
+            extra_context: Vec::new(),
         };
         let (triage, _task) = TriageService::spawn(deps, self.settings);
         spawn_ops(

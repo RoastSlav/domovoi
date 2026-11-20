@@ -690,9 +690,12 @@ async fn prompt_over_the_cap_is_trimmed_from_old_tool_results() {
         ..Setup::default()
     })
     .await;
-    w.link.on_tool(|_, _| {
+    // Each answer differs, so the same-output note never replaces one of them.
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    w.link.on_tool(move |_, _| {
+        let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(ToolOutput {
-            text: "x".repeat(8 * 1024),
+            text: format!("{n:04}{}", "x".repeat(8 * 1024 - 4)),
             truncated: false,
         })
     });
@@ -820,9 +823,12 @@ async fn measure_prompt_sizes() {
         w.note(&format!("Runbook {index}"), "Restart the container.")
             .await;
     }
-    w.link.on_tool(|_, _| {
+    // Each answer differs, so the same-output note never replaces one of them.
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    w.link.on_tool(move |_, _| {
+        let n = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(ToolOutput {
-            text: "y".repeat(8 * 1024),
+            text: format!("{n:04}{}", "y".repeat(8 * 1024 - 4)),
             truncated: false,
         })
     });
