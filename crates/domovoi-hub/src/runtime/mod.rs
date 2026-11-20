@@ -5,6 +5,7 @@ pub mod caps;
 mod delivery;
 mod dispatcher;
 pub(crate) mod every;
+mod knowledge;
 mod local;
 mod lock;
 mod orchestration;
@@ -205,7 +206,7 @@ impl HubRuntime {
         .await?;
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
-        let knowledge = crate::knowledge::build(&store, &clock);
+        let knowledge = knowledge::build(&store, &clock);
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
         let (bus, _) = broadcast::channel(capacity);
         let manager_shutdown = CancellationToken::new();
@@ -440,7 +441,7 @@ impl HubRuntime {
             updates,
         );
         let knowledge_task =
-            crate::knowledge::spawn_sweeper(knowledge, clock.clone(), intake_shutdown.clone());
+            knowledge::spawn_sweeper(knowledge, clock.clone(), intake_shutdown.clone());
         let profile_task = crate::profile::spawn(profile_deps, intake_shutdown.clone());
         Ok(Self {
             lock,

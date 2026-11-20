@@ -13,7 +13,6 @@ pub mod capability;
 pub mod csp;
 mod digest;
 pub mod ingest;
-mod knowledge;
 pub mod middleware;
 pub mod profile;
 pub mod router;
