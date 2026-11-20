@@ -1,6 +1,8 @@
 //! Contracts for notes, baselines, ack rules, maintenance windows, advisories and facts.
 
-use domovoi_core::ports::{AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteRepo, StoreError};
+use domovoi_core::ports::{
+    AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteRepo, StoreError,
+};
 use domovoi_core::{
     AckRule, AckRuleId, Advisory, AdvisoryId, AdvisoryKind, BaselineEntry, BaselineKind, CheckKey,
     Criticality, DigestFact, FactValue, HostId, MaintenanceWindow, Note, NoteId,

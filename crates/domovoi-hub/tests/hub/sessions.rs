@@ -1,6 +1,6 @@
 //! Live sessions: streaming, requests through the link, replacement, revocation, limits.
 
-use domovoi_core::ports::{AgentLink, Clock, MetricSampleRepo, LinkError, LogLine, Presence};
+use domovoi_core::ports::{AgentLink, Clock, LinkError, LogLine, MetricSampleRepo, Presence};
 use domovoi_core::{
     CheckKey, DigestFact, FactValue, HostId, ReadToolCall, Severity, Signal, SourceKind,
 };

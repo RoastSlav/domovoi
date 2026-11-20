@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
+    AdvisoryRepo, Clock, HostRepo, IncidentRepo, MetricSampleRepo, OperationRepo, Redactor,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;

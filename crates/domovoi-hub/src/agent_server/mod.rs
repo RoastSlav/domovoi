@@ -32,7 +32,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{
-    AgentLink, AuditLog, Clock, MetricSampleRepo, HostReconciler, HostRepo, SignalSink, StoreError,
+    AgentLink, AuditLog, Clock, HostReconciler, HostRepo, MetricSampleRepo, SignalSink, StoreError,
 };
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};

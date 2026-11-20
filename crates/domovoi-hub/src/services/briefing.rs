@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use domovoi_config::HubConfig;
-use domovoi_core::ports::{AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, StoreError};
+use domovoi_core::ports::{
+    AdvisoryRepo, Clock, HostRepo, IncidentRepo, MetricSampleRepo, StoreError,
+};
 use domovoi_core::{Host, HostName};
 use jiff::Timestamp;
 

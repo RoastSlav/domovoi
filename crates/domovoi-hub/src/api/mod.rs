@@ -52,7 +52,7 @@ use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::HostName;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, LogSource,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LogSource, MetricSampleRepo,
     NoteRepo, Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_engine::ManagerHandle;

@@ -33,6 +33,12 @@ pub enum JournalKind {
     IncidentFolded,
     /// A policy version was published.
     PolicyPublished,
+    /// A knowledge fact changed.
+    FactChange,
+    /// A knowledge relation changed.
+    RelationChange,
+    /// A knowledge entity changed.
+    EntityChange,
 }
 
 impl JournalKind {
@@ -50,6 +56,9 @@ impl JournalKind {
             Self::ExecutionTransition => "operation.execution",
             Self::IncidentFolded => "incident.folded",
             Self::PolicyPublished => "policy.published",
+            Self::FactChange => "fact.changed",
+            Self::RelationChange => "relation.changed",
+            Self::EntityChange => "entity.changed",
         }
     }
 
@@ -67,6 +76,9 @@ impl JournalKind {
             "operation.execution" => Some(Self::ExecutionTransition),
             "incident.folded" => Some(Self::IncidentFolded),
             "policy.published" => Some(Self::PolicyPublished),
+            "fact.changed" => Some(Self::FactChange),
+            "relation.changed" => Some(Self::RelationChange),
+            "entity.changed" => Some(Self::EntityChange),
             _ => None,
         }
     }

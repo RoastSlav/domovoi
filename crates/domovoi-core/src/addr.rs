@@ -45,6 +45,67 @@ pub fn in_cidr(ip: &str, cidr: &str) -> bool {
     address.bits >> shared == range.bits >> shared
 }
 
+/// The canonical text of a range: host bits zeroed, then `/prefix`; IPv4 as dotted decimal,
+/// IPv6 as lowercase RFC 5952 (the longest run of two or more zero groups compressed). A bare
+/// address is the range of that one machine. `None` when the text is not a range.
+pub fn canonical_cidr(text: &str) -> Option<String> {
+    let (address, prefix) = split_cidr(text)?;
+    let bits_wide = width(&address);
+    let keep = u32::from(prefix);
+    let mask = if keep == 0 {
+        0
+    } else {
+        u128::MAX << (bits_wide - keep)
+    };
+    let all = if address.v4 { 0xffff_ffff } else { u128::MAX };
+    let bits = address.bits & mask & all;
+    if address.v4 {
+        let octets = [24, 16, 8, 0].map(|shift| (bits >> shift) & 0xff);
+        return Some(format!(
+            "{}.{}.{}.{}/{prefix}",
+            octets[0], octets[1], octets[2], octets[3]
+        ));
+    }
+    let groups: Vec<u16> = (0..8)
+        .map(|i| u16::try_from((bits >> (112 - 16 * i)) & 0xffff).unwrap_or(0))
+        .collect();
+    Some(format!("{}/{prefix}", compress_ipv6(&groups)))
+}
+
+/// RFC 5952 text of eight groups.
+fn compress_ipv6(groups: &[u16]) -> String {
+    let (mut best_start, mut best_len) = (0usize, 0usize);
+    let mut i = 0;
+    while i < groups.len() {
+        if groups[i] == 0 {
+            let start = i;
+            while i < groups.len() && groups[i] == 0 {
+                i += 1;
+            }
+            if i - start > best_len {
+                best_start = start;
+                best_len = i - start;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    let join = |part: &[u16]| {
+        part.iter()
+            .map(|g| format!("{g:x}"))
+            .collect::<Vec<_>>()
+            .join(":")
+    };
+    if best_len < 2 {
+        return join(groups);
+    }
+    format!(
+        "{}::{}",
+        join(&groups[..best_start]),
+        join(&groups[best_start + best_len..])
+    )
+}
+
 /// The address and prefix of a `cidr`; `None` when the text is not an address range.
 /// A bare address with no `/` is the range of that one machine: `192.168.1.20` is
 /// `192.168.1.20/32`, and `fd00::20` is `fd00::20/128`.
@@ -182,6 +243,27 @@ fn bits_of(groups: [u16; 8]) -> u128 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canonical_cidr_zeroes_host_bits_and_compresses_ipv6() {
+        use super::canonical_cidr;
+        let good = [
+            ("192.168.1.7/24", "192.168.1.0/24"),
+            ("10.0.0.5", "10.0.0.5/32"),
+            ("2001:DB8:0:0:0:0:0:0/32", "2001:db8::/32"),
+            ("fd00::1", "fd00::1/128"),
+            ("1:0:0:2:0:0:0:3", "1:0:0:2::3/128"),
+            ("1:0:3:4:5:6:7:8", "1:0:3:4:5:6:7:8/128"),
+            ("::ffff:10.0.0.7", "10.0.0.7/32"),
+            ("::/0", "::/0"),
+        ];
+        for (input, want) in good {
+            assert_eq!(canonical_cidr(input).as_deref(), Some(want), "{input}");
+        }
+        for bad in ["10.0.0.0/33", "::ffff:10.0.0.7/104", "x", ""] {
+            assert_eq!(canonical_cidr(bad), None, "{bad}");
+        }
+    }
+
     use super::*;
 
     #[test]
