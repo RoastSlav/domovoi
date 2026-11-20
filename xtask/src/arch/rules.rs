@@ -468,6 +468,7 @@ pub const UNZONED_MODULES: &[&str] = &[
     "capability",
     "csp",
     "digest",
+    "knowledge",
     "middleware",
     "profile",
     "router",

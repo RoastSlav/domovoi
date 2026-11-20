@@ -472,6 +472,7 @@ async fn main() -> Result<()> {
         settings: store.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        knowledge: None,
     };
     let web = WebIdentity {
         public_url: Url::parse(&format!("http://{ADDR}"))?,
@@ -513,6 +514,14 @@ async fn main() -> Result<()> {
         clock: clock.clone(),
         shadow_enabled: false,
     });
+    let knowledge = Arc::new(domovoi_engine::knowledge::KnowledgeService::new(
+        domovoi_engine::knowledge::KnowledgeDeps {
+            uow: store.clone(),
+            read: store.clone(),
+            coverage: Arc::new(domovoi_engine::knowledge::UnavailableCoverage),
+            clock: clock.clone(),
+        },
+    ));
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: None,
@@ -528,6 +537,11 @@ async fn main() -> Result<()> {
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
         policy,
+        knowledge: domovoi_hub::services::KnowledgeCommands::new(
+            knowledge,
+            store.clone(),
+            auth.clone(),
+        ),
     });
     let deps = ApiDeps {
         incidents: store.clone(),

@@ -1266,6 +1266,86 @@ expression: spec
         ],
         "type": "object"
       },
+      "EntityCreate": {
+        "additionalProperties": false,
+        "description": "Creating an entity.",
+        "properties": {
+          "kind": {
+            "description": "A lowercase slug of 1 to 32 characters.",
+            "type": "string"
+          },
+          "name": {
+            "description": "A name of 1 to 80 characters, unique ignoring case.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "EntityDto": {
+        "description": "One entity.",
+        "properties": {
+          "created_at": {
+            "description": "When it was created.",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "The owner who created it.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Entity id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The kind, a lowercase slug.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The version a later change must name.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "created_by",
+          "created_at",
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntityRename": {
+        "additionalProperties": false,
+        "description": "Renaming an entity.",
+        "properties": {
+          "expected_version": {
+            "description": "The version the client read.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "description": "The new name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "expected_version"
+        ],
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "The body of every error response.",
         "properties": {
@@ -2251,6 +2331,206 @@ expression: spec
         ],
         "type": "object"
       },
+      "KnowledgeFactAction": {
+        "additionalProperties": false,
+        "description": "An action on one fact, at the version the client read.",
+        "properties": {
+          "expected_version": {
+            "description": "The version the client read.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "password": {
+            "description": "The password, needed to verify or accept a safety-critical fact and to confirm a path.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "type": "object"
+      },
+      "KnowledgeFactDto": {
+        "description": "One fact.",
+        "properties": {
+          "actor": {
+            "description": "Who wrote it.",
+            "type": "string"
+          },
+          "content_purged": {
+            "description": "Whether the retention purge cleared its content.",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "When it was written.",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "What it was derived from.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fresh_until": {
+            "description": "When it stops being fresh.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Fact id.",
+            "type": "string"
+          },
+          "last_verified_at": {
+            "description": "When it was last confirmed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "description": "When it was last seen to hold.",
+            "type": "string"
+          },
+          "predicate": {
+            "description": "The predicate.",
+            "type": "string"
+          },
+          "retracted_at": {
+            "description": "When it was retracted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "`user`, `discovered`, `integration`, `inferred` or `imported`.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status now: `current`, `stale`, `disputed`, `superseded` or `retracted`.",
+            "type": "string"
+          },
+          "stored_status": {
+            "description": "The status stored in the row.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject reference.",
+            "type": "string"
+          },
+          "supersedes": {
+            "description": "The fact it replaced.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "valid_until": {
+            "description": "After this time it no longer holds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "description": "The value; `null` once the retention purge cleared it."
+          },
+          "version": {
+            "description": "The version a later change must name.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "predicate",
+          "source",
+          "status",
+          "stored_status",
+          "version",
+          "observed_at",
+          "actor",
+          "created_at",
+          "content_purged"
+        ],
+        "type": "object"
+      },
+      "KnowledgeFactInput": {
+        "additionalProperties": false,
+        "description": "Facts to assert. The source is always the signed-in owner; a `source` or `actor` field is\nrefused.",
+        "properties": {
+          "evidence": {
+            "description": "What it was derived from, as `<kind>:<id>`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "description": "The password, needed for safety-critical predicates.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "predicate": {
+            "description": "The predicate, for example `role`.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject: `host:<id>`, `container:<host id>/<name>`, `unit:<host id>/<name>` or\n`entity:<id>`.",
+            "type": "string"
+          },
+          "valid_until": {
+            "description": "After this time the fact no longer holds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "description": "The value; its shape depends on the predicate."
+          }
+        },
+        "required": [
+          "subject",
+          "predicate",
+          "value"
+        ],
+        "type": "object"
+      },
+      "KnowledgeFactPageDto": {
+        "description": "A page of facts.",
+        "properties": {
+          "items": {
+            "description": "The facts, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeFactDto"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; `null` on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "Last24hDto": {
         "description": "What the recorder did in the last 24 hours.",
         "properties": {
@@ -2399,6 +2679,61 @@ expression: spec
         "required": [
           "username",
           "password"
+        ],
+        "type": "object"
+      },
+      "ManagementPathDto": {
+        "description": "One management path.",
+        "properties": {
+          "confirmation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PathConfirmationDto",
+                "description": "The owner's confirmation, if there is one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fact": {
+            "$ref": "#/components/schemas/KnowledgeFactDto",
+            "description": "The path fact."
+          },
+          "state": {
+            "description": "`candidate`, `unconfirmed`, `confirmed` or `stale`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact",
+          "state"
+        ],
+        "type": "object"
+      },
+      "ManagementPathsDto": {
+        "description": "A host's management paths.",
+        "properties": {
+          "coverage_available": {
+            "description": "Whether the hub can currently verify the helper's coverage; paths cannot be confirmed\nwhile it cannot.",
+            "type": "boolean"
+          },
+          "host": {
+            "description": "The host name.",
+            "type": "string"
+          },
+          "paths": {
+            "description": "The paths, by range.",
+            "items": {
+              "$ref": "#/components/schemas/ManagementPathDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "host",
+          "coverage_available",
+          "paths"
         ],
         "type": "object"
       },
@@ -2855,6 +3190,24 @@ expression: spec
           "description",
           "required",
           "kind"
+        ],
+        "type": "object"
+      },
+      "PathConfirmationDto": {
+        "description": "The confirmation of a management path. The helper's evidence is not returned.",
+        "properties": {
+          "confirmed_at": {
+            "description": "When.",
+            "type": "string"
+          },
+          "confirmed_by": {
+            "description": "Who confirmed it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmed_by",
+          "confirmed_at"
         ],
         "type": "object"
       },
@@ -3378,6 +3731,164 @@ expression: spec
         "required": [
           "ready",
           "failing"
+        ],
+        "type": "object"
+      },
+      "RelationDto": {
+        "description": "One relation.",
+        "properties": {
+          "actor": {
+            "description": "Who wrote it.",
+            "type": "string"
+          },
+          "content_purged": {
+            "description": "Whether the retention purge cleared its endpoints.",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "When it was written.",
+            "type": "string"
+          },
+          "evidence": {
+            "description": "What it was derived from.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "The source end; `null` once the retention purge cleared it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Relation id.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What the edge means.",
+            "type": "string"
+          },
+          "observed_at": {
+            "description": "When it was last seen to hold.",
+            "type": "string"
+          },
+          "retracted_at": {
+            "description": "When it was retracted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "Where it came from.",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status now.",
+            "type": "string"
+          },
+          "stored_status": {
+            "description": "The status stored in the row.",
+            "type": "string"
+          },
+          "to": {
+            "description": "The target end; `null` once the retention purge cleared it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "The version a later change must name.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "status",
+          "stored_status",
+          "version",
+          "observed_at",
+          "actor",
+          "created_at",
+          "content_purged"
+        ],
+        "type": "object"
+      },
+      "RelationInput": {
+        "additionalProperties": false,
+        "description": "A relation to assert. The source is always the signed-in owner.",
+        "properties": {
+          "evidence": {
+            "description": "What it was derived from, as `<kind>:<id>`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from": {
+            "description": "The source end, a subject reference.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`depends_on`, `runs_on`, `routes_to`, `stores_on`, `backs_up_to` or `managed_from`.",
+            "type": "string"
+          },
+          "to": {
+            "description": "The target end, a subject reference.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "kind",
+          "to"
+        ],
+        "type": "object"
+      },
+      "RelationPageDto": {
+        "description": "A page of relations.",
+        "properties": {
+          "items": {
+            "description": "The relations, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/RelationDto"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; `null` on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "RelationRetractInput": {
+        "additionalProperties": false,
+        "description": "Retracting a relation.",
+        "properties": {
+          "expected_version": {
+            "description": "The version the client read.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
         ],
         "type": "object"
       },
@@ -7416,6 +7927,1114 @@ expression: spec
         ]
       }
     },
+    "/api/v1/knowledge/entities": {
+      "get": {
+        "operationId": "list_entities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EntityDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The entities, by name"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Lists entities.",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "create_entity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The kind or name is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An entity with this name exists"
+          }
+        },
+        "summary": "Creates an entity.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/entities/{id}": {
+      "delete": {
+        "operationId": "delete_entity",
+        "parameters": [
+          {
+            "description": "The entity id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The version the client read.",
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such entity"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Still in use, or someone changed it meanwhile"
+          }
+        },
+        "summary": "Deletes an entity nothing refers to.",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "put": {
+        "operationId": "rename_entity",
+        "parameters": [
+          {
+            "description": "The entity id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityDto"
+                }
+              }
+            },
+            "description": "Renamed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The name is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such entity"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The name is taken, or someone changed it meanwhile"
+          }
+        },
+        "summary": "Renames an entity.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts": {
+      "get": {
+        "operationId": "list_facts",
+        "parameters": [
+          {
+            "description": "Host name.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A subject reference.",
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A predicate.",
+            "in": "query",
+            "name": "predicate",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A source.",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated statuses; default is every live status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Full-text search; ignores `cursor` and sets no `next_cursor`.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Page size, default 50, at most 200 (50 with `q`).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cursor from the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactPageDto"
+                }
+              }
+            },
+            "description": "The facts, newest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A filter value is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "Lists facts, or searches them when `q` is given.",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "assert_fact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeFactInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactDto"
+                }
+              }
+            },
+            "description": "Recorded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The fact is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "States a fact as the owner. A safety-critical predicate needs the password.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts/{id}": {
+      "get": {
+        "operationId": "get_fact",
+        "parameters": [
+          {
+            "description": "The fact id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactDto"
+                }
+              }
+            },
+            "description": "The fact"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such fact"
+          }
+        },
+        "summary": "One fact.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts/{id}/accept": {
+      "post": {
+        "operationId": "accept_fact",
+        "parameters": [
+          {
+            "description": "The fact id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeFactAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactDto"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such fact"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The fact is not live, or someone changed it meanwhile"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Makes a fact the owner's own. A safety-critical predicate needs the password.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts/{id}/confirm": {
+      "post": {
+        "operationId": "confirm_management_path",
+        "parameters": [
+          {
+            "description": "The fact id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeFactAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementPathDto"
+                }
+              }
+            },
+            "description": "Confirmed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The fact is not a management path"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such fact"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not the owner's, not live, not covered, or coverage cannot be verified"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Confirms a management path against the helper's verified coverage. Needs the password.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts/{id}/retract": {
+      "post": {
+        "operationId": "retract_fact",
+        "parameters": [
+          {
+            "description": "The fact id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeFactAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactDto"
+                }
+              }
+            },
+            "description": "Retracted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such fact"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The fact is not live, or someone changed it meanwhile"
+          }
+        },
+        "summary": "Withdraws a fact. It only removes trust, so it needs no password.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/facts/{id}/verify": {
+      "post": {
+        "operationId": "verify_fact",
+        "parameters": [
+          {
+            "description": "The fact id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeFactAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeFactDto"
+                }
+              }
+            },
+            "description": "Verified"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such fact"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The fact is not live, or someone changed it meanwhile"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Says a fact still holds. A safety-critical predicate needs the password.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/hosts/{name}/management-paths": {
+      "get": {
+        "operationId": "list_management_paths",
+        "parameters": [
+          {
+            "description": "The host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementPathsDto"
+                }
+              }
+            },
+            "description": "The paths and whether coverage can be verified"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "A host's management paths.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/relations": {
+      "get": {
+        "operationId": "list_relations",
+        "parameters": [
+          {
+            "description": "A subject reference matched at either end.",
+            "in": "query",
+            "name": "subject",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "A relation kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whether retracted relations are listed too.",
+            "in": "query",
+            "name": "include_retracted",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Page size, default 50, at most 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cursor from the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationPageDto"
+                }
+              }
+            },
+            "description": "The relations, newest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A filter value is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Lists relations.",
+        "tags": [
+          "knowledge"
+        ]
+      },
+      "post": {
+        "operationId": "assert_relation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationDto"
+                }
+              }
+            },
+            "description": "Recorded"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The relation is not valid"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "States a relation as the owner.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
+    "/api/v1/knowledge/relations/{id}/retract": {
+      "post": {
+        "operationId": "retract_relation",
+        "parameters": [
+          {
+            "description": "The relation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationRetractInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelationDto"
+                }
+              }
+            },
+            "description": "Retracted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such relation"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not live, or someone changed it meanwhile"
+          }
+        },
+        "summary": "Withdraws a relation.",
+        "tags": [
+          "knowledge"
+        ]
+      }
+    },
     "/api/v1/notes": {
       "get": {
         "operationId": "list_notes",
@@ -10077,6 +11696,10 @@ expression: spec
     {
       "description": "Policy versions, shadow decisions, the simulator and publication",
       "name": "policy"
+    },
+    {
+      "description": "Facts, relations and entities the hub knows",
+      "name": "knowledge"
     },
     {
       "description": "Hosts, enrollment and skills",

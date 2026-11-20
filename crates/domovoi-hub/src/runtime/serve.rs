@@ -31,6 +31,7 @@ pub(super) async fn run(
         triage_task,
         operations_task,
         profile_task,
+        knowledge_task,
         policy_task,
         intake_shutdown,
         worker_shutdown,
@@ -49,6 +50,7 @@ pub(super) async fn run(
     let mut intake_tasks = Vec::new();
     intake_tasks.extend(schedulers.spawn(intake_shutdown.clone()));
     intake_tasks.push(profile_task);
+    intake_tasks.push(knowledge_task);
     let serving = agent_server.clone();
     let report = stopped_tx.clone();
     intake_tasks.push(tokio::spawn(async move {

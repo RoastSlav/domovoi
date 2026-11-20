@@ -13,6 +13,7 @@
 //! tick when it has no profile yet, its agent version or machine facts changed, or the
 //! stored profile is a week old.
 
+pub mod backfill;
 pub mod collect;
 pub mod diff;
 pub(crate) mod render;
@@ -156,6 +157,8 @@ pub struct ProfileDeps {
     pub clock: Arc<dyn Clock>,
     /// Secrets are removed before any text is kept.
     pub redactor: Arc<dyn Redactor>,
+    /// Where the machine description is recorded as a fact; `None` leaves profiles as notes.
+    pub knowledge: Option<Arc<domovoi_engine::knowledge::KnowledgeService>>,
 }
 
 /// The settings key where the profile of `host` is stored.
@@ -228,21 +231,30 @@ pub async fn refresh(deps: &ProfileDeps, host: &Host) -> Result<HostProfile, Pro
         .and_then(|earlier| earlier.note)
         .unwrap_or(NoteId::new());
     profile.note = Some(id);
+    let mut tags: Vec<String> = [PROFILE_TAG, GENERATED_TAG]
+        .iter()
+        .map(|tag| tag.to_string())
+        .collect();
+    let mut body = render::markdown(host, &profile);
+    if deps.knowledge.is_some() {
+        tags.push(backfill::SUPERSEDED_TAG.to_owned());
+        body = backfill::label_superseded(&body);
+    }
     let note = Note {
         id,
         host: Some(host.id),
         title: format!("Host profile: {}", host.name),
-        body_markdown: render::markdown(host, &profile),
-        tags: [PROFILE_TAG, GENERATED_TAG]
-            .iter()
-            .map(|tag| tag.to_string())
-            .collect(),
+        body_markdown: body,
+        tags,
         updated_at: profile.collected_at,
     };
     deps.notes.upsert(&note).await?;
     deps.settings
         .set(&profile_key(host.id), &json!(profile))
         .await?;
+    if let Some(knowledge) = &deps.knowledge {
+        backfill::observe(knowledge, host.id, &profile).await;
+    }
     tracing::info!(
         host = host.name.as_str(),
         sections = profile.sections.len(),
