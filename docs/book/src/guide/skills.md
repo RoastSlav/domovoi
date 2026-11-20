@@ -163,3 +163,7 @@ sudo systemctl restart domovoi-agent
 ```
 
 `domovoi check skills` lists each valid skill and explains every problem: a bad pattern, a missing entry, a group-writable script or a folder name that does not match.
+
+## Packages
+
+A package bundles skills into one signed archive that the hub can install on an agent. Installing a package does not run its skills. They are inert until the skill runner that executes packaged skills is available, and they are not offered to triage or listed with the skills above. See [Packages](../reference/agent.md#packages) for the layout and trust rules.

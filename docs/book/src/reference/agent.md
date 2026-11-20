@@ -83,3 +83,64 @@ Before an approved skill reaches the runner, the agent checks, in order:
 4. The plan hash recomputed from the local manifest, this host and the validated arguments equals the approved one; otherwise `plan_mismatch`. Editing a skill after approval therefore needs a new approval.
 
 Logs name the skill and the step that refused it, never argument values.
+
+## Packages
+
+The hub can send the agent a signed package: an archive of skills. The agent checks the signature, then installs or removes it. Installing a package never enables it or runs anything. Package skills are not added to the skill catalogue, and they cannot run until the skill runner exists.
+
+Packages are off unless `agent.toml` has a `[packages]` section. Without it the agent installs nothing and advertises no package capabilities. Listing installed packages works whenever the section is present.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `[agent] packages_dir` | `/var/lib/domovoi-packages` | Where installed packages live. |
+| `[packages] allow_install` | `false` | Whether the hub may install or remove packages. |
+| `[packages] revoked` | empty | Key ids that are refused. |
+| `[[packages.trusted_keys]]` | empty | Keys that may sign packages: `id`, `public_key` (base64) and `label`. |
+
+### Trust
+
+- Only keys listed in `agent.toml` are trusted. The key `id` is the first 16 hex characters of the SHA-256 of the 32-byte ed25519 public key.
+- The hub cannot add, replace or remove keys. Only the owner, editing `agent.toml`, can.
+- A revoked key is refused even when it is also listed as trusted.
+- Keys are read when the agent starts. Changing them needs a restart.
+- A valid signature is not permission. Each install and removal also needs a person's approval in the hub. A policy approval is refused.
+- A root agent installs with `privilege_boundary` set to `not_in_effect`, because the package is not confined to a lower-privilege user. `packages_dir` must be owned by the agent's user and not writable by group or others.
+
+### Layout
+
+```text
+packages_dir/
+  .packages.toml          registry, mode 0600
+  .staging/               wiped at start
+  <name>/<version>/       package files
+```
+
+- Directories are `0755`, files `0644`, and owner-executable files `0755`.
+- The registry records, for each package, the signing key id, the archive digest and the time of install.
+- Each package has one installed version.
+- An archive is `<name>-<version>.tar.zst`. It has one top-level `<name>/` directory holding `package.toml` and `skills/<skill>/`. Links, paths that escape the package, and archives over the limits are refused.
+- The signature is a detached `<name>-<version>.sig.toml`. It is an ed25519 signature over this text: `domovoi-package-v1`, the package name, the version, the archive SHA-256 and the key id, one per line.
+
+### Limits
+
+| Limit | Default |
+| --- | --- |
+| Compressed archive | 20 MiB |
+| Uncompressed total | 100 MiB |
+| One file | 20 MiB |
+| Entries | 2000 |
+| Path depth | 8 |
+| Path length | 255 bytes |
+| Extraction time | 60 s |
+
+The limits are set under `[packages.limits]`.
+
+### Crash recovery
+
+The registry write is the commit point. An install is complete only when it is recorded there. At start-up the agent removes version directories the registry does not list, and wipes `.staging/`. Retrying an install after a crash gives the same result. A corrupt registry fences the packages until the owner repairs or removes it.
+
+### Downgrade
+
+Older agent binaries reject a config that has `[packages]` or `packages_dir`. Before downgrading, remove both from `agent.toml`. Installed packages stay on disk.
+
+The wire messages are in [Agent protocol](protocol.md#package-transfers).
