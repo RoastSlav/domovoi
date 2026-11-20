@@ -10,6 +10,8 @@ pub const SYSTEM_INCIDENTS: &str = "incidents";
 /// The action writer.
 pub const SYSTEM_ACTIONS: &str = "actions";
 /// The operation writer.
+pub const SYSTEM_OPERATOR: &str = "operator";
+/// System actor of the operation writer.
 pub const SYSTEM_OPERATIONS: &str = "operations";
 /// The knowledge service: sweeps and service-internal changes.
 pub const SYSTEM_KNOWLEDGE: &str = "knowledge";

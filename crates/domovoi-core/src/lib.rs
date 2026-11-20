@@ -14,6 +14,7 @@ pub mod baseline;
 pub mod capability;
 pub mod card;
 pub mod context;
+pub mod conversation;
 pub mod digest;
 pub mod error;
 pub mod experience;
@@ -48,7 +49,7 @@ pub use action::{
 };
 pub use actor::{
     Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_KNOWLEDGE,
-    SYSTEM_OPERATIONS, SYSTEM_PROFILE,
+    SYSTEM_OPERATIONS, SYSTEM_OPERATOR, SYSTEM_PROFILE,
 };
 pub use addr::{canonical_cidr, in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
@@ -67,9 +68,9 @@ pub use host::{
     ProtocolParseError, REPORT_REFRESH, ReportOutcome, ReportedProtocol, host_target_text,
 };
 pub use id::{
-    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, EntityId, ExecutionId,
-    FactRecordId, HostId, IncidentId, NoteId, OperationId, PolicyVersionId, RelationId, RequestId,
-    SignalId, StepId, UserId,
+    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, ConversationId, EffectId, EntityId,
+    ExecutionId, FactRecordId, HostId, IncidentId, MessageId, NoteId, OperationId, PolicyVersionId,
+    RelationId, RequestId, SignalId, StepId, TurnId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,

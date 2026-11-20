@@ -13,6 +13,7 @@ pub mod context;
 pub mod experience;
 pub mod hostfs;
 pub mod knowledge;
+pub mod live;
 pub mod llm;
 pub mod logs;
 pub mod process;
@@ -43,9 +44,10 @@ pub use context::ContextSource;
 pub use experience::ExperienceRead;
 pub use hostfs::{FsError, HostFs};
 pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};
+pub use live::{LiveEnd, LiveEvent, LivePublisher};
 pub use llm::{
-    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason, ToolSpec, Usage, UsageSource,
+    AnswerSink, LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part,
+    Role, StopReason, ToolPhase, ToolSpec, Usage, UsageSource,
 };
 pub use logs::{LogLine, LogSource};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};

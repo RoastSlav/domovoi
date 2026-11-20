@@ -41,6 +41,14 @@ pub enum JournalKind {
     EntityChange,
     /// A field of an operation's resolution summary got a new revision.
     OperationSummary,
+    /// An Operator conversation was created.
+    ConversationCreated,
+    /// An Operator message was created or changed status.
+    ConversationMessage,
+    /// An Operator conversation changed (operation attached or detached).
+    ConversationUpdated,
+    /// An Operator conversation was deleted.
+    ConversationDeleted,
 }
 
 impl JournalKind {
@@ -62,6 +70,10 @@ impl JournalKind {
             Self::RelationChange => "relation.changed",
             Self::EntityChange => "entity.changed",
             Self::OperationSummary => "operation.summary",
+            Self::ConversationCreated => "conversation.created",
+            Self::ConversationMessage => "conversation.message",
+            Self::ConversationUpdated => "conversation.updated",
+            Self::ConversationDeleted => "conversation.deleted",
         }
     }
 
@@ -83,6 +95,10 @@ impl JournalKind {
             "relation.changed" => Some(Self::RelationChange),
             "entity.changed" => Some(Self::EntityChange),
             "operation.summary" => Some(Self::OperationSummary),
+            "conversation.created" => Some(Self::ConversationCreated),
+            "conversation.message" => Some(Self::ConversationMessage),
+            "conversation.updated" => Some(Self::ConversationUpdated),
+            "conversation.deleted" => Some(Self::ConversationDeleted),
             _ => None,
         }
     }
@@ -243,6 +259,10 @@ mod tests {
             JournalKind::IncidentFolded,
             JournalKind::PolicyPublished,
             JournalKind::OperationSummary,
+            JournalKind::ConversationCreated,
+            JournalKind::ConversationMessage,
+            JournalKind::ConversationUpdated,
+            JournalKind::ConversationDeleted,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }

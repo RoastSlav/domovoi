@@ -234,6 +234,29 @@ pub enum LlmError {
     Unavailable(String),
 }
 
+/// Whether the engine is starting or finishing a read tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolPhase {
+    /// The tool call begins.
+    Started,
+    /// The tool call ended.
+    Finished,
+}
+
+/// Receives what a model turn produces while it runs. Used by the Operator to stream an
+/// answer; everything else passes none.
+pub trait AnswerSink: Send + Sync {
+    /// A new model request starts: anything pushed before belonged to an attempt that was
+    /// discarded.
+    fn attempt_started(&self);
+    /// A fragment of the text the model is writing in this attempt. Not redacted; the sink
+    /// does that.
+    fn text(&self, fragment: &str);
+    /// The engine starts or finishes one read tool; `tool` is a name from the closed set or
+    /// `unknown tool`.
+    fn tool(&self, tool: &str, phase: ToolPhase, failed: bool);
+}
+
 /// A language model provider. One call is one model turn; the engine runs the tool loop.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
@@ -261,4 +284,80 @@ pub trait LlmProvider: Send + Sync {
 
     /// Runs one turn. Does not retry; retries and budgets are the engine's job.
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError>;
+
+    /// Runs one turn and hands text to `sink` as it is written. The default emits each text
+    /// part once, after the turn, so a provider that cannot stream still works.
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        sink: &dyn AnswerSink,
+    ) -> Result<LlmResponse, LlmError> {
+        let response = self.complete(req).await?;
+        for part in &response.parts {
+            if let Part::Text(text) = part {
+                sink.text(text);
+            }
+        }
+        Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    struct Plain;
+
+    #[async_trait]
+    impl LlmProvider for Plain {
+        fn id(&self) -> &str {
+            "plain"
+        }
+        fn supports_tools(&self) -> bool {
+            false
+        }
+        async fn complete(&self, _req: LlmRequest) -> Result<LlmResponse, LlmError> {
+            Ok(LlmResponse {
+                parts: vec![
+                    Part::Text("one".to_owned()),
+                    Part::ToolCall {
+                        id: "t".to_owned(),
+                        name: "journal".to_owned(),
+                        input: Value::Null,
+                    },
+                    Part::Text("two".to_owned()),
+                ],
+                stop: StopReason::EndTurn,
+                usage: Usage::default(),
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct Collect(Mutex<Vec<String>>);
+
+    impl AnswerSink for Collect {
+        fn attempt_started(&self) {}
+        fn text(&self, fragment: &str) {
+            self.0.lock().unwrap().push(fragment.to_owned());
+        }
+        fn tool(&self, _tool: &str, _phase: ToolPhase, _failed: bool) {}
+    }
+
+    #[test]
+    fn default_streaming_emits_the_whole_text_once() {
+        let req = LlmRequest {
+            system: String::new(),
+            messages: Vec::new(),
+            tools: Vec::new(),
+            max_output_tokens: 10,
+        };
+        let sink = Collect::default();
+        let direct = futures::executor::block_on(Plain.complete(req.clone())).unwrap();
+        let streamed = futures::executor::block_on(Plain.complete_streaming(req, &sink)).unwrap();
+        assert_eq!(direct, streamed);
+        assert_eq!(*sink.0.lock().unwrap(), ["one", "two"]);
+    }
 }

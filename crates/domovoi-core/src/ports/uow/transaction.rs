@@ -2,14 +2,16 @@
 
 use std::fmt;
 
-use crate::id::{ActionId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId};
+use crate::id::{
+    ActionId, ConversationId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId,
+};
 use crate::policy_store::PolicyWrite;
 use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
-    AuditDraft, EffectCancel, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
-    JournalDraft, OperationWrite,
+    AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
+    EffectReschedule, JournalDraft, OperationWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -31,6 +33,8 @@ pub enum AggregateKind {
     Relation,
     /// A knowledge entity.
     Entity,
+    /// An Operator conversation and its messages.
+    Conversation,
 }
 
 impl AggregateKind {
@@ -51,6 +55,7 @@ impl AggregateKind {
             Self::Fact => "fact",
             Self::Relation => "relation",
             Self::Entity => "entity",
+            Self::Conversation => "conversation",
         }
     }
 
@@ -66,6 +71,7 @@ impl AggregateKind {
             "fact" => Some(Self::Fact),
             "relation" => Some(Self::Relation),
             "entity" => Some(Self::Entity),
+            "conversation" => Some(Self::Conversation),
             _ => None,
         }
     }
@@ -115,6 +121,17 @@ impl AggregateRef {
     pub fn operation(id: OperationId) -> Self {
         Self {
             kind: AggregateKind::Operation,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// A conversation reference: the aggregate of every conversation journal entry.
+    #[must_use]
+    pub fn conversation(id: ConversationId) -> Self {
+        Self {
+            kind: AggregateKind::Conversation,
             id: id.to_string(),
         }
     }
@@ -254,6 +271,8 @@ pub enum StateWrite {
     Policy(PolicyWrite),
     /// One change to the knowledge store: a fact, a relation, an entity or a confirmation.
     Knowledge(crate::knowledge::KnowledgeWrite),
+    /// One change to an Operator conversation or its messages.
+    Conversation(ConversationWrite),
 }
 
 /// Everything one business event changes.

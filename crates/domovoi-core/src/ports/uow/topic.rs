@@ -20,7 +20,7 @@ pub enum Topic {
     Operation(String),
     /// Reserved: host rows. Accepted, delivers nothing until a mapping is added.
     Hosts,
-    /// Reserved: one conversation (canonical UUID text). Accepted, delivers nothing yet.
+    /// Every row of one Operator conversation (canonical UUID text).
     Conversation(String),
 }
 
@@ -128,6 +128,12 @@ impl TopicSet {
         names
     }
 
+    /// Whether the set holds the topic of conversation `id` (canonical UUID text).
+    #[must_use]
+    pub fn contains_conversation(&self, id: &str) -> bool {
+        self.0.contains(&Topic::Conversation(id.to_owned()))
+    }
+
     /// Whether any topic of `entry` is in the set.
     #[must_use]
     pub fn matches(&self, entry: &JournalEntry) -> bool {
@@ -150,6 +156,13 @@ pub fn topics_of(entry: &JournalEntry) -> Vec<Topic> {
                 topics.push(Topic::Approvals);
             }
             topics
+        }
+        AggregateKind::Conversation => {
+            if canonical_uuid(&entry.aggregate.id).is_ok() {
+                vec![Topic::Conversation(entry.aggregate.id.clone())]
+            } else {
+                vec![]
+            }
         }
         // Aggregates with no topic yet; add an arm here when a consumer needs it.
         _ => vec![],
@@ -269,5 +282,34 @@ mod tests {
         ] {
             assert!(!set.matches(&e));
         }
+        let only_hosts = TopicSet::parse_list(Some("hosts")).unwrap();
+        let conv = entry(AggregateKind::Conversation, OP, "conversation.message");
+        assert!(!only_hosts.matches(&conv));
+    }
+
+    #[test]
+    fn conversation_rows_belong_to_their_own_topic() {
+        let e = entry(AggregateKind::Conversation, OP, "conversation.message");
+        assert_eq!(topics_of(&e), [Topic::Conversation(OP.to_owned())]);
+        let bad = entry(AggregateKind::Conversation, "nope", "conversation.message");
+        assert!(topics_of(&bad).is_empty());
+    }
+
+    #[test]
+    fn conversation_topic_matches_only_its_conversation() {
+        const OTHER: &str = "0190a0a0-0000-7000-8000-0000000000b2";
+        let set = TopicSet::parse_list(Some(&format!("conversations:{OP}"))).unwrap();
+        assert!(set.matches(&entry(
+            AggregateKind::Conversation,
+            OP,
+            "conversation.message"
+        )));
+        assert!(!set.matches(&entry(
+            AggregateKind::Conversation,
+            OTHER,
+            "conversation.message"
+        )));
+        assert!(set.contains_conversation(OP));
+        assert!(!set.contains_conversation(OTHER));
     }
 }

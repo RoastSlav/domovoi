@@ -56,6 +56,10 @@ pub(super) fn apply(
         StateWrite::Operation(write) => super::uow_operations::apply(state, write, receipt),
         StateWrite::Policy(write) => super::policy::apply(state, write),
         StateWrite::Knowledge(write) => super::knowledge_apply::apply(state, write, receipt),
+        // Filled in by the conversation testkit step.
+        StateWrite::Conversation(_) => Err(CommitError::Backend(
+            "conversation writes are not supported yet".to_owned(),
+        )),
     }
 }
 
