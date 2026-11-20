@@ -11,6 +11,7 @@
 
 mod integrity;
 mod invariants;
+mod labels;
 mod reopen;
 #[cfg(test)]
 mod seams;
@@ -149,6 +150,7 @@ fn summarize(tx: &Transaction) -> TxSummary {
                 },
                 OperationWrite::IncidentLink { .. } => "incident_link".to_owned(),
             }),
+            StateWrite::Knowledge(write) => writes.push(labels::knowledge(write)),
             StateWrite::Policy(write) => writes.push(
                 match write {
                     PolicyWrite::SaveDraft { .. } => "policy:save_draft",

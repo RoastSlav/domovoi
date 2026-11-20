@@ -8,6 +8,8 @@ mod health;
 mod hosts;
 mod incidents;
 mod knowledge;
+mod knowledge_apply;
+mod knowledge_read;
 mod notify;
 mod operations;
 mod policy;
@@ -85,6 +87,8 @@ struct State {
     windows: Vec<MaintenanceWindow>,
     advisories: BTreeMap<AdvisoryId, Advisory>,
     facts: Vec<DigestFact>,
+    /// Knowledge facts, relations, entities and path confirmations.
+    knowledge: knowledge_apply::KnowledgeState,
     triage_cache: BTreeMap<(Fingerprint, [u8; 32]), (TriageReport, Timestamp)>,
     usage: Vec<UsageRow>,
     admissions: Vec<(AdmissionPurpose, Timestamp)>,
