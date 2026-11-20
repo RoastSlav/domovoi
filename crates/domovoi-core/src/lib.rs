@@ -24,6 +24,7 @@ pub mod interaction;
 pub mod note;
 pub mod notify;
 pub mod operation;
+pub mod package;
 pub mod policy_store;
 pub mod ports;
 pub mod severity;

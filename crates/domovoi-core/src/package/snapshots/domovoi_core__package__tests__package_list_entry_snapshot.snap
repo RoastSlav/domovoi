@@ -1,0 +1,18 @@
+---
+source: crates/domovoi-core/src/package/tests.rs
+expression: entry
+---
+{
+  "name": "nginx-tools",
+  "version": "1.2.0",
+  "key_id": "a1b2c3d4e5f60718",
+  "archive_sha256": "0eb3e36bfb24dcd9bb1d1bece1531216b59539a8fde17ee80224af0653c92aa3",
+  "installed_at": "2023-11-14T22:13:20Z",
+  "skills": [
+    "nginx_reload"
+  ],
+  "status": "disabled_untrusted_key",
+  "key_state": "unknown",
+  "executable": false,
+  "executable_reason": "skill_runner_not_integrated"
+}
