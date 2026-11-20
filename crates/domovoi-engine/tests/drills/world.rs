@@ -16,6 +16,7 @@ use domovoi_core::{
     Incident, Severity, Signal, SkillManifest, SkillSummary, SourceKind, TargetKey, TriageOutcome,
 };
 use domovoi_engine::PatternRedactor;
+use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
     InvestigateDeps, InvestigateSettings, OperationDeps, OperationService, OperationSettings,
 };
@@ -386,6 +387,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         manager,
         bus,
         shutdown: shutdown.clone(),
+        experience: ExperienceSource::over(store.clone(), redactor.clone(), clock.clone()),
         extra_context: Vec::new(),
     };
     let (triage, _triage_task) = TriageService::spawn(deps, TriageSettings::default());

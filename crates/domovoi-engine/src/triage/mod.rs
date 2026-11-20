@@ -46,7 +46,7 @@ pub use agent::{
 pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
-pub use meta::{META_SYSTEM_PROMPT, offered_tools};
+pub use meta::{ExperienceAccess, META_SYSTEM_PROMPT, offered_tools};
 pub use report::parse_report;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE, UNKNOWN_NOTE};
 
@@ -163,6 +163,8 @@ pub struct TriageDeps {
     /// Context sources added by later features (knowledge, experience), asked after the
     /// built-in ones for every purpose. Empty unless the hub registers some.
     pub extra_context: Vec<Arc<dyn ContextSource>>,
+    /// Past operations, read only; the source of `search_experience`.
+    pub experience: crate::context::ExperienceSource,
 }
 
 /// Why a follow-up question got no answer.

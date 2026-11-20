@@ -222,6 +222,25 @@ pub(super) async fn finish(
     Ok(id)
 }
 
+/// Stores one finished operation on `host`, with its five code fields and the given
+/// problem, cause and fix texts as model drafts, so a reader's tests have a past operation to
+/// find. It ended `secs` seconds after the test epoch.
+///
+/// # Errors
+///
+/// Fails when the store refuses the writes.
+pub async fn seed_finished(
+    s: &dyn ExperienceSubject,
+    host: HostId,
+    goal: &str,
+    secs: i64,
+    narrative: [Option<&str>; 3],
+) -> Result<OperationId, ContractError> {
+    let mut spec = Spec::new(host, goal, secs);
+    spec.narrative = narrative;
+    finish(s, &spec).await
+}
+
 pub(super) fn is_constraint(result: &Result<(), CommitError>) -> bool {
     matches!(result, Err(CommitError::Constraint(_)))
 }

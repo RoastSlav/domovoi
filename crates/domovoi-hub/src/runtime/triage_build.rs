@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
 use domovoi_core::ports::{Clock, ProcessExecutor};
+use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::knowledge::KnowledgeSource;
 use domovoi_engine::targets::TargetService;
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService};
@@ -114,6 +115,7 @@ pub(super) async fn build(
             manager: manager.clone(),
             bus: bus.clone(),
             shutdown: shutdown.clone(),
+            experience: ExperienceSource::over(store.clone(), redactor.clone(), clock.clone()),
             extra_context: vec![Arc::new(KnowledgeSource::new(
                 store.clone(),
                 redactor.clone(),

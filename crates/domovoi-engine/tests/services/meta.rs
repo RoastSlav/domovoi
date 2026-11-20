@@ -14,7 +14,7 @@ use domovoi_core::ports::{
 use domovoi_core::{
     EffectClass, ReadToolCall, Risk, SkillName, TriageOutcome, TriageReport, UserId,
 };
-use domovoi_engine::context::EvidenceSource;
+use domovoi_engine::context::{EvidenceSource, ExperienceSource};
 use domovoi_engine::triage::{
     BUDGET_EXHAUSTED, MAX_RESULT_BYTES, NO_CALLS_LEFT, SYSTEM_PROMPT, TriageDeps, UNKNOWN_NOTE,
 };
@@ -738,6 +738,11 @@ fn deps_of(w: &World) -> TriageDeps {
         manager: w.manager.clone(),
         bus: w.bus.clone(),
         shutdown: w.shutdown.clone(),
+        experience: ExperienceSource::over(
+            w.store.clone(),
+            Arc::new(PatternRedactor::default()),
+            w.clock.clone(),
+        ),
         extra_context: Vec::new(),
     }
 }

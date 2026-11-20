@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::dispatch::{Handled, State, handle};
 use super::finish::{Carrier, accept, asked};
-use super::{Ctx, EvidenceRecord, LoopOutput, LoopScope, offered_tools};
+use super::{Ctx, EvidenceRecord, ExperienceAccess, LoopOutput, LoopScope, offered_tools};
 use crate::triage::agent::{self, BUDGET_EXHAUSTED, RunBudget, ToolUse, deadline_error, text_of};
 use crate::triage::chain::AttemptError;
 use crate::triage::report::parse_report;
@@ -171,7 +171,7 @@ pub(crate) async fn converse_read(
     run: &mut RunBudget,
 ) -> Result<String, LlmError> {
     let shared = ctx.shared;
-    let mut state = State::read_only();
+    let mut state = State::read_only(ExperienceAccess::host(ctx.scope.host, None));
     let specs = if ctx.provider.supports_tools() {
         offered_tools(state.tools)
     } else {

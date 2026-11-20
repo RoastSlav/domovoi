@@ -1812,3 +1812,117 @@ fn legacy_rows_are_written_only_by_the_drain() {
         "the drain no longer writes through the unit of work"
     );
 }
+
+/// Experience is evidence, never authorization: nothing on the decision, authorization or
+/// dispatch path reads a resolution summary or searches past operations.
+#[test]
+fn experience_never_reaches_authorization_or_dispatch() {
+    let guarded: Vec<_> = crate_sources("domovoi-engine")
+        .into_iter()
+        .filter(|(rel, _)| {
+            let rel = rel
+                .strip_prefix("crates/domovoi-engine/src/")
+                .unwrap_or(rel);
+            rel.starts_with("operations/decide/")
+                || rel.starts_with("actions/")
+                || matches!(
+                    rel,
+                    "operations/execute.rs"
+                        | "operations/writer/dispatch.rs"
+                        | "operations/effects/dispatch.rs"
+                        | "policy.rs"
+                )
+        })
+        .collect();
+    assert!(
+        guarded.len() >= 6,
+        "the scan found only {} guarded sources",
+        guarded.len()
+    );
+    let offenders = forbidden_in(
+        &guarded,
+        &[
+            "ExperienceRead",
+            "ExperienceSource",
+            "ResolutionSummary",
+            "SummaryRevision",
+            "search_experience",
+        ],
+        &[],
+    );
+    assert!(
+        offenders.is_empty(),
+        "experience reaches the authorization or dispatch path: {offenders:#?}"
+    );
+}
+
+/// A search over every host can be built in one place: the experience source. The only way to
+/// ask for one from a conversation is `global_for_owner_conversation`, which nothing in
+/// production calls yet.
+#[test]
+fn experience_global_scope_has_known_callers() {
+    let files = crate_sources("domovoi-engine");
+    let global: Vec<String> = files
+        .iter()
+        .filter(|(rel, _)| rel != "crates/domovoi-engine/src/context/experience.rs")
+        .flat_map(|(rel, text)| {
+            code_lines(text)
+                .filter(|(_, line)| names_path(line, "ExperienceScope::Global"))
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        global.is_empty(),
+        "a global experience scope is built outside the experience source: {global:#?}"
+    );
+    let callers: Vec<String> = files
+        .iter()
+        .filter(|(rel, _)| rel != "crates/domovoi-engine/src/triage/meta/experience.rs")
+        .flat_map(|(rel, text)| {
+            code_lines(text)
+                .filter(|(_, line)| line.contains("global_for_owner_conversation("))
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        callers.is_empty(),
+        "an owner-only global conversation scope is built in production: {callers:#?}"
+    );
+}
+
+/// Summary revisions have one writer: the operation writer builds the write, and no SQL that
+/// inserts a revision or a projection row exists outside the store.
+#[test]
+fn summary_revisions_have_one_writer() {
+    let files = crate_sources("domovoi-engine");
+    let builders: Vec<&str> = files
+        .iter()
+        .filter(|(_, text)| code_lines(text).any(|(_, line)| line.contains("SummaryFieldWrite {")))
+        .map(|(rel, _)| rel.as_str())
+        .collect();
+    assert_eq!(
+        builders,
+        ["crates/domovoi-engine/src/operations/writer/summary.rs"],
+        "a summary write is built outside the operation writer"
+    );
+    let sql: Vec<String> = workspace_sources()
+        .into_iter()
+        .filter(|(rel, _)| !rel.starts_with("crates/domovoi-store/"))
+        .flat_map(|(rel, text)| {
+            code_lines(&text)
+                .filter(|(_, line)| {
+                    let flat = line.to_lowercase();
+                    flat.contains("insert into resolution_summary_fields")
+                        || flat.contains("insert into operation_resolutions")
+                })
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        sql.is_empty(),
+        "summary rows are written outside the store: {sql:#?}"
+    );
+}

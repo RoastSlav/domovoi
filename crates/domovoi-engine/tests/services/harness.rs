@@ -12,6 +12,7 @@ use domovoi_core::{
     NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
     TargetKey,
 };
+use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
     InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
     OperationSettings,
@@ -279,6 +280,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: services.clone(),
+        experience: ExperienceSource::over(store.clone(), redactor.clone(), clock.clone()),
         extra_context: setup.extra_context.clone(),
     };
     let usage = deps.usage.clone();
@@ -402,6 +404,12 @@ impl World {
             manager: self.manager.clone(),
             bus: self.bus.clone(),
             shutdown: services.clone(),
+            experience: ExperienceSource::over(
+                self.store.clone(),
+                self.redactor.clone(),
+                self.clock.clone(),
+            ),
+
             extra_context: Vec::new(),
         };
         let (triage, _task) = TriageService::spawn(deps, self.settings);

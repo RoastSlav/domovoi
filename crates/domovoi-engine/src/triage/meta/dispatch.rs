@@ -7,7 +7,8 @@ use serde_json::{Value, json};
 
 use super::ledger::ReadLedger;
 use super::{
-    Ctx, EvidenceRecord, LoopScope, MAX_QUESTIONS_PER_OPERATION, capabilities, evidence, record,
+    Ctx, EvidenceRecord, ExperienceAccess, LoopScope, MAX_QUESTIONS_PER_OPERATION, capabilities,
+    evidence, experience, record,
 };
 use crate::plan::{PlanScope, PlanValidator, PlannedStep};
 use crate::triage::agent::{NO_CALLS_LEFT, ToolUse};
@@ -41,6 +42,7 @@ pub(crate) struct State<'a> {
     pub(super) evidence_left: Option<u32>,
     pub(super) questions_asked: u32,
     pub(super) ledger: ReadLedger,
+    pub(super) experience: ExperienceAccess,
 }
 
 impl<'a> State<'a> {
@@ -56,11 +58,12 @@ impl<'a> State<'a> {
             evidence_left: scope.evidence_left,
             questions_asked: scope.questions_asked,
             ledger: ReadLedger::new(),
+            experience: scope.experience,
         }
     }
 
     /// The state of a follow-up or chat: look, never suggest.
-    pub(super) fn read_only() -> Self {
+    pub(super) fn read_only(experience: ExperienceAccess) -> Self {
         Self {
             tools: ToolSet::Read,
             plan: None,
@@ -71,6 +74,7 @@ impl<'a> State<'a> {
             evidence_left: None,
             questions_asked: 0,
             ledger: ReadLedger::new(),
+            experience,
         }
     }
 }
@@ -165,10 +169,10 @@ pub(super) async fn handle(
             evidence::request(ctx, state, read, deadline, records).await,
             None,
         ),
-        // The experience search is wired in with the experience context source.
-        MetaToolCall::SearchExperience { .. } => {
-            (error(ctx, "error: experience search is unavailable"), None)
-        }
+        MetaToolCall::SearchExperience { query } => (
+            experience::search(ctx, state.experience, &query, deadline).await,
+            None,
+        ),
         MetaToolCall::ProposePlan(plan) => (propose(ctx, state, &plan).await, None),
         MetaToolCall::AskUser { question } => ask(ctx, state, &question),
         MetaToolCall::Finish(report) => return Handled::Finish(report),

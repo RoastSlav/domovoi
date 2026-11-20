@@ -9,6 +9,7 @@
 mod capabilities;
 mod dispatch;
 mod evidence;
+mod experience;
 mod finish;
 mod ledger;
 mod loop_run;
@@ -24,6 +25,7 @@ use super::Shared;
 use super::tools::{EvidenceClass, Scope};
 use crate::plan::{PlanScope, PlannedStep};
 
+pub use experience::ExperienceAccess;
 pub(crate) use loop_run::{converse_read, investigate};
 
 /// The most questions one operation may put to the person who runs the server.
@@ -77,6 +79,8 @@ pub(crate) struct LoopScope {
     pub(crate) evidence_left: Option<u32>,
     /// Questions the operation already asked.
     pub(crate) questions_asked: u32,
+    /// Where `search_experience` may look.
+    pub(crate) experience: ExperienceAccess,
 }
 
 /// One parsed read the loop made, with what it came to.

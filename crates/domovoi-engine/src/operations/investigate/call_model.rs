@@ -19,7 +19,7 @@ use crate::operations::effects::{Address, address, after, finish, load, spec, un
 use crate::operations::writer::{Conclusion, OpShared};
 use crate::plan::PlanScope;
 use crate::triage::agent::RunUsage;
-use crate::triage::meta::{EvidenceRecord, LoopScope};
+use crate::triage::meta::{EvidenceRecord, ExperienceAccess, LoopScope};
 use crate::triage::run::{GeneratedEnd, failed, generate, succeeded};
 use crate::triage::tools::EvidenceClass;
 
@@ -38,7 +38,7 @@ impl CallModel {
 /// What the model may do in a turn of the operation in `snapshot`: the investigation tools
 /// (`ask_user` only when `questions` allows it), the operation's pinned scope, its evidence
 /// budget and the questions it already asked.
-fn loop_scope(snapshot: &OperationSnapshot, questions: bool) -> LoopScope {
+fn loop_scope(snapshot: &OperationSnapshot, host: HostId, questions: bool) -> LoopScope {
     let budgets = &snapshot.operation.budgets;
     let asked = snapshot
         .steps
@@ -53,6 +53,7 @@ fn loop_scope(snapshot: &OperationSnapshot, questions: bool) -> LoopScope {
             .evidence_requests
             .map(|limit| limit.saturating_sub(budgets.used.evidence_requests)),
         questions_asked: u32::try_from(asked).unwrap_or(u32::MAX),
+        experience: ExperienceAccess::host(host, Some(snapshot.operation.id)),
     }
 }
 
@@ -140,7 +141,7 @@ impl EffectHandler for CallModel {
         let skills = triage.deps.capabilities.enabled_skills(incident.host());
         // A provider failure is a result, never a retry: a retry would spend another slot of
         // the hour.
-        let scope = loop_scope(&snapshot, runtime.settings.allow_questions);
+        let scope = loop_scope(&snapshot, incident.host(), runtime.settings.allow_questions);
         let generated = generate(triage, &incident, &skills, bundle, scope).await;
         let usage = step_usage(generated.usage);
         // The reads are recorded whether the turn succeeds or fails.

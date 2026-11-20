@@ -20,6 +20,8 @@ mod effects_triage;
 #[cfg(test)]
 mod evidence;
 #[cfg(test)]
+mod experience;
+#[cfg(test)]
 #[path = "../gates.rs"]
 mod gates;
 #[cfg(test)]

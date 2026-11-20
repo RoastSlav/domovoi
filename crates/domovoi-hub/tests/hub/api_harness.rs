@@ -388,6 +388,11 @@ async fn build(
                 manager: manager.clone(),
                 bus: bus.clone(),
                 shutdown: shutdown.clone(),
+                experience: domovoi_engine::context::ExperienceSource::over(
+                    store.clone(),
+                    Arc::new(PatternRedactor::default()),
+                    clock.clone(),
+                ),
                 extra_context: Vec::new(),
             },
             triage_settings,
