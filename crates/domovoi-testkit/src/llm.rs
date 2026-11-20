@@ -5,11 +5,14 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmError, LlmProvider, LlmRequest, LlmResponse, Part, StopReason, Usage,
+    AnswerSink, LlmError, LlmProvider, LlmRequest, LlmResponse, Part, StopReason, Usage,
 };
 use tokio::sync::Semaphore;
 
 use crate::lock;
+
+/// One queued answer, with the fragments `complete_streaming` hands to a sink for it.
+type Scripted = (Result<LlmResponse, LlmError>, Option<Vec<String>>);
 
 /// An [`LlmProvider`] that answers from a queue and records every request.
 ///
@@ -23,7 +26,7 @@ pub struct ScriptedLlm {
     model: Option<String>,
     supports_tools: bool,
     prices: bool,
-    script: Mutex<VecDeque<Result<LlmResponse, LlmError>>>,
+    script: Mutex<VecDeque<Scripted>>,
     requests: Mutex<Vec<LlmRequest>>,
     /// Permits a [`complete`] must hold before taking its scripted response.
     gate: Semaphore,
@@ -71,7 +74,7 @@ impl ScriptedLlm {
 
     /// Queues a response.
     pub fn push_ok(&self, response: LlmResponse) {
-        lock(&self.script).push_back(Ok(response));
+        lock(&self.script).push_back((Ok(response), None));
     }
 
     /// Queues a final text answer with zero usage.
@@ -83,9 +86,21 @@ impl ScriptedLlm {
         });
     }
 
+    /// Queues a final text answer that `complete_streaming` hands to the sink as
+    /// `fragments`, in order, while the turn runs. The answer text is their concatenation.
+    pub fn push_streamed(&self, fragments: &[&str]) {
+        let response = LlmResponse {
+            parts: vec![Part::Text(fragments.concat())],
+            stop: StopReason::EndTurn,
+            usage: Usage::default(),
+        };
+        let pieces = fragments.iter().map(|f| (*f).to_owned()).collect();
+        lock(&self.script).push_back((Ok(response), Some(pieces)));
+    }
+
     /// Queues an error.
     pub fn push_err(&self, error: LlmError) {
-        lock(&self.script).push_back(Err(error));
+        lock(&self.script).push_back((Err(error), None));
     }
 
     /// Every request received so far, oldest first.
@@ -151,7 +166,34 @@ impl LlmProvider for ScriptedLlm {
         self.prices
     }
 
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        sink: &dyn AnswerSink,
+    ) -> Result<LlmResponse, LlmError> {
+        let (result, fragments) = self.next(req).await;
+        let response = result?;
+        // A streamed entry hands out its fragments; any other falls back to the whole text
+        // once, like the default.
+        match fragments {
+            Some(fragments) => fragments.iter().for_each(|fragment| sink.text(fragment)),
+            None => response.parts.iter().for_each(|part| {
+                if let Part::Text(text) = part {
+                    sink.text(text);
+                }
+            }),
+        }
+        Ok(response)
+    }
+
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        self.next(req).await.0
+    }
+}
+
+impl ScriptedLlm {
+    /// Records the request, waits for the gate and takes the next scripted entry.
+    async fn next(&self, req: LlmRequest) -> Scripted {
         lock(&self.requests).push(req);
         // The request counts as received before the gate is taken, so a test can
         // `wait_for_request` even while [`hold`](Self::hold) blocks the response.
@@ -160,9 +202,12 @@ impl LlmProvider for ScriptedLlm {
             Ok(_held) => {}
             Err(_closed) => {}
         }
-        lock(&self.script)
-            .pop_front()
-            .unwrap_or_else(|| Err(LlmError::Unavailable("script exhausted".to_owned())))
+        lock(&self.script).pop_front().unwrap_or_else(|| {
+            (
+                Err(LlmError::Unavailable("script exhausted".to_owned())),
+                None,
+            )
+        })
     }
 }
 
