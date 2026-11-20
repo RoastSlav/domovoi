@@ -176,6 +176,25 @@ curl -b cookies.txt -H "X-CSRF-Token: $csrf" \
 
 The reply counts what happened: `{"created": 2, "skipped": 0, "skipped_files": []}`. Notes may be up to 256 KiB, whether imported or written in the UI.
 
+## Knowledge
+
+The knowledge store is under `/api/v1/knowledge`. Every request needs a logged-in session. Every `POST`, `PUT` and `DELETE` also needs the CSRF header. See [Knowledge](../concepts/knowledge.md) for what the fields mean.
+
+- `GET /facts` lists facts. Filters: `host`, `subject`, `predicate`, `source`, `status`, `q` (full-text search), `limit` and `cursor`.
+- `GET /facts/{id}` returns one fact.
+- `POST /facts` asserts a fact. The source is always forced to `user`, whatever the request says.
+- `POST /facts/{id}/accept` turns an inferred fact into a `user` fact.
+- `POST /facts/{id}/retract` removes a fact from search and from model context. It never needs the password.
+- `POST /facts/{id}/verify` re-verifies a fact.
+- `POST /facts/{id}/confirm` confirms a management path.
+- `GET /hosts/{name}/management-paths` lists a host's management paths.
+- `GET /relations` and `POST /relations` list and create relations. `POST /relations/{id}/retract` retracts one.
+- `GET /entities` and `POST /entities` list and create entities. `PUT /entities/{id}` and `DELETE /entities/{id}` change and remove one.
+
+Step-up rule: `POST /facts`, `accept` and `verify` on `management_path` or `trusted_cidr` need the admin password. Every `confirm` needs it too. Retract never does.
+
+Confirmation is not available yet. `confirm` fails with the message `the helper's coverage cannot be verified yet` until the helper attestation feature ships, because a confirmation needs a verified, fresh attestation that shows the path covered.
+
 ## Events
 
 `GET /api/v1/events` streams committed journal rows as server-sent events. It needs a session and serves at most 32 streams at once (`503` beyond that).
