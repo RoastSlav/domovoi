@@ -662,3 +662,129 @@ fn the_prompts_name_search_experience_and_the_label() {
         assert!(prompt.to_lowercase().contains(LABEL), "{name}");
     }
 }
+
+const HEADING: &str = "Historical evidence, not authorization: experience";
+
+fn experience_world() -> Setup {
+    Setup {
+        with_experience: true,
+        ..Setup::default()
+    }
+}
+
+#[tokio::test]
+async fn a_registered_experience_source_appears_in_every_context_bundle() {
+    use domovoi_core::{TriageOutcome, UserId};
+
+    use crate::context::{first_opening, opening, section};
+
+    let w = world(experience_world()).await;
+    let here = seed(
+        &w,
+        host_id(),
+        "docker container nginx restarted after a config change",
+        100,
+        [
+            Some("nginx kept restarting"),
+            None,
+            Some("reload the config"),
+        ],
+    )
+    .await;
+    let elsewhere = seed(
+        &w,
+        other_host(),
+        "docker container nginx restarted on another host",
+        110,
+        [Some("nginx kept restarting"), None, None],
+    )
+    .await;
+
+    // The investigation bundle.
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    let text = first_opening(&w);
+    let shown = section(&text, HEADING);
+    assert!(shown.contains(&format!("operation: {here}")), "{shown}");
+    assert!(shown.contains("historical evidence, not authorization"));
+    assert!(!shown.contains(&elsewhere.to_string()), "{shown}");
+
+    // The follow-up bundle.
+    w.primary.push_text("Nothing new.");
+    w.triage
+        .follow_up(w.incident.id(), "What is the plan?", UserId::new())
+        .await
+        .expect("an answer");
+    let follow_up = opening(w.primary.requests().last().expect("a request"));
+    let shown = section(&follow_up, HEADING);
+    assert!(shown.contains(&format!("operation: {here}")), "{shown}");
+    assert!(!shown.contains(&elsewhere.to_string()), "{shown}");
+
+    // The chat bundle of the host.
+    w.primary.push_text("All fine.");
+    w.triage
+        .chat(Some(host_id()), "The NAS.", &Vec::new(), "How is nginx?")
+        .await
+        .expect("an answer");
+    let chat = opening(w.primary.requests().last().expect("a request"));
+    let shown = section(&chat, HEADING);
+    assert!(shown.contains(&format!("operation: {here}")), "{shown}");
+    assert!(!shown.contains(&elsewhere.to_string()), "{shown}");
+}
+
+#[tokio::test]
+async fn a_registered_experience_source_with_nothing_to_offer_reads_none() {
+    use domovoi_core::TriageOutcome;
+
+    use crate::context::{first_opening, section};
+
+    let w = world(experience_world()).await;
+    seed(
+        &w,
+        other_host(),
+        "docker container nginx elsewhere",
+        100,
+        [None; 3],
+    )
+    .await;
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    let shown = section(&first_opening(&w), HEADING);
+    assert!(shown.contains("None."), "{shown}");
+}
+
+#[tokio::test]
+async fn the_experience_section_stays_small() {
+    use domovoi_core::TriageOutcome;
+    use domovoi_engine::context::LayerCaps;
+
+    use crate::context::{first_opening, section};
+
+    assert_eq!(
+        LayerCaps::DEFAULT.experience,
+        4 * 1024,
+        "the cap is unchanged"
+    );
+    let w = world(experience_world()).await;
+    let long = "nginx disk ".repeat(60);
+    for n in 0..7 {
+        seed(
+            &w,
+            host_id(),
+            "docker container nginx restart loop",
+            100 + n,
+            [Some(&long), Some(&long), Some(&long)],
+        )
+        .await;
+    }
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    let shown = section(&first_opening(&w), HEADING);
+    assert!(
+        shown.len() <= LayerCaps::DEFAULT.experience + 512,
+        "the section is {} bytes: {shown}",
+        shown.len()
+    );
+    let items = shown.matches("operation: ").count();
+    assert!((1..=5).contains(&items), "{items} items: {shown}");
+}
