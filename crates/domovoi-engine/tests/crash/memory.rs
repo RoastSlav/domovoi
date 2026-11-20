@@ -6,8 +6,9 @@ use std::sync::Arc;
 use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::crash::InMemoryReopen;
 
+use crate::legacy::legacy_drain;
 use crate::operations::operation_lifecycle;
-use crate::scenarios::{action_lifecycle, incident_lifecycle};
+use crate::scenarios::incident_lifecycle;
 use crate::sweep::{BoxFuture, Scenario, sweep};
 
 /// A fresh store per case.
@@ -26,21 +27,21 @@ async fn incident_lifecycle_survives_a_crash_at_every_commit_in_memory() {
 }
 
 #[tokio::test]
-async fn action_lifecycle_survives_a_crash_at_every_commit_in_memory() {
-    let scenario = Scenario {
-        name: "action_lifecycle",
-        run: action_lifecycle::<InMemoryStore>,
-        min_commits: 24,
-    };
-    sweep(&scenario, &make, &InMemoryReopen).await;
-}
-
-#[tokio::test]
 async fn operation_lifecycle_survives_a_crash_at_every_commit_in_memory() {
     let scenario = Scenario {
         name: "operation_lifecycle",
         run: operation_lifecycle::<InMemoryStore>,
         min_commits: 11,
+    };
+    sweep(&scenario, &make, &InMemoryReopen).await;
+}
+
+#[tokio::test]
+async fn legacy_drain_survives_a_crash_at_every_commit_in_memory() {
+    let scenario = Scenario {
+        name: "legacy_drain",
+        run: legacy_drain::<InMemoryStore>,
+        min_commits: 6,
     };
     sweep(&scenario, &make, &InMemoryReopen).await;
 }

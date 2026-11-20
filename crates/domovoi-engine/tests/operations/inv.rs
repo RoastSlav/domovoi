@@ -17,10 +17,7 @@ use domovoi_engine::operations::{
     OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
-use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, IncidentManager,
-    ManagerDeps, PatternRedactor,
-};
+use domovoi_engine::{DomainEvent, EnginePolicy, IncidentManager, ManagerDeps, PatternRedactor};
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
 use domovoi_testkit::{
@@ -292,30 +289,6 @@ pub async fn inv(setup: InvSetup) -> Inv {
     });
     let llm = Arc::new(ScriptedLlm::new());
     let primary: Arc<dyn LlmProvider> = llm.clone();
-    let action_ports = action_caps(link.clone());
-    let (_actions_service, _actions_task) = ActionService::spawn(
-        ActionDeps {
-            actions: store.clone(),
-            incidents: store.clone(),
-            audit: store.clone(),
-            uow: store.clone(),
-            effects: store.clone(),
-            advisories: store.clone(),
-            probe: action_ports.probe,
-            observer: action_ports.observer,
-            journal: action_ports.journal,
-            capabilities: Arc::new(FakeCapabilityRegistry::following(link.clone())),
-            handoff: action_ports.handoff,
-            rerun: action_ports.rerun,
-            hosts: store.clone(),
-            redactor: redactor.clone(),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        ActionSettings::default(),
-    );
     let caps = Arc::new(FakeCapabilityRegistry::empty());
     caps.set_skills(host_id(), vec![restart_skill()]);
     let triage_deps = TriageDeps {

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionFilter, ActionRepo, Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse,
-    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, UnitOfWork, Usage,
+    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
 };
 use domovoi_core::{
     ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
@@ -17,10 +17,7 @@ use domovoi_engine::operations::{
     OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
-use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, DomainEvent, EnginePolicy, EventKind,
-    IncidentManager, ManagerDeps,
-};
+use domovoi_engine::{DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps};
 use domovoi_engine::{ManagerHandle, PatternRedactor};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
@@ -83,6 +80,8 @@ pub fn disk(used: f64) -> Evidence {
 }
 
 pub struct World {
+    /// The incident manager's task, so a test can stop it.
+    pub manager_task: tokio::task::JoinHandle<()>,
     pub store: Arc<InMemoryStore>,
     pub clock: Arc<FakeClock>,
     pub link: Arc<FakeAgentLink>,
@@ -153,26 +152,12 @@ pub async fn world(setup: Setup) -> World {
         Some(delay) => InMemoryStore::new().with_delay(delay),
         None => InMemoryStore::new(),
     });
-    world_over(setup, store.clone(), store).await
+    world_over(setup, store).await
 }
 
-/// A world whose stores `uow` commits the action service's writes, so a test can watch
-/// what the writer commits. `store` must be the same store `uow` forwards to.
-pub async fn world_over(
-    setup: Setup,
-    store: Arc<InMemoryStore>,
-    uow: Arc<dyn UnitOfWork>,
-) -> World {
-    let actions: Arc<dyn ActionRepo> = store.clone();
-    world_over_with_actions(setup, store, uow, actions).await
-}
-
-async fn world_over_with_actions(
-    setup: Setup,
-    store: Arc<InMemoryStore>,
-    uow: Arc<dyn UnitOfWork>,
-    actions: Arc<dyn ActionRepo>,
-) -> World {
+/// A world over `store`, so a test can wrap the store to inject failures into the repositories
+/// the services read.
+pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
     link.set_presence(
@@ -225,7 +210,7 @@ async fn world_over_with_actions(
     let redactor = Arc::new(PatternRedactor::new([SecretString::from(
         SECRET.to_owned(),
     )]));
-    let (manager, _task) = IncidentManager::spawn(ManagerDeps {
+    let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
         incidents: store.clone(),
         uow: store.clone(),
         versions: store.clone(),
@@ -255,32 +240,6 @@ async fn world_over_with_actions(
         (false, true) => vec![third_dyn],
         (true, true) => vec![secondary_dyn, third_dyn],
     };
-    let caps = action_caps(link.clone());
-    let (_actions_service, _actions_task) = ActionService::spawn(
-        ActionDeps {
-            actions: actions.clone(),
-            incidents: store.clone(),
-            audit: store.clone(),
-            uow,
-            effects: store.clone(),
-            advisories: store.clone(),
-            probe: caps.probe,
-            observer: caps.observer,
-            journal: caps.journal,
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
-            handoff: caps.handoff,
-            rerun: caps.rerun,
-            hosts: store.clone(),
-            redactor: redactor.clone(),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        ActionSettings::default(),
-    );
     let capabilities = Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
         link.clone(),
     ));
@@ -301,7 +260,7 @@ async fn world_over_with_actions(
         signals: store.clone(),
         notes: store.clone(),
         hosts: store.clone(),
-        actions,
+        actions: store.clone(),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
         admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
@@ -325,6 +284,7 @@ async fn world_over_with_actions(
         tokio::task::yield_now().await;
     }
     World {
+        manager_task,
         store,
         clock,
         link,

@@ -11,8 +11,9 @@ use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::crash::{Snapshot, TxSummary};
 
+use crate::legacy::legacy_drain;
 use crate::operations::operation_lifecycle;
-use crate::scenarios::{action_lifecycle, incident_lifecycle};
+use crate::scenarios::incident_lifecycle;
 use crate::sweep::BoxFuture;
 use crate::world::{World, host_id};
 
@@ -22,8 +23,8 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
 const COMMIT_SITES: [&str; 7] = [
-    "actions/commit.rs",
     "effects/runner.rs",
+    "legacy.rs",
     "manager/actor.rs",
     "operations/startup.rs",
     "operations/writer/commit.rs",
@@ -31,24 +32,16 @@ const COMMIT_SITES: [&str; 7] = [
     "policy_shadow/recorder.rs",
 ];
 
-/// Every audit kind the action and operation writers can produce, including the chat-token
-/// rotation. A scenario
+/// Every audit kind the legacy retirement and the operation writer can produce, plus the three
+/// the legacy scenario seeds as the first-generation executor's last word on a row. A scenario
 /// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 24] = [
+const AUDIT_KINDS: [&str; 16] = [
     "action.proposed",
     "action.approved",
-    "action.denied",
     "action.expired",
-    "action.rejected",
-    "action.blocked",
     "action.dispatched",
-    "action.succeeded",
-    "action.failed",
     "action.outcome_unknown",
     "action.not_run",
-    "action.verified",
-    "action.verify_failed",
-    "action.token_rotated",
     // The operation writer's, as far as the scenarios reach them: an approved restart is
     // dispatched and settled by the operation service's own handlers.
     "operation.created",
@@ -83,8 +76,8 @@ async fn sweep_covers_every_kind_of_write() {
     let mut audit = BTreeSet::new();
     for run in [
         incident_lifecycle::<InMemoryStore>,
-        action_lifecycle::<InMemoryStore>,
         operation_lifecycle::<InMemoryStore>,
+        legacy_drain::<InMemoryStore>,
     ] {
         for summary in recorded(run).await {
             writes.extend(summary.writes);
@@ -114,20 +107,7 @@ async fn sweep_covers_every_kind_of_write() {
             "no scenario writes {required}, so the sweep does not cover every write\nfound: {writes:#?}"
         );
     }
-    for status in [
-        "proposed",
-        "approved",
-        "denied",
-        "expired",
-        "rejected",
-        "dispatched",
-        "succeeded",
-        "failed",
-        "outcome_unknown",
-        "not_run",
-        "verified",
-        "verify_failed",
-    ] {
+    for status in ["expired", "not_run", "outcome_unknown"] {
         let wanted = format!("action:status:{status}");
         assert!(
             writes.contains(&wanted),
@@ -143,7 +123,7 @@ async fn sweep_covers_every_kind_of_write() {
         "no scenario writes an action transition journal row\nfound: {journal:#?}"
     );
 
-    // The audit contract, both ways: every kind the action writer produces must be exercised,
+    // The audit contract, both ways: every kind the writers produce must be exercised,
     // and a kind this list does not know is a new producer that needs reviewing here.
     let observed: BTreeSet<&str> = audit.iter().map(String::as_str).collect();
     let expected: BTreeSet<&str> = AUDIT_KINDS.into_iter().collect();
@@ -240,8 +220,8 @@ async fn snapshots_distinguish_states() {
 async fn scenarios_are_deterministic() {
     for run in [
         incident_lifecycle::<InMemoryStore>,
-        action_lifecycle::<InMemoryStore>,
         operation_lifecycle::<InMemoryStore>,
+        legacy_drain::<InMemoryStore>,
     ] {
         let first = recorded(run).await;
         let second = recorded(run).await;

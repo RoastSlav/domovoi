@@ -47,7 +47,6 @@ pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use meta::{META_SYSTEM_PROMPT, offered_tools};
 pub use report::parse_report;
-pub(crate) use tools::cut;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE, UNKNOWN_NOTE};
 
 /// The system prompt for triage runs with a provider that cannot call tools.

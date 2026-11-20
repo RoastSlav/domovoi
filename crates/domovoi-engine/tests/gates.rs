@@ -14,8 +14,8 @@ use domovoi_testkit::link::LinkRequest;
 use jiff::tz::TimeZone;
 use serde_json::json;
 
-/// Action state is written only by the action writer, and only through the unit of work,
-/// so every transition keeps its audit and journal rows.
+/// Action state is written only through the unit of work, by the operation writer and the
+/// upgrade drain in `legacy.rs`, so every transition keeps its audit and journal rows.
 #[test]
 fn action_writes_go_through_the_unit_of_work() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -41,6 +41,10 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
         if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
             continue;
         }
+        // The upgrade drain writes legacy rows, and only through the unit of work.
+        if path.ends_with("src/legacy.rs") {
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -57,9 +61,9 @@ fn scans(dir: &std::path::Path, offenders: &mut Vec<String>) {
 }
 
 /// There is exactly one module that dispatches a skill and exactly one that reads a host's
-/// tool output, one `WriteCommand::Dispatch { .. }` struct expression, one such struct pattern,
-/// one constructor of `AuthorizedExecution`, one call
-/// site of the execution boundary, and one caller of the check re-run (EXEC-1..3, ADR 0022).
+/// tool output, one `OperationCommand::Dispatch { .. }` struct expression, one such struct
+/// pattern, one constructor of `AuthorizedStep`, one call site of the execution boundary, and
+/// one caller of the check re-run (EXEC-1..3, ADR 0022).
 ///
 /// The check is the workspace's one implementation, `xtask::arch::ast::exec_violations`, which
 /// `cargo xtask arch-check` runs too. It counts syntax nodes, so a call split across lines, a
@@ -92,16 +96,6 @@ fn production_sources() -> Vec<(String, String)> {
         .filter(|(rel, _)| !test_only.contains(rel))
         .collect()
 }
-
-/// The fixture's `executor.rs`: the one authorizing constructor and the one dispatch.
-const EXECUTOR: &str = "let authorized = AuthorizedExecution::of(action)?;\nexecute::execute(shared, authorized, skill, args, session, incident).await?;\n";
-
-/// The fixture's `execute.rs`: the handoff capability and the one dispatch command, a struct
-/// expression.
-const EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;\ndeps.handoff.await_handoff_result(host, handoff, deadline).await;\nask(shared, id, \"a dispatch\", WriteCommand::Dispatch { id, plan }, answer).await;\n";
-
-/// The fixture's `writer.rs`: the one match on the dispatch command, a struct pattern.
-const WRITER: &str = "match command {\n    WriteCommand::Dispatch { id, plan, .. } => {}\n}\n";
 
 /// The fixture's `operations/execute.rs`: the operation service's own handoff calls and its one
 /// dispatch command, a struct expression.
@@ -145,13 +139,10 @@ fn source_files(
 }
 
 /// The smallest tree that satisfies the engine's boundary cards: one authorizing constructor,
-/// one dispatch call, one dispatch command and its one writer match. `writer.rs` is a counted
-/// site, not an exempt file.
+/// one dispatch call, one dispatch command and its one writer match. `writer/mod.rs` is a
+/// counted site, not an exempt file.
 fn boundary_tree() -> Vec<(String, String)> {
     vec![
-        (crate_path("actions/executor.rs"), EXECUTOR.to_owned()),
-        (crate_path("actions/execute.rs"), EXECUTE.to_owned()),
-        (crate_path("actions/writer.rs"), WRITER.to_owned()),
         (crate_path("operations/execute.rs"), OP_EXECUTE.to_owned()),
         (
             crate_path("operations/effects/dispatch.rs"),
@@ -187,7 +178,7 @@ fn assert_passed(tree: &[(String, String)], what: &str) {
 
 /// The gate counts call sites in each card site, not whole files: a second constructor, a
 /// second dispatch, a second skill start, read or re-check, a second dispatch match and a
-/// module reaching the raw link from a new `actions/` file all fail. The bypasses a line scan
+/// module reaching the raw link from a new operations file all fail. The bypasses a line scan
 /// missed fail too: a call split across lines, a production file with a test-like name, and a
 /// missing card site.
 #[test]
@@ -197,24 +188,27 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/executor.rs",
-        "let again = AuthorizedExecution::of(action)?;\n",
+        "operations/effects/dispatch.rs",
+        "let again = AuthorizedStep::of(row)?;
+",
     );
-    assert_refused(&tree, "a second constructor call in the executor");
+    assert_refused(&tree, "a second constructor call in the dispatch effect");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/executor.rs",
-        "execute::execute(shared, other, ..).await?;\n",
+        "operations/effects/dispatch.rs",
+        "execute::execute_step(shared, held, other, ..).await?;
+",
     );
-    assert_refused(&tree, "a second execute call in the executor");
+    assert_refused(&tree, "a second execute call in the dispatch effect");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/execute.rs",
-        "deps.link.start_skill(host, other, ..).await;\n",
+        "operations/execute.rs",
+        "deps.link.start_skill(host, other, ..).await;
+",
     );
     assert_refused(&tree, "a raw skill start in the engine");
 
@@ -222,31 +216,35 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     push_line(
         &mut tree,
         "evidence/collect.rs",
-        "self.link.run_tool(host, call, at).await;\n",
+        "self.link.run_tool(host, call, at).await;
+",
     );
     assert_refused(&tree, "a raw host read in the evidence directory");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/verify_wake.rs",
-        "deps.link.run_check(host, other, ..).await;\n",
+        "operations/effects/verify.rs",
+        "deps.link.run_check(host, other, ..).await;
+",
     );
     assert_refused(&tree, "a raw check re-run in the verification file");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/other.rs",
-        "let a = AuthorizedExecution::of(action)?;\n",
+        "operations/other.rs",
+        "let a = AuthorizedStep::of(row)?;
+",
     );
     assert_refused(&tree, "a constructor call in a disallowed module");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/execute.rs",
-        "ask(shared, id, \"again\", WriteCommand::Dispatch { id, plan }, answer).await;\n",
+        "operations/execute.rs",
+        "let again = OperationCommand::Dispatch { held, step };
+",
     );
     assert_refused(
         &tree,
@@ -256,28 +254,49 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/writer.rs",
-        "    WriteCommand::Dispatch { id, plan, .. } => {}\n",
+        "operations/writer/mod.rs",
+        "    OperationCommand::Dispatch { held, .. } => {}
+",
     );
     assert_refused(&tree, "a second dispatch match in the writer");
 
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/other.rs",
-        "let command = WriteCommand::Dispatch { id, plan };\n",
+        "operations/other.rs",
+        "let command = OperationCommand::Dispatch { held, step };
+",
     );
     assert_refused(&tree, "a dispatch command built in another module");
 
-    // A new module under `actions/` is ordinary production code: it gets no ambient link,
-    // however the call is formatted.
+    // A second handoff or result wait is a second path to an agent.
+    for line in [
+        "deps.handoff.hand_off(host, dispatch, session, epoch, deadline).await;
+",
+        "deps.handoff.await_handoff_result(host, handoff, deadline).await;
+",
+    ] {
+        let mut tree = boundary_tree();
+        push_line(&mut tree, "operations/execute.rs", line);
+        assert_refused(&tree, "a second handoff call in the execution boundary");
+        let mut tree = boundary_tree();
+        push_line(&mut tree, "operations/other.rs", line);
+        assert_refused(&tree, "a handoff call in another module");
+    }
+
+    // A new module is ordinary production code: it gets no ambient link, however the call is
+    // formatted.
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/schedule.rs",
-        "let out = deps\n    .link\n    .run_tool(host, call, deadline)\n    .await;\n",
+        "operations/schedule.rs",
+        "let out = deps
+    .link
+    .run_tool(host, call, deadline)
+    .await;
+",
     );
-    assert_refused(&tree, "a new actions module taking the raw link");
+    assert_refused(&tree, "a new operations module taking the raw link");
 
     // A production file whose name looks like a test file is still scanned.
     for rel in ["tests/probe.rs", "probe_tests.rs"] {
@@ -288,15 +307,15 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
 
     // A permitted file that is missing or renamed fails instead of being skipped.
     let mut tree = boundary_tree();
-    tree.retain(|(rel, _)| !rel.ends_with("actions/writer.rs"));
+    tree.retain(|(rel, _)| !rel.ends_with("operations/writer/mod.rs"));
     assert_refused(&tree, "a missing permitted file");
 
     // Two calls on one line are two calls.
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/executor.rs",
-        "let a = AuthorizedExecution::of(x)?; let b = AuthorizedExecution::of(y)?;\n",
+        "operations/effects/dispatch.rs",
+        "let a = AuthorizedStep::of(x)?; let b = AuthorizedStep::of(y)?;\n",
     );
     assert_refused(&tree, "two constructor calls on one line");
 
@@ -304,8 +323,8 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
     let mut tree = boundary_tree();
     push_line(
         &mut tree,
-        "actions/executor.rs",
-        "// AuthorizedExecution::of(x)\n",
+        "operations/effects/dispatch.rs",
+        "// AuthorizedStep::of(x)\n",
     );
     assert_passed(&tree, "a comment mention");
 }
@@ -920,211 +939,15 @@ mod redaction {
     }
 }
 
-// Actions (INV-1, INV-6): only `approve` with a human approval reaches `Approved`, and a
-// rejected or failed action never runs again on its own.
+// Actions (INV-1, INV-6) are gated on the operation path: `chat_steps.rs` refuses a chat or
+// untyped approval of a destructive step, `legacy_parity/invariants.rs` proves only an
+// authorization lets a step run, and `legacy_parity/dispatch.rs` proves a failed or refused
+// step never retries on its own. Gates on the structure of the code follow.
 
-mod actions {
-    use domovoi_core::ports::SkillOutput;
-    use domovoi_core::{ActionError, ActionStatus, Authorization, PlanBinding, UserId};
-    use domovoi_engine::{ActionSettings, ApprovalError, DomainEvent, EventKind};
-    use domovoi_testkit::approvals::{chat, human, provenance, web_typed};
-    use jiff::SignedDuration;
-
-    use crate::actions_harness::{actions, ok_output, verified_restart, wipe};
-
-    #[tokio::test]
-    async fn destructive_action_cannot_be_approved_from_chat() {
-        let mut a = actions(ActionSettings::default()).await;
-        let (action, token) = a
-            .propose_for(&wipe(), &[], SignedDuration::from_hours(1))
-            .await;
-        assert_eq!(
-            a.service
-                .approve(
-                    action.id(),
-                    Authorization::human(chat(UserId::new(), "discord", "1234")),
-                    Some(&token),
-                    PlanBinding::Full(action.plan_hash_for_approval()),
-                    provenance(),
-                )
-                .await
-                .err(),
-            Some(ApprovalError::Refused(
-                ActionError::DestructiveNeedsTypedConfirmation
-            ))
-        );
-        a.settle().await;
-        assert_eq!(a.get(action.id()).await.status(), &ActionStatus::Proposed);
-        assert!(a.drain().is_empty(), "nothing was published");
-        assert_eq!(a.runs(), 0);
-    }
-
-    #[tokio::test]
-    async fn destructive_action_needs_typed_confirmation_on_web() {
-        let a = actions(ActionSettings::default()).await;
-        let (action, _) = a
-            .propose_for(&wipe(), &[], SignedDuration::from_hours(1))
-            .await;
-        assert_eq!(
-            a.service
-                .approve(
-                    action.id(),
-                    Authorization::human(human(UserId::new())),
-                    None,
-                    PlanBinding::Full(action.plan_hash_for_approval()),
-                    provenance(),
-                )
-                .await
-                .err(),
-            Some(ApprovalError::Refused(
-                ActionError::DestructiveNeedsTypedConfirmation
-            ))
-        );
-        assert_eq!(a.runs(), 0);
-        a.service
-            .approve(
-                action.id(),
-                Authorization::human(web_typed(UserId::new())),
-                None,
-                PlanBinding::Full(action.plan_hash_for_approval()),
-                provenance(),
-            )
-            .await
-            .unwrap();
-        a.until(action.id(), |s| matches!(s, ActionStatus::Succeeded))
-            .await;
-        assert_eq!(a.runs(), 1);
-    }
-
-    #[tokio::test]
-    async fn only_approve_reaches_approved_state() {
-        let a = actions(ActionSettings::default()).await;
-        let (proposed, _) = a.propose().await;
-        let (denied, _) = a.propose().await;
-        let (expiring, _) = a
-            .propose_for(
-                &verified_restart(),
-                &[("container", "nginx")],
-                SignedDuration::from_mins(5),
-            )
-            .await;
-        a.service
-            .deny(denied.id(), human(UserId::new()))
-            .await
-            .unwrap();
-        a.clock.advance(SignedDuration::from_mins(6));
-        a.service.expire_due().await.unwrap();
-        // Forged events never move an action: the executor only runs what is approved.
-        for id in [proposed.id(), denied.id(), expiring.id()] {
-            for kind in [
-                EventKind::ActionApproved { action: id },
-                EventKind::ActionChanged {
-                    action: id,
-                    status: ActionStatus::Approved,
-                },
-                EventKind::TriageRequested,
-            ] {
-                a.bus
-                    .send(DomainEvent::new(kind, &a.incident, true))
-                    .unwrap();
-            }
-        }
-        a.service.expire_due().await.unwrap();
-        a.settle().await;
-        assert_eq!(a.get(proposed.id()).await.status(), &ActionStatus::Proposed);
-        assert_eq!(a.get(denied.id()).await.status(), &ActionStatus::Denied);
-        assert_eq!(a.get(expiring.id()).await.status(), &ActionStatus::Expired);
-        assert_eq!(a.runs(), 0);
-        for id in [proposed.id(), denied.id(), expiring.id()] {
-            assert!(!a.trail(id).await.iter().any(|k| k == "action.approved"));
-        }
-    }
-
-    #[tokio::test]
-    async fn rejected_or_failed_actions_never_retry_silently() {
-        let a = actions(ActionSettings::default()).await;
-        a.link.on_skill(|_, _| {
-            Ok(SkillOutput {
-                exit_code: Some(1),
-                ..ok_output("failed")
-            })
-        });
-        let (failed, _) = a.propose().await;
-        a.service
-            .approve(
-                failed.id(),
-                Authorization::human(human(UserId::new())),
-                None,
-                PlanBinding::Full(failed.plan_hash_for_approval()),
-                provenance(),
-            )
-            .await
-            .unwrap();
-        a.until(failed.id(), |s| matches!(s, ActionStatus::Failed { .. }))
-            .await;
-        assert_eq!(a.runs(), 1);
-
-        a.link.set_skills(a.incident.host(), Vec::new());
-        let (rejected, _) = a.propose().await;
-        a.service
-            .approve(
-                rejected.id(),
-                Authorization::human(human(UserId::new())),
-                None,
-                PlanBinding::Full(rejected.plan_hash_for_approval()),
-                provenance(),
-            )
-            .await
-            .unwrap();
-        a.until(rejected.id(), |s| {
-            matches!(s, ActionStatus::Rejected { .. })
-        })
-        .await;
-
-        a.link
-            .set_skills(a.incident.host(), vec![verified_restart()]);
-        a.link.on_skill(|_, _| Ok(ok_output("ok")));
-        for id in [failed.id(), rejected.id()] {
-            a.bus
-                .send(DomainEvent::new(
-                    EventKind::ActionApproved { action: id },
-                    &a.incident,
-                    true,
-                ))
-                .unwrap();
-        }
-        for _ in 0..60 {
-            a.settle().await;
-            a.clock.advance(SignedDuration::from_secs(1));
-        }
-        assert_eq!(a.runs(), 1, "nothing ran again");
-        assert!(matches!(
-            a.get(failed.id()).await.status(),
-            ActionStatus::Failed { .. }
-        ));
-        assert!(matches!(
-            a.get(rejected.id()).await.status(),
-            ActionStatus::Rejected { .. }
-        ));
-        assert!(
-            a.service
-                .approve(
-                    failed.id(),
-                    Authorization::human(human(UserId::new())),
-                    None,
-                    PlanBinding::Full(failed.plan_hash_for_approval()),
-                    provenance(),
-                )
-                .await
-                .is_err(),
-            "a failed action cannot be approved again"
-        );
-    }
-}
-
-/// The dispatch command's two sites are different syntax: a struct expression in `execute.rs`
-/// and a struct pattern in `writer.rs`. Swapping the node kind at either site, or adding a
-/// second of either kind anywhere, fails, and the real sources hold exactly one of each.
+/// The dispatch command's two sites are different syntax: a struct expression in
+/// `operations/execute.rs` and a struct pattern in `operations/writer/mod.rs`. Swapping the
+/// node kind at either site, or adding a second of either kind anywhere, fails, and the real
+/// sources hold exactly one of each.
 #[test]
 fn dispatch_construction_and_match_are_separate_sites() {
     assert_passed(
@@ -1132,26 +955,36 @@ fn dispatch_construction_and_match_are_separate_sites() {
         "the engine's real sources (one dispatch expression, one dispatch pattern)",
     );
 
-    let construction = "fn build() -> WriteCommand { WriteCommand::Dispatch { id, plan } }
+    let construction =
+        "fn build() -> OperationCommand { OperationCommand::Dispatch { held, step } }
 ";
-    let pattern = "fn act(c: WriteCommand) { match c { WriteCommand::Dispatch { .. } => {} } }
+    let pattern =
+        "fn act(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }
 ";
 
     let mut tree = boundary_tree();
-    tree.retain(|(rel, _)| !rel.ends_with("actions/writer.rs"));
-    push_line(&mut tree, "actions/writer.rs", construction);
+    tree.retain(|(rel, _)| !rel.ends_with("operations/writer/mod.rs"));
+    push_line(&mut tree, "operations/writer/mod.rs", construction);
     assert_refused(&tree, "a construction where the writer's match belongs");
 
     let mut tree = boundary_tree();
-    tree.retain(|(rel, _)| !rel.ends_with("actions/execute.rs"));
-    push_line(&mut tree, "actions/execute.rs", pattern);
+    tree.retain(|(rel, _)| !rel.ends_with("operations/execute.rs"));
+    push_line(&mut tree, "operations/execute.rs", pattern);
     assert_refused(&tree, "a match where the dispatch construction belongs");
 
     for (rel, text, what) in [
-        ("actions/execute.rs", construction, "a second construction"),
-        ("actions/writer.rs", pattern, "a second pattern"),
-        ("actions/other.rs", construction, "a construction elsewhere"),
-        ("actions/other.rs", pattern, "a pattern elsewhere"),
+        (
+            "operations/execute.rs",
+            construction,
+            "a second construction",
+        ),
+        ("operations/writer/mod.rs", pattern, "a second pattern"),
+        (
+            "operations/other.rs",
+            construction,
+            "a construction elsewhere",
+        ),
+        ("operations/other.rs", pattern, "a pattern elsewhere"),
     ] {
         let mut tree = boundary_tree();
         push_line(&mut tree, rel, text);
@@ -1274,7 +1107,7 @@ fn operation_state_is_written_only_through_the_unit_of_work() {
             "let _ = OperationWrite::Step(step);\n",
         ),
         (
-            "crates/domovoi-engine/src/actions/x.rs",
+            "crates/domovoi-engine/src/effects/x.rs",
             "let write = OperationWrite::Progress { step, from, to };\n",
         ),
         (
@@ -1443,9 +1276,9 @@ fn model_cannot_reach_the_operation_writer() {
     }
 }
 
-/// The operation service's card sites are counted exactly like the action service's: a
-/// second hand-off, constructor, dispatch call, dispatch command or dispatch match fails,
-/// and the real sources hold exactly one of each.
+/// The operation service's card sites are counted exactly: a second hand-off, constructor,
+/// dispatch call, dispatch command or dispatch match fails, and the real sources hold exactly
+/// one of each.
 #[test]
 fn operation_dispatch_sites_are_counted_exactly() {
     assert_passed(
@@ -1496,9 +1329,9 @@ fn operation_dispatch_sites_are_counted_exactly() {
             "a hand-off from a handler",
         ),
         (
-            "actions/executor.rs",
+            "effects/mod.rs",
             "let step = AuthorizedStep::of(row)?;\n",
-            "an operation constructor in the action service",
+            "an operation constructor outside the operation service",
         ),
     ] {
         let mut tree = boundary_tree();
@@ -1656,11 +1489,11 @@ fn step_authorization_is_called_only_inside_the_operation_service() {
 }
 
 /// Nothing creates a legacy action any more: the proposal constructor of the action table is
-/// named only by the legacy executor's own module and its tests, and the removed storing
-/// path is named nowhere.
+/// named only by the upgrade drain and its tests, and the removed storing path is named
+/// nowhere.
 #[test]
 fn no_code_path_creates_a_legacy_action() {
-    let legacy = crate_path("actions/");
+    let legacy = crate_path("legacy.rs");
     let mut files = production_sources();
     files.extend(
         crate_sources("domovoi-hub")
@@ -1732,14 +1565,14 @@ fn triage_queue_and_in_memory_retries_are_gone() {
 }
 
 /// Nothing that enforces anything reads a recorded policy decision: the operation writer,
-/// the action service and the approval code never name the shadow recorder, its repository,
+/// the upgrade drain and the approval code never name the shadow recorder, its repository,
 /// its rows or the evaluator entry points. A recorded `Allow` is data, not an authority.
 #[test]
 fn no_enforcement_path_reads_a_policy_decision() {
     let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let roots = [
         engine.join("src/operations"),
-        engine.join("src/actions"),
+        engine.join("src/legacy.rs"),
         engine.join("../domovoi-hub/src/auth"),
     ];
     let needles = [
@@ -1752,7 +1585,7 @@ fn no_enforcement_path_reads_a_policy_decision() {
     ];
     let mut offenders = Vec::new();
     for root in &roots {
-        assert!(root.is_dir(), "{} is not a directory", root.display());
+        assert!(root.exists(), "{} does not exist", root.display());
         scan_for(root, &needles, &mut offenders);
     }
     assert!(
@@ -1763,6 +1596,15 @@ fn no_enforcement_path_reads_a_policy_decision() {
 
 /// Collects every line under `dir` that contains one of `needles`.
 fn scan_for(dir: &std::path::Path, needles: &[&str], offenders: &mut Vec<String>) {
+    if dir.is_file() {
+        let text = std::fs::read_to_string(dir).unwrap_or_default();
+        for (index, line) in text.lines().enumerate() {
+            if needles.iter().any(|needle| line.contains(needle)) {
+                offenders.push(format!("{}:{}", dir.display(), index + 1));
+            }
+        }
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -1784,4 +1626,108 @@ fn scan_for(dir: &std::path::Path, needles: &[&str], offenders: &mut Vec<String>
             }
         }
     }
+}
+
+/// Every `.rs` file under every crate's `src/`, as (workspace-relative path, text).
+fn workspace_sources() -> Vec<(String, String)> {
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut files = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&crates) else {
+        return files;
+    };
+    for entry in entries.flatten() {
+        let src = entry.path().join("src");
+        let prefix = format!("crates/{}/src", entry.file_name().to_string_lossy());
+        source_files(&src, &src, &prefix, &mut files);
+    }
+    files
+}
+
+/// The first-generation action executor is gone: its module is not in the engine and none of
+/// its types is named anywhere in a crate's sources, so a skill reaches an agent only through
+/// the operation service.
+#[test]
+fn no_actions_module_remains() {
+    let module = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/actions");
+    assert!(!module.exists(), "the engine's actions module is back");
+    let sources = workspace_sources();
+    assert!(
+        sources.len() > 100,
+        "the scan found only {} sources",
+        sources.len()
+    );
+    let words = [
+        "ActionService",
+        "ActionHandle",
+        "WriteCommand",
+        "AuthorizedExecution",
+        "ApprovalError",
+    ];
+    let offenders = forbidden_in(&sources, &words, &[]);
+    assert!(
+        offenders.is_empty(),
+        "the retired action executor is named: {offenders:#?}"
+    );
+    let probe = |text: &str| {
+        let rel = "crates/domovoi-engine/src/x.rs".to_owned();
+        forbidden_in(&[(rel, text.to_owned())], &words, &[])
+    };
+    assert!(probe("// ActionService was removed\n").is_empty());
+    for word in words {
+        assert!(
+            !probe(&format!("let x: {word} = y;\n")).is_empty(),
+            "{word} was not caught"
+        );
+    }
+}
+
+/// The chat approval token's pieces the operation service still needs: the minting and
+/// hashing helpers and the handle's rotation, so a step's approval card can be re-issued.
+#[test]
+fn chat_token_pieces_step_approval_needs_still_exist() {
+    let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let token = std::fs::read_to_string(engine.join("src/chat_token.rs")).unwrap_or_default();
+    for needle in ["pub fn mint_token", "pub fn token_hash"] {
+        assert!(token.contains(needle), "chat_token.rs lost `{needle}`");
+    }
+    let handle =
+        std::fs::read_to_string(engine.join("src/operations/handle.rs")).unwrap_or_default();
+    assert!(
+        handle.contains("fn rotate_chat_token"),
+        "the operation handle lost `rotate_chat_token`"
+    );
+}
+
+/// Legacy action rows are written by one engine module, the upgrade drain, and by the store and
+/// testkit crates that implement and exercise the unit of work; nothing else builds the write.
+#[test]
+fn legacy_rows_are_written_only_by_the_drain() {
+    let allowed = [
+        "crates/domovoi-engine/src/legacy.rs",
+        "crates/domovoi-store/",
+        "crates/domovoi-testkit/",
+    ];
+    let offenders: Vec<String> = workspace_sources()
+        .into_iter()
+        .filter(|(rel, _)| !allowed.iter().any(|ok| rel.starts_with(ok)))
+        .flat_map(|(rel, text)| {
+            code_lines(&text)
+                .filter(|(_, line)| names_path(line, "StateWrite::Action"))
+                .map(|(number, line)| format!("{rel}:{number}: {line}"))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        offenders.is_empty(),
+        "a legacy action row is written outside the drain: {offenders:#?}"
+    );
+    let drain = crate_sources("domovoi-engine")
+        .into_iter()
+        .find(|(rel, _)| rel == "crates/domovoi-engine/src/legacy.rs")
+        .map(|(_, text)| text)
+        .unwrap_or_default();
+    assert!(
+        drain.contains("StateWrite::Action"),
+        "the drain no longer writes through the unit of work"
+    );
 }

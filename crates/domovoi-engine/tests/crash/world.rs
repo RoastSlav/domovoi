@@ -1,32 +1,25 @@
-//! A running incident manager and action service over a crashing store, plus the restart.
+//! A running incident manager and operation service over a crashing store, plus the restart.
 //!
 //! Every commit the services make goes through [`CrashingStore`]; every read goes straight
 //! to the store underneath it, so a restart sees exactly what was durable. The world is
 //! built twice per sweep case: once over a fresh store to run the scenario, and once over
 //! the surviving store after a simulated crash.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, AgentLink, AggregateKind, CheckRecheck, Clock,
-    EffectQueue, EffectRead, EffectStatus, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
-    OperationRepo, Page, Presence, SkillOutput,
+    AdvisoryRepo, AggregateKind, CheckRecheck, Clock, EffectQueue, EffectRead, EffectStatus,
+    HostRepo, IncidentFilter, IncidentRepo, OperationRepo, Page, Presence, SkillOutput,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, Actor, AgentId, AgentIdentity, CheckKey, Evidence,
-    HostId, Incident, IncidentId, JournalEpoch, KeyFingerprint, OperationKind, ParamKind,
-    ParamName, ParamSpec, PinnedSubject, Principal, Risk, Severity, Signal, SignalClass,
-    SignalStatus, SkillManifest, SkillSummary, SourceKind, TargetKey, UserId, Verdict, VerifySpec,
+    Actor, AgentId, AgentIdentity, CheckKey, Evidence, HostId, Incident, IncidentId, JournalEpoch,
+    OperationKind, ParamKind, ParamName, ParamSpec, PinnedSubject, Risk, Severity, Signal,
+    SignalClass, SignalStatus, SkillSummary, SourceKind, TargetKey, VerifySpec,
 };
-use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::operations::{
     OperationDeps, OperationHandle, OperationSeed, OperationService, OperationSettings,
 };
-use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, ActionSettings, EnginePolicy, IncidentManager,
-    ManagerDeps, ManagerHandle, PatternRedactor,
-};
+use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_testkit::build::{T0, manifest, open_incident};
 use domovoi_testkit::crash::{CrashingStore, SweepStore, check_invariants};
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
@@ -76,10 +69,6 @@ pub fn new_host_id() -> HostId {
 /// tick after the clock moves resolves the seeded one.
 const TTL: SignedDuration = SignedDuration::from_mins(10);
 
-/// The most fake seconds one wait may add. A wait that is slow because of the machine must not
-/// move the clock far enough to reach an incident TTL and change the scenario under it.
-const WAIT_ADVANCE_SECS: usize = 60;
-
 /// The manager policy: two runs confirm a normal signal, and the ticker never fires on its
 /// own, so every tick in these tests is one the scenario asked for.
 fn policy() -> EnginePolicy {
@@ -87,20 +76,6 @@ fn policy() -> EnginePolicy {
     policy.incident.ttl = Some(TTL);
     policy.tick_every = SignedDuration::from_hours(24);
     policy
-}
-
-/// The action settings: two runs per skill and hour (so the third is blocked), no wait for
-/// an offline agent, and a short verification delay.
-fn settings() -> ActionSettings {
-    ActionSettings {
-        loop_guard_per_hour: 2,
-        offline_wait: SignedDuration::ZERO,
-        presence_poll: SignedDuration::from_secs(1),
-        verify_default_delay: SignedDuration::from_secs(1),
-        dispatch_grace: SignedDuration::from_secs(30),
-        reconcile_interval: SignedDuration::from_secs(30),
-        reconcile_query_timeout: SignedDuration::from_secs(10),
-    }
 }
 
 /// `restart_container` with one `container` parameter.
@@ -128,61 +103,6 @@ pub fn verified_restart() -> SkillSummary {
         delay: SignedDuration::from_secs(10),
     });
     skill
-}
-
-/// A restart-shaped skill that is never verified: it stays `succeeded` after its run.
-fn runner(name: &str) -> SkillSummary {
-    let mut manifest: SkillManifest = manifest(name, Risk::Write).expect("a valid manifest");
-    manifest.params = restart_skill().params.clone();
-    manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"))
-}
-
-/// The skill of the loop-guard step, which has used no slot when the step starts.
-#[must_use]
-pub fn loop_skill() -> SkillSummary {
-    runner("restart_loop")
-}
-
-/// A skill whose run exits non-zero, so the action reaches `failed`.
-#[must_use]
-pub fn fail_skill() -> SkillSummary {
-    runner("restart_failing")
-}
-
-/// A skill that re-checks and finds the check still firing, so it reaches `verify_failed`.
-#[must_use]
-pub fn verify_fail_skill() -> SkillSummary {
-    let mut skill = runner("restart_unverified");
-    skill.verify = Some(VerifySpec {
-        recheck: true,
-        delay: SignedDuration::from_secs(5),
-    });
-    skill
-}
-
-/// A skill whose manifest changes between approval and dispatch, so dispatch rejects it.
-#[must_use]
-pub fn mutable_skill() -> SkillSummary {
-    runner("restart_mutable")
-}
-
-/// The skill approved after its agent goes offline.
-#[must_use]
-pub fn offline_skill() -> SkillSummary {
-    runner("restart_offline")
-}
-
-/// Every skill the host's agent announces.
-#[must_use]
-pub fn all_skills() -> Vec<SkillSummary> {
-    vec![
-        verified_restart(),
-        loop_skill(),
-        fail_skill(),
-        verify_fail_skill(),
-        mutable_skill(),
-        offline_skill(),
-    ]
 }
 
 /// A successful `run_skill` output.
@@ -243,7 +163,7 @@ pub fn resolved(host: HostId, check: &str, target: Option<&str>, at: Timestamp) 
     )
 }
 
-/// A manager, an action service and their fakes, all over one crashing store.
+/// A manager, an operation service and their fakes, all over one crashing store.
 pub struct World<S: SweepStore> {
     /// The wrapper every commit passes through.
     pub crashing: Arc<CrashingStore<S>>,
@@ -251,17 +171,12 @@ pub struct World<S: SweepStore> {
     pub store: Arc<S>,
     /// Time, moved only by the scenario.
     pub clock: Arc<FakeClock>,
-    /// The agents' presence, skills and answers.
-    pub link: Arc<FakeAgentLink>,
     /// The manager.
     pub manager: ManagerHandle,
-    /// The action service.
-    pub service: ActionHandle,
     /// The operation service.
     pub operations: OperationHandle,
     shutdown: CancellationToken,
     manager_task: Option<JoinHandle<()>>,
-    action_task: Option<JoinHandle<()>>,
     operation_task: Option<JoinHandle<()>>,
 }
 
@@ -330,30 +245,6 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
             bus: bus.clone(),
             shutdown: shutdown.clone(),
         });
-        let caps = action_caps(link.clone());
-        let (service, action_task) = ActionService::spawn(
-            ActionDeps {
-                actions: store.clone(),
-                incidents: store.clone(),
-                audit: store.clone(),
-                uow: crashing.clone(),
-                effects: store.clone(),
-                advisories: store.clone(),
-                probe: caps.probe,
-                observer: caps.observer,
-                journal: caps.journal,
-                capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
-                handoff: caps.handoff,
-                rerun: caps.rerun,
-                hosts: store.clone(),
-                redactor: Arc::new(PatternRedactor::default()),
-                clock: clock.clone(),
-                manager: manager.clone(),
-                bus,
-                shutdown: shutdown.clone(),
-            },
-            settings(),
-        );
         let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
         let caps = action_caps(link.clone());
         let (operations, operation_task) = OperationService::spawn(
@@ -388,13 +279,10 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
             crashing,
             store,
             clock,
-            link,
             manager,
-            service,
             operations,
             shutdown,
             manager_task: Some(manager_task),
-            action_task: Some(action_task),
             operation_task: Some(operation_task),
         }
     }
@@ -418,29 +306,30 @@ impl<S: SweepStore> World<S> {
         }
     }
 
-    /// Lets the services run, then waits until both have applied everything queued before the
-    /// call: a round-trip through the manager's queue and one through the writer's.
+    /// Lets the services run, then waits until the manager has applied everything queued before
+    /// the call: a round-trip through its queue.
     ///
     /// Polling the store cannot stand in for this. A commit against SQLite on a loaded machine
     /// lasts far longer than any loop of polls does, so a poll budget expires while the service
-    /// is still writing; a round-trip simply takes as long as the commit takes. The expiry sweep
-    /// is the one writer command with no arguments and does nothing while no proposal is due.
+    /// is still writing; a round-trip simply takes as long as the commit takes.
     pub async fn let_services_work(&self) {
         for _ in 0..20 {
             tokio::task::yield_now().await;
         }
         let _ = self.manager.tick().await;
-        let _ = self.service.expire_due().await;
     }
 
-    /// Waits until no action is in a status the services will still change and both service
-    /// queues have drained, so a read of the store is not torn by a commit landing between
-    /// two of its queries.
+    /// Waits until the manager's queue has drained and the operation service has no effect
+    /// in flight, so a read of the store is not torn by a commit landing between two of its
+    /// queries.
     ///
-    /// Each round yields, drains the manager and the writer, and looks for a run in flight.
-    /// Fifteen quiet rounds, a second of time apart, also cover a pending verification,
-    /// whose wait is at most ten seconds here.
-    pub async fn quiesce(&self) {
+    /// Each round yields, drains the manager and looks for work in flight. Fifteen quiet
+    /// rounds, a second of time apart, also cover a pending verification, whose wait is at
+    /// most ten seconds here.
+    pub async fn quiesce(&self)
+    where
+        S: OperationRepo,
+    {
         let mut quiet = 0;
         for _ in 0..600 {
             for _ in 0..20 {
@@ -450,19 +339,11 @@ impl<S: SweepStore> World<S> {
                 self.manager.tick().await.is_ok(),
                 "the manager stopped while waiting for it to go quiet"
             );
-            assert!(
-                self.service.expire_due().await.is_ok(),
-                "the writer stopped while waiting for it to go quiet"
-            );
-            let verified = self.verification_pending().await;
-            let moving = verified
-                || self.all_actions().await.iter().any(|action| {
-                    matches!(
-                        action.status(),
-                        ActionStatus::Approved | ActionStatus::Dispatched { .. }
-                    )
-                });
-            quiet = if moving { 0 } else { quiet + 1 };
+            quiet = if self.operation_effects_busy().await {
+                0
+            } else {
+                quiet + 1
+            };
             if quiet >= 15 {
                 return;
             }
@@ -537,40 +418,6 @@ impl<S: SweepStore> World<S> {
         false
     }
 
-    /// Whether a verification is still to come: a wake effect that is claimed now, or due to
-    /// be claimed. The verdict it writes is a later commit, so services are not quiet yet.
-    async fn verification_pending(&self) -> bool {
-        let now = self.now();
-        for status in [EffectStatus::Claimed, EffectStatus::Pending] {
-            let Ok(rows) = EffectRead::effects_with_status(&*self.store, status, 500).await else {
-                return true;
-            };
-            if rows.iter().any(|row| {
-                row.kind == "wake"
-                    && (row.status == EffectStatus::Claimed.as_str() || row.not_before <= now)
-            }) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Every stored action.
-    pub async fn all_actions(&self) -> Vec<ActionRequest> {
-        let mut items = Vec::new();
-        let mut page = Page::first(Page::MAX_LIMIT);
-        loop {
-            let got = ActionRepo::list(&*self.store, &ActionFilter::default(), &page)
-                .await
-                .expect("the actions are readable");
-            items.extend(got.items);
-            match got.next_cursor {
-                Some(cursor) => page.cursor = Some(cursor),
-                None => return items,
-            }
-        }
-    }
-
     /// Every stored incident, newest first.
     pub async fn incidents(&self) -> Vec<Incident> {
         let mut items = Vec::new();
@@ -587,170 +434,26 @@ impl<S: SweepStore> World<S> {
         }
     }
 
-    /// The stored action with `id`.
-    pub async fn action(&self, id: ActionId) -> Option<ActionRequest> {
-        ActionRepo::get(&*self.store, id)
-            .await
-            .expect("the action is readable")
-    }
-
-    /// Builds a proposal as triage does, with a one-use chat token.
-    pub fn proposal(
-        &self,
-        incident: IncidentId,
-        skill: &SkillSummary,
-        args: &[(&str, &str)],
-        ttl: SignedDuration,
-    ) -> (ActionRequest, String) {
-        let args: BTreeMap<String, String> = args
-            .iter()
-            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-            .collect();
-        let validated = skill
-            .validate_args(&args)
-            .expect("the args match the manifest");
-        let incident =
-            domovoi_testkit::build::incident(host_id(), "docker.container", Some("nginx"))
-                .expect("a valid incident")
-                .with_id(incident);
-        let token = mint_token();
-        let action = ActionRequest::propose(
-            &incident,
-            skill,
-            &validated,
-            Some(KeyFingerprint::of_public_key(&[7u8; 32])),
-            Principal::System("triage".into()),
-            ttl,
-            self.now(),
-        )
-        .expect("the proposal is valid")
-        .with_chat_token_hash(token_hash(&token));
-        (action, token)
-    }
-
-    /// Proposes `skill` through the writer and returns the stored action and its token.
-    pub async fn propose(
-        &self,
-        incident: IncidentId,
-        skill: &SkillSummary,
-        args: &[(&str, &str)],
-        ttl: SignedDuration,
-    ) -> Result<(ActionRequest, String), domovoi_engine::ApprovalError> {
-        let (action, token) = self.proposal(incident, skill, args, ttl);
-        let stored = self.service.propose(action).await?;
-        Ok((stored, token))
-    }
-
-    /// Waits, moving the clock a second at a time, until the stored action satisfies `done`.
-    /// Fails at once when the process is down: nothing will change any more. Each round waits
-    /// for the services to apply what they were given, so a slow commit is waited out instead
-    /// of exhausting a poll budget. The timeout error carries the last status seen.
-    ///
-    /// The clock moves at most [`WAIT_ADVANCE_SECS`] seconds. Beyond that, a wait keeps
-    /// draining the services without moving time: on a loaded machine a slow commit makes the
-    /// loop run longer, and letting that run the fake clock past the incident TTL would resolve
-    /// the scenario's incident under it. Everything a wait is for here is due within seconds of
-    /// fake time.
-    pub async fn wait_for(
-        &self,
-        id: ActionId,
-        done: impl Fn(&ActionStatus) -> bool,
-    ) -> Result<ActionRequest, String> {
-        let mut last: Option<ActionStatus> = None;
-        for round in 0..600 {
-            if self.crashing.crashed() {
-                return Err(format!("the process is down before action {id} finished"));
-            }
-            self.let_services_work().await;
-            if let Some(action) = self.action(id).await {
-                if done(action.status()) {
-                    // The writer may still be recording the outcome of a verification.
-                    self.settle().await;
-                    return Ok(action);
-                }
-                last = Some(action.status().clone());
-            }
-            if round < WAIT_ADVANCE_SECS {
-                self.advance(1);
-            }
-        }
-        let last = last.map_or_else(|| "gone".to_owned(), |status| format!("{status:?}"));
-        Err(format!(
-            "action {id} never reached the expected status; it is {last}"
-        ))
-    }
-
-    /// Waits until `incident`'s verdict is `verdict`, so the write a successful run makes
-    /// after its verification has landed before the scenario moves on.
-    pub async fn wait_for_verdict(
-        &self,
-        incident: IncidentId,
-        verdict: Verdict,
-    ) -> Result<(), String> {
-        for round in 0..600 {
-            if self.crashing.crashed() {
-                return Err("the process is down before the verdict was stored".to_owned());
-            }
-            self.let_services_work().await;
-            let found = IncidentRepo::get(&*self.store, incident)
-                .await
-                .expect("the incident is readable");
-            if found.is_some_and(|incident| incident.verdict() == Some(verdict)) {
-                return Ok(());
-            }
-            if round < WAIT_ADVANCE_SECS {
-                self.advance(1);
-            }
-        }
-        Err("the verdict was never stored".to_owned())
-    }
-
     /// Stops the services and waits for their tasks to finish.
     pub async fn shutdown(mut self) {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
-        join(self.action_task.take()).await;
         join(self.operation_task.take()).await;
     }
 
-    /// Lets the restarted services do their start-up work: one tick, the writer's expiry
-    /// sweep, reconciliation of what the previous session left running, and every run the
-    /// start-up scan starts, until nothing is in flight.
-    pub async fn recover(&self) -> Result<(), String> {
+    /// Lets the restarted services do their start-up work: one tick, and every effect they
+    /// have due, until nothing is in flight.
+    pub async fn recover(&self) -> Result<(), String>
+    where
+        S: OperationRepo,
+    {
         self.advance(1);
         self.manager
             .tick()
             .await
             .map_err(|err| format!("the restarted manager did not tick: {err}"))?;
-        self.service
-            .expire_due()
-            .await
-            .map_err(|err| format!("the restarted writer did not start: {err}"))?;
-        self.reconcile_leftovers().await;
         self.quiesce().await;
         Ok(())
-    }
-
-    /// Plays the agent of every host with a run left in `Dispatched`: it announces a journal
-    /// and has no record of those runs, which is what a fresh journal answers, so each
-    /// leftover settles instead of staying in flight for ever. A real hub does this when the
-    /// host's agent authenticates.
-    async fn reconcile_leftovers(&self) {
-        let mut hosts: Vec<HostId> = Vec::new();
-        for action in self.all_actions().await {
-            if matches!(action.status(), ActionStatus::Dispatched { .. })
-                && !hosts.contains(&action.host())
-            {
-                hosts.push(action.host());
-            }
-        }
-        for host in hosts {
-            if self.link.journal_epoch(host).is_none() {
-                self.link
-                    .set_journal_epoch(host, JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
-            }
-            self.service.reconcile_host(host).await;
-        }
     }
 
     /// Proves the restarted operation service still takes a command: a new operation is
@@ -768,9 +471,12 @@ impl<S: SweepStore> World<S> {
             .expect("the new operation was admitted");
     }
 
-    /// Proves the restarted services still do their work: one new incident, one approved
-    /// action and the invariants again.
-    pub async fn assert_services_work(&self) {
+    /// Proves the restarted services still do their work: one new incident, a new
+    /// operation and the invariants again.
+    pub async fn assert_services_work(&self)
+    where
+        S: OperationRepo,
+    {
         let before = self.incidents().await;
         let known: Vec<IncidentId> = before.iter().map(Incident::id).collect();
         let signal = firing(
@@ -791,44 +497,11 @@ impl<S: SweepStore> World<S> {
             before.len() + 1,
             "the new host's immediate signal opens exactly one incident"
         );
-        let incident = after
-            .iter()
-            .find(|incident| !known.contains(&incident.id()))
-            .expect("the new incident is there");
+        assert!(
+            after.iter().any(|incident| !known.contains(&incident.id())),
+            "the new incident is there"
+        );
 
-        let (action, _) = self
-            .propose(
-                incident.id(),
-                &verified_restart(),
-                &[("container", "nginx")],
-                SignedDuration::from_hours(1),
-            )
-            .await
-            .expect("the writer stores a proposal");
-        let approved = self
-            .service
-            .approve(
-                action.id(),
-                domovoi_core::Authorization::human(
-                    domovoi_testkit::approvals::human(UserId::new()),
-                ),
-                None,
-                domovoi_core::PlanBinding::Full(action.plan_hash_for_approval()),
-                domovoi_core::ApprovalProvenance::new(None, "test"),
-            )
-            .await
-            .expect("the writer approves the action");
-        assert_eq!(approved.status(), &ActionStatus::Approved);
-        let _ = self
-            .wait_for(action.id(), |status| {
-                !matches!(
-                    status,
-                    ActionStatus::Proposed
-                        | ActionStatus::Approved
-                        | ActionStatus::Dispatched { .. }
-                )
-            })
-            .await;
         self.quiesce().await;
         self.assert_operations_work().await;
         if let Err(violations) = check_invariants(&*self.store).await {
@@ -861,7 +534,7 @@ fn script(link: &FakeAgentLink) {
     );
     // Every dispatch records the journal it was sent under, so the fixture agent has one.
     link.set_journal_epoch(host_id(), JournalEpoch::from_uuid(uuid::Uuid::now_v7()));
-    link.set_skills(host_id(), all_skills());
+    link.set_skills(host_id(), vec![verified_restart()]);
     link.on_skill(|_, dispatch| {
         if dispatch.skill.as_str() == "restart_failing" {
             Ok(SkillOutput {

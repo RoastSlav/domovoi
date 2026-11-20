@@ -104,11 +104,9 @@ impl EffectHandler for ReconcileHandler {
                     .holding(held)
             }
             ReconcileOutcome::Unknown(reason) => unknown(operation, step, reason, held),
-            ReconcileOutcome::NeverRan | ReconcileOutcome::HandoffFailed => {
-                Ending::new(operation, step, StepOutcome::NotRun)
-                    .because(NOT_RUN_REASON)
-                    .holding(held)
-            }
+            ReconcileOutcome::NeverRan => Ending::new(operation, step, StepOutcome::NotRun)
+                .because(NOT_RUN_REASON)
+                .holding(held),
         };
         outcome(settle(shared, ending).await)
     }

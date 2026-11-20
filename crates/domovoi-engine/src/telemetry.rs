@@ -1,7 +1,7 @@
 //! Prometheus metric names and the helpers that record them. The binary installs the
 //! recorder; without one these calls do nothing.
 
-use domovoi_core::{ActionStatus, Incident, IncidentStatus, SourceKind, TriageOutcome};
+use domovoi_core::{Incident, IncidentStatus, SourceKind, TriageOutcome};
 
 /// Signals received, by source (`builtin`, `webhook`, `probe`, `agent`).
 pub const SIGNALS_TOTAL: &str = "domovoi_signals_total";
@@ -66,12 +66,6 @@ pub(crate) fn record_active(active: &[Incident]) {
         let count = u32::try_from(count).map_or(f64::from(u32::MAX), f64::from);
         metrics::gauge!(INCIDENTS, "status" => label).set(count);
     }
-}
-
-/// Records an action's status change to `status`. Same-status updates, such as rotating a
-/// waiting action's chat token, must not call this.
-pub(crate) fn record_action(status: &ActionStatus) {
-    metrics::counter!(ACTIONS_TOTAL, "status" => status.name()).increment(1);
 }
 
 /// Records one model call's outcome. Labels carry only configured identifiers: a model name

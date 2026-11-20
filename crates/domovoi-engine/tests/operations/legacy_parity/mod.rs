@@ -2,4 +2,5 @@
 
 mod approval;
 mod dispatch;
+mod invariants;
 mod reconcile;
