@@ -17,7 +17,6 @@ use jiff::SignedDuration;
 use tokio::sync::{Notify, broadcast, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use super::answer::{HANDOFF_FAILED_REASON, HUB_NOT_HANDED_OFF_TOKEN};
 use super::{ReconcileOutcome, Shared};
 use crate::EnginePolicy;
 use crate::PatternRedactor;
@@ -25,6 +24,7 @@ use crate::actions::audit;
 use crate::actions::writer::{Decision, WriteCommand};
 use crate::actions::{ActionDeps, ActionSettings};
 use crate::manager::{IncidentManager, ManagerDeps};
+use crate::operations::reconcile_text::{HANDOFF_FAILED_REASON, HUB_NOT_HANDED_OFF_TOKEN};
 
 /// A world for the writer alone, with no executor and no reconciliation worker.
 struct Writer {

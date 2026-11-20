@@ -16,6 +16,7 @@ mod handle;
 pub mod investigate;
 pub mod journal;
 mod proposal;
+pub(crate) mod reconcile_text;
 mod settings;
 mod startup;
 pub mod state;

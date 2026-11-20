@@ -19,8 +19,8 @@ use tokio::sync::{Notify, OwnedMutexGuard, OwnedSemaphorePermit};
 use tokio::task::JoinSet;
 
 use super::Shared;
-use super::answer::{HUB_NOT_HANDED_OFF_TOKEN, ReconcileOutcome};
 use crate::actions::writer::WriteCommand;
+use crate::operations::reconcile_text::{HUB_NOT_HANDED_OFF_TOKEN, ReconcileOutcome};
 
 /// How many hosts may reconcile at the same time.
 pub const MAX_RECONCILE_PASSES: usize = 4;

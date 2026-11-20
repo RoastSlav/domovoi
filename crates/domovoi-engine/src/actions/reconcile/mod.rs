@@ -18,12 +18,11 @@ use tokio::sync::{mpsc, oneshot};
 use super::Shared;
 use super::writer::{Decision, WriteCommand};
 
-mod answer;
 #[cfg(test)]
 mod guard_tests;
 mod queue;
 
-pub(crate) use answer::{
+pub(crate) use crate::operations::reconcile_text::{
     EXPIRED_REASON, EXPIRED_TOKEN, HANDOFF_FAILED_REASON, NOT_RUN_REASON, ReconcileOutcome,
     from_answer, reason_text,
 };
