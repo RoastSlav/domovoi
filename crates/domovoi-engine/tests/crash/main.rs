@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod coverage;
 #[cfg(test)]
+mod knowledge;
+#[cfg(test)]
 mod legacy;
 #[cfg(test)]
 mod memory;

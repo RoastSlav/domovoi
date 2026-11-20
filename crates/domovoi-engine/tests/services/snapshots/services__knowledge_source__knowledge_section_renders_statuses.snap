@@ -1,0 +1,19 @@
+---
+source: crates/domovoi-engine/tests/services/knowledge_source.rs
+expression: "ids.replace_all(&text, \"<uuid>\").to_string()"
+---
+[knowledge | knowledge | known] role of host:<uuid>
+from: declared by a person fact:<uuid>, observed 2024-12-18T22:13:20Z
+media server
+
+[knowledge | knowledge | disputed with knowledge:fact:<uuid>] criticality of host:<uuid>
+from: observed fact:<uuid>, observed 2024-12-18T22:13:21Z
+warning
+
+[knowledge | knowledge | disputed with knowledge:fact:<uuid>] criticality of host:<uuid>
+from: observed fact:<uuid>, observed 2024-12-18T22:13:20Z
+critical
+
+[knowledge | knowledge | stale since 2023-11-14T22:13:20Z] owner_note of host:<uuid>
+from: declared by a person fact:<uuid>, observed 2023-11-14T22:13:20Z
+old note
