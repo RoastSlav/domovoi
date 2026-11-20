@@ -183,3 +183,30 @@ export function describeSetupError(error: unknown): DescribedError {
   }
   return describeError(error, "create the account");
 }
+
+const GENERIC_TURN_FAILURE = "The Operator could not answer. Try again.";
+
+const TURN_FAILURES: Record<string, string> = {
+  busy: "The Operator is busy. Try again in a moment.",
+  budget_spent: "The monthly model budget is spent. It resets next month.",
+  model_unavailable: "No model answered. Check the model settings and try again.",
+  triage_off: "Triage is off, so there is no model to ask.",
+  interrupted: "The hub restarted while the Operator was answering.",
+  cancelled: "You stopped this answer.",
+  internal: "The hub ran into a problem. Its log has the details.",
+};
+
+/**
+ * Why an Operator answer failed or was stopped, in words, for the `failure` code the hub stored.
+ * A code from a newer hub gets a generic sentence; the raw code is never shown. `detail`, the
+ * hub's own redacted text, is added as the second line.
+ */
+export function describeTurnFailure(
+  failure: string | null | undefined,
+  detail?: string | null,
+): { title: string; detail?: string } {
+  const known = failure ? TURN_FAILURES[failure] : undefined;
+  const title = known && Object.hasOwn(TURN_FAILURES, failure ?? "") ? known : GENERIC_TURN_FAILURE;
+  const extra = detail?.trim();
+  return extra ? { title, detail: sentence(extra) } : { title };
+}

@@ -1,5 +1,5 @@
 import { ApiFailure } from "../api/types";
-import { HUB_CODES, describeError, errorText } from "./messages";
+import { HUB_CODES, describeError, describeTurnFailure, errorText } from "./messages";
 
 const STATUS: Record<string, number> = {
   unauthorized: 401,
@@ -102,5 +102,32 @@ describe("describeError", () => {
     expect(errorText(new ApiFailure(404, "not_found", "not found"))).toBe(
       "It no longer exists. It may have been removed.",
     );
+  });
+});
+
+describe("describeTurnFailure", () => {
+  const codes = [
+    "busy",
+    "budget_spent",
+    "model_unavailable",
+    "triage_off",
+    "interrupted",
+    "cancelled",
+    "internal",
+  ];
+  it.each([...codes, "from_the_future", "", null, undefined])(
+    "turn_failure_codes_all_have_words: %s",
+    (code) => {
+      const { title } = describeTurnFailure(code);
+      expect(title).toMatch(/^[A-Z].*\.$/);
+      expect(title).not.toContain("!");
+      if (typeof code === "string" && code !== "") {
+        expect(title).not.toMatch(/_/);
+      }
+    },
+  );
+
+  it("adds the hub's detail as a sentence", () => {
+    expect(describeTurnFailure("busy", "retry at 10:00").detail).toBe("Retry at 10:00.");
   });
 });

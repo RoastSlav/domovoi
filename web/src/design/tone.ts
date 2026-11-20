@@ -18,6 +18,7 @@ import {
   STEP_KINDS,
   STEP_OUTCOMES,
 } from "./operationVocab";
+import { TURN_STATUSES } from "./operatorVocab";
 import { INCIDENT_GROUPS, INCIDENT_STATUSES, SEVERITIES, VERDICTS } from "./respondVocab";
 import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from "./status";
 
@@ -29,6 +30,7 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
+export type { TurnStatus } from "./operatorVocab";
 export type {
   EdgeKind,
   ExecutionState,
@@ -132,6 +134,11 @@ export function stepKindMeta(kind: string): StatusMeta {
 /** How an edge between two steps is shown. */
 export function edgeKindMeta(kind: string): StatusMeta {
   return lookup(EDGE_KINDS, kind);
+}
+
+/** How the answer to an Operator question is shown. */
+export function turnStatusMeta(status: string): StatusMeta {
+  return lookup(TURN_STATUSES, status);
 }
 
 /** How a skill's risk is shown. */
@@ -255,4 +262,5 @@ export const VOCABULARIES: {
   { name: "Execution state", meta: executionStateMeta, values: Object.keys(EXECUTION_STATES) },
   { name: "Step kind", meta: stepKindMeta, values: Object.keys(STEP_KINDS) },
   { name: "Edge kind", meta: edgeKindMeta, values: Object.keys(EDGE_KINDS) },
+  { name: "Turn status", meta: turnStatusMeta, values: Object.keys(TURN_STATUSES) },
 ];

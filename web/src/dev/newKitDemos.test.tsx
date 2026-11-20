@@ -25,3 +25,14 @@ describe("the stat tile, palette and clickable row catalogue demos", () => {
     expect(screen.getByText("Clicked pi-garage")).toBeVisible();
   });
 });
+
+describe("the Operator thread catalogue demos", () => {
+  it("shows a failed answer with Retry and a pending one with Stop", () => {
+    skipAxe();
+    renderAt("/", "/", <NewKitDemos />);
+    expect(screen.getByText(/monthly model budget is spent/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
+    expect(screen.getByText(/Nothing needs you today/)).toBeVisible();
+  });
+});

@@ -125,3 +125,25 @@ test("a_resumed_ready_refetches_nothing", () => {
   expect(onReset).not.toHaveBeenCalled();
   hook.unmount();
 });
+
+test("onLive_receives_only_live_frames_and_never_moves_the_cursor", () => {
+  vi.useFakeTimers();
+  const client = new QueryClient();
+  const onLive = vi.fn();
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client }, children);
+  renderHook(() => useJournalStream({ topics: ["conversations:c1"], onFrame: vi.fn(), onLive }), {
+    wrapper,
+  });
+  const source = FakeEventSource.all.at(-1);
+  source?.emit("live.text", { turn: "T", attempt: 1, text: "hi" });
+  source?.emit("live.text", "not json {");
+  source?.emit("journal", frame(7));
+  expect(onLive).toHaveBeenCalledTimes(1);
+  expect(onLive).toHaveBeenCalledWith("live.text", { turn: "T", attempt: 1, text: "hi" });
+  source?.emit("error");
+  act(() => {
+    vi.advanceTimersByTime(retryDelay(0));
+  });
+  expect(FakeEventSource.all.at(-1)?.url).toContain("after=7");
+});

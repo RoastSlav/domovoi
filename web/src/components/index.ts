@@ -89,6 +89,12 @@ export {
   type ChatTool,
   type ChatTurn,
 } from "./ChatThread";
+export {
+  OperatorThread,
+  type OperatorLiveText,
+  type OperatorThreadProps,
+  type OperatorTurn,
+} from "./OperatorThread";
 
 // Hooks
 export { useDebounced } from "./useDebounced";
