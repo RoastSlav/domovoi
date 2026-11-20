@@ -91,10 +91,8 @@ fn check_value(key: &str, spec: &Value, value: &str, out: &mut Vec<SchemaProblem
             }
             Err(_) => out.push(problem(key, format!("`{key}` must be an integer"))),
         },
-        Some("boolean") => {
-            if value != "true" && value != "false" {
-                out.push(problem(key, format!("`{key}` must be true or false")));
-            }
+        Some("boolean") if value != "true" && value != "false" => {
+            out.push(problem(key, format!("`{key}` must be true or false")));
         }
         _ => {}
     }

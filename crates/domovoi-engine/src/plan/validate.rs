@@ -77,7 +77,7 @@ pub struct PlanValidator<'a> {
 }
 
 enum Capability {
-    Skill(SkillSummary),
+    Skill(Box<SkillSummary>),
     Builtin,
 }
 
@@ -249,7 +249,7 @@ impl PlanValidator<'_> {
         if let Some(name) = id.skill_name()
             && let Some(skill) = skills.into_iter().find(|skill| skill.name == name)
         {
-            return Ok((id, Capability::Skill(skill)));
+            return Ok((id, Capability::Skill(Box::new(skill))));
         }
         if !family && self.registry.contracts().get(&id).is_some() {
             return Ok((id, Capability::Builtin));
