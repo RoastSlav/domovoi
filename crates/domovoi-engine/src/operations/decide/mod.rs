@@ -17,6 +17,7 @@ mod execution;
 mod finish;
 mod status;
 mod steps;
+mod turn;
 mod verify;
 mod work;
 
@@ -32,7 +33,7 @@ pub(crate) use effects::{
     DISPATCH_ATTEMPTS, RECONCILE_ATTEMPTS, WAKE_ATTEMPTS, dispatch_key, reconcile_key,
     step_payload, wake_payload,
 };
-pub use events::{ExecutionProposal, NewEdge, NewStep, OperationEvent};
+pub use events::{ExecutionProposal, NewEdge, NewStep, OperationEvent, RecordedStep};
 pub use status::derive_status;
 
 use super::state::OperationState;
@@ -194,6 +195,24 @@ pub fn decide(
             output,
             usage,
         } => steps::finished(&mut work, step, outcome, summary, reason, output, usage)?,
+        OperationEvent::TurnFinished {
+            step,
+            outcome,
+            summary,
+            reason,
+            output,
+            usage,
+            evidence,
+        } => {
+            let ended = turn::Ending {
+                outcome,
+                summary,
+                reason,
+                output,
+                usage,
+            };
+            turn::turn_finished(&mut work, step, ended, evidence)?;
+        }
         OperationEvent::ExecutionAuthorized { step } => execution::authorized(&mut work, step)?,
         OperationEvent::ExecutionDenied { step } => execution::denied(&mut work, step)?,
         OperationEvent::ExecutionExpired { step } => execution::expired(&mut work, step)?,

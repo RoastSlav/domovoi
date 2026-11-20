@@ -14,6 +14,7 @@ use super::effects::{
 };
 use super::events::{NewEdge, NewStep};
 use super::status::{Allow, gate, gate_settle};
+use super::turn::{Resume, resume};
 use super::work::Work;
 use crate::operations::audit;
 
@@ -216,6 +217,9 @@ pub(super) fn finished(
     if !record_only && let Some(exhausted) = work.op().budgets.overrun() {
         work.pause(PauseReason::Budget { exhausted });
     }
+    if kind == StepKind::Question && outcome == StepOutcome::NotRun && !record_only {
+        resume(work, step, Resume::Timeout);
+    }
     Ok(())
 }
 
@@ -255,5 +259,6 @@ pub(super) fn answer(
     };
     work.set_progress(question, answered)?;
     work.audit_operation(audit::OPERATION_ANSWERED, Some(question), json!({}));
+    resume(work, question, Resume::Answer);
     Ok(())
 }

@@ -14,7 +14,7 @@ use domovoi_core::{
 use jiff::SignedDuration;
 use tokio::sync::oneshot;
 
-use crate::operations::decide::{EffectSpec, ExecutionProposal, NewEdge, NewStep};
+use crate::operations::decide::{EffectSpec, ExecutionProposal, NewEdge, NewStep, RecordedStep};
 use crate::operations::error::OperationError;
 use crate::operations::handle::OperationSeed;
 
@@ -45,6 +45,21 @@ pub(crate) struct Conclusion {
     pub(crate) output: Option<String>,
     /// What a model turn used.
     pub(crate) usage: Option<StepUsage>,
+}
+
+/// How a model turn ends, with the reads it made and the effects that follow.
+#[derive(Debug, Clone)]
+pub(crate) struct TurnEnd {
+    /// The `CallModel` effect the turn answers.
+    pub(crate) held: Held,
+    /// The operation.
+    pub(crate) operation: OperationId,
+    /// How the turn ends.
+    pub(crate) turn: Conclusion,
+    /// The reads the turn made, recorded as evidence steps.
+    pub(crate) evidence: Vec<RecordedStep>,
+    /// Effects to create in the same commit.
+    pub(crate) successors: Vec<EffectSpec>,
 }
 
 /// What the writer decided about a dispatch.
@@ -244,6 +259,9 @@ pub(crate) enum OperationCommand {
         successors: Vec<EffectSpec>,
         reply: Reply<()>,
     },
+    /// Handler: a model turn ended. Its reads become evidence steps, the turn ends, the
+    /// successors are created and the held effect completes, all in one commit.
+    FinishTurn { end: Box<TurnEnd>, reply: Reply<()> },
     /// Handler: the held effect has nothing left to do.
     FinishEffect { held: Held, reply: Reply<()> },
 }

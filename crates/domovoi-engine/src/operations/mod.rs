@@ -30,7 +30,7 @@ use tokio::task::JoinHandle;
 
 pub use decide::{
     AuditNote, DecideError, Decision, EffectSpec, ExecutionProposal, IdSource, JournalNote,
-    NewEdge, NewStep, OperationEvent, ProgressChange, derive_status,
+    NewEdge, NewStep, OperationEvent, ProgressChange, RecordedStep, derive_status,
 };
 pub use deps::OperationDeps;
 pub use error::OperationError;

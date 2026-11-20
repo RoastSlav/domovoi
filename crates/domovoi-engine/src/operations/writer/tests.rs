@@ -932,3 +932,160 @@ async fn a_secret_in_a_json_output_key_is_redacted_and_the_document_stays_valid(
     assert_eq!(parsed["token [REDACTED]"], "ok");
     assert_eq!(parsed["nested"]["note"], "token [REDACTED]");
 }
+
+/// A running operation with a running reasoning turn, and the claimed effect the turn answers.
+async fn turn_with_effect(w: &World) -> (OperationId, StepId, Held) {
+    let (op, _) = w.approved().await;
+    let turn = StepId::new();
+    let step = crate::operations::NewStep {
+        id: turn,
+        kind: StepKind::ReasoningTurn,
+        phase: "investigate".to_owned(),
+        parent: None,
+        intent: domovoi_core::StepIntent::ReasoningTurn {
+            context_refs: Vec::new(),
+        },
+    };
+    w.handle.propose(op, vec![step], Vec::new()).await.unwrap();
+    // Any claimed effect of the operation stands in for the `call_model` the turn answers.
+    let (held, _) = w.claim(op, EffectKind::Dispatch).await;
+    (op, turn, held)
+}
+
+fn read(tool: &str, outcome: StepOutcome) -> crate::operations::RecordedStep {
+    crate::operations::RecordedStep {
+        id: StepId::new(),
+        host: host(),
+        tool: tool.to_owned(),
+        args: serde_json::json!({}),
+        outcome,
+        summary: Some("two containers, hunter2".to_owned()),
+        reason: None,
+        output: Some("hunter2".to_owned()),
+    }
+}
+
+fn turn_end(
+    op: OperationId,
+    turn: StepId,
+    held: Held,
+    evidence: Vec<crate::operations::RecordedStep>,
+) -> Box<super::TurnEnd> {
+    Box::new(super::TurnEnd {
+        held,
+        operation: op,
+        turn: super::Conclusion {
+            step: turn,
+            outcome: StepOutcome::Succeeded,
+            summary: Some("done".to_owned()),
+            reason: None,
+            output: Some("{}".to_owned()),
+            usage: None,
+        },
+        evidence,
+        successors: Vec::new(),
+    })
+}
+
+#[tokio::test]
+async fn finishing_a_turn_records_its_reads_and_completes_the_effect_in_one_commit() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let reads = vec![
+        read("docker_ps", StepOutcome::Succeeded),
+        read("docker_ps", StepOutcome::Refused),
+    ];
+    let ids: Vec<StepId> = reads.iter().map(|r| r.id).collect();
+    let end = turn_end(op, turn, held, reads);
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    assert_eq!(
+        snapshot.step(turn).unwrap().progress.outcome,
+        StepOutcome::Succeeded
+    );
+    for id in &ids {
+        let record = snapshot.step(*id).unwrap();
+        assert_eq!(record.step.parent, Some(turn));
+        assert_eq!(
+            record.progress.summary.as_deref(),
+            Some("two containers, [REDACTED]")
+        );
+        assert_eq!(record.progress.output.as_deref(), Some("[REDACTED]"));
+    }
+    assert_eq!(snapshot.operation.budgets.used.evidence_requests, 1);
+    assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_read_that_does_not_validate_is_dropped_and_the_report_is_not_lost() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let reads = vec![read("rm_rf", StepOutcome::Succeeded)];
+    let end = turn_end(op, turn, held, reads);
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    let record = snapshot.step(turn).unwrap();
+    assert_eq!(record.progress.outcome, StepOutcome::Succeeded);
+    assert_eq!(
+        record.progress.reason.as_deref(),
+        Some("its reads were not recorded")
+    );
+    assert!(
+        snapshot
+            .steps
+            .iter()
+            .all(|r| r.step.kind != StepKind::EvidenceRequest)
+    );
+    assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_store_failure_leaves_the_turn_running_and_the_effect_held() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let end = turn_end(
+        op,
+        turn,
+        held,
+        vec![read("docker_ps", StepOutcome::Succeeded)],
+    );
+    w.store
+        .fail_next(domovoi_core::ports::StoreError::Backend("disk".to_owned()));
+    let failed = w
+        .send(|reply| OperationCommand::FinishTurn {
+            end: end.clone(),
+            reply,
+        })
+        .await;
+
+    assert!(failed.is_err());
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    assert_eq!(
+        snapshot.step(turn).unwrap().progress.outcome,
+        StepOutcome::Running
+    );
+    assert!(
+        snapshot
+            .steps
+            .iter()
+            .all(|r| r.step.kind != StepKind::EvidenceRequest)
+    );
+    assert_eq!(w.effects(op, EffectStatus::Claimed).await.len(), 1);
+    // The re-issued call records once.
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    let count = snapshot
+        .steps
+        .iter()
+        .filter(|r| r.step.kind == StepKind::EvidenceRequest)
+        .count();
+    assert_eq!(count, 1);
+}
