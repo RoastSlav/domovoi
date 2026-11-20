@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -833,7 +834,7 @@ expression: "HubConfig::json_schema()"
           "minimum": 0
         },
         "retracted_facts_days": {
-          "description": "Days the content of a retracted fact is kept. Not applied yet: applies once\nknowledge facts exist. Default 30.",
+          "description": "Days the content of a retracted fact or relation is kept; its tombstone stays.\nDefault 30.",
           "type": "integer",
           "format": "uint32",
           "default": 30,

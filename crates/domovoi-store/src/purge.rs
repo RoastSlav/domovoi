@@ -43,6 +43,9 @@ pub struct RetentionPolicy {
     pub triage: SignedDuration,
     /// Advisories, from when they were resolved.
     pub resolved_advisories: SignedDuration,
+    /// Content of retracted facts and relations, from when they were retracted. The
+    /// tombstone stays.
+    pub retracted_facts: SignedDuration,
 }
 
 impl Default for RetentionPolicy {
@@ -54,6 +57,7 @@ impl Default for RetentionPolicy {
             notifications: SignedDuration::from_hours(24 * 30),
             triage: SignedDuration::from_hours(24 * 90),
             resolved_advisories: SignedDuration::from_hours(24 * 30),
+            retracted_facts: SignedDuration::from_hours(24 * 30),
         }
     }
 }
@@ -77,6 +81,8 @@ pub struct PurgeReport {
     pub windows: u64,
     /// Expired web sessions.
     pub sessions: u64,
+    /// Retracted facts and relations whose content was cleared.
+    pub retracted_facts: u64,
 }
 
 const DELETE_SIGNALS: &str = "DELETE FROM signals WHERE observed_at < ?";
@@ -88,6 +94,8 @@ const DELETE_TRIAGE: &str = "DELETE FROM triage_cache WHERE stored_at < ?";
 const DELETE_ADVISORIES: &str =
     "DELETE FROM advisories WHERE resolved_at IS NOT NULL AND resolved_at < ?";
 const DELETE_WINDOWS: &str = "DELETE FROM maintenance_windows WHERE ends_at <= ?";
+const CLEAR_FACTS: &str = "UPDATE facts SET value = NULL, search_text = NULL, live = 0,     content_purged_at = ?1, version = version + 1     WHERE status = 'retracted' AND retracted_at < ?2 AND content_purged_at IS NULL";
+const CLEAR_RELATIONS: &str = "UPDATE relations SET from_ref = NULL, to_ref = NULL, live = 0,     content_purged_at = ?1, version = version + 1     WHERE status = 'retracted' AND retracted_at < ?2 AND content_purged_at IS NULL";
 const DELETE_SESSIONS: &str = "DELETE FROM sessions WHERE expires_at <= ?";
 
 fn cutoff(now: Timestamp, keep: SignedDuration) -> i64 {
@@ -177,6 +185,17 @@ impl Store {
             .await
             .map_err(db)?
             .rows_affected();
+        let retracted_before = cutoff(now, policy.retracted_facts);
+        let mut retracted_facts = 0;
+        for sql in [CLEAR_FACTS, CLEAR_RELATIONS] {
+            retracted_facts += sqlx::query(sql)
+                .bind(ms(now))
+                .bind(retracted_before)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?
+                .rows_affected();
+        }
         tx.commit().await.map_err(db)?;
         let report = PurgeReport {
             signals,
@@ -187,6 +206,7 @@ impl Store {
             advisories,
             windows,
             sessions,
+            retracted_facts,
         };
         tracing::info!(?report, "purged old records");
         Ok(report)

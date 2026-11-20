@@ -131,8 +131,8 @@ pub(crate) fn provider(config: &LlmProvider) -> ProviderSettings {
     }
 }
 
-/// The purge policy from `[retention]`. The three keys that cover data not built yet are
-/// not read.
+/// The purge policy from `[retention]`. The two keys that cover data not built yet are not
+/// read.
 pub(super) fn retention(config: &HubConfig) -> domovoi_store::RetentionPolicy {
     let days = |n: u32| SignedDuration::from_hours(24 * i64::from(n));
     domovoi_store::RetentionPolicy {
@@ -142,6 +142,7 @@ pub(super) fn retention(config: &HubConfig) -> domovoi_store::RetentionPolicy {
         notifications: days(config.retention.notifications_days),
         triage: days(config.retention.triage_cache_days),
         resolved_advisories: days(config.retention.resolved_advisories_days),
+        retracted_facts: days(config.retention.retracted_facts_days),
     }
 }
 
@@ -249,9 +250,17 @@ mod tests {
         let base = config("[triage]\nenabled = false\n");
         let declared = config(
             "[triage]\nenabled = false\n[retention]\noperation_journal_days = 1\n\
-             execution_outputs_days = 2\nretracted_facts_days = 3\n",
+             execution_outputs_days = 2\n",
         );
         assert_eq!(retention(&base), retention(&declared));
+    }
+
+    #[test]
+    fn retracted_facts_days_reaches_the_purge_policy() {
+        let policy = retention(&config(
+            "[triage]\nenabled = false\n[retention]\nretracted_facts_days = 3\n",
+        ));
+        assert_eq!(policy.retracted_facts, SignedDuration::from_hours(24 * 3));
     }
 
     #[test]
