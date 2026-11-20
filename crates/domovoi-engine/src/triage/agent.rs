@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use domovoi_core::SkillSummary;
 use domovoi_core::ports::{
-    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, StopReason,
-    ToolSpec, Usage,
+    AnswerSink, LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part,
+    StopReason, ToolSpec, Usage,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -92,12 +92,25 @@ pub(crate) struct Brief<'a> {
 ///
 /// Every request is charged here before it is sent, so neither a long tool loop nor a
 /// growing allowance can run past the run's budget.
-#[derive(Debug)]
 pub(crate) struct RunBudget {
     per_turn: u32,
     remaining: u32,
     deadline: Timestamp,
     usage: RunUsage,
+    /// Told what each request writes, when the caller streams the answer.
+    sink: Option<Arc<dyn AnswerSink>>,
+}
+
+impl std::fmt::Debug for RunBudget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunBudget")
+            .field("per_turn", &self.per_turn)
+            .field("remaining", &self.remaining)
+            .field("deadline", &self.deadline)
+            .field("usage", &self.usage)
+            .field("streaming", &self.sink.is_some())
+            .finish()
+    }
 }
 
 /// What the successful model responses of one run reported, summed.
@@ -146,7 +159,19 @@ impl RunBudget {
             remaining: shared.settings.budget.max_total_output_tokens,
             deadline,
             usage: RunUsage::default(),
+            sink: None,
         }
+    }
+
+    /// Streams what every request of this run writes to `sink`.
+    pub(crate) fn with_sink(mut self, sink: Arc<dyn AnswerSink>) -> Self {
+        self.sink = Some(sink);
+        self
+    }
+
+    /// The sink the run streams to, if any.
+    pub(crate) fn sink(&self) -> Option<&Arc<dyn AnswerSink>> {
+        self.sink.as_ref()
     }
 
     /// What the run's successful responses used so far.
@@ -264,7 +289,12 @@ pub(crate) async fn ask(
             tools: tools.clone(),
             max_output_tokens: allowance,
         };
-        let answered = complete(shared, provider, req, run.deadline()).await;
+        // Each request is a new attempt: whatever was streamed before it was discarded.
+        let sink = run.sink.clone();
+        if let Some(sink) = &sink {
+            sink.attempt_started();
+        }
+        let answered = complete(shared, provider, req, run.deadline(), sink.as_deref()).await;
         if let Ok(response) = &answered {
             run.usage.add(response.usage);
         }

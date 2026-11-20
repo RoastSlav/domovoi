@@ -1,6 +1,6 @@
 //! The bounded conversation with one provider over the meta-tools.
 
-use domovoi_core::ports::{LlmError, LlmMessage, Part, Role};
+use domovoi_core::ports::{LlmError, LlmMessage, Part, Role, ToolPhase};
 use serde_json::Value;
 
 use super::dispatch::{Handled, State, handle};
@@ -202,6 +202,10 @@ pub(crate) async fn converse_read(
             if shared.deps.clock.now() >= run.deadline() {
                 return Err(deadline_error());
             }
+            let before = used.len();
+            if let Some(sink) = run.sink() {
+                sink.tool(&name, ToolPhase::Started, false);
+            }
             let handled = handle(
                 ctx,
                 &mut state,
@@ -212,6 +216,16 @@ pub(crate) async fn converse_read(
                 run.deadline(),
             )
             .await;
+            if let Some(sink) = run.sink() {
+                // The call as it was recorded: the closed name the engine matched, not the
+                // model's text.
+                match used.get(before..).and_then(<[ToolUse]>::last) {
+                    Some(call) => {
+                        sink.tool(&call.tool, ToolPhase::Finished, call.failed || call.refused)
+                    }
+                    None => sink.tool(&name, ToolPhase::Finished, true),
+                }
+            }
             // `finish` and `ask_user` are never offered here, so they never get this far.
             let Handled::Result(result) = handled else {
                 continue;

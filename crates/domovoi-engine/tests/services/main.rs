@@ -11,6 +11,7 @@ mod capability;
 mod chain;
 #[cfg(test)]
 mod chat;
+mod chat_streaming;
 #[cfg(test)]
 mod context;
 #[cfg(test)]

@@ -55,6 +55,18 @@ impl ChainState {
             evidence: Vec::new(),
         }
     }
+
+    /// A fresh state whose model requests stream their text to `sink`.
+    pub(crate) fn streaming(
+        shared: &Shared,
+        sink: Arc<dyn domovoi_core::ports::AnswerSink>,
+    ) -> Self {
+        Self {
+            run: agent::RunBudget::for_run(shared).with_sink(sink),
+            used: Vec::new(),
+            evidence: Vec::new(),
+        }
+    }
 }
 
 /// One path's try with one provider.

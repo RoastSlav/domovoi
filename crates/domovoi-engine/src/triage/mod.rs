@@ -27,9 +27,9 @@ pub(crate) mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, ContextSource, HostRepo,
-    IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver, TriageCacheRepo,
-    UsageRepo,
+    ActionRepo, AdmissionRepo, AdvisoryRepo, AnswerSink, CapabilityRegistry, Clock, ContextSource,
+    HostRepo, IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver,
+    TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
@@ -43,7 +43,7 @@ use crate::manager::ManagerHandle;
 pub use agent::{
     BUDGET_EXHAUSTED, MAX_OUTPUT_ALLOWANCE, NO_CALLS_LEFT, ToolUse, default_total_output_tokens,
 };
-pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
+pub use chat::{CHAT_PROMPT, ChatAnswer, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use meta::{ExperienceAccess, META_SYSTEM_PROMPT, offered_tools};
@@ -282,6 +282,19 @@ impl TriageHandle {
         question: &str,
     ) -> Result<String, TriageError> {
         chat::answer(&self.shared, host, overview, history, question).await
+    }
+
+    /// [`chat`](Self::chat) for the Operator: streams the text each model request writes to
+    /// `sink` while it works and returns the tools the model used with the answer.
+    pub async fn chat_streaming(
+        &self,
+        host: Option<HostId>,
+        overview: &str,
+        history: &[ChatTurn],
+        question: &str,
+        sink: Arc<dyn AnswerSink>,
+    ) -> Result<ChatAnswer, TriageError> {
+        chat::answer_with(&self.shared, host, overview, history, question, Some(sink)).await
     }
 
     /// The target resolver triage checks plan steps with, so the operation service can bind
