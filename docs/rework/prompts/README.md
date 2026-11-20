@@ -4,7 +4,7 @@ One file per prompt: `NN-branch-name.md`. `NN` is the stable ID used in `../07-i
 Each file is a self-contained, copy-paste-ready brief for one branch and one pull request.
 
 **Every prompt in the index has a file except 44, 45, 46 and 47**, which wait on research evidence or
-an owner decision. `../07-implementation-prompt-index.md` is authoritative for prompt status,
+an owner decision. Prompt 99, the closing cleanup, runs last, after everything else has merged. `../07-implementation-prompt-index.md` is authoritative for prompt status,
 dependencies, launch order, gates and the integration branch (its §6); an index row without a file
 here is a plan, not a brief, and must not be launched.
 

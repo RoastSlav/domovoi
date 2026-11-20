@@ -162,6 +162,7 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 47 | `three-identities-helper-and-skill-runner` (may be split 47a/b/c) | H1 | helper, attestation, skill runner, installer migration, hub enrollment | 20, 22, 44 | — | helper protocol, SafetyIdentity | **R-3, R-9, R-10 accepted** (O-30 settled as D-31) | L |
 | 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart`; the unresolved-`OutcomeUnknown` unattended-reuse guard | 32, 40, 47 | — | — | **R-8 accepted; H1 complete** | L |
 | 46 | `containment` | M9 | `firewall.block_source` with kernel timeout, verified and unverified paths, drills | 45, 34, 47 | — | — | **R-2, R-10 accepted** | L |
+| 99 | `pre-release-cleanup` | closing | remove all pre-rework compatibility (legacy actions, v1 plan hash, legacy audit digest, migration squash with an ADR), then audit dead code, tests, comments, the book, ADRs and examples; finally delete these planning documents | every prompt that ships | — | ADR 0029, one baseline migration | all shipping prompts merged; run last | L |
 
 ## 3. Recommended launch order
 
@@ -288,6 +289,10 @@ Writing the M3 prompts showed two pieces of work no row owned. They are in §2 a
 (`chat-step-approvals`: without it, making investigations the default in 58 would remove one-tap chat
 approval) and **60** (`remove-legacy-executor`: the legacy executor removal and the audited expiry of the
 remaining legacy actions that 05 §2 requires). Both are written and counted in 6.1.
+
+### 6.2a Closing prompt
+
+**99** (`pre-release-cleanup`) is written. It runs once, after every other shipping prompt has merged; it adds no feature.
 
 ### 6.3 Research prompts (4, written)
 
