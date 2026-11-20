@@ -3,7 +3,12 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use crate::id::OperationId;
+use crate::id::{HostId, OperationId};
+
+use super::summary::{ExecutedContract, ResolutionOutcome, SummarySubject};
+
+/// Longest narrative text, in characters.
+pub const MAX_NARRATIVE_CHARS: usize = 1000;
 
 /// One field of a resolution summary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -68,6 +73,27 @@ impl SummaryField {
             self,
             Self::Outcome | Self::Verified | Self::Subjects | Self::ContractsExecuted | Self::Hosts
         )
+    }
+
+    /// Whether `value` has the documented shape of this field: `outcome` a known outcome name,
+    /// `verified` a bool, `subjects`, `contracts_executed` and `hosts` arrays of at most 8, 32
+    /// and 16 entries, a narrative field a string of 1 to 1000 characters.
+    #[must_use]
+    pub fn accepts(self, value: &serde_json::Value) -> bool {
+        use serde_json::Value;
+        fn list<T: serde::de::DeserializeOwned>(value: &Value, max: usize) -> bool {
+            serde_json::from_value::<Vec<T>>(value.clone()).is_ok_and(|items| items.len() <= max)
+        }
+        match self {
+            Self::Outcome => value.as_str().and_then(ResolutionOutcome::parse).is_some(),
+            Self::Verified => value.is_boolean(),
+            Self::Subjects => list::<SummarySubject>(value, 8),
+            Self::ContractsExecuted => list::<ExecutedContract>(value, 32),
+            Self::Hosts => list::<HostId>(value, 16),
+            Self::Problem | Self::Cause | Self::Fix => value
+                .as_str()
+                .is_some_and(|t| (1..=MAX_NARRATIVE_CHARS).contains(&t.chars().count())),
+        }
     }
 
     /// Whether the field is free text a model drafts and a person may edit.

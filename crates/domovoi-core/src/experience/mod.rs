@@ -11,7 +11,7 @@ mod query;
 mod summary;
 
 pub use derive::{CodeFields, code_fields, outcome_tags};
-pub use field::{SummaryField, SummaryRevision, SummarySource};
+pub use field::{MAX_NARRATIVE_CHARS, SummaryField, SummaryRevision, SummarySource};
 pub use query::{
     ExperienceHit, ExperienceQuery, ExperienceScope, MatchPass, SIMILAR_MIN_SCORE, SimilarHit,
     SimilarQuery, SimilarReason, order_similar, query_words, score_similar,

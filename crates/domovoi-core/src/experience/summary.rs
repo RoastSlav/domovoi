@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::id::{HostId, OperationId};
 use crate::signal::{CheckKey, TargetKey};
 
-use super::field::SummarySource;
+use super::field::{SummaryField, SummaryRevision, SummarySource};
 
 /// How a finished operation ended: the terminal status names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +112,57 @@ pub struct ResolutionSummary {
     pub cause: Option<NarrativeField>,
     /// What fixed it or should be done.
     pub fix: Option<NarrativeField>,
+}
+
+impl ResolutionSummary {
+    /// Folds the newest revision of each field into a summary. `Ok(None)` when there is no
+    /// `outcome` revision yet; `Err` names a stored value that does not have its field's shape.
+    pub fn fold(
+        goal: &str,
+        ended_at: Timestamp,
+        current: &[SummaryRevision],
+    ) -> Result<Option<Self>, String> {
+        fn get<T: serde::de::DeserializeOwned>(
+            current: &[SummaryRevision],
+            field: SummaryField,
+        ) -> Result<Option<T>, String> {
+            current
+                .iter()
+                .find(|r| r.field == field)
+                .map(|r| serde_json::from_value(r.value.clone()))
+                .transpose()
+                .map_err(|e| format!("{}: {e}", field.as_str()))
+        }
+        fn narrative(current: &[SummaryRevision], field: SummaryField) -> Option<NarrativeField> {
+            let revision = current.iter().find(|r| r.field == field)?;
+            Some(NarrativeField {
+                text: revision.value.as_str()?.to_owned(),
+                source: revision.source,
+                actor: revision.actor.clone(),
+                revision: revision.revision,
+                at: revision.created_at,
+            })
+        }
+        let Some(outcome) = get::<ResolutionOutcome>(current, SummaryField::Outcome)? else {
+            return Ok(None);
+        };
+        let Some(first) = current.first() else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            operation: first.operation,
+            goal: goal.to_owned(),
+            ended_at,
+            outcome,
+            verified: get(current, SummaryField::Verified)?.unwrap_or(false),
+            subjects: get(current, SummaryField::Subjects)?.unwrap_or_default(),
+            contracts: get(current, SummaryField::ContractsExecuted)?.unwrap_or_default(),
+            hosts: get(current, SummaryField::Hosts)?.unwrap_or_default(),
+            problem: narrative(current, SummaryField::Problem),
+            cause: narrative(current, SummaryField::Cause),
+            fix: narrative(current, SummaryField::Fix),
+        }))
+    }
 }
 
 /// Outcome and verified flag of a finished operation, for list rows.
