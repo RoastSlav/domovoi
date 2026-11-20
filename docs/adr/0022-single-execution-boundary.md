@@ -1,6 +1,6 @@
 # 0022. One execution boundary and one read boundary
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0028](0028-one-execution-path.md)
 - Date: 2026-11-17
 - Implementation hardened by [0023](0023-capability-objects-one-checker-bounded-evidence.md): capability objects, one syntax-aware checker and bounded evidence. Where this record and 0023 describe the same mechanism, 0023 is current.
 

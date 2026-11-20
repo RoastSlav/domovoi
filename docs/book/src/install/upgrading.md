@@ -47,6 +47,16 @@ Before a new release changes the database, the hub copies `hub.db` into `backups
 
 To go back a version, stop the hub, restore the backup taken before the upgrade (see [Backups](../reference/backup.md)), and install the older release with `--version`.
 
+## Open legacy actions are closed at upgrade
+
+Releases before the operations model proposed "actions" that waited for approval. The executor that ran them is gone, so the first start of a release without it closes every action that is still open, once, and records each change in the audit log:
+
+- a proposal still waiting becomes **Expired**, and an approval not yet sent becomes **Never ran**, both with the reason "legacy action expired at upgrade";
+- a run that was already sent to a host becomes **Result unknown** ("legacy executor removed before this run was reconciled"), never failed and never run again; the agent's own journal still holds what happened;
+- a pending re-check of a finished action is dropped.
+
+Nothing is deleted. All these actions stay in the list, read-only and labelled Legacy. Closing them cannot be undone, so take a backup (see [Backups](../reference/backup.md)) before you upgrade.
+
 ## Release notices
 
 Twice a day the hub asks GitHub for the newest Domovoi release. Nothing about your installation is sent, only the request itself. When the release is newer than the hub, every page shows a banner with the version, its release notes, and commands that install it, starting with `domovoi upgrade` on a binary install. The commands name the release's tag, so they can be copied as they are: the hub and agent commands pass it to the installer, and the container command pins the image to the release, which keeps it off the `latest` tag. The **Hosts** page links each outdated agent to the same commands. Update the hub first, then the agents.

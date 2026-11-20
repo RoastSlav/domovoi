@@ -1,6 +1,6 @@
 # 0019. Action decisions have a single writer
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0028](0028-one-execution-path.md)
 - Date: 2026-11-12
 
 ## Context

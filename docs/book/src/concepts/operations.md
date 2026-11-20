@@ -9,7 +9,7 @@ An operation is one durable piece of work on your hosts: find out why something 
 
 ## On by default
 
-Operations are on unless you switch them off under `[orchestration]`. With `enabled = false`, Domovoi does not start the operation service and does not investigate incidents automatically: alert cards still go out, without a report. Follow-up questions and chat keep working, and the Operations endpoints answer 503. Actions that were already waiting or running when you upgraded still finish as described in [Actions and approvals](actions.md); they are labelled Legacy.
+Operations are on unless you switch them off under `[orchestration]`. With `enabled = false`, Domovoi does not start the operation service and does not investigate incidents automatically: alert cards still go out, without a report. Follow-up questions and chat keep working, and the Operations endpoints answer 503. Actions that were still open when you upgraded are closed at the first start and kept as read-only history, labelled Legacy; see [Actions and approvals](actions.md). Approval is per step: you approve or deny each Execution step on the web or from its card in chat.
 
 With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation; see [Investigations](#investigations). There is no separate triage queue any more. A new round of reasoning after a failed check starts another cycle of that investigation. No other kind of operation exists yet.
 
