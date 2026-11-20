@@ -12,6 +12,14 @@ use jiff::SignedDuration;
 
 use crate::support::Fixture;
 
+/// Whether the only effect the decision creates is the summary draft of a finished operation.
+fn only_resolution(decision: &domovoi_engine::operations::Decision) -> bool {
+    decision
+        .effects
+        .iter()
+        .all(|spec| spec.kind == EffectKind::DraftResolution)
+}
+
 fn no_limits() -> BudgetLimits {
     BudgetLimits::default()
 }
@@ -43,7 +51,7 @@ fn verification_passed_succeeds_the_operation_when_nothing_is_open() {
     assert_eq!(fx.status(), OperationStatus::Succeeded);
     assert_eq!(decision.operation.ended_at, Some(fx.now));
     assert_eq!(fx.outcome(verification), StepOutcome::Succeeded);
-    assert!(decision.effects.is_empty());
+    assert!(only_resolution(&decision));
 }
 
 #[test]
@@ -112,7 +120,7 @@ fn cycle_limit_escalates() {
         1,
         "an escalation starts no cycle"
     );
-    assert!(decision.effects.is_empty());
+    assert!(only_resolution(&decision));
     assert_eq!(decision.operation.ended_at, Some(fx.now));
 }
 
@@ -142,10 +150,7 @@ fn cancel_cancels_pending_steps_and_keeps_a_dispatched_execution_running() {
             .iter()
             .any(|a| a.kind == audit::OPERATION_CANCELLED)
     );
-    assert!(
-        decision.effects.is_empty(),
-        "the writer cancels the effects"
-    );
+    assert!(only_resolution(&decision), "the writer cancels the effects");
 }
 
 #[test]
@@ -169,7 +174,7 @@ fn terminal_operation_refuses_new_steps_but_records_a_late_settle() {
         .settle(running, StepOutcome::Succeeded, minute())
         .unwrap();
     assert_eq!(fx.outcome(running), StepOutcome::Succeeded);
-    assert!(decision.steps.is_empty() && decision.edges.is_empty() && decision.effects.is_empty());
+    assert!(decision.steps.is_empty() && decision.edges.is_empty() && only_resolution(&decision));
     assert_eq!(fx.status(), OperationStatus::Cancelled);
     assert_eq!(decision.audit[0].kind, audit::EXECUTION_SUCCEEDED);
     let finished_twice = fx.settle(running, StepOutcome::Failed, None);

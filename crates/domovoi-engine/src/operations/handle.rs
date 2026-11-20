@@ -18,6 +18,7 @@ use tokio::sync::oneshot;
 use super::decide::{NewEdge, NewStep};
 use super::error::OperationError;
 use super::proposal;
+use super::resolution::{EditSummaryError, EditSummaryField, EditedField};
 use super::writer::{OpShared, OperationCommand, Reply};
 
 /// What a new operation starts from.
@@ -358,6 +359,32 @@ impl OperationHandle {
             reply,
         })
         .await
+    }
+}
+
+impl OperationHandle {
+    /// Edits or confirms a narrative field of a finished operation's summary. Confirming a
+    /// model draft is an edit with the same text. Nothing is committed unless every rule of
+    /// [`SummaryError`] holds.
+    pub async fn edit_summary_field(
+        &self,
+        operation: OperationId,
+        edit: EditSummaryField,
+        actor: Actor,
+    ) -> Result<EditedField, EditSummaryError> {
+        let (reply, answer) = oneshot::channel();
+        let command = OperationCommand::EditSummary {
+            operation,
+            edit,
+            actor,
+            reply,
+        };
+        if self.shared.writer.send(command).await.is_err() {
+            return Err(OperationError::Unavailable.into());
+        }
+        answer
+            .await
+            .map_err(|_| EditSummaryError::from(OperationError::Unavailable))?
     }
 }
 

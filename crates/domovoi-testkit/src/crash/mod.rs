@@ -32,8 +32,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use domovoi_core::ports::{
     AckRepo, ActionGuard, ActionRepo, AuditLog, CommitError, CommitReceipt, EffectRead,
-    ExecutionGuard, Expected, IncidentRepo, JournalRead, OperationWrite, SignalRepo, StateWrite,
-    StoreError, Transaction, UnitOfWork, VersionedRead,
+    ExecutionGuard, Expected, ExperienceRead, IncidentRepo, JournalRead, OperationWrite,
+    SignalRepo, StateWrite, StoreError, Transaction, UnitOfWork, VersionedRead,
 };
 
 use domovoi_core::policy_store::PolicyWrite;
@@ -71,6 +71,7 @@ pub trait SweepStore:
     + AuditLog
     + AckRepo
     + IntegrityRead
+    + ExperienceRead
     + Send
     + Sync
     + 'static
@@ -88,6 +89,7 @@ impl<T> SweepStore for T where
         + AuditLog
         + AckRepo
         + IntegrityRead
+        + ExperienceRead
         + Send
         + Sync
         + 'static

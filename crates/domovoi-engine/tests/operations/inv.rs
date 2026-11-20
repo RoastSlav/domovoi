@@ -326,6 +326,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
     let deps = OperationDeps {
         bus: bus.clone(),
         operations: store.clone(),
+        experience: store.clone(),
         uow: store.clone(),
         effects: gate.clone(),
         effect_read: store.clone(),

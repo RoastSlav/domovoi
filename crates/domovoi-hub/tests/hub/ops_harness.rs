@@ -118,6 +118,7 @@ pub async fn spawn(
         OperationDeps {
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
+            experience: store.clone(),
             uow: store.clone(),
             // With triage the service must run the investigation it is asked for; otherwise
             // its runner claims nothing, so a test reads what a commit queued.

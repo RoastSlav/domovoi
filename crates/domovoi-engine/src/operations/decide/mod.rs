@@ -15,6 +15,7 @@ mod effects;
 mod events;
 mod execution;
 mod finish;
+mod resolution;
 mod status;
 mod steps;
 mod turn;
@@ -34,6 +35,7 @@ pub(crate) use effects::{
     step_payload, wake_payload,
 };
 pub use events::{ExecutionProposal, NewEdge, NewStep, OperationEvent, RecordedStep};
+pub(crate) use resolution::{resolution_key, resolution_payload};
 pub use status::derive_status;
 
 use super::state::OperationState;
@@ -179,6 +181,7 @@ pub fn decide(
     now: Timestamp,
     ids: &mut dyn IdSource,
 ) -> Result<Decision, DecideError> {
+    let late = resolution::late_step(state, &event);
     let mut work = Work::new(state, now, ids);
     match event {
         OperationEvent::Admit => finish::admit(&mut work)?,
@@ -243,5 +246,7 @@ pub fn decide(
         }
         OperationEvent::Tick => finish::tick(&mut work)?,
     }
-    Ok(work.into_decision())
+    let mut decision = work.into_decision();
+    resolution::add_resolution_effect(state, late, &mut decision, ids, now);
+    Ok(decision)
 }

@@ -17,6 +17,9 @@ use tokio::sync::oneshot;
 use crate::operations::decide::{EffectSpec, ExecutionProposal, NewEdge, NewStep, RecordedStep};
 use crate::operations::error::OperationError;
 use crate::operations::handle::OperationSeed;
+use crate::operations::resolution::{
+    EditSummaryError, EditSummaryField, EditedField, PlannedRevision,
+};
 
 /// Where a command's answer goes.
 pub(crate) type Reply<T> = oneshot::Sender<Result<T, OperationError>>;
@@ -264,4 +267,18 @@ pub(crate) enum OperationCommand {
     FinishTurn { end: Box<TurnEnd>, reply: Reply<()> },
     /// Handler: the held effect has nothing left to do.
     FinishEffect { held: Held, reply: Reply<()> },
+    /// Handler: append the planned summary revisions and complete the held effect.
+    WriteResolution {
+        operation: OperationId,
+        revisions: Vec<PlannedRevision>,
+        held: Held,
+        reply: Reply<()>,
+    },
+    /// An owner's edit of a narrative field of a finished operation's summary.
+    EditSummary {
+        operation: OperationId,
+        edit: EditSummaryField,
+        actor: Actor,
+        reply: oneshot::Sender<Result<EditedField, EditSummaryError>>,
+    },
 }

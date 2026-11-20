@@ -117,6 +117,7 @@ async fn world() -> World {
         OperationDeps {
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
+            experience: store.clone(),
             uow: commits.clone(),
             effects: store.clone(),
             effect_read: store.clone(),
@@ -898,9 +899,12 @@ async fn a_verification_answer_finishes_the_operation_with_its_effect() {
     let snapshot = w.store.load(op).await.unwrap().unwrap();
     assert_eq!(snapshot.operation.status.name(), "succeeded");
     assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
+    let pending = w.effects(op, EffectStatus::Pending).await;
     assert!(
-        w.effects(op, EffectStatus::Pending).await.is_empty(),
-        "the end cancels the rest"
+        pending
+            .iter()
+            .all(|effect| effect.kind == EffectKind::DraftResolution.as_str()),
+        "the end cancels the rest and leaves only the summary draft"
     );
 }
 

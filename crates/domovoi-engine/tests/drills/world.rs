@@ -398,6 +398,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
             OperationDeps {
                 bus: tokio::sync::broadcast::channel(16).0,
                 operations: store.clone(),
+                experience: store.clone(),
                 uow: store.clone(),
                 effects: store.clone(),
                 effect_read: store.clone(),

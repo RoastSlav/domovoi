@@ -44,6 +44,12 @@ pub(super) fn register(runner: &mut EffectRunner, shared: &Arc<OpShared>) {
         Arc::new(verify::VerifyHandler::new(shared.clone())),
     );
     runner.register(
+        EffectKind::DraftResolution,
+        Arc::new(crate::operations::resolution::DraftResolutionHandler::new(
+            shared.clone(),
+        )),
+    );
+    runner.register(
         EffectKind::Reconcile,
         Arc::new(reconcile::ReconcileHandler::new(shared.clone())),
     );

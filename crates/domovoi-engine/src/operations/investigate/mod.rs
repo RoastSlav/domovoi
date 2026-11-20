@@ -45,6 +45,7 @@ const BUILD_ATTEMPTS: u32 = 3;
 pub use start::InvestigateError;
 #[allow(unused_imports)]
 pub use turn_output::APPROVAL_POINTER;
+pub(crate) use turn_output::{TurnKind, TurnOutput};
 use waiters::Waiters;
 
 /// What investigations are built from.

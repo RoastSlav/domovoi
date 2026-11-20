@@ -471,6 +471,55 @@ impl IntegrityRead for SqliteStore {
     }
 }
 
+#[async_trait]
+impl domovoi_core::ports::ExperienceRead for SqliteStore {
+    async fn summary(
+        &self,
+        operation: OperationId,
+    ) -> Result<Option<domovoi_core::experience::ResolutionSummary>, StoreError> {
+        domovoi_core::ports::ExperienceRead::summary(&*self.0, operation).await
+    }
+
+    async fn revisions(
+        &self,
+        operation: OperationId,
+    ) -> Result<Vec<domovoi_core::experience::SummaryRevision>, StoreError> {
+        domovoi_core::ports::ExperienceRead::revisions(&*self.0, operation).await
+    }
+
+    async fn current(
+        &self,
+        operation: OperationId,
+    ) -> Result<Vec<domovoi_core::experience::SummaryRevision>, StoreError> {
+        domovoi_core::ports::ExperienceRead::current(&*self.0, operation).await
+    }
+
+    async fn briefs(
+        &self,
+        operations: &[OperationId],
+    ) -> Result<BTreeMap<OperationId, domovoi_core::experience::ResolutionBrief>, StoreError> {
+        domovoi_core::ports::ExperienceRead::briefs(&*self.0, operations).await
+    }
+
+    async fn search(
+        &self,
+        query: &domovoi_core::experience::ExperienceQuery,
+    ) -> Result<Vec<domovoi_core::experience::ExperienceHit>, StoreError> {
+        domovoi_core::ports::ExperienceRead::search(&*self.0, query).await
+    }
+
+    async fn similar(
+        &self,
+        query: &domovoi_core::experience::SimilarQuery,
+    ) -> Result<Vec<domovoi_core::experience::SimilarHit>, StoreError> {
+        domovoi_core::ports::ExperienceRead::similar(&*self.0, query).await
+    }
+
+    async fn undrafted(&self, limit: u16) -> Result<Vec<OperationId>, StoreError> {
+        domovoi_core::ports::ExperienceRead::undrafted(&*self.0, limit).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;

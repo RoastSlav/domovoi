@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    AdvisoryRepo, CapabilityRegistry, CheckRerun, Clock, EffectQueue, EffectRead, HandoffRunner,
-    HostObservation, HostRepo, IncidentRepo, JournalStatus, OperationRepo, Redactor,
+    AdvisoryRepo, CapabilityRegistry, CheckRerun, Clock, EffectQueue, EffectRead, ExperienceRead,
+    HandoffRunner, HostObservation, HostRepo, IncidentRepo, JournalStatus, OperationRepo, Redactor,
     TargetResolver, UnitOfWork,
 };
 use tokio_util::sync::CancellationToken;
@@ -43,6 +43,8 @@ pub struct OperationDeps {
     pub handoff: Arc<dyn HandoffRunner>,
     /// The re-check that verifies a finished execution.
     pub rerun: Arc<dyn CheckRerun>,
+    /// Resolution summaries, read to plan a draft or an edit and to find what is missing.
+    pub experience: Arc<dyn ExperienceRead>,
     /// Runs on text before it is stored.
     pub redactor: Arc<dyn Redactor>,
     /// The event bus: a step leaving "awaiting approval" is announced on it.

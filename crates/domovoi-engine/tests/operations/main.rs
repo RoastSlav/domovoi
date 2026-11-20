@@ -41,6 +41,8 @@ mod properties;
 #[cfg(test)]
 mod queued;
 #[cfg(test)]
+mod resolution;
+#[cfg(test)]
 mod restart;
 #[cfg(test)]
 #[path = "../support/shadow_env.rs"]

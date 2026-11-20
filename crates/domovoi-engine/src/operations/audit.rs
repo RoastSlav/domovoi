@@ -42,3 +42,6 @@ pub const EXECUTION_REFUSED: &str = "execution.refused";
 pub const LOOP_GUARD_REASON: &str = "loop guard:";
 /// A step's chat token was replaced. The detail names the operation and step, never a token.
 pub const EXECUTION_TOKEN_ROTATED: &str = "execution.token_rotated";
+/// A person edited or confirmed a narrative field of a resolution summary. The text is never
+/// part of the row.
+pub const OPERATION_SUMMARY_EDITED: &str = "operation.summary_edited";

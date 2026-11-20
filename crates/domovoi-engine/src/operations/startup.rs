@@ -18,6 +18,13 @@ pub(super) async fn recover(shared: &OpShared) {
     if let Err(err) = repend_dispatches(shared).await {
         tracing::error!(%err, "could not return claimed dispatch effects to pending");
     }
+    let queued = crate::operations::resolution::queue_missing(shared).await;
+    if queued > 0 {
+        tracing::info!(
+            queued,
+            "queued summaries for finished operations that had none"
+        );
+    }
     admit_queued(shared).await;
 }
 
