@@ -116,6 +116,14 @@ impl Shrinker {
     /// pair in the same layer. Returns whether anything was removed.
     fn drop_last(&mut self, layer: ContextLayer, take: Take) -> bool {
         let protected = self.protected().map(|item| item.id.clone());
+        let protected_status = self.protected().map(|item| item.status.clone());
+        // A disputed pair is one unit: an item in a pair with the protected incident item
+        // cannot go, or the incident would point at something no longer shown.
+        let pairs_with_protected = |item: &ContextItem| {
+            let with_it = matches!(&item.status, ItemStatus::Disputed { with } if Some(with) == protected.as_ref());
+            let it_with = matches!(&protected_status, Some(ItemStatus::Disputed { with }) if *with == item.id);
+            with_it || it_with
+        };
         let mut found = None;
         'search: for (si, section) in self.sections.iter().enumerate().rev() {
             if section.layer != layer {
@@ -124,7 +132,11 @@ impl Shrinker {
             for (ii, item) in section.items.iter().enumerate().rev() {
                 let unknown = matches!(item.status, ItemStatus::Unknown { .. });
                 let ok = match take {
-                    Take::Known => !unknown && Some(&item.id) != protected.as_ref(),
+                    Take::Known => {
+                        !unknown
+                            && Some(&item.id) != protected.as_ref()
+                            && !pairs_with_protected(item)
+                    }
                     Take::Unknown => unknown,
                 };
                 if ok {

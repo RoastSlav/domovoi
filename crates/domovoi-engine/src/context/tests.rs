@@ -977,6 +977,37 @@ async fn a_disputed_pair_is_never_split_by_a_cap() {
     assert_eq!(count(&ctx, ContextLayer::Knowledge), 1);
 }
 
+#[tokio::test]
+async fn an_item_disputed_with_the_incident_is_not_dropped_without_it() {
+    let incident = sid("incident");
+    let other = sid("signals");
+    let incident_id = ContextItemId::new(&incident, "i");
+    let other_id = ContextItemId::new(&other, "s");
+    let mut first = item("incident", ContextLayer::Incident, "i", &"i".repeat(200));
+    first.status = ItemStatus::Disputed {
+        with: other_id.clone(),
+    };
+    let mut second = item("signals", ContextLayer::Incident, "s", &"s".repeat(200));
+    second.status = ItemStatus::Disputed {
+        with: incident_id.clone(),
+    };
+    let sources = vec![
+        StubSource::new("incident", ContextLayer::Incident)
+            .items(vec![first])
+            .arc(),
+        StubSource::new("signals", ContextLayer::Incident)
+            .items(vec![second])
+            .arc(),
+    ];
+    let mut plan = plan();
+    for total in (0..800).step_by(25) {
+        plan.budget.total_bytes = total;
+        let ctx = gather(&sources, &plan).await;
+        assert!(has(&ctx, &incident_id), "the incident stays at {total}");
+        assert!(has(&ctx, &other_id), "its counterpart stays at {total}");
+    }
+}
+
 #[test]
 fn omission_section_text_is_fixed() {
     let one = LayeredContext {

@@ -505,6 +505,92 @@ async fn skills_are_unknown_when_disconnected_and_none_when_connected_without_sk
     );
 }
 
+/// An action repository whose listing always fails; nothing else is used.
+struct FailingActions;
+
+#[async_trait]
+impl domovoi_core::ports::ActionRepo for FailingActions {
+    async fn insert(
+        &self,
+        _action: &domovoi_core::ActionRequest,
+    ) -> Result<(), domovoi_core::ports::StoreError> {
+        Ok(())
+    }
+
+    async fn update_from(
+        &self,
+        _action: &domovoi_core::ActionRequest,
+        _expected: &str,
+    ) -> Result<(), domovoi_core::ports::StoreError> {
+        Ok(())
+    }
+
+    async fn get(
+        &self,
+        _id: domovoi_core::ActionId,
+    ) -> Result<Option<domovoi_core::ActionRequest>, domovoi_core::ports::StoreError> {
+        Ok(None)
+    }
+
+    async fn list(
+        &self,
+        _filter: &domovoi_core::ports::ActionFilter,
+        _page: &domovoi_core::ports::Page,
+    ) -> Result<
+        domovoi_core::ports::Paged<domovoi_core::ActionRequest>,
+        domovoi_core::ports::StoreError,
+    > {
+        Err(domovoi_core::ports::StoreError::Backend(
+            "the action table is gone".to_owned(),
+        ))
+    }
+
+    async fn find_by_chat_token_hash(
+        &self,
+        _hash: &[u8; 32],
+    ) -> Result<Option<domovoi_core::ActionRequest>, domovoi_core::ports::StoreError> {
+        Ok(None)
+    }
+
+    async fn last_run_by_skill(
+        &self,
+        _host: domovoi_core::HostId,
+    ) -> Result<
+        std::collections::BTreeMap<domovoi_core::SkillName, Timestamp>,
+        domovoi_core::ports::StoreError,
+    > {
+        Ok(std::collections::BTreeMap::new())
+    }
+}
+
+#[tokio::test]
+async fn an_actions_read_failure_is_an_unknown_section_not_none() {
+    let w = world(Setup {
+        actions: Some(Arc::new(FailingActions)),
+        ..Setup::default()
+    })
+    .await;
+    w.primary.push_text(report());
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    w.primary.push_text("Nothing new.");
+    w.triage
+        .follow_up(w.incident.id(), "What is the plan?", UserId::new())
+        .await
+        .expect("an answer");
+
+    let requests = w.primary.requests();
+    let text = opening(&requests[1]);
+    let thread = section(&text, "This incident so far: report, actions and timeline");
+    assert!(
+        thread.contains("UNKNOWN: the incident's actions could not be read"),
+        "{thread}"
+    );
+    assert!(
+        !thread.contains("Actions of this incident"),
+        "no actions item when they could not be read: {thread}"
+    );
+}
+
 #[tokio::test]
 async fn the_thread_source_carries_report_actions_and_timeline() {
     let w = world(Setup::default()).await;

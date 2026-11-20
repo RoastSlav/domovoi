@@ -53,6 +53,8 @@ pub struct Setup {
     pub store_delay: Option<std::time::Duration>,
     /// A signal repository to use instead of the store's, for read failures.
     pub signals: Option<Arc<dyn SignalRepo>>,
+    /// An action repository to use instead of the store's, for read failures.
+    pub actions: Option<Arc<dyn ActionRepo>>,
     /// Extra context sources registered with the triage service.
     pub extra_context: Vec<Arc<dyn domovoi_core::ports::ContextSource>>,
 }
@@ -70,6 +72,7 @@ impl Default for Setup {
             admission: None,
             store_delay: None,
             signals: None,
+            actions: None,
             extra_context: Vec::new(),
         }
     }
@@ -266,7 +269,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         signals: setup.signals.clone().unwrap_or_else(|| store.clone()),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: store.clone(),
+        actions: setup.actions.clone().unwrap_or_else(|| store.clone()),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
         admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
