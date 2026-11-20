@@ -5,6 +5,7 @@
 mod controls;
 mod limits;
 mod steps;
+mod summary;
 
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ pub use limits::{
     EXTEND_MAX_MEASURED,
 };
 pub use steps::risk_of_skill;
+pub use summary::SummaryCommandError;
 
 /// A limit to raise when resuming: the new value of one budget.
 #[derive(Debug, Clone, PartialEq, Eq)]

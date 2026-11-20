@@ -93,6 +93,7 @@ pub(super) async fn build(
         Arc::new(evidence.clone()),
         store.clone(),
     ));
+    let experience = ExperienceSource::over(store.clone(), redactor.clone(), clock.clone());
     let (handle, task) = TriageService::spawn(
         TriageDeps {
             primary,
@@ -115,12 +116,15 @@ pub(super) async fn build(
             manager: manager.clone(),
             bus: bus.clone(),
             shutdown: shutdown.clone(),
-            experience: ExperienceSource::over(store.clone(), redactor.clone(), clock.clone()),
-            extra_context: vec![Arc::new(KnowledgeSource::new(
-                store.clone(),
-                redactor.clone(),
-                clock.clone(),
-            ))],
+            experience: experience.clone(),
+            extra_context: vec![
+                Arc::new(KnowledgeSource::new(
+                    store.clone(),
+                    redactor.clone(),
+                    clock.clone(),
+                )),
+                Arc::new(experience),
+            ],
         },
         settings::triage(config),
     );

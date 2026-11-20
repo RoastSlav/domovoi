@@ -557,6 +557,7 @@ async fn main() -> Result<()> {
         services,
         triage: None,
         operation_repo: store.clone(),
+        experience: store.clone(),
         agents,
         capabilities: registry,
         policy: store.clone(),

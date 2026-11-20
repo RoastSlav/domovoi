@@ -531,6 +531,7 @@ async fn build(
         services: services.clone(),
         triage,
         operation_repo: store.clone(),
+        experience: store.clone(),
         policy: store.clone(),
         agents,
         capabilities: Arc::new(test_registry(link.clone(), store.clone(), clock.clone()).await),
@@ -688,6 +689,18 @@ impl Api {
     pub fn with_store_health(&self, health: Arc<dyn StoreHealth>) -> Router {
         let mut deps: ApiDeps = (**self.state.deps()).clone();
         deps.store_health = health;
+        let state =
+            ApiState::new(deps, self.state.auth().clone()).with_shutdown(self.shutdown.clone());
+        router(state, None).layer(MockConnectInfo(peer()))
+    }
+
+    /// The app over the same state with `experience` answering the summary reads.
+    pub fn with_experience(
+        &self,
+        experience: Arc<dyn domovoi_core::ports::ExperienceRead>,
+    ) -> Router {
+        let mut deps: ApiDeps = (**self.state.deps()).clone();
+        deps.experience = experience;
         let state =
             ApiState::new(deps, self.state.auth().clone()).with_shutdown(self.shutdown.clone());
         router(state, None).layer(MockConnectInfo(peer()))

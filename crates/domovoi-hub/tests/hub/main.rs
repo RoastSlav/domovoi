@@ -38,6 +38,8 @@ mod enrollment;
 #[cfg(test)]
 mod evidence;
 #[cfg(test)]
+mod experience_api;
+#[cfg(test)]
 #[path = "../gates.rs"]
 mod gates;
 #[cfg(test)]

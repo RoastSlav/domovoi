@@ -9,6 +9,7 @@ use domovoi_core::{ExecutionRecord, Operation, OperationSnapshot, StepRecord};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
+use super::dto_experience::ResolutionBriefDto;
 use super::dto_trace::name;
 pub use super::dto_trace::{
     BudgetLimitsDto, BudgetUsedDto, BudgetsDto, OperationTraceDto, PauseReasonDto,
@@ -62,6 +63,8 @@ pub struct OperationSummaryDto {
     pub ended_at: Option<String>,
     /// When it last changed.
     pub updated_at: String,
+    /// How a finished operation ended; `null` until its summary exists.
+    pub resolution: Option<ResolutionBriefDto>,
 }
 
 impl OperationSummaryDto {
@@ -93,6 +96,7 @@ impl OperationSummaryDto {
             started_at: operation.started_at.map(|t| t.to_string()),
             ended_at: operation.ended_at.map(|t| t.to_string()),
             updated_at: operation.updated_at.to_string(),
+            resolution: None,
         }
     }
 }

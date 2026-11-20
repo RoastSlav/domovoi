@@ -41,7 +41,7 @@ pub use knowledge::{KNOWLEDGE_PASSWORD_REQUIRED, KnowledgeCommandError, Knowledg
 pub use operations::{
     ANSWER_MAX, BudgetExtension, CANCEL_REASON_MAX, DEFAULT_CANCEL_REASON, EXTEND_MAX_COUNT,
     EXTEND_MAX_ENTRIES, EXTEND_MAX_MEASURED, OperationCommandError, OperationCommands, StepRef,
-    risk_of_skill,
+    SummaryCommandError, risk_of_skill,
 };
 pub use policy::PolicyService;
 pub use policy_publish::PublishedVersion;
