@@ -325,3 +325,32 @@ async fn closing_panel_does_not_stop_operation() {
     .await;
     assert_ne!(started.assistant.failure, Some(MessageFailure::Cancelled));
 }
+
+#[tokio::test]
+async fn cancelling_one_conversation_does_not_stop_another_using_the_same_turn_id() {
+    let rig = Rig::new().await;
+    rig.model.hold();
+    let first = rig.global().await;
+    let second = rig.global().await;
+    let turn = TurnId::new();
+    rig.handle
+        .send(rig.send(first.id, turn, "one"))
+        .await
+        .unwrap();
+    rig.handle
+        .send(rig.send(second.id, turn, "two"))
+        .await
+        .unwrap();
+    within(async {
+        while rig.model.calls() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    let status = rig.handle.cancel(first.id, turn, person()).await.unwrap();
+    assert_eq!(status, MessageStatus::Cancelled);
+    rig.model.release();
+    rig.wait_assistant(second.id, turn, MessageStatus::Complete)
+        .await;
+}

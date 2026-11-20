@@ -44,7 +44,7 @@ pub(super) fn spawn(job: TurnJob) {
         registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .remove(&turn);
+            .remove(&(conversation, turn));
         if let Err(error) = finished
             && !error.is_cancelled()
         {

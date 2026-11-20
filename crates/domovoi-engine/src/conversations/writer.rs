@@ -25,7 +25,7 @@ use super::{
 };
 
 /// The running turns and the tokens that stop them.
-pub(super) type Registry = Arc<Mutex<HashMap<TurnId, CancellationToken>>>;
+pub(super) type Registry = Arc<Mutex<HashMap<(ConversationId, TurnId), CancellationToken>>>;
 
 /// How many commands may wait for the writer.
 const QUEUE: usize = 64;
@@ -297,7 +297,7 @@ impl Writer {
             })
             .await?;
         if stopped {
-            if let Some(token) = self.take_token(turn) {
+            if let Some(token) = self.take_token(conversation, turn) {
                 token.cancel();
             }
             self.deps.live.publish(
@@ -388,11 +388,11 @@ impl Writer {
         .await
     }
 
-    fn take_token(&self, turn: TurnId) -> Option<CancellationToken> {
+    fn take_token(&self, conversation: ConversationId, turn: TurnId) -> Option<CancellationToken> {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .get(&turn)
+            .get(&(conversation, turn))
             .cloned()
     }
 
@@ -410,7 +410,7 @@ impl Writer {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(started.assistant.turn, token.clone());
+            .insert((conversation, started.assistant.turn), token.clone());
         turn::spawn(TurnJob {
             deps: self.deps.clone(),
             tx,
