@@ -5,6 +5,7 @@
 //! refuses more than its queue holds as busy. Every request is cut off at its deadline,
 //! and tool output is redacted, then capped at [`MAX_TOOL_OUTPUT`].
 
+mod capability;
 mod catalog;
 mod overview;
 mod skills;
@@ -22,8 +23,8 @@ use domovoi_proto::Open;
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, ActionStatusQuery, CheckObservation,
     CheckResult, ErrorMessage, GetCatalog, Logs, OutcomeUnknownReason, RefusalCode, Refused,
-    RunCapability, RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult,
-    ToolFailure, ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
+    RunCheck, SkillFailure, SkillFailureCode, SkillOutcome, SkillResult, ToolFailure,
+    ToolFailureCode, ToolOutcome, ToolResult, ToolSuccess,
 };
 use domovoi_runner::SkillCatalog;
 use jiff::Timestamp;
@@ -100,6 +101,8 @@ pub struct RequestCtx {
     pub logs: Option<Arc<dyn LogSource>>,
     /// The durable action journal; `None` refuses journal-backed requests.
     pub journal: Option<Arc<crate::journal::Journal>>,
+    /// The package service; `None` without a `[packages]` section.
+    pub packages: Option<Arc<crate::packages::PackageService>>,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.
@@ -220,31 +223,10 @@ fn catalog_reply(ctx: &RequestCtx, query: &GetCatalog) -> Message {
             message: format!("the page {wanted} cannot be addressed at {width} entries per page"),
         });
     }
-    Message::CatalogPage(catalog::page(&catalog_entries(&ctx.catalog), query))
-}
-
-/// Capabilities have no execution backend or registry in this milestone, so a request is
-/// refused honestly rather than accepted and left without a result.
-fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
-    if ctx
-        .journal
-        .as_ref()
-        .is_some_and(|journal| journal.corruption().is_some())
-    {
-        return refused(
-            "journal_corrupt",
-            RefusalCode::JournalCorrupt,
-            "the action journal is corrupt; a local owner reset is required",
-        );
-    }
-    refused(
-        "contract_unknown",
-        RefusalCode::ContractUnknown,
-        format!(
-            "this agent has no capability registry, so {} is unknown",
-            run.contract
-        ),
-    )
+    Message::CatalogPage(catalog::page(
+        &catalog_entries(&ctx.catalog, ctx.package_surface()),
+        query,
+    ))
 }
 
 /// Why an `action_status` query is answered conservatively.
@@ -398,7 +380,7 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
                 .collect();
             chunk_logs(window, usize::from(get.offset))
         }
-        RequestKind::Capability(run) => run_capability(ctx, run),
+        RequestKind::Capability(run) => capability::run_capability(ctx, run).await,
         RequestKind::Catalog(get) => catalog_reply(ctx, get),
         RequestKind::ActionStatus(query) => action_status(ctx, query),
     }

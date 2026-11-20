@@ -14,6 +14,7 @@ pub mod frame;
 pub mod handshake;
 pub mod status;
 pub mod tls;
+pub mod transfers;
 pub mod ws;
 
 use std::path::{Path, PathBuf};
@@ -35,6 +36,7 @@ use self::handshake::{
     AgentStatusSource, Announce, HelloExtensions, STEP_TIMEOUT, handshake, heartbeat,
 };
 use self::status::LinkStatus;
+pub use self::transfers::{IncomingTransfer, TransferFrame};
 use self::ws::{Connected, Connector};
 use crate::error::LinkError;
 use crate::facts::host_facts;
@@ -144,6 +146,8 @@ pub struct LinkParts {
     pub jitter: Box<dyn FnMut() -> f64 + Send + Sync>,
     /// Where to write `link-status.json`; `None` keeps no status.
     pub status_dir: Option<PathBuf>,
+    /// Where `transfer_*` frames go; `None` answers them as not enabled.
+    pub transfers: Option<mpsc::Sender<IncomingTransfer>>,
 }
 
 /// The hub link task.
@@ -183,6 +187,7 @@ impl Link {
                 Ok(connected) => {
                     let started = clock.now();
                     let result = self.session(connected, &shutdown).await;
+                    self.end_transfers();
                     if clock.now().duration_since(started) >= STABLE_AFTER {
                         self.backoff.reset();
                     }
@@ -431,6 +436,15 @@ impl Link {
             Message::RunCheck(run) => RequestKind::Check(run),
             Message::GetLogs(get) => RequestKind::Logs(get),
             Message::RunCapability(run) => RequestKind::Capability(run),
+            Message::TransferBegin(m) => {
+                return self.transfer(transport, id, TransferFrame::Begin(m)).await;
+            }
+            Message::TransferChunk(m) => {
+                return self.transfer(transport, id, TransferFrame::Chunk(m)).await;
+            }
+            Message::TransferEnd(m) => {
+                return self.transfer(transport, id, TransferFrame::End(m)).await;
+            }
             Message::ActionStatus(query) => RequestKind::ActionStatus(query),
             Message::GetCatalog(get) => RequestKind::Catalog(get),
             Message::Unknown { kind } => {

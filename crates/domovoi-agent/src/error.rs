@@ -165,4 +165,7 @@ pub enum AgentError {
     /// The boot identity or monotonic time could not be read.
     #[error(transparent)]
     Boot(#[from] crate::boot::BootSnapshotError),
+    /// The package service could not start, for example because a trusted key is invalid.
+    #[error(transparent)]
+    Packages(#[from] crate::packages::PackageError),
 }

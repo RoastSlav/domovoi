@@ -26,6 +26,7 @@ pub mod journal;
 pub mod link;
 pub mod local;
 pub mod overrides;
+pub mod packages;
 pub mod production;
 pub mod relay;
 pub mod requests;

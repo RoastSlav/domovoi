@@ -108,6 +108,7 @@ impl Fixture {
             store: Arc::new(CheckStore::open(self.dir.path()).unwrap()),
             logs: None,
             journal: None,
+            packages: None,
         }
     }
 }
