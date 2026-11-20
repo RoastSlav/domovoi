@@ -13,6 +13,7 @@ pub mod audit_chain;
 pub mod baseline;
 pub mod capability;
 pub mod card;
+pub mod context;
 pub mod digest;
 pub mod error;
 pub mod fingerprint;
@@ -21,6 +22,7 @@ pub mod host;
 pub mod id;
 pub mod incident;
 pub mod interaction;
+pub mod meta;
 pub mod note;
 pub mod notify;
 pub mod operation;
@@ -69,6 +71,7 @@ pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,
 };
 pub use interaction::{Interaction, InteractionKind, InteractionReply};
+pub use meta::{MetaTool, ToolSet};
 pub use note::Note;
 pub use notify::{ChatRefs, HeldItem, NotifyState};
 pub use operation::{

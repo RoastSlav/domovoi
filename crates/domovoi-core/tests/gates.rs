@@ -295,3 +295,67 @@ fn approvals_and_actions_cannot_be_deserialized() {
     // The probe does detect a type that can be deserialized.
     assert!(deserializable!(domovoi_core::Severity));
 }
+
+#[test]
+fn model_meta_tools_are_closed() {
+    use domovoi_core::MetaTool;
+    use domovoi_core::meta::{MetaToolCall, ToolSet};
+
+    let names: Vec<&str> = MetaTool::ALL.iter().map(MetaTool::name).collect();
+    assert_eq!(
+        names,
+        [
+            "list_capabilities",
+            "describe_capability",
+            "request_evidence",
+            "propose_plan",
+            "ask_user",
+            "finish"
+        ],
+        "the meta-tool catalogue changed"
+    );
+    assert_eq!(MetaTool::ALL.len(), 6);
+    let forbidden = [
+        "approve",
+        "exec",
+        "write",
+        "delete",
+        "restart",
+        "run_skill",
+        "shell",
+        "command",
+        "authorize",
+        "permit",
+        "dispatch",
+    ];
+    for tool in MetaTool::ALL {
+        for word in forbidden {
+            assert!(
+                !tool.name().contains(word),
+                "{} contains {word}",
+                tool.name()
+            );
+        }
+        let schema = tool.json_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["additionalProperties"], false);
+    }
+    let read = ToolSet::Read.tools();
+    for tool in [MetaTool::ProposePlan, MetaTool::AskUser, MetaTool::Finish] {
+        assert!(!read.contains(&tool));
+    }
+    assert!(read.iter().all(|tool| MetaTool::ALL.contains(tool)));
+
+    // Adding a variant breaks this exhaustive match, which forces a visible review of the gate.
+    fn variants(call: &MetaToolCall) -> usize {
+        match call {
+            MetaToolCall::ListCapabilities { .. } => 1,
+            MetaToolCall::DescribeCapability { .. } => 2,
+            MetaToolCall::RequestEvidence(_) => 3,
+            MetaToolCall::ProposePlan(_) => 4,
+            MetaToolCall::AskUser { .. } => 5,
+            MetaToolCall::Finish(_) => 6,
+        }
+    }
+    let _ = variants;
+}

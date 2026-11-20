@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use jiff::SignedDuration;
 use serde_json::Value;
 
+use crate::meta::MetaTool;
 use crate::triage::ReadTool;
 
 /// A tool the model may call, described for the provider.
@@ -19,6 +20,16 @@ pub struct ToolSpec {
 
 impl From<ReadTool> for ToolSpec {
     fn from(tool: ReadTool) -> Self {
+        Self {
+            name: tool.name().to_owned(),
+            description: tool.description().to_owned(),
+            input_schema: tool.json_schema(),
+        }
+    }
+}
+
+impl From<MetaTool> for ToolSpec {
+    fn from(tool: MetaTool) -> Self {
         Self {
             name: tool.name().to_owned(),
             description: tool.description().to_owned(),
