@@ -22,9 +22,11 @@ The incident manager persists signals and changes before publishing domain event
 
 Chat delivery plans each change from the notification policy and persisted per-incident state. It creates a card and thread when needed, then updates the same message on later changes. Approvals in chat or the web UI go through the action service. Only an approved action is sent to its owning agent.
 
-## Chat
+## Operator
 
-The Chat page answers general questions about the operator's servers. It is about the host chosen in the host selector at the top of every page, and its header says which. An empty conversation offers a few questions to start from, and **Stop** cancels a question that is taking too long. With a connected host chosen, the model may use that host's read-only tools and read skills; with "All hosts" or an offline host, it answers from a summary of every host and its open incidents, and calls no tools. A chat about one host also gets that host's profile in its context. The page keeps a separate conversation per host in the browser tab and can clear it. Everything sent is redacted and size-bounded, the monthly model budget applies, and the model never proposes or runs an action.
+The Operator answers general questions about the operator's servers. Its conversations are durable: they are stored on the hub, survive a restart, and can be picked up from any browser. Each conversation has an explicit scope, all hosts or one host, chosen when it is created. The scope never follows the host selector at the top of the page. Answers stream in live while they are written. **Stop** cancels an answer that is still being written, and **Retry** asks the last question again after its answer failed or was stopped.
+
+The Operator is read-only. It cannot propose, approve or run an action. Everything sent is redacted and size-bounded, and the monthly model budget applies. Conversations are kept for 180 days by default. If the hub restarts while an answer is being written, that answer becomes "not answered"; it is not resumed on its own. See [Operator](operator.md) for the details.
 
 ## Restart and missed events
 

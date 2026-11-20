@@ -35,6 +35,8 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `baselines` | What each host is expected to run: containers, units and listening ports, with criticality and when they were last seen. |
 | `notes` | Runbook notes in Markdown, global or for one host, with tags. |
 | `notes_fts` | Full-text index of note titles, bodies and tags, kept in step by triggers. |
+| `conversations` | Operator conversations: id, title (the first question), scope (`global` or one host), the attached operation, the last message ordinal and the times. Kept after its messages are purged. |
+| `messages` | The messages of an Operator conversation, in order: role, status (`pending`, `complete`, `failed` or `cancelled`), turn, text, failure, the read tools used, and the times. Each conversation has at most one pending answer. Message text lives only here, so retention can delete it. |
 | `triage_cache` | Triage reports keyed by incident fingerprint and a digest of the evidence, so the same evidence is not triaged twice. |
 | `llm_usage` | Tokens and cost per LLM call, for the monthly budget. |
 | `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). Formerly `digest_facts`. |
@@ -86,7 +88,7 @@ Every period is a setting in `[retention]`; the [Retention guide](../guide/reten
 | --- | --- | --- |
 | Signals | `signals_days` | 30 days |
 | Incident timeline entries other than follow-up conversations | `incident_timeline_days` | 90 days |
-| Follow-up questions and answers | `conversations_days` | 180 days |
+| Follow-up questions and answers, and Operator conversation messages | `conversations_days` | 180 days |
 | Notification state of resolved incidents | `notifications_days` | 30 days |
 | Cached triage reports | `triage_cache_days` | 90 days |
 | Resolved advisories | `resolved_advisories_days` | 30 days after resolving |
