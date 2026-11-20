@@ -8,6 +8,7 @@ use tar::EntryType;
 
 use super::support::{SteppingClock, audit_with, code_of, name, start};
 use crate::packages::archive::{audit, audit_file};
+use domovoi_core::ports::Clock as _;
 
 fn fixture() -> PackageFixture {
     PackageFixture::new("pkg-a", "1.0.0").unwrap()
@@ -237,4 +238,45 @@ fn audit_file_refuses_a_file_over_the_compressed_cap() {
         &built.archive_sha256,
     );
     assert_eq!(code_of(result), Code::TooLarge);
+}
+
+#[test]
+fn excess_padding_after_the_end_marker_is_refused_below_the_global_cap() {
+    let built = fixture().trailing(&vec![0_u8; 1024 * 1024]).build();
+    expect(&built, &limits(), Code::LimitUncompressed);
+}
+
+#[test]
+fn ordinary_record_padding_after_the_end_marker_is_accepted() {
+    let built = fixture().trailing(&vec![0_u8; 8 * 1024]).build();
+    audit_with(&built, &limits()).unwrap();
+}
+
+#[test]
+fn deadline_is_enforced_while_reading_the_trailing_padding() {
+    let plain = fixture().build();
+    let padded = fixture().trailing(&vec![0_u8; 12 * 1024]).build();
+    let clock = SteppingClock::new(SignedDuration::from_secs(1));
+    audit(
+        plain.archive.as_slice(),
+        &name(),
+        &limits(),
+        &clock,
+        &plain.archive_sha256,
+    )
+    .unwrap();
+    // The clock now reads one second past the last check of the plain archive.
+    let seconds = clock.now().duration_since(start()).as_secs();
+    let limits = lowered(|l| {
+        l.extraction_time = domovoi_config::Duration::from_secs(seconds).unwrap();
+    });
+    let clock = SteppingClock::new(SignedDuration::from_secs(1));
+    let result = audit(
+        padded.archive.as_slice(),
+        &name(),
+        &limits,
+        &clock,
+        &padded.archive_sha256,
+    );
+    assert_eq!(code_of(result), Code::LimitTime);
 }

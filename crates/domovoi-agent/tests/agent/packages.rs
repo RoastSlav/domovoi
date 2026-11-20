@@ -1,8 +1,10 @@
 //! Package transfers over the link: the receiver's answers and the heartbeat while bytes flow.
 
+use std::sync::Arc;
+
 use domovoi_agent::link::IncomingTransfer;
 use domovoi_agent::link::frame;
-use domovoi_agent::packages::{Staging, TransferReceiver};
+use domovoi_agent::packages::{Staging, TracingEvents, TransferReceiver};
 use domovoi_core::RequestId;
 use domovoi_core::ports::Clock as _;
 use domovoi_proto::messages::{
@@ -80,7 +82,13 @@ async fn heartbeat_is_answered_while_chunks_flow() {
     let identity = identity(&hub);
     let clock = clock();
     let staging = Staging::open(dir.path(), clock.clone()).unwrap();
-    let receiver = TransferReceiver::new(staging, true, 1024 * 1024, clock.clone());
+    let receiver = TransferReceiver::new(
+        staging,
+        true,
+        1024 * 1024,
+        clock.clone(),
+        Arc::new(TracingEvents),
+    );
     let (frames, incoming) = mpsc::channel::<IncomingTransfer>(64);
     let link = start_link_transfers(&hub, &identity, &clock, &dir, frames);
     let served = tokio::spawn(receiver.serve(incoming, link.handle.clone(), link.shutdown.clone()));

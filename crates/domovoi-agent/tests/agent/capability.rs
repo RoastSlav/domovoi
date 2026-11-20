@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use domovoi_agent::link::RequestKind;
 use domovoi_agent::link::frame;
-use domovoi_agent::packages::{PackageSurface, TransferReceiver};
+use domovoi_agent::packages::{PackageSurface, TracingEvents, TransferReceiver};
 use domovoi_agent::requests::{catalog_entries, handle, serve};
 use domovoi_config::MutationLimits;
 use domovoi_core::capability::catalog_hash;
@@ -70,7 +70,13 @@ async fn package_install_end_to_end_over_the_link() {
     let clock = clock();
     let dir = tempfile::tempdir().unwrap();
     let staging = rig.service.as_ref().unwrap().staging().unwrap();
-    let receiver = TransferReceiver::new(staging, true, 20 * 1024 * 1024, clock.clone());
+    let receiver = TransferReceiver::new(
+        staging,
+        true,
+        20 * 1024 * 1024,
+        clock.clone(),
+        Arc::new(TracingEvents),
+    );
     let (frames, incoming) = mpsc::channel(64);
     let link = start_link_transfers(&hub, &identity, &clock, &dir, frames);
     let receiving =

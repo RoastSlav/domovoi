@@ -19,13 +19,13 @@ pub(super) fn start() -> Timestamp {
 
 /// A clock that moves forward `step` every time it is read.
 #[derive(Debug)]
-pub(super) struct SteppingClock {
+pub(crate) struct SteppingClock {
     now: Mutex<Timestamp>,
     step: SignedDuration,
 }
 
 impl SteppingClock {
-    pub(super) fn new(step: SignedDuration) -> Self {
+    pub(crate) fn new(step: SignedDuration) -> Self {
         Self {
             now: Mutex::new(start()),
             step,

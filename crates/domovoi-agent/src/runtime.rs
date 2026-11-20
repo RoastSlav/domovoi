@@ -279,6 +279,7 @@ impl AgentRuntime {
                         allow_install,
                         compressed_bytes,
                         self.deps.clock.clone(),
+                        service.events(),
                     );
                     (Some(tx), Some((receiver, rx)))
                 }

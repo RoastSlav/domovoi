@@ -116,6 +116,8 @@ Rules:
 
 - A chunk is at most 64 KiB. Chunk `seq` numbers start at 0 and have no gaps.
 - Each transfer gets exactly one `transfer_result`, sent as the reply to its `transfer_end`.
+- Use a fresh transfer UUID for every attempt. A `transfer_begin` for an id that is still arriving is ignored and the first transfer carries on, because `transfer_end` carries only the id.
+- The agent keeps at most 8 records of arriving or failed transfers. A failed transfer past that bound is not remembered, and its `transfer_end` is answered as `aborted` ("unknown transfer").
 - At most 2 transfers are active and 8 are staged. An active transfer is dropped after 60 s without a chunk, or 10 minutes in total. A staged transfer that is not used is dropped after 15 minutes.
 
 The agent advertises these capabilities when `[packages]` is set in its config. A refused call returns a failed capability result with code `refused`, and the message is `<reason_code>: <detail>`. Reason codes include `untrusted_key`, `revoked_key`, `bad_signature`, `digest_mismatch`, `identity_mismatch`, `archive_invalid`, `path_escape`, `link_entry`, `version_conflict`, `no_space`, `packages_dir_unsafe` and `store_corrupt`.

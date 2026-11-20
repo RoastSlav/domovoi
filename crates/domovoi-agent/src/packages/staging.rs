@@ -27,6 +27,8 @@ struct Staged {
     kind: TransferKind,
     size: u64,
     stored_at: Timestamp,
+    /// Taken by an install: exempt from the unused-transfer TTL until it is deleted.
+    claimed: bool,
 }
 
 /// A transfer taken for use by an install. The file stays until [`Staging::delete_claimed`].
@@ -103,6 +105,7 @@ impl Staging {
                 kind,
                 size,
                 stored_at,
+                claimed: false,
             },
         );
     }
@@ -127,22 +130,33 @@ impl Staging {
         self.table().contains_key(&id)
     }
 
-    /// Takes stored transfer `id` of `kind` for use.
+    /// Takes stored transfer `id` of `kind` for use. The check and the hand-over happen under
+    /// one lock, so the expiry sweep can never delete a transfer an install is reading: a
+    /// claimed transfer is exempt from the TTL until [`Staging::delete_claimed`].
     ///
     /// # Errors
-    /// `transfer_unknown` when it is not stored, `transfer_expired` when it waited longer than
-    /// the TTL (it is deleted), `transfer_kind_mismatch` when it holds the other kind.
+    /// `transfer_unknown` when it is not stored or is already claimed, `transfer_expired` when
+    /// it waited longer than the TTL (it is deleted), `transfer_kind_mismatch` when it holds
+    /// the other kind.
     pub fn claim(&self, id: Uuid, kind: TransferKind) -> Result<ClaimedTransfer, PackageError> {
         let now = self.clock.now();
-        let found = self.table().get(&id).copied();
-        let Some(staged) = found else {
+        let mut table = self.table();
+        let Some(staged) = table.get_mut(&id) else {
             return Err(PackageError::new(
                 PackageFailureCode::TransferUnknown,
                 format!("transfer {id} is not stored on this agent"),
             ));
         };
-        if expired(&staged, now) {
-            self.forget(id);
+        if staged.claimed {
+            return Err(PackageError::new(
+                PackageFailureCode::TransferUnknown,
+                format!("transfer {id} is already in use"),
+            ));
+        }
+        if expired(staged, now) {
+            table.remove(&id);
+            drop(table);
+            let _ = std::fs::remove_file(self.bin_path(id));
             return Err(PackageError::new(
                 PackageFailureCode::TransferExpired,
                 format!("transfer {id} waited too long and was deleted"),
@@ -154,6 +168,7 @@ impl Staging {
                 format!("transfer {id} holds a different kind of data"),
             ));
         }
+        staged.claimed = true;
         Ok(ClaimedTransfer {
             path: self.bin_path(id),
             id,
@@ -171,7 +186,7 @@ impl Staging {
         let _ = std::fs::remove_file(self.bin_path(id));
     }
 
-    /// Deletes every stored transfer unused for longer than the TTL; returns their ids.
+    /// Deletes every unclaimed stored transfer unused for longer than the TTL; returns their ids.
     pub fn expire_staged(&self, now: Timestamp) -> Vec<Uuid> {
         let old: Vec<Uuid> = self
             .table()
@@ -212,5 +227,5 @@ impl Staging {
 }
 
 fn expired(staged: &Staged, now: Timestamp) -> bool {
-    now.duration_since(staged.stored_at) >= STAGED_TTL
+    !staged.claimed && now.duration_since(staged.stored_at) >= STAGED_TTL
 }

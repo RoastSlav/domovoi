@@ -187,7 +187,7 @@ impl Link {
                 Ok(connected) => {
                     let started = clock.now();
                     let result = self.session(connected, &shutdown).await;
-                    self.end_transfers();
+                    self.end_transfers().await;
                     if clock.now().duration_since(started) >= STABLE_AFTER {
                         self.backoff.reset();
                     }

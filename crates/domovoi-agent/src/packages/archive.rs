@@ -6,7 +6,7 @@
 //! audit accepted is exactly what extraction will accept.
 //!
 //! The decode pipeline is `file -> BufReader -> HashingReader -> zstd decoder ->
-//! LimitedReader -> tar`. The decoder refuses any frame whose window exceeds 128 MiB
+//! DeadlineReader -> LimitedReader -> tar`. The decoder refuses any frame whose window exceeds 128 MiB
 //! (set explicitly on the decoder), the limited reader stops a decompression bomb at a known
 //! cap, and the hash covers every byte of the file including anything after the frame.
 //! Entries are never unpacked by the `tar` crate: the visitor receives the bytes and writes
@@ -32,6 +32,10 @@ use super::error::PackageError;
 const TAR_OVERHEAD_PER_ENTRY: u64 = 1536;
 /// Slack for the end-of-archive blocks.
 const TAR_END_SLACK: u64 = 4096;
+/// Most zero padding accepted after the tar end marker. Writers pad to a 10 KiB record, so
+/// this leaves room for the usual padding and nothing more: the global cap alone would let a
+/// tiny archive spend almost the whole uncompressed budget on padding.
+const TRAILING_PAD_MAX: u64 = 16 * 1024;
 /// Largest zstd window the decoder accepts, in bytes.
 const MAX_WINDOW_BYTES: u64 = 128 * 1024 * 1024;
 /// Largest read from an entry between two clock checks.
@@ -123,6 +127,23 @@ impl<R: Read> Read for LimitedReader<'_, R> {
         }
         self.remaining -= read_len;
         Ok(read)
+    }
+}
+
+/// Checks the deadline before every read of the decoded stream, so tar headers, extension
+/// records, entry content and the padding after the end marker are all under the same clock.
+struct DeadlineReader<'a, R> {
+    inner: R,
+    deadline: &'a Deadline<'a>,
+    trip: &'a Trip,
+}
+
+impl<R: Read> Read for DeadlineReader<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Err(error) = self.deadline.check() {
+            return Err(tripped(self.trip, error));
+        }
+        self.inner.read(buf)
     }
 }
 
@@ -230,8 +251,13 @@ fn decode_and_visit<R: Read>(
         .uncompressed_bytes
         .saturating_add(u64::from(limits.entries).saturating_mul(TAR_OVERHEAD_PER_ENTRY))
         .saturating_add(TAR_END_SLACK);
-    let limited = LimitedReader {
+    let timed = DeadlineReader {
         inner: decoder,
+        deadline,
+        trip,
+    };
+    let limited = LimitedReader {
+        inner: timed,
         remaining: cap,
         trip,
     };
@@ -239,6 +265,7 @@ fn decode_and_visit<R: Read>(
     let summary = visit_entries(&mut archive, name, limits, deadline, trip, visit)?;
     let mut tail = archive.into_inner();
     let mut block = [0_u8; 8192];
+    let mut padding = 0_u64;
     loop {
         let read = tail
             .read(&mut block)
@@ -246,6 +273,13 @@ fn decode_and_visit<R: Read>(
         let Some(bytes) = block.get(..read).filter(|bytes| !bytes.is_empty()) else {
             break;
         };
+        padding = padding.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        if padding > TRAILING_PAD_MAX {
+            return Err(fail(
+                PackageFailureCode::LimitUncompressed,
+                "the archive carries too much padding after its end marker",
+            ));
+        }
         if bytes.iter().any(|byte| *byte != 0) {
             return Err(fail(
                 PackageFailureCode::ArchiveInvalid,
@@ -257,7 +291,7 @@ fn decode_and_visit<R: Read>(
 }
 
 fn visit_entries<D: Read>(
-    archive: &mut tar::Archive<LimitedReader<'_, D>>,
+    archive: &mut tar::Archive<LimitedReader<'_, DeadlineReader<'_, D>>>,
     name: &PackageName,
     limits: &PackageLimits,
     deadline: &Deadline<'_>,
@@ -400,4 +434,38 @@ pub fn audit_file(
         ));
     }
     audit(file, name, limits, clock, expected)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+    use std::io::Read as _;
+
+    use domovoi_config::PackageLimits;
+    use domovoi_core::package::PackageFailureCode;
+    use jiff::SignedDuration;
+
+    use super::{Deadline, DeadlineReader, Trip};
+    use crate::packages::tests::SteppingClock;
+
+    #[test]
+    fn every_decoded_read_is_under_the_deadline() {
+        let clock = SteppingClock::new(SignedDuration::from_secs(1));
+        let limits = PackageLimits {
+            extraction_time: domovoi_config::Duration::from_secs(2).unwrap(),
+            ..PackageLimits::default()
+        };
+        let deadline = Deadline::new(&clock, &limits).unwrap();
+        let trip: Trip = RefCell::new(None);
+        let mut reader = DeadlineReader {
+            inner: std::io::repeat(0).take(1 << 20),
+            deadline: &deadline,
+            trip: &trip,
+        };
+        let mut buf = [0_u8; 512];
+        assert!(reader.read(&mut buf).is_ok());
+        assert!(reader.read(&mut buf).is_err());
+        let error = trip.borrow_mut().take().unwrap();
+        assert_eq!(error.code(), PackageFailureCode::LimitTime);
+    }
 }

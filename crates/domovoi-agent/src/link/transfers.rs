@@ -10,6 +10,7 @@ use domovoi_proto::messages::{
     TransferBegin, TransferChunk, TransferEnd, TransferFailureCode, TransferOutcome, TransferResult,
 };
 use domovoi_proto::{Message, Open, Transport};
+use tokio::sync::mpsc;
 
 use super::{Link, frame};
 use crate::error::LinkError;
@@ -64,12 +65,22 @@ impl Link {
     }
 
     /// Tells the receiver the session ended so it drops transfers still arriving.
-    pub(super) fn end_transfers(&self) {
+    pub(super) async fn end_transfers(&self) {
         if let Some(receiver) = &self.parts.transfers {
-            let _ = receiver.try_send(IncomingTransfer {
-                id: RequestId::new(),
-                frame: TransferFrame::Reset,
-            });
+            send_reset(receiver).await;
         }
+    }
+}
+
+/// Queues a `Reset` behind any frames already waiting. The send waits for room instead of
+/// dropping the reset: a lost reset would leave a half-received transfer holding one of the
+/// receiver's slots across the reconnect.
+pub(crate) async fn send_reset(receiver: &mpsc::Sender<IncomingTransfer>) {
+    let reset = IncomingTransfer {
+        id: RequestId::new(),
+        frame: TransferFrame::Reset,
+    };
+    if receiver.send(reset).await.is_err() {
+        tracing::debug!("the transfer receiver stopped before the session reset");
     }
 }

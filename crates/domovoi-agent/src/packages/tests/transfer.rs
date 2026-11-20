@@ -19,7 +19,9 @@ use super::support::start;
 use crate::link::LinkHandle;
 use crate::link::transfers::{IncomingTransfer, TransferFrame};
 use crate::packages::TransferReceiver;
+use crate::packages::events::{EventKind, RecordingEvents};
 use crate::packages::staging::Staging;
+use crate::packages::transfer::MAX_RECORDS;
 
 const CAP: u64 = 10_000;
 
@@ -28,18 +30,21 @@ struct Rig {
     clock: Arc<FakeClock>,
     store: Arc<Staging>,
     receiver: TransferReceiver,
+    events: Arc<RecordingEvents>,
 }
 
 fn rig_with(allow: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let clock = Arc::new(FakeClock::new(start()));
     let store = Staging::open(dir.path(), clock.clone()).unwrap();
-    let receiver = TransferReceiver::new(store.clone(), allow, CAP, clock.clone());
+    let events = Arc::new(RecordingEvents::default());
+    let receiver = TransferReceiver::new(store.clone(), allow, CAP, clock.clone(), events.clone());
     Rig {
         _dir: dir,
         clock,
         store,
         receiver,
+        events,
     }
 }
 
@@ -226,7 +231,9 @@ fn transfer_rejects_duplicate_id() {
 }
 
 #[test]
-fn duplicate_begin_for_an_active_transfer_leaves_it_untouched() {
+fn duplicate_begin_for_an_active_id_is_ignored_and_the_first_carries_on() {
+    // `transfer_end` carries only the id, so a second begin for an id still arriving cannot
+    // be told apart from the first: it is ignored. Hubs use a fresh UUID for every attempt.
     let mut rig = rig();
     let id = Uuid::now_v7();
     rig.receiver.begin(&begin(id, artifact(), b"abcdefgh"));
@@ -398,4 +405,123 @@ fn part_files_are_private() {
     rig.receiver.end(&end(id));
     let stored = std::fs::metadata(rig.store.bin_path(id)).unwrap();
     assert_eq!(stored.permissions().mode() & 0o777, 0o600);
+}
+
+#[test]
+fn rejected_begins_without_an_end_keep_bounded_state() {
+    let mut rig = rig();
+    let ids: Vec<Uuid> = (0..(MAX_RECORDS * 4)).map(|_| Uuid::now_v7()).collect();
+    for id in &ids {
+        // Zero size: refused at once, and the hub never sends the end.
+        rig.receiver.begin(&begin(*id, artifact(), b""));
+    }
+    assert_eq!(rig.receiver.record_count(), MAX_RECORDS);
+    // A later end for a record that was not kept is still answered exactly once.
+    let dropped = rig.receiver.end(&end(ids[MAX_RECORDS * 4 - 1]));
+    assert_eq!(failed_code(&dropped), TransferFailureCode::Aborted);
+    // A kept record answers with its own failure.
+    let kept = rig.receiver.end(&end(ids[0]));
+    assert_eq!(failed_code(&kept), TransferFailureCode::TooLarge);
+    // Every refusal was audited, kept or not.
+    assert_eq!(rig.events.events().len(), MAX_RECORDS * 4);
+}
+
+#[test]
+fn expiry_frees_retained_failed_records() {
+    let mut rig = rig();
+    for _ in 0..MAX_RECORDS {
+        rig.receiver.begin(&begin(Uuid::now_v7(), artifact(), b""));
+    }
+    assert_eq!(rig.receiver.record_count(), MAX_RECORDS);
+    rig.clock.advance(SignedDuration::from_secs(61));
+    rig.receiver.expire(rig.clock.now());
+    assert_eq!(rig.receiver.record_count(), 0);
+}
+
+#[test]
+fn a_valid_begin_displaces_a_failed_record_when_full() {
+    let mut rig = rig();
+    for _ in 0..MAX_RECORDS {
+        rig.receiver.begin(&begin(Uuid::now_v7(), artifact(), b""));
+    }
+    let id = Uuid::now_v7();
+    let stored = send(&mut rig, id, artifact(), b"abcd");
+    assert_eq!(stored.outcome, TransferOutcome::Stored);
+    assert!(rig.receiver.record_count() <= MAX_RECORDS);
+}
+
+#[test]
+fn each_failed_transfer_is_audited_exactly_once() {
+    let mut rig = rig();
+    // Checksum mismatch.
+    let bad = Uuid::now_v7();
+    rig.receiver.begin(&begin(bad, artifact(), b"abcd"));
+    rig.receiver.chunk(&chunk(bad, 0, b"abXd"));
+    rig.receiver.end(&end(bad));
+    // Oversize announcement, then its end.
+    let big = Uuid::now_v7();
+    rig.receiver.begin(&begin(
+        big,
+        artifact(),
+        &vec![0_u8; usize::try_from(CAP).unwrap() + 1],
+    ));
+    rig.receiver.end(&end(big));
+    // A chunk failure, then its end.
+    let order = Uuid::now_v7();
+    rig.receiver.begin(&begin(order, artifact(), b"abcdefgh"));
+    rig.receiver.chunk(&chunk(order, 1, b"abcd"));
+    rig.receiver.chunk(&chunk(order, 2, b"abcd"));
+    rig.receiver.end(&end(order));
+    // Expiry of an idle arriving transfer.
+    let idle = Uuid::now_v7();
+    rig.receiver.begin(&begin(idle, artifact(), b"abcdefgh"));
+    rig.clock.advance(SignedDuration::from_secs(61));
+    rig.receiver.expire(rig.clock.now());
+    rig.receiver.expire(rig.clock.now());
+    let events = rig.events.events();
+    assert_eq!(events.len(), 4);
+    assert!(events.iter().all(|e| e.kind == EventKind::TransferRejected));
+    let codes: Vec<&str> = events
+        .iter()
+        .map(|e| e.code.map_or("", |c| c.as_str()))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            "digest_mismatch",
+            "too_large",
+            "transfer_unknown",
+            "transfer_unknown"
+        ]
+    );
+}
+
+#[test]
+fn refusal_when_install_is_off_is_audited_as_packages_disabled() {
+    let mut rig = rig_with(false);
+    let id = Uuid::now_v7();
+    rig.receiver.begin(&begin(id, artifact(), b"abcd"));
+    let events = rig.events.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].code.map(|c| c.as_str()),
+        Some("packages_disabled")
+    );
+}
+
+#[tokio::test]
+async fn session_reset_is_not_lost_when_the_channel_is_full() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<IncomingTransfer>(1);
+    tx.send(IncomingTransfer {
+        id: domovoi_core::RequestId::new(),
+        frame: TransferFrame::Chunk(chunk(Uuid::now_v7(), 0, b"x")),
+    })
+    .await
+    .unwrap();
+    let sending = tokio::spawn(async move { crate::link::transfers::send_reset(&tx).await });
+    let first = rx.recv().await.unwrap();
+    assert!(matches!(first.frame, TransferFrame::Chunk(_)));
+    let second = rx.recv().await.unwrap();
+    assert!(matches!(second.frame, TransferFrame::Reset));
+    sending.await.unwrap();
 }

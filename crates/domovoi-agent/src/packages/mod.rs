@@ -242,6 +242,12 @@ impl PackageService {
         self.staging.clone()
     }
 
+    /// Where this service sends audit events; the transfer receiver reports to the same sink.
+    #[must_use]
+    pub fn events(&self) -> Arc<dyn EventSink> {
+        self.deps.events.clone()
+    }
+
     /// The configured limits.
     #[must_use]
     pub fn limits(&self) -> &PackageLimits {

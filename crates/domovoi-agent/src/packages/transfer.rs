@@ -11,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::sync::Arc;
 
-use domovoi_core::package::MAX_SIGNATURE_FILE_BYTES;
+use domovoi_core::package::{MAX_SIGNATURE_FILE_BYTES, PackageFailureCode};
 use domovoi_core::ports::Clock;
 use domovoi_proto::messages::{
     TransferBegin, TransferChunk, TransferEnd, TransferFailureCode, TransferKind, TransferOutcome,
@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use super::events::{EventKind, EventSink, PackageEvent};
 use super::staging::Staging;
 use crate::link::LinkHandle;
 use crate::link::transfers::{IncomingTransfer, TransferFrame};
@@ -32,6 +33,9 @@ use crate::link::transfers::{IncomingTransfer, TransferFrame};
 pub const MAX_ACTIVE: usize = 2;
 /// Transfers that may be stored at once.
 pub const MAX_STAGED: usize = 8;
+/// Records kept at once, arriving or failed and waiting for their `transfer_end`. A failed
+/// record past this bound is not kept: its `transfer_end` is answered as an unknown transfer.
+pub const MAX_RECORDS: usize = 8;
 /// An arriving transfer that sends nothing for this long is dropped.
 pub const IDLE_LIMIT: SignedDuration = SignedDuration::from_secs(60);
 /// An arriving transfer older than this is dropped.
@@ -60,30 +64,49 @@ struct Active {
     state: State,
 }
 
+const DISABLED: &str = "package installation is not allowed on this agent";
+const UNKNOWN_KIND: &str = "unknown transfer kind";
+
+/// The audit code for a transfer failure.
+fn audit_code(code: TransferFailureCode, detail: &str) -> PackageFailureCode {
+    match (code, detail) {
+        (TransferFailureCode::Aborted, DISABLED) => PackageFailureCode::PackagesDisabled,
+        (TransferFailureCode::Aborted, UNKNOWN_KIND) => PackageFailureCode::TransferKindMismatch,
+        (TransferFailureCode::Aborted, _) => PackageFailureCode::TransferUnknown,
+        (TransferFailureCode::ChecksumMismatch, _) => PackageFailureCode::DigestMismatch,
+        (TransferFailureCode::TooLarge, _) => PackageFailureCode::TooLarge,
+        (TransferFailureCode::Storage, _) => PackageFailureCode::Storage,
+    }
+}
+
 /// Stores the bytes the hub sends and answers each transfer once.
 pub struct TransferReceiver {
     store: Arc<Staging>,
     allow_install: bool,
     compressed_bytes: u64,
     clock: Arc<dyn Clock>,
+    events: Arc<dyn EventSink>,
     active: HashMap<Uuid, Active>,
 }
 
 impl TransferReceiver {
     /// A receiver storing into `store`. With `allow_install` false every transfer fails
-    /// at its end; `compressed_bytes` caps a package artifact.
+    /// at its end; `compressed_bytes` caps a package artifact. Every failed transfer is
+    /// reported once to `events`.
     #[must_use]
     pub fn new(
         store: Arc<Staging>,
         allow_install: bool,
         compressed_bytes: u64,
         clock: Arc<dyn Clock>,
+        events: Arc<dyn EventSink>,
     ) -> Self {
         Self {
             store,
             allow_install,
             compressed_bytes,
             clock,
+            events,
             active: HashMap::new(),
         }
     }
@@ -100,6 +123,33 @@ impl TransferReceiver {
             .saturating_add(MAX_SIGNATURE_FILE_BYTES as u64)
     }
 
+    /// Reports one failed transfer to the audit sink.
+    fn rejected(&self, id: Uuid, code: TransferFailureCode, detail: &str) {
+        self.events.emit(
+            PackageEvent::new(EventKind::TransferRejected)
+                .code(audit_code(code, detail))
+                .detail(format!("transfer {id}: {detail}")),
+        );
+    }
+
+    /// Makes room for a record that must be kept by dropping the oldest failed ones.
+    fn make_room(&mut self) {
+        while self.active.len() >= MAX_RECORDS {
+            let oldest = self
+                .active
+                .iter()
+                .filter(|(_, active)| matches!(active.state, State::Failed(..)))
+                .min_by_key(|(_, active)| active.started)
+                .map(|(id, _)| *id);
+            match oldest {
+                Some(id) => {
+                    self.active.remove(&id);
+                }
+                None => break,
+            }
+        }
+    }
+
     fn receiving(&self) -> impl Iterator<Item = &Active> {
         self.active
             .values()
@@ -111,7 +161,7 @@ impl TransferReceiver {
         let id = begin.transfer_id;
         let now = self.clock.now();
         if self.active.contains_key(&id) {
-            tracing::warn!(%id, "a transfer id was announced twice; the first is untouched");
+            tracing::warn!(%id, "a transfer id was announced twice; the first carries on");
             return;
         }
         let kind = match begin.kind.known() {
@@ -130,7 +180,14 @@ impl TransferReceiver {
         };
         let refusal = self.refusal(begin, kind, id);
         let active = match (refusal, kind) {
-            (Some((code, detail)), _) => fail(code, detail),
+            (Some((code, detail)), _) => {
+                self.rejected(id, code, detail);
+                if self.active.len() >= MAX_RECORDS {
+                    // No room to remember it: its `transfer_end` is answered as unknown.
+                    return;
+                }
+                fail(code, detail)
+            }
             (None, Some(kind)) => match self.open_part(id) {
                 Ok(file) => Active {
                     kind,
@@ -147,11 +204,16 @@ impl TransferReceiver {
                 },
                 Err(err) => {
                     tracing::warn!(%err, "could not create a transfer file");
-                    fail(TransferFailureCode::Storage, "could not store the transfer")
+                    let detail = "could not store the transfer";
+                    self.rejected(id, TransferFailureCode::Storage, detail);
+                    fail(TransferFailureCode::Storage, detail)
                 }
             },
-            (None, None) => fail(TransferFailureCode::Aborted, "unknown transfer kind"),
+            (None, None) => fail(TransferFailureCode::Aborted, UNKNOWN_KIND),
         };
+        if matches!(active.state, State::Receiving { .. }) {
+            self.make_room();
+        }
         self.active.insert(id, active);
     }
 
@@ -164,10 +226,10 @@ impl TransferReceiver {
     ) -> Option<(TransferFailureCode, &'static str)> {
         let aborted = TransferFailureCode::Aborted;
         if !self.allow_install {
-            return Some((aborted, "package installation is not allowed on this agent"));
+            return Some((aborted, DISABLED));
         }
         let cap = match kind {
-            None => return Some((aborted, "unknown transfer kind")),
+            None => return Some((aborted, UNKNOWN_KIND)),
             Some(TransferKind::PackageArtifact) => self.compressed_bytes,
             Some(TransferKind::PackageManifest) => MAX_SIGNATURE_FILE_BYTES as u64,
         };
@@ -239,6 +301,7 @@ impl TransferReceiver {
             Some((code, detail)) => {
                 active.state = State::Failed(code, detail.to_owned());
                 remove(&self.store.part_path(id));
+                self.rejected(id, code, detail);
             }
         }
     }
@@ -275,10 +338,9 @@ impl TransferReceiver {
         if received != active.size || digest != active.sha256 {
             drop(file);
             remove(&part);
-            return failure(
-                TransferFailureCode::ChecksumMismatch,
-                "the stored bytes do not match the announced size and hash",
-            );
+            let detail = "the stored bytes do not match the announced size and hash";
+            self.rejected(id, TransferFailureCode::ChecksumMismatch, detail);
+            return failure(TransferFailureCode::ChecksumMismatch, detail);
         }
         let stored = file
             .sync_all()
@@ -289,7 +351,9 @@ impl TransferReceiver {
             .map_err(|err| tracing::warn!(%err, "could not store a transfer"));
         if stored.is_err() {
             remove(&part);
-            return failure(TransferFailureCode::Storage, "could not store the transfer");
+            let detail = "could not store the transfer";
+            self.rejected(id, TransferFailureCode::Storage, detail);
+            return failure(TransferFailureCode::Storage, detail);
         }
         self.store.register_staged(id, active.kind, active.size);
         TransferOutcome::Stored
@@ -308,9 +372,22 @@ impl TransferReceiver {
             .map(|(id, _)| *id)
             .collect();
         for id in stale {
+            if self
+                .active
+                .get(&id)
+                .is_some_and(|active| matches!(active.state, State::Receiving { .. }))
+            {
+                self.rejected(id, TransferFailureCode::Aborted, "the transfer timed out");
+            }
             self.drop_transfer(id);
         }
         self.store.expire_staged(now);
+    }
+
+    /// How many transfer records are retained, for tests of the bound.
+    #[cfg(test)]
+    pub(crate) fn record_count(&self) -> usize {
+        self.active.len()
     }
 
     /// Drops every arriving transfer, as when the link session ends. Stored ones stay.
