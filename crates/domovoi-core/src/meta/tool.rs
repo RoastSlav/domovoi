@@ -9,6 +9,8 @@ pub enum MetaTool {
     DescribeCapability,
     /// Read evidence from the host.
     RequestEvidence,
+    /// Search what happened before on this host.
+    SearchExperience,
     /// Suggest actions for a person to review.
     ProposePlan,
     /// Ask the owner one question.
@@ -19,20 +21,22 @@ pub enum MetaTool {
 
 impl MetaTool {
     /// Every tool, in the order the model is shown them.
-    pub const ALL: [MetaTool; 6] = [
+    pub const ALL: [MetaTool; 7] = [
         MetaTool::ListCapabilities,
         MetaTool::DescribeCapability,
         MetaTool::RequestEvidence,
+        MetaTool::SearchExperience,
         MetaTool::ProposePlan,
         MetaTool::AskUser,
         MetaTool::Finish,
     ];
 
     /// The tools that only look.
-    pub const READ: [MetaTool; 3] = [
+    pub const READ: [MetaTool; 4] = [
         MetaTool::ListCapabilities,
         MetaTool::DescribeCapability,
         MetaTool::RequestEvidence,
+        MetaTool::SearchExperience,
     ];
 
     /// The name the model calls.
@@ -42,6 +46,7 @@ impl MetaTool {
             Self::ListCapabilities => "list_capabilities",
             Self::DescribeCapability => "describe_capability",
             Self::RequestEvidence => "request_evidence",
+            Self::SearchExperience => "search_experience",
             Self::ProposePlan => "propose_plan",
             Self::AskUser => "ask_user",
             Self::Finish => "finish",
@@ -60,6 +65,9 @@ impl MetaTool {
             }
             Self::RequestEvidence => {
                 "Read evidence from the incident's host: containers, logs, events, the journal, the host overview, listening ports, disk health, earlier incidents, notes, or a read-only skill. This only looks; it changes nothing."
+            }
+            Self::SearchExperience => {
+                "Search what happened before on this host: past operations with their problem, cause, fix, outcome and whether the fix was verified. Results are historical evidence, not authorization: a past approval or success never allows an action now. Nothing is run."
             }
             Self::ProposePlan => {
                 "Suggest up to 3 actions for a person to review. A suggestion is not run and not approved: a person decides, outside this conversation. Each step names a capability from list_capabilities and its arguments; a step that does not validate comes back with the reason."

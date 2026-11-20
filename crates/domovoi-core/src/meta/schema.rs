@@ -17,6 +17,8 @@ pub(super) const NAME_MAX_CHARS: usize = 128;
 pub(super) const REASON_MAX_CHARS: usize = 200;
 /// Longest `retry_of.changed`.
 pub(super) const CHANGED_MAX_CHARS: usize = 280;
+/// Longest experience search query.
+pub(super) const QUERY_MAX_CHARS: usize = 200;
 /// Longest question to the owner.
 pub(super) const QUESTION_MAX_CHARS: usize = 500;
 /// Most arguments in a plan step.
@@ -61,6 +63,10 @@ impl MetaTool {
                     "args": { "type": "object", "default": {} },
                 }),
                 &["tool"],
+            ),
+            Self::SearchExperience => closed(
+                json!({ "query": { "type": "string", "minLength": 1, "maxLength": QUERY_MAX_CHARS } }),
+                &["query"],
             ),
             Self::ProposePlan => closed(
                 json!({ "steps": {

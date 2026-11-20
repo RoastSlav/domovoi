@@ -308,13 +308,14 @@ fn model_meta_tools_are_closed() {
             "list_capabilities",
             "describe_capability",
             "request_evidence",
+            "search_experience",
             "propose_plan",
             "ask_user",
             "finish"
         ],
         "the meta-tool catalogue changed"
     );
-    assert_eq!(MetaTool::ALL.len(), 6);
+    assert_eq!(MetaTool::ALL.len(), 7);
     let forbidden = [
         "approve",
         "exec",
@@ -352,9 +353,10 @@ fn model_meta_tools_are_closed() {
             MetaToolCall::ListCapabilities { .. } => 1,
             MetaToolCall::DescribeCapability { .. } => 2,
             MetaToolCall::RequestEvidence(_) => 3,
-            MetaToolCall::ProposePlan(_) => 4,
-            MetaToolCall::AskUser { .. } => 5,
-            MetaToolCall::Finish(_) => 6,
+            MetaToolCall::SearchExperience { .. } => 4,
+            MetaToolCall::ProposePlan(_) => 5,
+            MetaToolCall::AskUser { .. } => 6,
+            MetaToolCall::Finish(_) => 7,
         }
     }
     let _ = variants;

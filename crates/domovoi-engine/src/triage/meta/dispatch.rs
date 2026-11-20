@@ -165,6 +165,11 @@ pub(super) async fn handle(
             evidence::request(ctx, state, read, deadline, records).await,
             None,
         ),
+        // The experience search is wired in with the experience context source.
+        MetaToolCall::SearchExperience { .. } => (
+            error(ctx, "error: experience search is unavailable"),
+            None,
+        ),
         MetaToolCall::ProposePlan(plan) => (propose(ctx, state, &plan).await, None),
         MetaToolCall::AskUser { question } => ask(ctx, state, &question),
         MetaToolCall::Finish(report) => return Handled::Finish(report),
