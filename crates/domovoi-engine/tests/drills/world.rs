@@ -17,7 +17,7 @@ use domovoi_core::{
 };
 use domovoi_engine::PatternRedactor;
 use domovoi_engine::operations::{
-    InvestigateDeps, OperationDeps, OperationService, OperationSettings,
+    InvestigateDeps, InvestigateSettings, OperationDeps, OperationService, OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
 use domovoi_engine::{DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps};
@@ -417,6 +417,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
                 shutdown: shutdown.clone(),
                 investigate: Some(InvestigateDeps {
                     triage: triage.clone(),
+                    settings: InvestigateSettings::default(),
                 }),
             },
             OperationSettings::default(),

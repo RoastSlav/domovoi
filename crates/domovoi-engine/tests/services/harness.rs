@@ -13,7 +13,8 @@ use domovoi_core::{
     TargetKey,
 };
 use domovoi_engine::operations::{
-    InvestigateDeps, OperationDeps, OperationHandle, OperationService, OperationSettings,
+    InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
+    OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageHandle, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -385,7 +386,10 @@ fn spawn_ops(
             redactor: redactor.clone(),
             clock: clock.clone(),
             shutdown: shutdown.clone(),
-            investigate: Some(InvestigateDeps { triage }),
+            investigate: Some(InvestigateDeps {
+                triage,
+                settings: InvestigateSettings::default(),
+            }),
         },
         OperationSettings::default(),
     );
