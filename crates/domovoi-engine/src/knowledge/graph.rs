@@ -302,7 +302,12 @@ impl KnowledgeService {
                 &actor,
                 now,
             ));
-        self.apply(tx).await?;
+        // A new row can only be refused for its name: the unique index is the final guard
+        // when another writer took the name since the check above.
+        self.apply(tx).await.map_err(|error| match error {
+            KnowledgeError::Conflict => KnowledgeError::DuplicateEntity,
+            other => other,
+        })?;
         self.load_entity(id).await
     }
 

@@ -774,3 +774,45 @@ async fn retract_works_on_every_predicate_and_is_audited() {
     }
     assert_eq!(audit(&r, "knowledge.fact.retracted").await.len(), count);
 }
+
+#[tokio::test]
+async fn sweep_reaches_expired_facts_beyond_ten_thousand_fresh_older_ones() {
+    use domovoi_core::FactRecordId;
+    use domovoi_core::knowledge::{Fact, KnowledgeWrite};
+    use domovoi_core::ports::{StateWrite, Transaction, UnitOfWork};
+
+    let r = rig();
+    r.clock.advance(SignedDuration::from_secs(200 * DAY));
+    let now = r.clock_now();
+    let make = |i: i64, observed_at| Fact {
+        id: FactRecordId::new(),
+        subject: host(),
+        predicate: Predicate::Role,
+        value: Some(json!(format!("v{i}"))),
+        source: FactSource::Discovered,
+        status: KnowledgeStatus::Current,
+        observed_at,
+        valid_until: None,
+        last_verified_at: None,
+        supersedes: None,
+        evidence: None,
+        actor: system(),
+        created_at: T0.checked_add(SignedDuration::from_secs(i)).unwrap(),
+        retracted_at: None,
+        retracted_by: None,
+        content_purged_at: None,
+    };
+    let mut facts: Vec<Fact> = (0..10_000).map(|i| make(i, now)).collect();
+    facts.extend((10_000..10_005).map(|i| make(i, T0)));
+    for chunk in facts.chunks(500) {
+        let mut tx = Transaction::new();
+        for fact in chunk {
+            tx = tx.write(StateWrite::Knowledge(KnowledgeWrite::FactInsert(
+                fact.clone(),
+            )));
+        }
+        r.store.commit(tx).await.unwrap();
+    }
+    assert_eq!(r.service.sweep().await.unwrap().marked_stale, 5);
+    assert_eq!(r.service.sweep().await.unwrap().marked_stale, 0);
+}

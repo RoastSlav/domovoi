@@ -1,9 +1,12 @@
 //! The staleness sweep: stores the `stale` status that readers already compute.
 
 use domovoi_core::knowledge::{
-    FactUpdate, KnowledgeStatus, KnowledgeWrite, Predicate, RelationUpdate,
+    Fact, FactUpdate, KnowledgeStatus, KnowledgeWrite, Predicate, Relation, RelationUpdate,
 };
-use domovoi_core::ports::{AggregateRef, JournalDraft, JournalKind, StateWrite, Transaction};
+use domovoi_core::ports::{
+    AggregateRef, FactFilter, JournalDraft, JournalKind, Page, RelationFilter, StateWrite,
+    Transaction, Versioned,
+};
 use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
 
@@ -12,8 +15,8 @@ use super::error::KnowledgeError;
 use super::paths::{NetworkChangeCause, stale_audit};
 use super::service::{KnowledgeService, fact_journal, system};
 
-/// Most live rows one sweep reads of each kind.
-const READ_LIMIT: u32 = 10_000;
+/// Rows read per page while looking for rows past their freshness.
+const PAGE: u16 = 500;
 /// Most rows one sweep transaction changes.
 const BATCH: usize = 100;
 /// A read-triggered sweep runs at most this often.
@@ -40,14 +43,7 @@ impl KnowledgeService {
         let actor = system();
         let mut report = SweepReport::default();
 
-        let facts = self.deps.read.all_live_facts(READ_LIMIT).await?;
-        let due: Vec<_> = facts
-            .iter()
-            .filter(|v| {
-                v.value.status == KnowledgeStatus::Current
-                    && v.value.effective_status(now) == KnowledgeStatus::Stale
-            })
-            .collect();
+        let due = self.due_facts(now).await?;
         for chunk in due.chunks(BATCH) {
             let mut tx = Transaction::new();
             for found in chunk {
@@ -78,14 +74,7 @@ impl KnowledgeService {
             report.marked_stale += u32::try_from(chunk.len()).unwrap_or(u32::MAX);
         }
 
-        let relations = self.deps.read.all_live_relations(READ_LIMIT).await?;
-        let due: Vec<_> = relations
-            .iter()
-            .filter(|v| {
-                v.value.status == KnowledgeStatus::Current
-                    && v.value.effective_status(now) == KnowledgeStatus::Stale
-            })
-            .collect();
+        let due = self.due_relations(now).await?;
         for chunk in due.chunks(BATCH) {
             let mut tx = Transaction::new();
             for found in chunk {
@@ -111,6 +100,57 @@ impl KnowledgeService {
             report.relations_marked_stale += u32::try_from(chunk.len()).unwrap_or(u32::MAX);
         }
         Ok(report)
+    }
+
+    /// Every stored-current fact past its freshness, with its version. Pages through all
+    /// current facts by cursor, so no fact is left unexamined however many are stored.
+    async fn due_facts(&self, now: Timestamp) -> Result<Vec<Versioned<Fact>>, KnowledgeError> {
+        let filter = FactFilter {
+            statuses: Some(vec![KnowledgeStatus::Current]),
+            ..FactFilter::default()
+        };
+        let mut page = Page::first(PAGE);
+        let mut due = Vec::new();
+        loop {
+            let read = self.deps.read.facts(&filter, &page).await?;
+            for fact in read.items {
+                if fact.effective_status(now) == KnowledgeStatus::Stale
+                    && let Some(found) = self.deps.read.fact(fact.id).await?
+                    && found.value.status == KnowledgeStatus::Current
+                {
+                    due.push(found);
+                }
+            }
+            match read.next_cursor {
+                Some(cursor) => page.cursor = Some(cursor),
+                None => return Ok(due),
+            }
+        }
+    }
+
+    /// Every stored-current relation past its freshness, with its version.
+    async fn due_relations(
+        &self,
+        now: Timestamp,
+    ) -> Result<Vec<Versioned<Relation>>, KnowledgeError> {
+        let filter = RelationFilter::default();
+        let mut page = Page::first(PAGE);
+        let mut due = Vec::new();
+        loop {
+            let read = self.deps.read.relations(&filter, &page).await?;
+            for relation in read.items {
+                if relation.status == KnowledgeStatus::Current
+                    && relation.effective_status(now) == KnowledgeStatus::Stale
+                    && let Some(found) = self.deps.read.relation(relation.id).await?
+                {
+                    due.push(found);
+                }
+            }
+            match read.next_cursor {
+                Some(cursor) => page.cursor = Some(cursor),
+                None => return Ok(due),
+            }
+        }
     }
 
     /// Runs a sweep unless one ran in the last five minutes. A failure is logged and does not
