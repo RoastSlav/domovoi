@@ -2,8 +2,9 @@
 //!
 //! This module serves follow-up questions and chat, and holds the steps an investigation
 //! operation runs for one incident: the hourly and monthly caps, the repeat cache, a redacted
-//! context bundle and a bounded loop over the closed [`ReadTool`](domovoi_core::ReadTool)
-//! set. The final answer must be one JSON [`TriageReport`](domovoi_core::TriageReport). The
+//! context bundle and a bounded loop over the closed [`MetaTool`](domovoi_core::MetaTool)
+//! set, whose reads take only [`ReadTool`](domovoi_core::ReadTool) names. The final answer is
+//! one [`TriageReport`](domovoi_core::TriageReport), through `finish` or as JSON text. The
 //! primary provider falls back to the providers after it in order; a failed run still leaves
 //! the card that already went out (INV-11). Nothing the model writes is ever run (INV-9).
 
@@ -16,17 +17,18 @@ pub(crate) mod context;
 mod followup;
 mod history;
 mod incident_context;
+pub(crate) mod meta;
 mod prompt;
 pub(crate) mod proposals;
 pub(crate) mod report;
 pub(crate) mod run;
-mod tools;
+pub(crate) mod tools;
 
 use std::sync::Arc;
 
 use domovoi_core::ports::{
     ActionRepo, AdmissionRepo, AdvisoryRepo, CapabilityRegistry, Clock, HostRepo, IncidentRepo,
-    LlmProvider, NoteRepo, Redactor, SignalRepo, TriageCacheRepo, UsageRepo,
+    LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
@@ -39,16 +41,16 @@ use crate::manager::ManagerHandle;
 
 pub use agent::{
     BUDGET_EXHAUSTED, MAX_OUTPUT_ALLOWANCE, NO_CALLS_LEFT, ToolUse, default_total_output_tokens,
-    read_tools,
 };
 pub use chat::{CHAT_PROMPT, ChatRole, ChatTurn};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
+pub use meta::{META_SYSTEM_PROMPT, offered_tools};
 pub use report::parse_report;
 pub(crate) use tools::cut;
-pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE};
+pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE, UNKNOWN_NOTE};
 
-/// The system prompt for triage runs.
+/// The system prompt for triage runs with a provider that cannot call tools.
 pub const SYSTEM_PROMPT: &str = include_str!("../../prompts/triage_system.md");
 
 /// Consecutive failed runs that mark triage as degraded.
@@ -128,6 +130,8 @@ pub struct TriageDeps {
     pub catalog: HostCatalog,
     /// The capability registry: the skills the owner enables on each host.
     pub capabilities: Arc<dyn CapabilityRegistry>,
+    /// Proves the identity of a host a suggested step names, before the step is staged.
+    pub resolver: Arc<dyn TargetResolver>,
     /// Incidents, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
     /// Actions of an incident, read only: the follow-up context lists the legacy ones.
@@ -273,6 +277,13 @@ impl TriageHandle {
         question: &str,
     ) -> Result<String, TriageError> {
         chat::answer(&self.shared, host, overview, history, question).await
+    }
+
+    /// The target resolver triage checks plan steps with, so the operation service can bind
+    /// plans through the same one.
+    #[must_use]
+    pub fn resolver(&self) -> Arc<dyn TargetResolver> {
+        self.shared.deps.resolver.clone()
     }
 
     /// The follow-up questions and answers the incident still remembers: the ones after

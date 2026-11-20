@@ -39,7 +39,29 @@ fn host() -> HostId {
     HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0001))
 }
 
+/// A unit of work over the store that can be told to refuse the next commit that writes
+/// anything.
+struct FailCommit {
+    inner: Arc<InMemoryStore>,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::UnitOfWork for FailCommit {
+    async fn commit(
+        &self,
+        tx: domovoi_core::ports::Transaction,
+    ) -> Result<domovoi_core::ports::CommitReceipt, domovoi_core::ports::CommitError> {
+        let writes = !tx.writes.is_empty();
+        if writes && self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return Err(domovoi_core::ports::CommitError::Backend("disk".to_owned()));
+        }
+        domovoi_core::ports::UnitOfWork::commit(&*self.inner, tx).await
+    }
+}
+
 struct World {
+    commits: Arc<FailCommit>,
     store: Arc<InMemoryStore>,
     clock: Arc<FakeClock>,
     link: Arc<FakeAgentLink>,
@@ -87,11 +109,15 @@ async fn world() -> World {
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let caps = action_caps(link.clone());
     let shutdown = CancellationToken::new();
+    let commits = Arc::new(FailCommit {
+        inner: store.clone(),
+        armed: std::sync::atomic::AtomicBool::new(false),
+    });
     let (handle, _task) = OperationService::spawn_bare(
         OperationDeps {
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
-            uow: store.clone(),
+            uow: commits.clone(),
             effects: store.clone(),
             effect_read: store.clone(),
             advisories: store.clone(),
@@ -112,6 +138,7 @@ async fn world() -> World {
         OperationSettings::default(),
     );
     World {
+        commits,
         store,
         clock,
         link,
@@ -931,4 +958,162 @@ async fn a_secret_in_a_json_output_key_is_redacted_and_the_document_stays_valid(
     let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
     assert_eq!(parsed["token [REDACTED]"], "ok");
     assert_eq!(parsed["nested"]["note"], "token [REDACTED]");
+}
+
+/// A running operation with a running reasoning turn, and the claimed effect the turn answers.
+async fn turn_with_effect(w: &World) -> (OperationId, StepId, Held) {
+    let (op, _) = w.approved().await;
+    let turn = StepId::new();
+    let step = crate::operations::NewStep {
+        id: turn,
+        kind: StepKind::ReasoningTurn,
+        phase: "investigate".to_owned(),
+        parent: None,
+        intent: domovoi_core::StepIntent::ReasoningTurn {
+            context_refs: Vec::new(),
+        },
+    };
+    w.handle.propose(op, vec![step], Vec::new()).await.unwrap();
+    // Any claimed effect of the operation stands in for the `call_model` the turn answers.
+    let (held, _) = w.claim(op, EffectKind::Dispatch).await;
+    (op, turn, held)
+}
+
+fn read(tool: &str, outcome: StepOutcome) -> crate::operations::RecordedStep {
+    crate::operations::RecordedStep {
+        id: StepId::new(),
+        host: host(),
+        tool: tool.to_owned(),
+        args: serde_json::json!({}),
+        outcome,
+        summary: Some("two containers, hunter2".to_owned()),
+        reason: None,
+        output: Some("hunter2".to_owned()),
+    }
+}
+
+fn turn_end(
+    op: OperationId,
+    turn: StepId,
+    held: Held,
+    evidence: Vec<crate::operations::RecordedStep>,
+) -> Box<super::TurnEnd> {
+    Box::new(super::TurnEnd {
+        held,
+        operation: op,
+        turn: super::Conclusion {
+            step: turn,
+            outcome: StepOutcome::Succeeded,
+            summary: Some("done".to_owned()),
+            reason: None,
+            output: Some("{}".to_owned()),
+            usage: None,
+        },
+        evidence,
+        successors: Vec::new(),
+    })
+}
+
+#[tokio::test]
+async fn finishing_a_turn_records_its_reads_and_completes_the_effect_in_one_commit() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let reads = vec![
+        read("docker_ps", StepOutcome::Succeeded),
+        read("docker_ps", StepOutcome::Refused),
+    ];
+    let ids: Vec<StepId> = reads.iter().map(|r| r.id).collect();
+    let end = turn_end(op, turn, held, reads);
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    assert_eq!(
+        snapshot.step(turn).unwrap().progress.outcome,
+        StepOutcome::Succeeded
+    );
+    for id in &ids {
+        let record = snapshot.step(*id).unwrap();
+        assert_eq!(record.step.parent, Some(turn));
+        assert_eq!(
+            record.progress.summary.as_deref(),
+            Some("two containers, [REDACTED]")
+        );
+        assert_eq!(record.progress.output.as_deref(), Some("[REDACTED]"));
+    }
+    assert_eq!(snapshot.operation.budgets.used.evidence_requests, 1);
+    assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_read_that_does_not_validate_is_dropped_and_the_report_is_not_lost() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let reads = vec![read("rm_rf", StepOutcome::Succeeded)];
+    let end = turn_end(op, turn, held, reads);
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    let record = snapshot.step(turn).unwrap();
+    assert_eq!(record.progress.outcome, StepOutcome::Succeeded);
+    assert_eq!(
+        record.progress.reason.as_deref(),
+        Some("its reads were not recorded")
+    );
+    assert!(
+        snapshot
+            .steps
+            .iter()
+            .all(|r| r.step.kind != StepKind::EvidenceRequest)
+    );
+    assert!(w.effects(op, EffectStatus::Claimed).await.is_empty());
+}
+
+#[tokio::test]
+async fn evidence_steps_and_the_turn_commit_atomically() {
+    let w = world().await;
+    let (op, turn, held) = turn_with_effect(&w).await;
+    let end = turn_end(
+        op,
+        turn,
+        held,
+        vec![read("docker_ps", StepOutcome::Succeeded)],
+    );
+    w.commits
+        .armed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let failed = w
+        .send(|reply| OperationCommand::FinishTurn {
+            end: end.clone(),
+            reply,
+        })
+        .await;
+
+    assert!(failed.is_err());
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    assert_eq!(
+        snapshot.step(turn).unwrap().progress.outcome,
+        StepOutcome::Running
+    );
+    assert!(
+        snapshot
+            .steps
+            .iter()
+            .all(|r| r.step.kind != StepKind::EvidenceRequest)
+    );
+    assert_eq!(w.effects(op, EffectStatus::Claimed).await.len(), 1);
+    // The re-issued call records once.
+    w.send(|reply| OperationCommand::FinishTurn { end, reply })
+        .await
+        .unwrap();
+    let snapshot = w.store.load(op).await.unwrap().unwrap();
+    let count = snapshot
+        .steps
+        .iter()
+        .filter(|r| r.step.kind == StepKind::EvidenceRequest)
+        .count();
+    assert_eq!(count, 1);
 }

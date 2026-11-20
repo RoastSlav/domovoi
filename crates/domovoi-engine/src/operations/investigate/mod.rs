@@ -14,9 +14,11 @@
 mod build_context;
 mod call_model;
 mod close;
+mod draft_plan;
 mod draft_summary;
 mod notify;
 mod plumbing;
+mod resume;
 mod start;
 mod turn_output;
 mod waiters;
@@ -51,6 +53,8 @@ pub struct InvestigateDeps {
     /// The triage service whose gates, context, provider chain and card an investigation
     /// reuses. It runs with its queue off.
     pub triage: TriageHandle,
+    /// How investigations are paced and what the model may do in them.
+    pub settings: InvestigateSettings,
 }
 
 /// How investigations are paced.
@@ -62,6 +66,9 @@ pub struct InvestigateSettings {
     pub wait_limit: SignedDuration,
     /// Incidents the start-up catch-up examines.
     pub catch_up_limit: u16,
+    /// Whether the model is offered `ask_user`. Set only where a person can answer a
+    /// question: the answer route must exist, or an asked question would wait for nothing.
+    pub allow_questions: bool,
 }
 
 impl Default for InvestigateSettings {
@@ -70,6 +77,7 @@ impl Default for InvestigateSettings {
             close_interval: SignedDuration::from_secs(30),
             wait_limit: SignedDuration::from_mins(20),
             catch_up_limit: 200,
+            allow_questions: false,
         }
     }
 }
@@ -91,7 +99,7 @@ impl Runtime {
     pub(crate) fn new(deps: &InvestigateDeps) -> Self {
         Self {
             triage: deps.triage.shared(),
-            settings: InvestigateSettings::default(),
+            settings: deps.settings,
             waiters: Waiters::default(),
             start_lock: Mutex::new(()),
         }

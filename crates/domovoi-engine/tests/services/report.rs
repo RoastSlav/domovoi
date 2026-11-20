@@ -5,7 +5,7 @@ use domovoi_core::Verdict;
 use domovoi_core::triage::{MANUAL_STEP_MAX_CHARS, MAX_MANUAL_STEPS};
 use serde_json::json;
 
-use domovoi_engine::triage::{SYSTEM_PROMPT, parse_report};
+use domovoi_engine::triage::{META_SYSTEM_PROMPT, SYSTEM_PROMPT, parse_report};
 
 use crate::harness::{SECRET, Setup, world};
 
@@ -64,46 +64,61 @@ fn parse_report_rejects_more_than_five_manual_steps() {
     assert!(parse_report(&answer(six)).is_err());
 }
 
-/// The schema entry for `manual_steps`, from its key up to the next one.
-fn manual_step_schema() -> String {
-    let start = SYSTEM_PROMPT.find("\"manual_steps\"").unwrap();
-    let end = SYSTEM_PROMPT.find("\"proposals\"").unwrap();
+/// The two system prompts and the key that follows `manual_steps` in each one's schema: the
+/// text prompt still lists `proposals`, the meta-tool prompt ends at `details`.
+const PROMPTS: [(&str, &str, &str); 2] = [
+    ("text", SYSTEM_PROMPT, "\"proposals\""),
+    ("meta", META_SYSTEM_PROMPT, "\"details\""),
+];
+
+/// The schema entry for `manual_steps` in `prompt`, from its key up to `next`.
+fn manual_step_schema(prompt: &str, next: &str) -> String {
+    let start = prompt.find("\"manual_steps\"").unwrap();
+    let end = prompt.find(next).unwrap();
     assert!(
         start < end,
-        "manual_steps is listed before proposals in the schema"
+        "manual_steps is listed before {next} in the schema"
     );
-    SYSTEM_PROMPT[start..end].to_owned()
+    prompt[start..end].to_owned()
 }
 
 #[test]
 fn the_triage_prompt_states_the_manual_step_limits() {
-    let entry = manual_step_schema();
-    assert!(
-        entry.contains(&format!(r#""maxItems": {MAX_MANUAL_STEPS}"#)),
-        "the prompt caps the checklist at {MAX_MANUAL_STEPS} steps",
-    );
-    assert!(
-        entry.contains(&format!(r#""maxLength": {MANUAL_STEP_MAX_CHARS}"#)),
-        "the prompt caps one step at {MANUAL_STEP_MAX_CHARS} characters",
-    );
+    for (name, prompt, next) in PROMPTS {
+        let entry = manual_step_schema(prompt, next);
+        assert!(
+            entry.contains(&format!(r#""maxItems": {MAX_MANUAL_STEPS}"#)),
+            "the {name} prompt caps the checklist at {MAX_MANUAL_STEPS} steps",
+        );
+        assert!(
+            entry.contains(&format!(r#""maxLength": {MANUAL_STEP_MAX_CHARS}"#)),
+            "the {name} prompt caps one step at {MANUAL_STEP_MAX_CHARS} characters",
+        );
+    }
 }
 
 #[test]
 fn the_triage_prompt_runs_a_read_skill_instead_of_proposing_one() {
-    let rules: Vec<&str> = SYSTEM_PROMPT
-        .lines()
-        .filter(|line| line.trim_start().starts_with("- ") && line.contains("manual_steps"))
-        .collect();
-    assert_eq!(rules.len(), 1, "one rule about the by-hand checklist");
-    let rule = rules[0];
-    assert!(
-        rule.contains("run_read_skill"),
-        "the model runs the skill: {rule}"
-    );
-    assert!(
-        !rule.contains("propose"),
-        "a read must not become a proposal, which a human would have to approve: {rule}",
-    );
+    for (name, prompt, _) in PROMPTS {
+        let rules: Vec<&str> = prompt
+            .lines()
+            .filter(|line| line.trim_start().starts_with("- ") && line.contains("manual_steps"))
+            .collect();
+        assert_eq!(
+            rules.len(),
+            1,
+            "one rule about the by-hand checklist in {name}"
+        );
+        let rule = rules[0];
+        assert!(
+            rule.contains("run_read_skill"),
+            "the model runs the skill: {rule}"
+        );
+        assert!(
+            !rule.contains("propose"),
+            "a read must not become a proposal, which a human would have to approve: {rule}",
+        );
+    }
 }
 
 /// What triage does with the checklist before it reaches the page: the steps are redacted,

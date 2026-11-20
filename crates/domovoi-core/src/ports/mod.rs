@@ -9,6 +9,7 @@ pub mod capability;
 pub mod caps;
 pub mod chat;
 pub mod clock;
+pub mod context;
 pub mod hostfs;
 pub mod llm;
 pub mod logs;
@@ -36,6 +37,7 @@ pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
 };
 pub use clock::Clock;
+pub use context::ContextSource;
 pub use hostfs::{FsError, HostFs};
 pub use llm::{
     LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,

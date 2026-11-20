@@ -7,6 +7,7 @@
 mod accounts;
 mod actions;
 mod admission;
+pub mod context;
 mod hosts;
 mod incident_groups;
 mod incidents;

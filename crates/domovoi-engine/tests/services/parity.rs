@@ -13,7 +13,7 @@ use domovoi_testkit::link::LinkRequest;
 use serde_json::{Value, json};
 
 use crate::harness::{
-    SECRET, Setup, World, add_signal, calls, disk, host_id, report, restart_skill,
+    SECRET, Setup, World, add_signal, disk, host_id, read_calls, report, restart_skill,
     seen as text_seen, world,
 };
 
@@ -221,7 +221,7 @@ async fn tool_call_budget_is_enforced() {
             .iter()
             .map(|id| (id.as_str(), "docker_ps", json!({})))
             .collect();
-        w.primary.push_ok(calls(&list));
+        w.primary.push_ok(read_calls(&list));
         w.primary.push_text(report());
         let outcome = w.run().await;
         assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
@@ -243,6 +243,50 @@ async fn tool_call_budget_is_enforced() {
     assert_eq!(refused, 5, "the model got 15 of its 20 calls");
     assert!(docker_ps >= 15, "the agent ran the 15 allowed calls");
     assert_eq!(seen.model_requests, 2);
+}
+
+/// With 20 `request_evidence` calls the run executes 15, asks the model twice, and records
+/// every parsed call as an evidence step: 15 charged, 5 refused and not charged.
+#[tokio::test]
+async fn tool_call_budget_is_enforced_the_same() {
+    use domovoi_core::ports::OperationRepo;
+    use domovoi_core::{StepKind, StepOutcome};
+    let w = world(setup()).await;
+    let ids: Vec<String> = (1..=20).map(|n| format!("c{n}")).collect();
+    let list: Vec<(&str, &str, Value)> = ids
+        .iter()
+        .map(|id| (id.as_str(), "docker_ps", json!({})))
+        .collect();
+    w.primary.push_ok(read_calls(&list));
+    w.primary.push_text(report());
+    let outcome = w.run().await;
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+
+    assert_eq!(w.primary.requests().len(), 2, "the same request count");
+    let operation = OperationRepo::for_incident(&*w.store, w.incident.id())
+        .await
+        .unwrap()
+        .remove(0);
+    let snapshot = OperationRepo::load(&*w.store, operation.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let steps: Vec<_> = snapshot
+        .steps
+        .iter()
+        .filter(|record| record.step.kind == StepKind::EvidenceRequest)
+        .collect();
+    let refused = steps
+        .iter()
+        .filter(|record| record.progress.outcome == StepOutcome::Refused)
+        .count();
+    assert_eq!((steps.len(), refused), (20, 5));
+    let reached = tool_requests(&w)
+        .into_iter()
+        .filter(|(_, call)| call.starts_with("DockerPs"))
+        .count();
+    assert_eq!(reached, 15, "the agent ran the 15 allowed calls");
+    assert_eq!(snapshot.operation.budgets.used.evidence_requests, 15);
 }
 
 #[tokio::test]
@@ -364,7 +408,7 @@ async fn secret_never_reaches_the_model() {
                 truncated: false,
             })
         });
-        w.primary.push_ok(calls(&[
+        w.primary.push_ok(read_calls(&[
             ("c1", "docker_logs", json!({"container": "nginx"})),
             ("c2", "notes_search", json!({"query": "password"})),
         ]));
@@ -401,7 +445,7 @@ async fn host_scoping_keeps_to_the_incident_host() {
             updated_at: T0,
         };
         NoteRepo::upsert(&*w.store, &other).await.unwrap();
-        w.primary.push_ok(calls(&[
+        w.primary.push_ok(read_calls(&[
             ("c1", "notes_search", json!({"query": "OTHERHOSTMARKER"})),
             ("c2", "docker_ps", json!({})),
         ]));

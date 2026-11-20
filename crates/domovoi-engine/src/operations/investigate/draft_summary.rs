@@ -1,17 +1,17 @@
 //! `DraftSummary`: the assessment, plan, execution proposals and notification of a finished
 //! turn, and the retry a skipped or failed turn earns.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
 use domovoi_core::{
-    ContractId, EdgeKind, ExecutionIntent, FinishOutcome, OperationSnapshot, StepId, StepIntent,
-    StepKind, StepOutcome, StepRecord,
+    EdgeKind, FinishOutcome, OperationId, OperationSnapshot, StepId, StepIntent, StepKind,
+    StepOutcome, StepRecord,
 };
 use serde_json::{Value, json};
 
+use super::draft_plan::store_plan;
 use super::plumbing::cut as cut_chars;
 use super::plumbing::{
     claim, conclude, end_operation, handle_of, incident_of, latest_turn, runtime, step_of,
@@ -19,12 +19,9 @@ use super::plumbing::{
 use super::turn_output::{TurnKind, TurnOutput, caused_by, output_of};
 use super::{BUILD_ATTEMPTS, NOTIFY_ATTEMPTS};
 use crate::effects::{EffectHandler, EffectOutcome};
-use crate::operations::OperationError;
 use crate::operations::decide::{EffectSpec, NewEdge, NewStep};
 use crate::operations::effects::{Address, address, after, finish, load, spec, unreadable};
-use crate::operations::handle::ExecutionRequest;
-use crate::operations::writer::OpShared;
-use crate::triage::proposals::check;
+use crate::operations::writer::{Held, OpShared};
 use crate::triage::run::limits;
 use crate::triage::{FAILED_RETRY, FAILED_RETRY_LIMIT};
 
@@ -76,8 +73,8 @@ impl EffectHandler for DraftSummary {
             output.reason.clone_from(&turn.progress.reason);
             output
         });
-        let incident = match incident_of(&runtime, &snapshot).await {
-            Ok(Some(incident)) => incident,
+        match incident_of(&runtime, &snapshot).await {
+            Ok(Some(_)) => {}
             Ok(None) => {
                 return end_operation(
                     shared,
@@ -89,10 +86,14 @@ impl EffectHandler for DraftSummary {
                 .await;
             }
             Err(done) => return done,
-        };
+        }
         let triage = &runtime.triage;
         let handle = handle_of(shared);
-        let mut dropped: Vec<String> = Vec::new();
+        if output.kind == TurnKind::Asked {
+            return ask_owner(shared, held, operation, &snapshot, &turn, &output).await;
+        }
+        // The lines of the suggestions the model never corrected come first.
+        let mut dropped: Vec<String> = output.dropped.clone();
 
         if let Some(report) = &output.report {
             if caused_by(&snapshot, turn_id, StepKind::Assessment).is_empty() {
@@ -138,49 +139,9 @@ impl EffectHandler for DraftSummary {
                     return retry(err);
                 }
             }
-            let skills = triage.deps.capabilities.enabled_skills(incident.host());
-            for proposal in &report.proposals {
-                let (skill, args) = match check(proposal, &incident, &skills) {
-                    Ok(found) => found,
-                    Err(why) => {
-                        dropped.push(
-                            triage
-                                .deps
-                                .redactor
-                                .redact(&format!("{}: {why}", proposal.skill)),
-                        );
-                        continue;
-                    }
-                };
-                let args: BTreeMap<String, String> = args
-                    .iter()
-                    .map(|(name, value)| (name.to_owned(), value.to_owned()))
-                    .collect();
-                let contract = ContractId::skill(&skill.name);
-                if already_proposed(&snapshot, turn_id, &contract, &args) {
-                    continue;
-                }
-                let request = ExecutionRequest {
-                    intent: ExecutionIntent {
-                        contract,
-                        contract_version: 1,
-                        host: incident.host(),
-                        check: incident.check().clone(),
-                        target: incident.target().cloned(),
-                        args,
-                        retry_of: None,
-                    },
-                    parent: Some(turn_id),
-                    caused_by: Some(turn_id),
-                };
-                match handle.propose_execution(operation, request).await {
-                    Ok(_) => {}
-                    Err(OperationError::HostUnavailable(_)) => dropped.push(format!(
-                        "{}: no authenticated agent session to bind the action to",
-                        skill.name
-                    )),
-                    Err(err) => return retry(err),
-                }
+            match store_plan(shared, triage, operation, turn_id, &output, report).await {
+                Ok(lines) => dropped.extend(lines),
+                Err(done) => return done,
             }
         }
 
@@ -256,22 +217,6 @@ impl EffectHandler for DraftSummary {
     }
 }
 
-/// Whether an Execution step the turn caused already runs the same contract with the same
-/// arguments, so a redelivery keeps it instead of proposing it twice.
-fn already_proposed(
-    snapshot: &OperationSnapshot,
-    turn: StepId,
-    contract: &ContractId,
-    args: &BTreeMap<String, String>,
-) -> bool {
-    caused_by(snapshot, turn, StepKind::Execution)
-        .iter()
-        .any(|record| match &record.step.intent {
-            StepIntent::Execution(intent) => &intent.contract == contract && &intent.args == args,
-            _ => false,
-        })
-}
-
 /// When the retry this turn earns is due, or `None` when it earns none: a failed turn retries
 /// after `FAILED_RETRY` unless the streak is degraded or the limit of failed turns is reached,
 /// and a skipped turn retries at the time it names.
@@ -327,4 +272,43 @@ fn notify(
         NOTIFY_ATTEMPTS,
         Some(format!("notify:{turn}")),
     )
+}
+
+/// An asked turn stores the question and nothing else: no assessment, plan or notification,
+/// and no notify effect. The operation waits for the answer or the timeout.
+async fn ask_owner(
+    shared: &Arc<OpShared>,
+    held: Held,
+    operation: OperationId,
+    snapshot: &OperationSnapshot,
+    turn: &StepRecord,
+    output: &TurnOutput,
+) -> EffectOutcome {
+    let turn_id = turn.step.id;
+    if caused_by(snapshot, turn_id, StepKind::Question).is_empty() {
+        let id = StepId::new();
+        let text = cut_chars(&output.headline(), 500);
+        let step = NewStep {
+            id,
+            kind: StepKind::Question,
+            phase: "ask".to_owned(),
+            parent: Some(turn_id),
+            intent: StepIntent::Question {
+                text,
+                expires_at: after(shared, shared.settings.question_timeout),
+            },
+        };
+        let edge = NewEdge {
+            from: id,
+            to: turn_id,
+            kind: EdgeKind::CausedBy,
+        };
+        if let Err(err) = handle_of(shared)
+            .propose(operation, vec![step], vec![edge])
+            .await
+        {
+            return retry(err);
+        }
+    }
+    conclude(shared, held, operation, None, Vec::new()).await
 }

@@ -11,10 +11,10 @@ use domovoi_core::{
 use super::Runtime;
 use crate::effects::EffectOutcome;
 use crate::operations::OperationError;
-use crate::operations::decide::EffectSpec;
+use crate::operations::decide::{EffectSpec, RecordedStep};
 use crate::operations::effects::{ask, finish, held, outcome};
 use crate::operations::handle::OperationHandle;
-use crate::operations::writer::{Conclusion, Held, OpShared, OperationCommand};
+use crate::operations::writer::{Conclusion, Held, OpShared, OperationCommand, TurnEnd};
 
 /// The investigation runtime of the service, which the handlers are only registered with.
 pub(super) fn runtime(shared: &OpShared) -> Option<Arc<Runtime>> {
@@ -51,6 +51,26 @@ pub(super) async fn conclude(
         })
         .await,
     )
+}
+
+/// Ends the held effect, ends the model turn `turn` with the reads it made as evidence steps,
+/// and creates `successors`, in one commit.
+pub(super) async fn finish_turn(
+    shared: &OpShared,
+    held: Held,
+    operation: OperationId,
+    turn: Conclusion,
+    evidence: Vec<RecordedStep>,
+    successors: Vec<EffectSpec>,
+) -> EffectOutcome {
+    let end = Box::new(TurnEnd {
+        held,
+        operation,
+        turn,
+        evidence,
+        successors,
+    });
+    outcome(ask(shared, |reply| OperationCommand::FinishTurn { end, reply }).await)
 }
 
 /// Ends the operation and the held effect: there is nothing left to investigate. Finishing

@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::plumbing::{
     claim, conclude, end_operation, handle_of, incident_of, latest_turn, runtime, short, step_of,
 };
+use super::resume::{self, Next, Resume};
 use super::turn_output::{TurnKind, TurnOutput};
 use super::{CALL_ATTEMPTS, DRAFT_ATTEMPTS, Runtime};
 use crate::effects::{EffectHandler, EffectOutcome};
@@ -40,6 +41,7 @@ struct Ask {
     cycle: u32,
     fresh: bool,
     retry: bool,
+    resume: Option<Resume>,
 }
 
 fn parse(effect: &EffectRecord) -> Option<Ask> {
@@ -54,6 +56,7 @@ fn parse(effect: &EffectRecord) -> Option<Ask> {
             .get("retry")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        resume: Resume::of(effect),
     })
 }
 
@@ -118,25 +121,40 @@ async fn open_turn(
     snapshot: &OperationSnapshot,
     ask: &Ask,
 ) -> Result<Option<StepId>, EffectOutcome> {
-    match latest_turn(snapshot, Some(ask.cycle)) {
+    let found = match ask.resume {
+        Some(resumed) => match resume::next(snapshot, resumed) {
+            Next::Running(turn) => return Ok(Some(turn)),
+            Next::Nothing => return Ok(None),
+            Next::Propose => None,
+        },
+        None => latest_turn(snapshot, Some(ask.cycle)),
+    };
+    match found {
         Some(turn) if turn.progress.outcome == StepOutcome::Running => Ok(Some(turn.step.id)),
         Some(_) => Ok(None),
         None => {
             let operation = snapshot.operation.id;
             let id = StepId::new();
-            let edges = snapshot
-                .steps
-                .iter()
-                .rev()
-                .find(|record| record.step.kind == StepKind::Verification)
-                .map(|verification| {
-                    vec![NewEdge {
-                        from: id,
-                        to: verification.step.id,
-                        kind: EdgeKind::CausedBy,
-                    }]
-                })
-                .unwrap_or_default();
+            let edges = match ask.resume {
+                Some(resumed) => vec![NewEdge {
+                    from: id,
+                    to: resumed.question,
+                    kind: EdgeKind::CausedBy,
+                }],
+                None => snapshot
+                    .steps
+                    .iter()
+                    .rev()
+                    .find(|record| record.step.kind == StepKind::Verification)
+                    .map(|verification| {
+                        vec![NewEdge {
+                            from: id,
+                            to: verification.step.id,
+                            kind: EdgeKind::CausedBy,
+                        }]
+                    })
+                    .unwrap_or_default(),
+            };
             let step = NewStep {
                 id,
                 kind: StepKind::ReasoningTurn,
@@ -197,7 +215,7 @@ async fn run(
             Gate::Done(done) => return done,
         }
     }
-    let skip_cache = ask.fresh || ask.cycle > 0 || ask.retry;
+    let skip_cache = ask.fresh || ask.cycle > 0 || ask.retry || ask.resume.is_some();
     match prepare(triage, &incident, skip_cache).await {
         Prepared::Cached { report, from } => {
             let mut output = TurnOutput::of(TurnKind::Cached);
@@ -245,7 +263,10 @@ async fn run(
         }
         Prepared::Admitted => {
             let skills = triage.deps.capabilities.enabled_skills(incident.host());
-            let bundle = context::build(triage, &incident, &skills).await;
+            let mut bundle = context::build(triage, &incident, &skills).await;
+            if let Some(resumed) = ask.resume {
+                bundle.push_str(&resume::section(triage, snapshot, resumed));
+            }
             let call = spec(
                 EffectKind::CallModel,
                 json!({

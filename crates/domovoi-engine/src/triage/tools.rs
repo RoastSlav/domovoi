@@ -1,13 +1,12 @@
-//! Running the model's tool calls: parsed into the closed [`ReadToolCall`] set, answered
-//! from the store or through the one evidence boundary, redacted and cut.
+//! Running the model's reads: a parsed [`ReadToolCall`], answered from the store or through
+//! the one evidence boundary, classified, redacted and cut.
 
 use domovoi_core::ports::{IncidentFilter, Page};
 use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall};
 use jiff::{SignedDuration, Timestamp};
-use serde_json::Value;
 
-use super::Shared;
-use crate::evidence::EvidenceRequest;
+use super::TriageDeps;
+use crate::evidence::{EvidenceError, EvidenceRequest};
 
 /// Where tool calls run: a host, and the incident to leave out of history, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,38 +55,100 @@ pub(crate) fn cut(text: &str, max: usize) -> String {
     format!("{}{NOTE}", &text[..end])
 }
 
-/// Runs the call the model named `name` with `input` within `scope`. Unknown tools and bad
-/// arguments are answered with an error the model can read; nothing outside the read
-/// tools can run. Agent calls are bounded by `run_deadline` and by [`TOOL_DEADLINE`],
-/// whichever comes first.
-pub(crate) async fn call(
-    shared: &Shared,
-    scope: Scope,
-    name: &str,
-    input: Value,
-    run_deadline: Timestamp,
-) -> ToolResult {
-    match ReadToolCall::from_json(name, input) {
-        Ok(call) => run(shared, scope, call, run_deadline).await,
-        Err(err) => finish(shared, &format!("error: {err}"), true),
+/// What one read came to, for the model and for the record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EvidenceClass {
+    /// The read ran and answered; an empty answer is a known empty.
+    Observed,
+    /// The host's agent was not there or speaks another version; the text says which.
+    Unavailable(String),
+    /// The read timed out, or the transport or the store failed; the text says how.
+    Failed(String),
+    /// The read was not allowed as asked: a skill that is missing, not read-only, disabled
+    /// or given arguments its manifest rejects, or a spent budget.
+    Refused(String),
+}
+
+impl EvidenceClass {
+    /// The reason a read gave no evidence, `None` when it was observed.
+    pub(crate) fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Observed => None,
+            Self::Unavailable(text) | Self::Failed(text) | Self::Refused(text) => Some(text),
+        }
+    }
+
+    /// The same class with its reason passed through `redact`.
+    fn redacted(self, redact: impl Fn(&str) -> String) -> Self {
+        match self {
+            Self::Observed => Self::Observed,
+            Self::Unavailable(text) => Self::Unavailable(redact(&text)),
+            Self::Failed(text) => Self::Failed(redact(&text)),
+            Self::Refused(text) => Self::Refused(redact(&text)),
+        }
     }
 }
 
-/// Runs a parsed call.
+/// One classified read: the text the model is shown and what kind of answer it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ToolOutcome {
+    /// What the read shows, exactly the text a read has always given.
+    pub(crate) result: ToolResult,
+    /// What the read came to.
+    pub(crate) class: EvidenceClass,
+}
+
+/// The line added after an unknown read, so the model never reads it as a negative result.
+pub const UNKNOWN_NOTE: &str = "This evidence is unknown, not a negative result: the read \
+did not happen or did not finish. Do not treat it as \"nothing found\" or \"healthy\".";
+
+/// Runs a parsed call. Agent calls are bounded by `run_deadline` and by [`TOOL_DEADLINE`],
+/// whichever comes first.
 pub(crate) async fn run(
-    shared: &Shared,
+    deps: &TriageDeps,
     scope: Scope,
     call: ReadToolCall,
     run_deadline: Timestamp,
 ) -> ToolResult {
-    match execute(shared, scope, call, run_deadline).await {
-        Ok(text) => finish(shared, &text, false),
-        Err(text) => finish(shared, &format!("error: {text}"), true),
+    run_classified(deps, scope, call, run_deadline).await.result
+}
+
+/// Runs a parsed call and says what it came to. The text is the one [`run`] gives.
+pub(crate) async fn run_classified(
+    deps: &TriageDeps,
+    scope: Scope,
+    call: ReadToolCall,
+    run_deadline: Timestamp,
+) -> ToolOutcome {
+    let (class, text) = read_redacted(deps, scope, call, run_deadline).await;
+    let result = match class {
+        EvidenceClass::Observed => finish(deps, &text, false),
+        _ => finish(deps, &format!("error: {text}"), true),
+    };
+    ToolOutcome { result, class }
+}
+
+/// Runs a parsed call and returns its class and its redacted, uncut text: the output when it
+/// was observed, otherwise the reason (which the class carries too).
+pub(crate) async fn read_redacted(
+    deps: &TriageDeps,
+    scope: Scope,
+    call: ReadToolCall,
+    run_deadline: Timestamp,
+) -> (EvidenceClass, String) {
+    match execute(deps, scope, call, run_deadline).await {
+        Ok(text) => (EvidenceClass::Observed, deps.redactor.redact(&text)),
+        Err(class) => {
+            let class = class.redacted(|text| deps.redactor.redact(text));
+            let text = class.reason().unwrap_or_default().to_owned();
+            (class, text)
+        }
     }
 }
 
-fn finish(shared: &Shared, text: &str, is_error: bool) -> ToolResult {
-    let redacted = shared.deps.redactor.redact(text);
+/// `text` redacted and cut to [`MAX_RESULT_BYTES`], as a tool result.
+pub(crate) fn finish(deps: &TriageDeps, text: &str, is_error: bool) -> ToolResult {
+    let redacted = deps.redactor.redact(text);
     ToolResult {
         content: cut(&redacted, MAX_RESULT_BYTES),
         is_error,
@@ -100,26 +161,33 @@ const TIMEOUT_TEXT: &str = "the tool did not finish before the run deadline";
 /// Runs `work` under `deadline`, dropping it when the deadline passes so nothing keeps
 /// running after the run is over. Every tool path uses this: a slow repository and a slow
 /// agent are bounded the same way.
-async fn bounded<F>(shared: &Shared, deadline: Timestamp, work: F) -> Result<F::Output, String>
+async fn bounded<F>(
+    deps: &TriageDeps,
+    deadline: Timestamp,
+    work: F,
+) -> Result<F::Output, EvidenceClass>
 where
     F: std::future::Future,
 {
-    let left = deadline.duration_since(shared.deps.clock.now());
+    let left = deadline.duration_since(deps.clock.now());
     if left <= SignedDuration::ZERO {
-        return Err(TIMEOUT_TEXT.to_owned());
+        return Err(EvidenceClass::Failed(TIMEOUT_TEXT.to_owned()));
     }
     tokio::time::timeout(left.unsigned_abs(), work)
         .await
-        .map_err(|_| TIMEOUT_TEXT.to_owned())
+        .map_err(|_| EvidenceClass::Failed(TIMEOUT_TEXT.to_owned()))
+}
+
+fn store_failed(error: impl std::fmt::Display) -> EvidenceClass {
+    EvidenceClass::Failed(error.to_string())
 }
 
 async fn execute(
-    shared: &Shared,
+    deps: &TriageDeps,
     scope: Scope,
     call: ReadToolCall,
     run_deadline: Timestamp,
-) -> Result<String, String> {
-    let deps = &shared.deps;
+) -> Result<String, EvidenceClass> {
     match &call {
         ReadToolCall::IncidentHistory { limit } => {
             let filter = IncidentFilter {
@@ -127,12 +195,12 @@ async fn execute(
                 ..IncidentFilter::default()
             };
             let page = bounded(
-                shared,
+                deps,
                 run_deadline,
                 deps.incidents.list(&filter, &Page::first(*limit)),
             )
             .await?
-            .map_err(|e| e.to_string())?;
+            .map_err(store_failed)?;
             let lines: Vec<String> = page
                 .items
                 .iter()
@@ -156,12 +224,12 @@ async fn execute(
         }
         ReadToolCall::NotesSearch { query, limit } => {
             let hits = bounded(
-                shared,
+                deps,
                 run_deadline,
                 deps.notes.search(query, Some(scope.host), *limit),
             )
             .await?
-            .map_err(|e| e.to_string())?;
+            .map_err(store_failed)?;
             Ok(if hits.is_empty() {
                 "No matching notes.".to_owned()
             } else {
@@ -171,27 +239,39 @@ async fn execute(
                     .join("\n")
             })
         }
-        _ => agent(shared, scope, call, run_deadline).await,
+        _ => agent(deps, scope, call, run_deadline).await,
+    }
+}
+
+/// How an evidence boundary error is classed: not there is unavailable, a wrong request is
+/// refused, anything else failed.
+fn classify(error: EvidenceError) -> EvidenceClass {
+    let text = error.to_string();
+    match error {
+        EvidenceError::NotConnected | EvidenceError::Incompatible => {
+            EvidenceClass::Unavailable(text)
+        }
+        EvidenceError::NotEnabled(_) => EvidenceClass::Refused(text),
+        EvidenceError::Timeout | EvidenceError::Transport(_) => EvidenceClass::Failed(text),
     }
 }
 
 /// Runs one read through the evidence boundary, within this run's deadline and the
 /// per-tool limit, whichever comes first.
 async fn agent(
-    shared: &Shared,
+    deps: &TriageDeps,
     scope: Scope,
     call: ReadToolCall,
     run_deadline: Timestamp,
-) -> Result<String, String> {
-    let deps = &shared.deps;
+) -> Result<String, EvidenceClass> {
     let now = deps.clock.now();
     let per_tool = now.checked_add(TOOL_DEADLINE).unwrap_or(now);
     // The per-tool limit is an extra safety net; the run's deadline always wins.
     let deadline = std::cmp::min(per_tool, run_deadline);
     let request = EvidenceRequest::for_host(scope.host, call, deadline);
-    let out = bounded(shared, deadline, deps.evidence.collect_evidence(request))
+    let out = bounded(deps, deadline, deps.evidence.collect_evidence(request))
         .await?
-        .map_err(|err| err.to_string())?;
+        .map_err(classify)?;
     Ok(if out.truncated {
         format!("{}\n[the agent cut this output]", out.text)
     } else {

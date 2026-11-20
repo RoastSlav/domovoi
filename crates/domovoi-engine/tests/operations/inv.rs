@@ -13,7 +13,8 @@ use domovoi_core::{
     UserId,
 };
 use domovoi_engine::operations::{
-    InvestigateDeps, OperationDeps, OperationHandle, OperationService, OperationSettings,
+    InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
+    OperationSettings,
 };
 use domovoi_engine::triage::{TriageDeps, TriageService, TriageSettings};
 use domovoi_engine::{
@@ -108,6 +109,8 @@ pub struct InvSetup {
     pub held: Vec<EffectKind>,
     /// The evidence of the incident's first signal.
     pub evidence: Evidence,
+    /// Whether the model is offered `ask_user`.
+    pub questions: bool,
 }
 
 impl Default for InvSetup {
@@ -117,6 +120,7 @@ impl Default for InvSetup {
             ops: OperationSettings::default(),
             held: Vec::new(),
             evidence: disk(92.4),
+            questions: true,
         }
     }
 }
@@ -324,6 +328,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
         ),
         catalog: domovoi_engine::HostCatalog::new(observer_of(link.clone())),
         capabilities: caps.clone(),
+        resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
@@ -369,6 +374,10 @@ pub async fn inv(setup: InvSetup) -> Inv {
         shutdown: ops_shutdown.clone(),
         investigate: Some(InvestigateDeps {
             triage: triage.clone(),
+            settings: InvestigateSettings {
+                allow_questions: setup.questions,
+                ..InvestigateSettings::default()
+            },
         }),
     };
     let (ops, ops_task) = OperationService::spawn(deps.clone(), setup.ops.clone());

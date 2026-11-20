@@ -17,7 +17,7 @@ use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
-use crate::harness::{Setup, calls, disk, host_id, report, report_json, restart_skill, world};
+use crate::harness::{Setup, disk, host_id, read_calls, report, report_json, restart_skill, world};
 use crate::parity::{another, kinds, once, quiesce, seen, setup, shape};
 
 /// Installs the rustls provider once, as the binary does at startup.
@@ -279,7 +279,7 @@ async fn nothing_runs_without_a_human() {
                 truncated: false,
             })
         });
-        w.primary.push_ok(calls(&[(
+        w.primary.push_ok(read_calls(&[(
             "c1",
             "docker_logs",
             json!({"container": "nginx"}),

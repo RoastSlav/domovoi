@@ -23,7 +23,7 @@ use std::sync::Arc;
 use domovoi_core::OperationId;
 use tokio::sync::mpsc;
 
-pub(crate) use commands::{Conclusion, DispatchAnswer, Held, OperationCommand, Reply};
+pub(crate) use commands::{Conclusion, DispatchAnswer, Held, OperationCommand, Reply, TurnEnd};
 pub(crate) use commit::queue_reconcile;
 
 use commit::{Applied, Change, Edit, apply, finish_held};
@@ -367,6 +367,9 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
             successors,
             reply,
         } => conclude::run(shared, held, operation, step, successors, reply).await,
+        OperationCommand::FinishTurn { end, reply } => {
+            conclude::run_turn(shared, *end, reply).await
+        }
         OperationCommand::FinishEffect { held, reply } => {
             let result = finish_held_effect(shared, held).await;
             let _ = reply.send(result);

@@ -1,8 +1,8 @@
 //! The events [`super::decide`] understands, and the proposals they carry.
 
 use domovoi_core::{
-    BudgetKind, ExecutionIntent, FinishOutcome, JournalEpoch, PauseReason, PlanHash, StepId,
-    StepIntent, StepKind, StepOutcome, StepUsage,
+    BudgetKind, ExecutionIntent, FinishOutcome, HostId, JournalEpoch, PauseReason, PlanHash,
+    StepId, StepIntent, StepKind, StepOutcome, StepUsage,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -56,6 +56,28 @@ pub struct ExecutionProposal {
     pub refused: Option<String>,
 }
 
+/// One read a model turn made, recorded as an `EvidenceRequest` step in the commit that
+/// finishes the turn.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordedStep {
+    /// The id of the step to create.
+    pub id: StepId,
+    /// The host that was asked.
+    pub host: HostId,
+    /// The read tool's name.
+    pub tool: String,
+    /// The tool's arguments without the `"tool"` key; validated as a read tool call.
+    pub args: serde_json::Value,
+    /// How the read ended: `Succeeded`, `Failed`, `Unavailable` or `Refused`.
+    pub outcome: StepOutcome,
+    /// A one-line summary, already redacted.
+    pub summary: Option<String>,
+    /// Why the read gave no evidence, already redacted.
+    pub reason: Option<String>,
+    /// The redacted text of the read, at most 16 KiB. Stored on the step only.
+    pub output: Option<String>,
+}
+
 /// One thing that happened to an operation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OperationEvent {
@@ -89,6 +111,24 @@ pub enum OperationEvent {
         output: Option<String>,
         /// What a model turn used.
         usage: Option<StepUsage>,
+    },
+    /// A model turn reached a final outcome, together with the reads it made. The reads become
+    /// `EvidenceRequest` steps born final; the turn then ends as a `StepFinished` would end it.
+    TurnFinished {
+        /// The `ReasoningTurn` step, which must be running.
+        step: StepId,
+        /// How the turn ended; must be final.
+        outcome: StepOutcome,
+        /// A one-line summary, already redacted.
+        summary: Option<String>,
+        /// Why it ended as it did.
+        reason: Option<String>,
+        /// What it produced, already redacted.
+        output: Option<String>,
+        /// What the turn used.
+        usage: Option<StepUsage>,
+        /// The reads the turn made, in order.
+        evidence: Vec<RecordedStep>,
     },
     /// A person approved an execution. The execution row already holds the approval.
     ExecutionAuthorized {

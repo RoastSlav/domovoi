@@ -1,16 +1,16 @@
-//! The bounded conversation with one provider: turns until the model stops calling tools
-//! or the tool-call or time budget runs out.
+//! One model request that must end in a complete answer, the run's budget, and the
+//! read-only conversation that follow-up questions and chat hold with one provider.
 
 use std::sync::Arc;
 
+use domovoi_core::SkillSummary;
 use domovoi_core::ports::{
-    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
-    StopReason, ToolSpec, Usage,
+    LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, StopReason,
+    ToolSpec, Usage,
 };
-use domovoi_core::{ReadTool, SkillSummary};
 use jiff::{SignedDuration, Timestamp};
 
-use super::{Shared, tools};
+use super::{Shared, meta, tools};
 
 pub(crate) use super::complete::complete;
 
@@ -196,7 +196,8 @@ impl RunBudget {
 /// One tool call the model made.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ToolUse {
-    /// The tool name, validated against [`ReadTool::ALL`], or `unknown tool`.
+    /// A read tool (what a `request_evidence` call named), or a meta-tool name, validated
+    /// against the closed sets; anything else is `unknown tool`.
     pub tool: String,
     /// For `run_read_skill`, the skill, only when the host catalogues it.
     pub skill: Option<String>,
@@ -204,55 +205,8 @@ pub struct ToolUse {
     pub failed: bool,
     /// The call was not run because the tool-call budget was spent.
     pub refused: bool,
-    /// The model-supplied target, cut short, that matched neither.
+    /// The model-supplied name or target, cut short, that matched nothing.
     pub raw: Option<String>,
-}
-
-/// The tools offered to a provider that supports them: every read tool and nothing else.
-#[must_use]
-pub fn read_tools() -> Vec<ToolSpec> {
-    ReadTool::ALL.into_iter().map(ToolSpec::from).collect()
-}
-
-/// The skill for a `run_read_skill` call's input, `None` for the other tools. Read from
-/// the raw input so a call that fails to parse still names the skill it targeted.
-fn read_skill_of(name: &str, input: &serde_json::Value) -> Option<String> {
-    if name != "run_read_skill" {
-        return None;
-    }
-    input.get("skill")?.as_str().map(str::to_owned)
-}
-
-/// Longest model-supplied target stored in a timeline entry: the names are untrusted
-/// text, so only a short piece of an unknown one is worth keeping.
-const MAX_RAW_TOOL_USE: usize = 96;
-
-/// Recorded shape `(tool, skill, raw)` of a model call. A name outside the closed
-/// [`ReadTool::ALL`] collapses into one `unknown tool` row; a skill counts only when
-/// the host catalogues it. The rejected target is kept cut short for the audit.
-fn target_of(
-    name: &str,
-    skill: Option<String>,
-    skills: &[SkillSummary],
-) -> (String, Option<String>, Option<String>) {
-    if !ReadTool::ALL.iter().any(|tool| tool.name() == name) {
-        return (
-            "unknown tool".to_owned(),
-            None,
-            Some(name.chars().take(MAX_RAW_TOOL_USE).collect()),
-        );
-    }
-    match skill {
-        None => (name.to_owned(), None, None),
-        Some(candidate) if skills.iter().any(|s| s.name.as_str() == candidate) => {
-            (name.to_owned(), Some(candidate), None)
-        }
-        Some(candidate) => (
-            name.to_owned(),
-            None,
-            Some(candidate.chars().take(MAX_RAW_TOOL_USE).collect()),
-        ),
-    }
 }
 
 /// The text parts of `parts`, joined.
@@ -358,10 +312,11 @@ pub(crate) async fn ask(
 }
 
 /// Continues `messages` with `provider` until the model answers without tool calls, and
-/// returns that answer's text. Tool calls are answered through [`tools::call`] within the
-/// run budget; once it is spent the model is told to answer and further calls are not
-/// run. Every call the model makes while it may still call tools is pushed onto `used`;
-/// calls in the response after it was told to answer are ignored.
+/// returns that answer's text. The model is offered the read-only meta-tools
+/// (`list_capabilities`, `describe_capability`, `request_evidence`), answered through
+/// [`super::meta`] within the run budget; once it is spent the model is told to answer and
+/// further calls are not run. Every call the model makes while it may still call tools is
+/// pushed onto `used`; calls in the response after it was told to answer are ignored.
 ///
 /// Answers come from [`ask`], so an incomplete turn is never accepted, kept or acted on.
 pub(crate) async fn converse(
@@ -372,77 +327,14 @@ pub(crate) async fn converse(
     used: &mut Vec<ToolUse>,
     run: &mut RunBudget,
 ) -> Result<String, LlmError> {
-    let budget = shared.settings.budget;
-    let specs = if provider.supports_tools() {
-        read_tools()
-    } else {
-        Vec::new()
+    let ctx = meta::Ctx {
+        shared,
+        provider,
+        system: brief.system,
+        scope: brief.scope,
+        skills: brief.skills,
     };
-    let mut calls_used: u16 = 0;
-    let mut told_to_answer = false;
-    loop {
-        let response = ask(shared, provider, brief.system, messages, specs.clone(), run).await?;
-        messages.push(LlmMessage {
-            role: Role::Assistant,
-            parts: response.parts.clone(),
-        });
-        let calls: Vec<(String, String, serde_json::Value)> = response
-            .parts
-            .iter()
-            .filter_map(|p| match p {
-                Part::ToolCall { id, name, input } => {
-                    Some((id.clone(), name.clone(), input.clone()))
-                }
-                _ => None,
-            })
-            .collect();
-        if calls.is_empty() || told_to_answer || specs.is_empty() {
-            return Ok(text_of(&response.parts));
-        }
-        let mut results = Vec::with_capacity(calls.len() + 1);
-        for (id, name, input) in calls {
-            // Tools stop at the run deadline, not only at their own timeout: a batch of
-            // individually quick calls must not run past the run's time.
-            if shared.deps.clock.now() >= run.deadline() {
-                return Err(deadline_error());
-            }
-            let skill = read_skill_of(&name, &input);
-            let refused = calls_used >= budget.max_tool_calls;
-            let result = if refused {
-                tools::ToolResult {
-                    content: NO_CALLS_LEFT.to_owned(),
-                    is_error: true,
-                }
-            } else {
-                calls_used += 1;
-                tools::call(shared, brief.scope, &name, input, run.deadline()).await
-            };
-            let (tool, used_skill, raw) = target_of(&name, skill, brief.skills);
-            used.push(ToolUse {
-                tool,
-                skill: used_skill,
-                failed: !refused && result.is_error,
-                refused,
-                raw,
-            });
-            results.push(Part::ToolResult {
-                id,
-                content: result.content,
-                is_error: result.is_error,
-            });
-        }
-        if shared.deps.clock.now() >= run.deadline() {
-            return Err(deadline_error());
-        }
-        if calls_used >= budget.max_tool_calls {
-            results.push(Part::Text(BUDGET_EXHAUSTED.to_owned()));
-            told_to_answer = true;
-        }
-        messages.push(LlmMessage {
-            role: Role::User,
-            parts: results,
-        });
-    }
+    meta::converse_read(&ctx, messages, used, run).await
 }
 
 #[cfg(test)]

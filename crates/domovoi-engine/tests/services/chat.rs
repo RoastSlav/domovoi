@@ -14,7 +14,7 @@ use domovoi_testkit::link::LinkRequest;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::harness::{SECRET, Setup, calls, host_id, world};
+use crate::harness::{SECRET, Setup, host_id, read_calls, world};
 
 /// The text of a recorded model request, in the order the model reads it.
 fn texts(request: &LlmRequest) -> Vec<String> {
@@ -46,7 +46,7 @@ async fn a_chosen_hosts_tool_calls_run_on_that_host() {
         },
     );
     w.primary
-        .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
+        .push_ok(read_calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
     w.primary.push_text("The journal shows nothing slow.");
 
     let answer = w

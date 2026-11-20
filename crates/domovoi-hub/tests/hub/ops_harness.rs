@@ -18,8 +18,8 @@ use domovoi_core::{
 };
 use domovoi_engine::TriageHandle;
 use domovoi_engine::operations::{
-    ExecutionRequest, InvestigateDeps, OperationDeps, OperationHandle, OperationSeed,
-    OperationService, OperationSettings,
+    ExecutionRequest, InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle,
+    OperationSeed, OperationService, OperationSettings,
 };
 use domovoi_engine::{Evidence, PatternRedactor};
 use domovoi_store::Store;
@@ -140,7 +140,10 @@ pub async fn spawn(
             redactor: Arc::new(PatternRedactor::default()),
             clock: clock.clone(),
             shutdown: shutdown.clone(),
-            investigate: triage.map(|triage| InvestigateDeps { triage }),
+            investigate: triage.map(|triage| InvestigateDeps {
+                triage,
+                settings: InvestigateSettings::default(),
+            }),
         },
         OperationSettings::default(),
     )

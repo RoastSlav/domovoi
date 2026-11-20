@@ -14,7 +14,9 @@ use jiff::SignedDuration;
 use jiff::tz::TimeZone;
 use serde_json::json;
 
-use crate::harness::{SECRET, Setup, calls, host_id, report, restart_skill, results, world};
+use crate::harness::{
+    SECRET, Setup, calls, host_id, read_calls, report, restart_skill, results, world,
+};
 
 /// A response that ended at the output limit without saying anything, as a reasoning model
 /// that spent the whole allowance thinking does.
@@ -35,7 +37,7 @@ fn truncated(parts: Vec<Part>) -> LlmResponse {
 async fn tool_use_is_recorded_on_the_timeline() {
     let w = world(Setup::default()).await;
     w.primary
-        .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
+        .push_ok(read_calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
     w.primary.push_text(report());
 
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
@@ -55,7 +57,7 @@ async fn tool_use_is_recorded_on_the_timeline() {
 async fn failed_skill_call_keeps_the_skill_name() {
     let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "run_read_skill",
         json!({"skill": "restart_container", "bogus": 1}),
@@ -146,7 +148,7 @@ async fn budget_refused_calls_are_recorded_as_not_run() {
         ..Setup::default()
     })
     .await;
-    w.primary.push_ok(calls(&[
+    w.primary.push_ok(read_calls(&[
         ("c1", "journal", json!({"unit": "nginx"})),
         (
             "c2",
@@ -177,12 +179,12 @@ async fn tool_calls_are_routed_to_agent_and_store() {
     let w = world(Setup::default()).await;
     w.note("nginx config", "nginx reads /etc/nginx/conf.d on start")
         .await;
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "docker_logs",
         json!({"container": "nginx"}),
     )]));
-    w.primary.push_ok(calls(&[
+    w.primary.push_ok(read_calls(&[
         ("c2", "notes_search", json!({"query": "nginx"})),
         ("c3", "incident_history", json!({})),
     ]));
@@ -244,7 +246,7 @@ async fn tool_results_are_truncated_and_redacted() {
         })
     });
     w.primary
-        .push_ok(calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
+        .push_ok(read_calls(&[("c1", "journal", json!({"unit": "nginx"}))]));
     w.primary.push_text(report());
     w.run().await;
 
@@ -326,8 +328,8 @@ async fn a_truncated_tool_call_is_never_run() {
     let w = world(Setup::default()).await;
     w.primary.push_ok(truncated(vec![Part::ToolCall {
         id: "call_cut".to_owned(),
-        name: "journal".to_owned(),
-        input: json!({"unit": "nginx"}),
+        name: "request_evidence".to_owned(),
+        input: json!({"tool": "journal", "args": {"unit": "nginx"}}),
     }]));
     w.primary.push_text(report());
 
@@ -355,8 +357,8 @@ async fn a_truncated_text_and_tool_call_is_never_run() {
         Part::Text("I will check the journal.".to_owned()),
         Part::ToolCall {
             id: "call_cut".to_owned(),
-            name: "journal".to_owned(),
-            input: json!({"unit": "nginx"}),
+            name: "request_evidence".to_owned(),
+            input: json!({"tool": "journal", "args": {"unit": "nginx"}}),
         },
     ]));
     w.primary.push_text(report());
@@ -559,8 +561,8 @@ async fn budget_exhaustion_forces_final_answer() {
     })
     .await;
     w.primary
-        .push_ok(calls(&[("c1", "host_overview", json!({}))]));
-    w.primary.push_ok(calls(&[
+        .push_ok(read_calls(&[("c1", "host_overview", json!({}))]));
+    w.primary.push_ok(read_calls(&[
         ("c2", "docker_ps", json!({})),
         ("c3", "listening_ports", json!({})),
     ]));
@@ -596,7 +598,7 @@ async fn a_slow_tool_does_not_outlive_the_run() {
         })
     });
     w.primary
-        .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+        .push_ok(read_calls(&[("c1", "host_overview", json!({}))]));
 
     let outcome = w.run().await;
     assert!(
@@ -621,7 +623,7 @@ async fn a_batch_of_tools_cannot_outlive_the_run() {
             truncated: false,
         })
     });
-    w.primary.push_ok(calls(&[
+    w.primary.push_ok(read_calls(&[
         ("c1", "host_overview", json!({})),
         ("c2", "docker_ps", json!({})),
     ]));
@@ -871,9 +873,9 @@ async fn tool_work_past_the_deadline_ends_the_run() {
         })
     });
     w.primary
-        .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+        .push_ok(read_calls(&[("c1", "host_overview", json!({}))]));
     w.primary
-        .push_ok(calls(&[("c2", "host_overview", json!({}))]));
+        .push_ok(read_calls(&[("c2", "host_overview", json!({}))]));
 
     let outcome = w.run().await;
     assert!(
@@ -915,7 +917,7 @@ async fn the_default_budget_grants_the_whole_ladder_and_the_repair() {
     // Every tool call the run may make, one per turn.
     for _ in 0..15 {
         w.primary
-            .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+            .push_ok(read_calls(&[("c1", "host_overview", json!({}))]));
     }
     // A complete ladder: truncated at 2000 and 8000, answered at 16000.
     w.primary.push_ok(reasoning_only());
@@ -984,7 +986,7 @@ async fn a_slow_incident_history_ends_the_run() {
     })
     .await;
     w.primary
-        .push_ok(calls(&[("c1", "incident_history", json!({}))]));
+        .push_ok(read_calls(&[("c1", "incident_history", json!({}))]));
 
     let outcome = w.run_paused().await;
     assert!(
@@ -1001,8 +1003,11 @@ async fn a_slow_notes_search_ends_the_run() {
         ..Setup::default()
     })
     .await;
-    w.primary
-        .push_ok(calls(&[("c1", "notes_search", json!({"query": "disk"}))]));
+    w.primary.push_ok(read_calls(&[(
+        "c1",
+        "notes_search",
+        json!({"query": "disk"}),
+    )]));
 
     let outcome = w.run_paused().await;
     assert!(
@@ -1020,7 +1025,7 @@ async fn a_store_tool_that_finishes_in_time_is_used() {
     })
     .await;
     w.primary
-        .push_ok(calls(&[("c1", "incident_history", json!({}))]));
+        .push_ok(read_calls(&[("c1", "incident_history", json!({}))]));
     w.primary.push_text(report());
 
     let outcome = w.run_paused().await;

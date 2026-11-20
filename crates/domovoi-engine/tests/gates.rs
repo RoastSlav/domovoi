@@ -3,6 +3,7 @@
 //!
 //! Built into the `triage` test binary, which shares its harness.
 
+use domovoi_core::meta::{MetaTool, ToolSet};
 use domovoi_core::ports::{ActionRepo, Part, ToolOutput};
 use domovoi_core::{ActionStatus, HostName, ReadTool, Risk, TriageOutcome, UserId};
 use domovoi_engine::EventKind;
@@ -310,8 +311,8 @@ fn the_boundary_gate_counts_each_operation_exactly_once() {
 }
 
 use crate::harness::{
-    SECRET, Setup, World, calls, disk, host_id, report, report_json, restart_skill, results, seen,
-    world,
+    SECRET, Setup, World, calls, disk, host_id, read_calls, report, report_json, restart_skill,
+    results, seen, world,
 };
 
 fn no_skill_ran(w: &World) {
@@ -324,28 +325,159 @@ fn no_skill_ran(w: &World) {
     );
 }
 
+/// Every request offers exactly the meta-tools of its conversation, in their fixed order:
+/// the investigation set (without `ask_user`) for triage, the read set for a follow-up. The
+/// `request_evidence` tool takes only read-tool names.
 #[tokio::test]
-async fn model_sees_only_read_tools() {
+async fn model_sees_only_meta_tools() {
     let w = world(Setup::default()).await;
     w.primary
-        .push_ok(calls(&[("c1", "host_overview", json!({}))]));
+        .push_ok(read_calls(&[("c1", "host_overview", json!({}))]));
     w.primary.push_text("not a report");
     w.primary.push_text(report());
     w.run().await;
-    w.primary.push_ok(calls(&[("c2", "docker_ps", json!({}))]));
+    w.primary
+        .push_ok(read_calls(&[("c2", "docker_ps", json!({}))]));
     w.primary.push_text("Fine.");
     w.triage
         .follow_up(w.incident.id(), "Anything else?", UserId::new())
         .await
         .unwrap();
 
-    let expected: Vec<&str> = ReadTool::ALL.iter().map(ReadTool::name).collect();
+    let names_of =
+        |set: ToolSet| -> Vec<&'static str> { set.tools().iter().map(MetaTool::name).collect() };
+    let investigate = names_of(ToolSet::Investigate { questions: false });
+    let read = names_of(ToolSet::Read);
+    let read_tools: Vec<&str> = ReadTool::ALL.iter().map(ReadTool::name).collect();
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 5);
-    for req in requests {
+    for (n, req) in requests.iter().enumerate() {
         let names: Vec<&str> = req.tools.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, expected);
+        let expected = if n < 3 { &investigate } else { &read };
+        assert_eq!(&names, expected, "request {n}");
+        let evidence = req
+            .tools
+            .iter()
+            .find(|t| t.name == "request_evidence")
+            .expect("request_evidence is offered");
+        let offered: Vec<&str> = evidence.input_schema["properties"]["tool"]["enum"]
+            .as_array()
+            .expect("an enum of read tools")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(offered, read_tools, "request {n}");
     }
+}
+
+/// The modules that talk to the model never name the operation writer, an approval, an
+/// agent link or a dispatch.
+#[test]
+fn meta_tools_cannot_reach_the_writer_or_an_authorization() {
+    let forbidden = [
+        "OperationHandle",
+        "OperationCommand",
+        "Authorization",
+        "HumanApproval",
+        "PolicyPermit",
+        "AgentLink",
+        "run_skill",
+        "run_tool",
+        "run_check",
+        "start_skill",
+    ];
+    let files = model_facing_sources();
+    let offenders: Vec<String> = files
+        .iter()
+        .flat_map(|(rel, text)| {
+            forbidden
+                .iter()
+                .filter(|word| text.contains(**word))
+                .map(move |word| format!("{rel}: {word}"))
+        })
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
+/// The tool loop and the validator stage a plan; they never store one.
+#[test]
+fn the_loop_never_stores_a_plan() {
+    let forbidden = [
+        "propose_execution",
+        "ActionRequest::propose",
+        "actions_service",
+        ".propose(",
+    ];
+    let files = model_facing_sources();
+    let offenders: Vec<String> = files
+        .iter()
+        .flat_map(|(rel, text)| {
+            forbidden
+                .iter()
+                .filter(|word| text.contains(**word))
+                .map(move |word| format!("{rel}: {word}"))
+        })
+        .collect();
+    assert!(offenders.is_empty(), "{offenders:?}");
+}
+
+/// The production sources of the tool loop, the plan validator and the context sources.
+fn model_facing_sources() -> Vec<(String, String)> {
+    let dirs = ["/src/triage/meta/", "/src/plan/", "/src/context/"];
+    let files: Vec<(String, String)> = production_sources()
+        .into_iter()
+        .filter(|(rel, _)| dirs.iter().any(|dir| rel.contains(dir)))
+        .collect();
+    for dir in dirs {
+        assert!(
+            files.iter().any(|(rel, _)| rel.contains(dir)),
+            "no source found under {dir}"
+        );
+    }
+    files
+}
+
+/// No source or prompt of any crate carries the old text marker that let an answer propose
+/// actions.
+#[test]
+fn no_proposals_marker_remains() {
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut offenders = Vec::new();
+    let mut scanned = 0;
+    for entry in std::fs::read_dir(&crates).unwrap().flatten() {
+        for sub in ["src", "prompts"] {
+            let mut stack = vec![entry.path().join(sub)];
+            while let Some(dir) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for file in entries.flatten() {
+                    let path = file.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                        continue;
+                    }
+                    let Ok(text) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    scanned += 1;
+                    // The marker as a word: `MAX_PROPOSALS: usize` is a constant, not it.
+                    let marker = concat!("PROPOSALS", ":");
+                    let found = text.match_indices(marker).any(|(at, _)| {
+                        text[..at]
+                            .chars()
+                            .next_back()
+                            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+                    });
+                    if found {
+                        offenders.push(path.display().to_string());
+                    }
+                }
+            }
+        }
+    }
+    assert!(scanned > 100, "only {scanned} files were scanned");
+    assert!(offenders.is_empty(), "{offenders:?}");
 }
 
 #[tokio::test]
@@ -423,7 +555,7 @@ async fn secrets_never_reach_the_model() {
             truncated: false,
         })
     });
-    w.primary.push_ok(calls(&[
+    w.primary.push_ok(read_calls(&[
         ("c1", "docker_logs", json!({"container": "nginx"})),
         ("c2", "notes_search", json!({"query": "password"})),
     ]));
@@ -466,7 +598,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         })
     });
     // The catalogue on this host has no restart_container.
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "docker_logs",
         json!({"container": "nginx"}),
@@ -476,7 +608,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
     assert!(w.actions().await.is_empty());
 
     // Even a model that complies cannot create the action.
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "docker_logs",
         json!({"container": "nginx"}),
@@ -496,7 +628,7 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
     // more: an Execution step that waits for a person, no legacy action, no dispatch.
     w.link.set_skills(host_id(), vec![restart_skill()]);
     w.withdraw(&w.incident).await;
-    w.primary.push_ok(calls(&[(
+    w.primary.push_ok(read_calls(&[(
         "c1",
         "docker_logs",
         json!({"container": "nginx"}),

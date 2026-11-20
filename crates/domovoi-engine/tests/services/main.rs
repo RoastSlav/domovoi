@@ -43,6 +43,8 @@ mod limits;
 #[cfg(test)]
 mod liveness;
 #[cfg(test)]
+mod meta;
+#[cfg(test)]
 mod ops_mode;
 #[cfg(test)]
 mod parity;

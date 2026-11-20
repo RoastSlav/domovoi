@@ -3,18 +3,25 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use domovoi_core::meta::ToolSet;
 use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
-use domovoi_core::{FinishOutcome, StepOutcome, StepUsage};
+use domovoi_core::{
+    FinishOutcome, HostId, OperationSnapshot, StepId, StepKind, StepOutcome, StepUsage,
+};
 use serde_json::json;
 
 use super::DRAFT_ATTEMPTS;
-use super::plumbing::{claim, conclude, end_operation, incident_of, runtime, short, step_of};
+use super::plumbing::{claim, end_operation, finish_turn, incident_of, runtime, short, step_of};
 use super::turn_output::{TurnKind, TurnOutput};
 use crate::effects::{EffectHandler, EffectOutcome};
+use crate::operations::decide::RecordedStep;
 use crate::operations::effects::{Address, address, after, finish, load, spec, unreadable};
 use crate::operations::writer::{Conclusion, OpShared};
+use crate::plan::PlanScope;
 use crate::triage::agent::RunUsage;
-use crate::triage::run::{failed, generate, succeeded};
+use crate::triage::meta::{EvidenceRecord, LoopScope};
+use crate::triage::run::{GeneratedEnd, failed, generate, succeeded};
+use crate::triage::tools::EvidenceClass;
 
 /// The handler of `call_model` effects.
 pub(super) struct CallModel {
@@ -26,6 +33,54 @@ impl CallModel {
     pub(super) fn new(shared: Arc<OpShared>) -> Self {
         Self { shared }
     }
+}
+
+/// What the model may do in a turn of the operation in `snapshot`: the investigation tools
+/// (`ask_user` only when `questions` allows it), the operation's pinned scope, its evidence
+/// budget and the questions it already asked.
+fn loop_scope(snapshot: &OperationSnapshot, questions: bool) -> LoopScope {
+    let budgets = &snapshot.operation.budgets;
+    let asked = snapshot
+        .steps
+        .iter()
+        .filter(|record| record.step.kind == StepKind::Question)
+        .count();
+    LoopScope {
+        tools: ToolSet::Investigate { questions },
+        plan: PlanScope::for_operation(snapshot),
+        evidence_left: budgets
+            .limits
+            .evidence_requests
+            .map(|limit| limit.saturating_sub(budgets.used.evidence_requests)),
+        questions_asked: u32::try_from(asked).unwrap_or(u32::MAX),
+    }
+}
+
+/// The reads of a turn as the evidence steps the writer stores, with fresh ids.
+fn recorded(host: HostId, evidence: &[EvidenceRecord]) -> Vec<RecordedStep> {
+    evidence
+        .iter()
+        .filter_map(|record| {
+            let mut args = serde_json::to_value(&record.call).ok()?;
+            let tool = args.as_object_mut()?.remove("tool")?.as_str()?.to_owned();
+            let outcome = match record.class {
+                EvidenceClass::Observed => StepOutcome::Succeeded,
+                EvidenceClass::Unavailable(_) => StepOutcome::Unavailable,
+                EvidenceClass::Failed(_) => StepOutcome::Failed,
+                EvidenceClass::Refused(_) => StepOutcome::Refused,
+            };
+            Some(RecordedStep {
+                id: StepId::new(),
+                host,
+                tool,
+                args,
+                outcome,
+                summary: Some(record.summary.clone()),
+                reason: record.class.reason().map(short),
+                output: Some(record.output.clone()),
+            })
+        })
+        .collect()
 }
 
 /// The usage a turn stores: nothing when no response came, and no cost when any response had
@@ -85,14 +140,33 @@ impl EffectHandler for CallModel {
         let skills = triage.deps.capabilities.enabled_skills(incident.host());
         // A provider failure is a result, never a retry: a retry would spend another slot of
         // the hour.
-        let generated = generate(triage, &incident, &skills, bundle).await;
+        let scope = loop_scope(&snapshot, runtime.settings.allow_questions);
+        let generated = generate(triage, &incident, &skills, bundle, scope).await;
         let usage = step_usage(generated.usage);
+        // The reads are recorded whether the turn succeeds or fails.
+        let evidence = recorded(incident.host(), &generated.evidence);
         let ended = match generated.result {
-            Ok(report) => {
+            Ok(GeneratedEnd::Report(report)) => {
                 succeeded(triage).await;
                 let summary = short(&report.headline);
                 let mut output = TurnOutput::of(TurnKind::Report);
                 output.report = Some(report);
+                output.plan = generated.plan;
+                output.dropped = generated.dropped;
+                Conclusion {
+                    step: turn,
+                    outcome: StepOutcome::Succeeded,
+                    summary: Some(summary),
+                    reason: None,
+                    output: Some(output.to_json()),
+                    usage,
+                }
+            }
+            Ok(GeneratedEnd::Asked(question)) => {
+                succeeded(triage).await;
+                let summary = short(&question);
+                let mut output = TurnOutput::of(TurnKind::Asked);
+                output.question = Some(question);
                 Conclusion {
                     step: turn,
                     outcome: StepOutcome::Succeeded,
@@ -130,6 +204,86 @@ impl EffectHandler for CallModel {
             DRAFT_ATTEMPTS,
             Some(format!("draft:{turn}")),
         );
-        conclude(shared, held, operation, Some(ended), vec![draft]).await
+        finish_turn(shared, held, operation, ended, evidence, vec![draft]).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::{ReadTool, ReadToolCall, StepIntent};
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    /// Arguments for every read tool, with the optional ones both set and left out.
+    fn samples() -> Vec<(&'static str, Value)> {
+        vec![
+            ("docker_ps", json!({})),
+            ("docker_ps", json!({"all": true})),
+            ("docker_logs", json!({"container": "nginx"})),
+            ("docker_logs", json!({"container": "nginx", "lines": 50})),
+            ("docker_inspect", json!({"container": "nginx"})),
+            ("docker_events", json!({})),
+            (
+                "docker_events",
+                json!({"container": "nginx", "since_minutes": 30}),
+            ),
+            ("host_overview", json!({})),
+            ("journal", json!({})),
+            (
+                "journal",
+                json!({"unit": "ssh", "since_minutes": 10, "lines": 20, "kernel": true}),
+            ),
+            ("listening_ports", json!({})),
+            ("smart_report", json!({"device": "/dev/sda"})),
+            ("incident_history", json!({})),
+            ("incident_history", json!({"limit": 3})),
+            ("notes_search", json!({"query": "disk"})),
+            ("notes_search", json!({"query": "disk", "limit": 2})),
+            ("run_read_skill", json!({"skill": "disk_report"})),
+            (
+                "run_read_skill",
+                json!({"skill": "disk_report", "args": {"path": "/"}}),
+            ),
+        ]
+    }
+
+    /// The args a recorded read stores must parse back to the very same call, or the writer
+    /// would drop every read of the turn.
+    #[test]
+    fn recorded_reads_round_trip_for_every_read_tool() {
+        let mut seen: Vec<&str> = Vec::new();
+        for (tool, args) in samples() {
+            let call = ReadToolCall::from_json(tool, args.clone())
+                .unwrap_or_else(|err| panic!("{tool} {args}: {err}"));
+            let record = EvidenceRecord {
+                call: call.clone(),
+                class: EvidenceClass::Observed,
+                summary: "seen".to_owned(),
+                output: "text".to_owned(),
+            };
+            let steps = recorded(HostId::new(), &[record]);
+            assert_eq!(steps.len(), 1, "{tool} {args}");
+            let step = &steps[0];
+            assert_eq!(step.tool, tool);
+            let intent = StepIntent::EvidenceRequest {
+                host: step.host,
+                tool: step.tool.clone(),
+                args: step.args.clone(),
+            };
+            intent
+                .validate()
+                .unwrap_or_else(|err| panic!("{tool} {args}: {err}"));
+            let again = ReadToolCall::from_json(&step.tool, step.args.clone()).expect("parses");
+            assert_eq!(again, call, "{tool} {args}");
+            seen.push(tool);
+        }
+        for tool in ReadTool::ALL {
+            assert!(
+                seen.contains(&tool.name()),
+                "{} is not covered",
+                tool.name()
+            );
+        }
     }
 }

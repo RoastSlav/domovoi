@@ -401,6 +401,7 @@ async fn build(
                 capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
                     link.clone(),
                 )),
+                resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
                 incidents: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),

@@ -52,6 +52,23 @@ pub(super) fn build_payload(operation: OperationId, cycle: u32) -> Value {
     json!({ "v": 1, "operation": operation.to_string(), "cycle": cycle })
 }
 
+/// Payload of the `build_context` that resumes an investigation after its question: `how` is
+/// `answer` or `timeout`.
+pub(super) fn resume_payload(
+    operation: OperationId,
+    cycle: u32,
+    how: &str,
+    question: StepId,
+) -> Value {
+    json!({
+        "v": 1,
+        "operation": operation.to_string(),
+        "cycle": cycle,
+        "resume": how,
+        "question": question.to_string(),
+    })
+}
+
 /// Dedup key of the evidence collection for `step`.
 pub(super) fn collect_key(step: StepId) -> String {
     format!("collect:{step}")
@@ -90,4 +107,9 @@ pub(super) fn wall_key(operation: OperationId, seconds: u64) -> String {
 /// Dedup key of the context build that starts `cycle`.
 pub(super) fn build_key(operation: OperationId, cycle: u32) -> String {
     format!("build:{operation}:{cycle}")
+}
+
+/// Dedup key of the context build that resumes the investigation after `question`.
+pub(super) fn resume_key(operation: OperationId, cycle: u32, question: StepId) -> String {
+    format!("build:{operation}:{cycle}:resume:{question}")
 }
