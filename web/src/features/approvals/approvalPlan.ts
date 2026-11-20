@@ -86,7 +86,8 @@ export function planFromAction(action: Action, host?: string): ApprovalPlan {
     risk: action.risk,
     state: action.status,
     stateMeta: actionStatusMeta(action.status),
-    waiting: action.status === "proposed",
+    // A legacy action can no longer be decided; it is history.
+    waiting: false,
     inFlight: action.status === "approved" || action.status === "dispatched",
     planHash: action.plan_hash,
     planBinding: action.plan_binding,

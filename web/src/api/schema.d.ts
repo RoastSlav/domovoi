@@ -56,43 +56,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/actions/{id}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's
-         *     name; chat buttons can never approve them.
-         */
-        post: operations["approve_action"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/actions/{id}/deny": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Denies a proposed action. */
-        post: operations["deny_action"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/advisories": {
         parameters: {
             query?: never;
@@ -1399,8 +1362,8 @@ export interface components {
             /** @description The incident it is for. */
             incident_id: string;
             /**
-             * @description Whether this action belongs to the old approval path, which is read-only history
-             *     next to operations: true for every action while orchestration is enabled.
+             * @description Whether this action belongs to the retired approval path, which survives only as
+             *     read-only history: always true.
              */
             legacy: boolean;
             /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
@@ -1456,13 +1419,6 @@ export interface components {
         AnswerStepRequest: {
             /** @description The answer, 1 to 2000 characters after trimming. It reaches the model as data. */
             text: string;
-        };
-        /** @description Approving an action. */
-        ApproveRequest: {
-            /** @description For destructive skills: the skill's name typed exactly, as confirmation. */
-            confirm_text?: string | null;
-            /** @description Required. The plan hash shown on the card, 64 hex characters. */
-            plan_hash: string;
         };
         /** @description Approving an execution step. */
         ApproveStepRequest: {
@@ -3563,137 +3519,6 @@ export interface operations {
             };
             /** @description No such host */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    approve_action: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Action id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApproveRequest"];
-            };
-        };
-        responses: {
-            /** @description Approved; it runs next */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActionDto"];
-                };
-            };
-            /** @description Not logged in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Destructive without the typed confirmation */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description No such action */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Not proposed any more, expired, or the plan hash does not match */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description The action service is shutting down */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    deny_action: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Action id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Denied */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActionDto"];
-                };
-            };
-            /** @description Not logged in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description No such action */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Not proposed any more */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description The action service is shutting down */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };

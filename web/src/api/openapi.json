@@ -247,170 +247,6 @@
         }
       }
     },
-    "/api/v1/actions/{id}/approve": {
-      "post": {
-        "tags": [
-          "actions"
-        ],
-        "summary": "Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's\nname; chat buttons can never approve them.",
-        "operationId": "approve_action",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Action id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApproveRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Approved; it runs next",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not logged in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Destructive without the typed confirmation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such action",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Not proposed any more, expired, or the plan hash does not match",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The action service is shutting down",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/actions/{id}/deny": {
-      "post": {
-        "tags": [
-          "actions"
-        ],
-        "summary": "Denies a proposed action.",
-        "operationId": "deny_action",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Action id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Denied",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not logged in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such action",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Not proposed any more",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The action service is shutting down",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/advisories": {
       "get": {
         "tags": [
@@ -5188,7 +5024,7 @@
           },
           "legacy": {
             "type": "boolean",
-            "description": "Whether this action belongs to the old approval path, which is read-only history\nnext to operations: true for every action while orchestration is enabled."
+            "description": "Whether this action belongs to the retired approval path, which survives only as\nread-only history: always true."
           },
           "plan_binding": {
             "$ref": "#/components/schemas/PlanBinding",
@@ -5314,29 +5150,6 @@
           "text": {
             "type": "string",
             "description": "The answer, 1 to 2000 characters after trimming. It reaches the model as data."
-          }
-        }
-      },
-      "ApproveRequest": {
-        "type": "object",
-        "description": "Approving an action.",
-        "required": [
-          "plan_hash"
-        ],
-        "properties": {
-          "confirm_text": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "For destructive skills: the skill's name typed exactly, as confirmation."
-          },
-          "plan_hash": {
-            "type": "string",
-            "description": "Required. The plan hash shown on the card, 64 hex characters.",
-            "maxLength": 64,
-            "minLength": 64,
-            "pattern": "^[0-9a-f]{64}$"
           }
         }
       },
@@ -10251,7 +10064,7 @@
     },
     {
       "name": "actions",
-      "description": "Proposed actions and approvals"
+      "description": "Retired legacy actions, read only"
     },
     {
       "name": "operations",

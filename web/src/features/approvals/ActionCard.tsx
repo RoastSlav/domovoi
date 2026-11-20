@@ -4,7 +4,7 @@ import { ApprovalCard } from "./ApprovalCard";
 export { EXPIRY_WARNING_MS, Expiry, suggestedBy } from "./approvalBits";
 
 /**
- * One legacy action, the same on the incident page, the Approvals page and in a chat. It maps
+ * One legacy action as read-only history, the same on the incident page, the Approvals page and in a chat. It maps
  * the action onto the shared `ApprovalCard`, which says what it shows.
  */
 export function ActionCard({
@@ -13,15 +13,8 @@ export function ActionCard({
   why,
   showIncident = false,
   incidentTitle,
-  approve = "primary",
 }: {
   action: Action;
-  /**
-   * How Approve is drawn: `primary` where it is the card's main action (the Approvals
-   * page), `secondary` where the page already has a primary button. A destructive action's
-   * Approve is always a danger button.
-   */
-  approve?: "primary" | "secondary";
   /** The host's name; the card says "on nas" when it is known. */
   host?: string | undefined;
   /** The incident's title, as the text of the link to it; "View incident" without it. */
@@ -36,7 +29,6 @@ export function ActionCard({
       source={{ kind: "legacy", action }}
       host={host}
       why={why}
-      emphasis={approve}
       {...(showIncident
         ? {
             incident: {

@@ -15,7 +15,6 @@ import {
 import type { Tone } from "../../design/status";
 import { riskMeta } from "../../design/tone";
 import { ActionArgs } from "./ActionArgs";
-import { ApproveControl } from "./ApproveControl";
 import { Expiry, suggestedBy } from "./approvalBits";
 import { planFromAction, planFromExecution, type ApprovalPlan } from "./approvalPlan";
 import { PlanTag } from "./PlanTag";
@@ -42,7 +41,7 @@ export interface ApprovalCardProps {
   extras?: ApprovalExtras | undefined;
   /** How Approve is drawn; destructive and unknown risk are always danger. */
   emphasis?: "primary" | "secondary";
-  /** No Approve or Deny: for a place that shows the card without deciding. */
+  /** No Approve or Deny: for a place that shows the card without deciding. A legacy action never has them. */
   readOnly?: boolean;
   /** Adds a link to the operation, for lists outside its page. */
   operation?: { id: string; goal: string };
@@ -120,7 +119,7 @@ function Extras({ extras }: { extras: ApprovalExtras }) {
 /**
  * The one approval card: contract, host, target, arguments, risk, expiry, the plan code and
  * its binding, then the decision. Model text is secondary and labelled. It serves operation
- * steps and legacy actions; it never approves anything by itself.
+ * steps and, read-only, legacy actions; it never approves anything by itself.
  */
 export function ApprovalCard({
   source,
@@ -138,7 +137,6 @@ export function ApprovalCard({
       : planFromAction(source.action, host);
   const risk = riskMeta(plan.risk);
   const decide = plan.waiting && !readOnly;
-  const showPlan = plan.family === "step" || plan.waiting;
 
   return (
     <Card tone={plan.stateMeta.tone} label={`Action ${plan.skill}`}>
@@ -159,6 +157,7 @@ export function ApprovalCard({
             <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
               {risk.hint}
             </InfoTip>
+            {source.kind === "legacy" && <Tag>Legacy</Tag>}
             {!plan.waiting && <StatusPill meta={plan.stateMeta} />}
           </Cluster>
         </Cluster>
@@ -196,7 +195,7 @@ export function ApprovalCard({
             </Text>
           )}
           {plan.waiting && <Expiry until={plan.expiresAt} />}
-          {showPlan && <PlanTag planHash={plan.planHash} binding={plan.planBinding} />}
+          <PlanTag planHash={plan.planHash} binding={plan.planBinding} />
           {operation && <Link to={`/operations/${operation.id}`}>{operation.goal}</Link>}
           {incident && plan.family === "action" && (
             <Link to={`/incidents/${incident.id}`}>{incident.title ?? "View incident"}</Link>
@@ -204,12 +203,9 @@ export function ApprovalCard({
         </Cluster>
 
         <StateNote plan={plan} />
-        {decide &&
-          (source.kind === "legacy" ? (
-            <ApproveControl action={source.action} host={host} emphasis={emphasis} />
-          ) : (
-            <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
-          ))}
+        {decide && source.kind === "step" && (
+          <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
+        )}
       </Stack>
     </Card>
   );

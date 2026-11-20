@@ -22,17 +22,10 @@ function open() {
   return renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 }
 
-/** A time `minutes` from now, as the hub writes it. */
-function inMinutes(minutes: number): string {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
 /** The actions of an incident with every kind of status, as a long-running one has. */
 function manyActions(): Action[] {
   const finished = ["succeeded", "verified", "failed", "denied", "expired", "rejected"];
   return [
-    action({ id: "w2", skill: "later_wait", expires_at: inMinutes(50) }),
-    action({ id: "w1", skill: "sooner_wait", expires_at: inMinutes(5) }),
     action({ id: "r1", skill: "running_one", status: "dispatched" }),
     ...finished.map((status, n) =>
       action({
@@ -48,21 +41,14 @@ function manyActions(): Action[] {
 
 const section = (name: RegExp | string) => within(screen.getByRole("region", { name }));
 
-test("actions_are_grouped_by_what_the_person_can_do_about_them", async () => {
+test("actions_are_grouped_into_running_and_earlier_and_never_offer_a_decision", async () => {
   route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: manyActions() }));
   open();
 
-  const waiting = await screen.findByRole("region", { name: "Waiting for you · 2" });
-  const cards = within(waiting)
-    .getAllByRole("group")
-    .map((group) => group.getAttribute("aria-label"));
-  expect(cards, "full cards only for what waits, the soonest to expire first").toEqual([
-    "Action sooner_wait",
-    "Action later_wait",
-  ]);
-  const [soonest, later] = within(waiting).getAllByText(/^Expires in/);
-  expect(soonest, "five minutes left is a warning").toHaveAttribute("data-tone", "warning");
-  expect(later).not.toHaveAttribute("data-tone");
+  await screen.findByRole("region", { name: "In progress · 1" });
+  expect(screen.queryByRole("region", { name: /^Waiting for you/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Approve" }), "history only").toBeNull();
+  expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
 
   const progress = section("In progress · 1");
   expect(progress.getByText("running_one")).toBeVisible();
@@ -113,21 +99,27 @@ test("outcome_unknown_is_not_in_flight", async () => {
   expect(within(earlier).queryByRole("progressbar"), "no progress spinner").toBeNull();
 });
 
-test("an_expiry_under_fifteen_minutes_is_a_warning_and_later_is_not", async () => {
+test("an_expired_action_is_history_with_a_legacy_label_and_its_reason", async () => {
   route("GET /api/v1/incidents/{id}", () => ({
     ...detail(),
-    actions: [action({ expires_at: inMinutes(14) })],
-  }));
-  const first = open();
-  expect(await screen.findByText(/^Expires in/)).toHaveAttribute("data-tone", "warning");
-  first.unmount();
-
-  route("GET /api/v1/incidents/{id}", () => ({
-    ...detail(),
-    actions: [action({ expires_at: inMinutes(17) })],
+    actions: [
+      action({
+        id: "x",
+        skill: "old_one",
+        status: "expired",
+        reason: "Closed when the hub upgraded; nobody decided it.",
+      }),
+    ],
   }));
   open();
-  expect(await screen.findByText(/^Expires in/)).not.toHaveAttribute("data-tone");
+
+  const earlier = await screen.findByRole("region", { name: "Earlier actions · 1" });
+  expect(within(earlier).getByText("Legacy")).toBeVisible();
+  expect(within(earlier).getByText("Expired")).toBeVisible();
+  expect(
+    within(earlier).getByText("Closed when the hub upgraded; nobody decided it."),
+  ).toBeVisible();
+  expect(within(earlier).queryByText(/^Expires in/)).toBeNull();
 });
 
 test("long_details_fold_until_asked_for", async () => {
