@@ -232,7 +232,7 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `OperationRepo` | Read operations: one consistent snapshot, lists, executions, and the work that is dispatched or waiting; no write method | store, testkit | engine, hub |
 | `OperationWrite` | Write an operation's state inside one `UnitOfWork` commit: operation, steps, edges, executions and incident links | store, testkit | engine |
 | `EffectCancel` | Cancel the pending effects of one operation, and only of that operation | store, testkit | engine |
-| `KnowledgeRead` | Read facts, relations and entities, and search live facts | store (adapter in progress), testkit | engine |
+| `KnowledgeRead` | Read facts, relations and entities, and search live facts | store, testkit | engine |
 | `ManagementCoverage` | Whether a verified helper attestation covers a management path on a host | engine (unavailable until the helper attestation ships), testkit | engine |
 
 Effect claims on `EffectQueue` are scoped to one aggregate: a claim names the operation whose effects it may take, and an empty scope claims nothing (ADR 0025).

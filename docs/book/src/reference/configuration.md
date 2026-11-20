@@ -250,7 +250,7 @@ How long each kind of raw data is kept.
 | `notifications_days` | integer | Days the notification state of a resolved incident is kept. Default 30. |
 | `operation_journal_days` | integer | Days the operation journal is kept. Not applied yet: applies once operations exist. Default 180. |
 | `resolved_advisories_days` | integer | Days a resolved advisory is kept. Default 30. |
-| `retracted_facts_days` | integer | Days the content of a retracted fact is kept. Not applied yet: applies once knowledge facts exist. Default 30. |
+| `retracted_facts_days` | integer | Days the content of a retracted fact or relation is kept; its tombstone stays. Default 30. |
 | `signals_days` | integer | Days a signal is kept. Default 30. |
 | `triage_cache_days` | integer | Days a cached triage report is kept. Default 90. |
 
