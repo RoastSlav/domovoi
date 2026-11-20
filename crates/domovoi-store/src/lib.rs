@@ -16,6 +16,7 @@ mod codec;
 mod compat;
 mod db;
 mod error;
+mod experience;
 mod facts;
 mod fts;
 mod health;
