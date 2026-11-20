@@ -1,0 +1,73 @@
+---
+source: crates/domovoi-engine/tests/services/context.rs
+expression: "stable(&opening(&w.primary.requests()[1]))"
+---
+## Incident
+
+[incident | incident | known] Incident
+from: observed incident:[uuid], observed [time]
+Title: docker.container firing
+Check: docker.container
+Target: nginx
+Host id: [uuid]
+Severity: warning
+Status: Open
+Opened: [time]
+Last firing: [time]
+Firing signals so far: 1
+
+## Recent signals, newest first
+
+[incident | signals | known] Recent signals, newest first
+from: observed signals of incident:[uuid], observed [time]
+- [time] Firing [warning] nginx is restarting {observed="[time]", used_pct=92.4}
+
+## This incident so far: report, actions and timeline
+
+[incident | incident_thread | known] Latest triage report
+from: inferred triage report of incident:[uuid]
+headline: nginx keeps restarting
+cause: A bad config file, fairly sure.
+verdict: ACTION NEEDED
+summary: The container exits a few seconds after start.
+next step: Fix the config file and restart the container.
+
+[incident | incident_thread | known] Actions of this incident
+from: observed actions of incident:[uuid]
+restart_container container=nginx status: proposed
+
+[incident | incident_thread | known] Timeline of this incident, oldest first
+from: observed timeline of incident:[uuid]
+triage.cached: the incident this world was built around is triaged by its test
+triage.report: nginx keeps restarting
+
+## Host profile (the normal state of this host)
+
+None.
+
+## Host notes
+
+[host | notes | known] nginx runbook
+from: declared by a person note:[uuid], observed [time]
+docker container nginx: restart it after a config change
+
+## What changed in the last 24 hours
+
+[evidence | changes | known] Container events (24 h)
+from: observed docker_events 24h, observed [time]
+Docker events:
+output of docker_events
+
+## Similar resolved incidents
+
+[experience | similar_incidents | known] docker.container: nginx restarted after a config change
+from: historical evidence, not authorization incident:[uuid], observed [time]
+- [time] docker.container: nginx restarted after a config change (no verdict)
+
+## Skills you may propose
+
+[capabilities | skills | known] Skills
+from: declared by a person skill manifests of host:[uuid]
+- restart_container (risk: Write): Test skill restart_container Parameters: [{"name":"container","description":"The container to restart.","required":true,"kind":{"type":"string","pattern":"^[a-z0-9_-]+$","max_len":64}}].
+
+Answer the operator's questions about this incident.

@@ -63,6 +63,10 @@ Triage runs as an [investigation](operations.md#investigations), an operation ke
 
 A restart investigates incidents that were open but never triaged, so an incident that opened while the hub was down, or just before it stopped, is still read. Only `Open` incidents are picked up: an incident a person acknowledged or muted was already handled, by a person or by a rule, and is left alone.
 
+## What the model is told
+
+A triage run gives the model the incident and its signals, the host's profile and notes, what changed on the host, similar past incidents and the skills it may propose. Each item says whether it is known, stale, unknown or disputed. "Unknown" means Domovoi could not find it out, not that nothing is there. Similar past incidents are labelled as history, never as permission to act. What does not fit in the size limit is listed as left out, so you can see what the model did not read.
+
 ## In the web UI
 
 The **Incidents** page opens with one line that says what needs you ("2 need action", "3 to monitor", "1 pending"), then sorts every incident into one group by what it asks of you, the most urgent first:

@@ -51,6 +51,10 @@ pub struct Setup {
     pub admission: Option<Arc<dyn domovoi_core::ports::AdmissionRepo>>,
     /// How long incident listings and note searches take, for deadline tests.
     pub store_delay: Option<std::time::Duration>,
+    /// A signal repository to use instead of the store's, for read failures.
+    pub signals: Option<Arc<dyn SignalRepo>>,
+    /// Extra context sources registered with the triage service.
+    pub extra_context: Vec<Arc<dyn domovoi_core::ports::ContextSource>>,
 }
 
 impl Default for Setup {
@@ -65,6 +69,8 @@ impl Default for Setup {
             usage: None,
             admission: None,
             store_delay: None,
+            signals: None,
+            extra_context: Vec::new(),
         }
     }
 }
@@ -257,7 +263,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         capabilities: capabilities.clone(),
         resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
-        signals: store.clone(),
+        signals: setup.signals.clone().unwrap_or_else(|| store.clone()),
         notes: store.clone(),
         hosts: store.clone(),
         actions: store.clone(),
@@ -270,7 +276,7 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         manager: manager.clone(),
         bus: bus.clone(),
         shutdown: services.clone(),
-        extra_context: Vec::new(),
+        extra_context: setup.extra_context.clone(),
     };
     let usage = deps.usage.clone();
     let admission = deps.admission.clone();

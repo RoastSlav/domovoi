@@ -1,0 +1,10 @@
+---
+source: crates/domovoi-engine/src/context/tests.rs
+expression: several.render()
+---
+## Context left out to fit the size limit
+
+- evidence: 3 items from signals
+- experience: 1 item from past_runs
+- knowledge: 12 items from notes
+What is listed here was not shown to you. It is unknown to you, not absent: do not assume there is nothing there.

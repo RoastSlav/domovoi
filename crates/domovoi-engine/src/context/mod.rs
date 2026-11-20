@@ -23,3 +23,6 @@ pub use guide::CONTEXT_GUIDE;
 pub use layout::{Omission, Section, title_of};
 pub use plan::{ContextBudget, ContextPlan, ContextPurpose, LayerCaps};
 pub use render::LayeredContext;
+
+#[cfg(test)]
+mod tests;

@@ -144,3 +144,45 @@ pub(crate) fn thread_messages(
     messages.push(text(Role::User, question));
     messages
 }
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::ports::{LlmMessage, Part, Role};
+
+    use super::thread_messages;
+
+    fn text(role: Role, text: &str) -> LlmMessage {
+        LlmMessage {
+            role,
+            parts: vec![Part::Text(text.to_owned())],
+        }
+    }
+
+    #[test]
+    fn thread_messages_keeps_the_conversation_shape() {
+        let history = vec![
+            text(Role::User, "earlier question"),
+            text(Role::Assistant, "earlier answer"),
+        ];
+        let with = thread_messages("opening", &history, Some("gathered"), "question");
+        assert_eq!(
+            with,
+            vec![
+                text(Role::User, "opening"),
+                text(Role::User, "earlier question"),
+                text(Role::Assistant, "earlier answer"),
+                text(Role::User, "gathered"),
+                text(Role::User, "question"),
+            ]
+        );
+        let without = thread_messages("opening", &history, None, "question");
+        assert_eq!(without.len(), 4);
+        assert_eq!(without.last(), Some(&text(Role::User, "question")));
+        let empty = thread_messages("opening", &[], Some(""), "question");
+        assert_eq!(
+            empty,
+            vec![text(Role::User, "opening"), text(Role::User, "question")],
+            "an empty gathered output adds no message"
+        );
+    }
+}
