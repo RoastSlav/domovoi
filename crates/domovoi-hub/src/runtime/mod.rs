@@ -5,6 +5,7 @@ pub mod caps;
 mod delivery;
 mod dispatcher;
 pub(crate) mod every;
+mod knowledge;
 mod local;
 mod lock;
 mod orchestration;
@@ -144,6 +145,7 @@ pub struct HubRuntime {
     /// The operation service, present only while `[orchestration] enabled` is set.
     pub(crate) operations_task: Option<JoinHandle<()>>,
     pub(crate) profile_task: JoinHandle<()>,
+    pub(crate) knowledge_task: JoinHandle<()>,
     pub(crate) policy_task: Option<JoinHandle<()>>,
     pub(crate) intake_shutdown: CancellationToken,
     pub(crate) worker_shutdown: CancellationToken,
@@ -204,6 +206,7 @@ impl HubRuntime {
         .await?;
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
+        let knowledge = knowledge::build(&store, &clock);
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
         let (bus, _) = broadcast::channel(capacity);
         let manager_shutdown = CancellationToken::new();
@@ -333,7 +336,9 @@ impl HubRuntime {
             settings: store.clone(),
             clock: clock.clone(),
             redactor: redactor.clone(),
+            knowledge: Some(knowledge.clone()),
         };
+        crate::profile::backfill::backfill(&profile_deps).await;
         let updates = UpdateChecker::load(store.clone(), clock.clone()).await;
         let services = crate::services::Services::new(crate::services::ServicesDeps {
             manager: manager.clone(),
@@ -350,6 +355,11 @@ impl HubRuntime {
             clock: clock.clone(),
             redactor: redactor.clone(),
             policy: policy.service,
+            knowledge: crate::services::KnowledgeCommands::new(
+                knowledge.clone(),
+                store.clone(),
+                auth.clone(),
+            ),
         });
         let api = ApiState::new(
             ApiDeps {
@@ -430,6 +440,8 @@ impl HubRuntime {
             digest,
             updates,
         );
+        let knowledge_task =
+            knowledge::spawn_sweeper(knowledge, clock.clone(), intake_shutdown.clone());
         let profile_task = crate::profile::spawn(profile_deps, intake_shutdown.clone());
         Ok(Self {
             lock,
@@ -449,6 +461,7 @@ impl HubRuntime {
             triage_task: triage.1,
             operations_task,
             profile_task,
+            knowledge_task,
             policy_task: policy.task,
             intake_shutdown,
             worker_shutdown,

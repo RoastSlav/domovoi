@@ -22,6 +22,7 @@ pub mod host;
 pub mod id;
 pub mod incident;
 pub mod interaction;
+pub mod knowledge;
 pub mod meta;
 pub mod note;
 pub mod notify;
@@ -45,9 +46,10 @@ pub use action::{
     PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction, StoredActionError,
 };
 pub use actor::{
-    Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_OPERATIONS,
+    Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_KNOWLEDGE,
+    SYSTEM_OPERATIONS, SYSTEM_PROFILE,
 };
-pub use addr::{in_cidr, valid_cidr};
+pub use addr::{canonical_cidr, in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
 pub use capability::{
@@ -64,8 +66,9 @@ pub use host::{
     ProtocolParseError, REPORT_REFRESH, ReportOutcome, ReportedProtocol, host_target_text,
 };
 pub use id::{
-    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, ExecutionId, HostId,
-    IncidentId, NoteId, OperationId, PolicyVersionId, RequestId, SignalId, StepId, UserId,
+    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, EffectId, EntityId, ExecutionId,
+    FactRecordId, HostId, IncidentId, NoteId, OperationId, PolicyVersionId, RelationId, RequestId,
+    SignalId, StepId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,

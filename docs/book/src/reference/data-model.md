@@ -32,7 +32,13 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `notes_fts` | Full-text index of note titles, bodies and tags, kept in step by triggers. |
 | `triage_cache` | Triage reports keyed by incident fingerprint and a digest of the evidence, so the same evidence is not triaged twice. |
 | `llm_usage` | Tokens and cost per LLM call, for the monthly budget. |
-| `digest_facts` | Facts agents report for the daily digest (disk usage, temperatures, counts). |
+| `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). Formerly `digest_facts`. |
+| `digest_facts` | A view over `metric_samples`, kept for one release for older readers and writers. Inserts go to `metric_samples` through a trigger. |
+| `facts` | Knowledge facts: a subject, a predicate from a closed list, a value, a source, a status and the times that drive freshness. A retracted fact keeps only its tombstone once its value is cleared. See [Knowledge](../concepts/knowledge.md). |
+| `facts_fts` | Full-text index of live facts, kept in step by triggers. |
+| `relations` | Typed links between two subjects, such as one host depending on another. Retracted relations are cleared like retracted facts. |
+| `entities` | Named things that facts and relations can refer to, as `entity:<uuid>`. |
+| `management_path_confirmations` | The owner's confirmations of management-path facts. |
 | `advisories` | Things worth knowing that are not incidents: a missing heartbeat, a stale image, an outdated agent. |
 | `users` | Web users: username and argon2id password hash. Usernames are case-sensitive. |
 | `sessions` | Web sessions: hashes of the session and CSRF tokens, owner and expiry. |
@@ -79,9 +85,9 @@ Every period is a setting in `[retention]`; the [Retention guide](../guide/reten
 | Resolved advisories | `resolved_advisories_days` | 30 days after resolving |
 | Operation journal (not built yet) | `operation_journal_days` | 180 days |
 | Raw execution outputs (not built yet) | `execution_outputs_days` | 30 days |
-| Retracted fact content (not built yet) | `retracted_facts_days` | 30 days |
+| Retracted fact content | `retracted_facts_days` | 30 days |
 
-Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and digest facts are kept.
+Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples (formerly digest facts) are kept.
 
 ## Backups
 
@@ -105,3 +111,5 @@ At start-up the hub runs `PRAGMA quick_check`. If the database reports a problem
 `schema_compat` records the lowest Domovoi version that can read the schema. A binary older than that refuses to open the database, before it takes a backup or touches the file, and says which version is needed. The only way back is to restore an older backup.
 
 A binary that knows fewer migrations than the database ignores the ones it does not know, so upgrading can be rolled back to the previous release when that release already has this rule. A rollback to an older release that does not is a forward-fix or restore situation.
+
+The `digest_facts` view and its insert trigger are kept for one release only. A later release removes them and raises the lowest version that can read the schema, so readers older than that release refuse the database.

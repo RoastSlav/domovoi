@@ -200,6 +200,16 @@ stateDiagram-v2
 - Executions run only `skill.<name>` contracts, against pinned targets. Every execution waits for an approval by a human (ADR 0025); no policy evaluation exists yet.
 - Every change is one `UnitOfWork` commit. `build_trace` gives a frozen, read-only view (schema version 1) that carries no output, intent or plan hash.
 
+### 5.9 Knowledge
+
+- `Fact`: a subject (`host:`, `container:`, `unit:` or `entity:` reference), a predicate from a closed list, a value, a source (`user`, `discovered`, `integration`, `inferred`, `imported`), a status (`current`, `stale`, `disputed`, `superseded`, `retracted`), observation and validity times, evidence and an optional superseded link. No numeric confidence.
+- `Relation` links two subjects. `Entity` is a named thing facts can refer to.
+- Each predicate has a staleness period; past it a fact reads as stale. Single-valued predicates from different sources become disputed until the owner asserts a value or the sources agree.
+- Only the signed-in owner writes `user` facts. Inferred facts become `user` only when accepted.
+- Safety-critical predicates (`management_path`, `trusted_cidr`) count only when current and owner-sourced; observation never revives a stale one.
+- Retraction removes a fact from search and model context at once; the value is cleared after `retracted_facts_days`, and a tombstone stays.
+- The knowledge service owns facts, relations and entities, and commits every change through the unit of work.
+
 ## 6. Ports
 
 All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send + Sync`.
@@ -222,6 +232,8 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `OperationRepo` | Read operations: one consistent snapshot, lists, executions, and the work that is dispatched or waiting; no write method | store, testkit | engine, hub |
 | `OperationWrite` | Write an operation's state inside one `UnitOfWork` commit: operation, steps, edges, executions and incident links | store, testkit | engine |
 | `EffectCancel` | Cancel the pending effects of one operation, and only of that operation | store, testkit | engine |
+| `KnowledgeRead` | Read facts, relations and entities, and search live facts | store, testkit | engine |
+| `ManagementCoverage` | Whether a verified helper attestation covers a management path on a host | engine (unavailable until the helper attestation ships), testkit | engine |
 
 Effect claims on `EffectQueue` are scoped to one aggregate: a claim names the operation whose effects it may take, and an empty scope claims nothing (ADR 0025).
 
@@ -298,7 +310,8 @@ flowchart LR
 - SQLite in WAL mode via `sqlx` with runtime-checked queries; every query is covered by an integration test against a temporary database.
 - Migrations are embedded with `sqlx::migrate!` and run at start-up after an automatic `VACUUM INTO` backup. A binary ignores applied migrations it does not know.
 - Timestamps are stored as `INTEGER` unix milliseconds UTC; IDs as `TEXT`.
-- Tables (v0.1): `hosts`, `agents`, `enrollment_tokens`, `signals`, `incidents`, `incident_signals`, `incident_events` (timeline), `actions`, `audit_log`, `ack_rules`, `maintenance_windows`, `baselines`, `notes` + `notes_fts` (FTS5), `incidents_fts`, `triage_cache`, `llm_usage`, `digests`, `advisories`, `users`, `sessions`, `settings`, `journal`, `effects`, `schema_compat`, `audit_anchor`.
+- Tables (v0.1): `hosts`, `agents`, `enrollment_tokens`, `signals`, `incidents`, `incident_signals`, `incident_events` (timeline), `actions`, `audit_log`, `ack_rules`, `maintenance_windows`, `baselines`, `notes` + `notes_fts` (FTS5), `incidents_fts`, `triage_cache`, `llm_usage`, `metric_samples`, `advisories`, `users`, `sessions`, `settings`, `journal`, `effects`, `schema_compat`, `audit_anchor`.
+- Knowledge (migration `0016_knowledge_store.sql`): `facts`, `facts_fts` (FTS5 over live facts), `relations`, `entities`, `management_path_confirmations`. `digest_facts` is a view over `metric_samples` with an insert trigger, kept for one release.
 - `incidents` and `notes` carry an optimistic `version` column: a write names the version it read, and a mismatch rolls the whole transaction back.
 - `incident_events` is still the timeline every reader uses, and the store also writes a mirrored `journal` row (`incident.timeline`) for each new entry in the same commit; rows written before that dual-write are not mirrored yet.
 - `journal` is the operational record in commit order, `effects` is the work outbox and `schema_compat` records the lowest binary version that can read the schema.
@@ -315,6 +328,7 @@ flowchart LR
 - **OpenAPI:** handlers are annotated with `utoipa`; `cargo xtask openapi` writes `web/src/api/openapi.json`; `npm run gen:api` turns it into `schema.d.ts`; the SPA calls the API only through a typed `openapi-fetch` client in `web/src/api`.
 - **SPA:** React + TypeScript + Vite in `web/`, built to `web/dist`, embedded with `rust-embed` behind the `embed-ui` feature. Security headers: strict CSP (`default-src 'self'`), `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`.
 - **Web structure:** `src/app` (router, providers), `src/api` (generated types, client, CSRF), `src/features/<feature>` (pages, components, hooks), `src/components` (shared UI). ESLint forbids `fetch` outside `src/api`.
+- **Knowledge:** `/api/v1/knowledge` reads and writes facts, relations and entities, and lists management paths; see the [HTTP API reference](docs/book/src/reference/api.md#knowledge).
 - **Operations:** `GET /api/v1/operations` (filters: status, incident, host, kind), `GET /api/v1/operations/{id}` (the operation, its trace and its executions), `GET /api/v1/operations/{id}/trace` (the frozen trace schema, with `as_of_seq`), `GET /api/v1/operations/{id}/steps/{step}`, and `POST /api/v1/operations/{id}/steps/{step}/approve` and `.../deny`. Reads report the journal position read before the data. Without `[orchestration] enabled` the list is empty and the others answer 503. Actions created by the old path stay readable, read-only, in `GET /api/v1/actions` and `GET /api/v1/actions/{id}` with `legacy: true`; nothing is converted or invented for them. The legacy `POST /api/v1/actions/{id}/approve` and `.../deny` routes no longer exist.
 - **Capability inventory:** `GET /api/v1/hosts/{name}/capabilities` returns one row per contract the hub knows, with its state, its catalogue state, its effect class, its execution path and the two agent labels (`root_agent`, `runner_installed`), plus the ids the agent reported that no contract describes. The `/capabilities` page renders it read-only: it enables, disables and approves nothing, and an `available` row is never a promise that a run will proceed.
 

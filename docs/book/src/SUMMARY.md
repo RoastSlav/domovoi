@@ -21,6 +21,7 @@
 - [Operations](concepts/operations.md)
 - [Capabilities](concepts/capabilities.md)
 - [Policy](concepts/policy.md)
+- [Knowledge](concepts/knowledge.md)
 - [Digest and advisories](concepts/digest.md)
 - [Logs in the web UI](concepts/logs.md)
 

@@ -198,6 +198,9 @@ pub struct Api {
     pub manager_task: tokio::task::JoinHandle<()>,
     /// What the policy service's publication review and simulator know of hosts.
     pub policy_env: Arc<crate::policy_env::PolicyFakeEnv>,
+    /// The management-path coverage the knowledge service asks; unavailable until a test
+    /// calls `cover`.
+    pub coverage: Arc<domovoi_testkit::FakeCoverage>,
 }
 
 /// The variable that locks `triage.concurrency` in the settings tests.
@@ -467,6 +470,7 @@ async fn build(
         settings: store.clone(),
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        knowledge: None,
     });
     let config = Arc::new(config);
     let policy_env = Arc::new(crate::policy_env::PolicyFakeEnv::new());
@@ -478,6 +482,15 @@ async fn build(
         clock: clock.clone(),
         shadow_enabled: true,
     });
+    let coverage = Arc::new(domovoi_testkit::FakeCoverage::unavailable());
+    let knowledge = Arc::new(domovoi_engine::knowledge::KnowledgeService::new(
+        domovoi_engine::knowledge::KnowledgeDeps {
+            uow: store.clone(),
+            read: store.clone(),
+            coverage: coverage.clone(),
+            clock: clock.clone(),
+        },
+    ));
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: triage.clone(),
@@ -493,6 +506,11 @@ async fn build(
         clock: clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
         policy,
+        knowledge: domovoi_hub::services::KnowledgeCommands::new(
+            knowledge,
+            store.clone(),
+            auth.clone(),
+        ),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -544,6 +562,7 @@ async fn build(
         dir,
         manager_task,
         policy_env,
+        coverage,
     }
 }
 

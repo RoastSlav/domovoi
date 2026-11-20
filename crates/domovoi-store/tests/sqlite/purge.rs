@@ -28,6 +28,7 @@ fn policy_days(n: i64) -> RetentionPolicy {
         notifications: days(n),
         triage: days(n),
         resolved_advisories: days(n),
+        retracted_facts: days(n),
     }
 }
 

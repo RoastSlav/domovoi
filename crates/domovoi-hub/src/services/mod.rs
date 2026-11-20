@@ -16,6 +16,7 @@ mod briefing;
 mod caller;
 mod hosts;
 mod incidents;
+mod knowledge;
 mod operations;
 mod policy;
 mod policy_publish;
@@ -26,7 +27,7 @@ use std::sync::Arc;
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
+    AdvisoryRepo, Clock, HostRepo, IncidentRepo, MetricSampleRepo, OperationRepo, Redactor,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;
@@ -36,6 +37,7 @@ pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
 pub use incidents::{FollowUpError, IncidentService, RetriageError, Retriaged, latest_triage};
+pub use knowledge::{KNOWLEDGE_PASSWORD_REQUIRED, KnowledgeCommandError, KnowledgeCommands};
 pub use operations::{
     ANSWER_MAX, BudgetExtension, CANCEL_REASON_MAX, DEFAULT_CANCEL_REASON, EXTEND_MAX_COUNT,
     EXTEND_MAX_ENTRIES, EXTEND_MAX_MEASURED, OperationCommandError, OperationCommands, StepRef,
@@ -67,6 +69,8 @@ pub struct Services {
     pub briefing: BriefingService,
     /// Policy drafts, versions, previews and the simulator.
     pub policy: PolicyService,
+    /// Facts, relations and entities the hub knows.
+    pub knowledge: KnowledgeCommands,
 }
 
 /// What the services are built from.
@@ -84,7 +88,7 @@ pub struct ServicesDeps {
     /// Hosts, read only.
     pub hosts: Arc<dyn HostRepo>,
     /// Digest facts.
-    pub facts: Arc<dyn FactRepo>,
+    pub facts: Arc<dyn MetricSampleRepo>,
     /// Advisories.
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Presence and catalogues of agents.
@@ -99,6 +103,8 @@ pub struct ServicesDeps {
     pub redactor: Arc<dyn Redactor>,
     /// The policy use cases.
     pub policy: PolicyService,
+    /// The knowledge use cases.
+    pub knowledge: KnowledgeCommands,
 }
 
 impl Services {
@@ -133,6 +139,7 @@ impl Services {
                 profiles: deps.profiles,
             },
             policy: deps.policy,
+            knowledge: deps.knowledge,
         }
     }
 }

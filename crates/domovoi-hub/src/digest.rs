@@ -5,7 +5,7 @@ use std::sync::Arc;
 use domovoi_config::HubConfig;
 use domovoi_core::HostDigest;
 use domovoi_core::ports::{
-    AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentFilter, IncidentRepo, Page, StoreError,
+    AdvisoryRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, MetricSampleRepo, Page, StoreError,
 };
 use domovoi_engine::digest::{DigestInputs, build_digest};
 use jiff::SignedDuration;
@@ -18,7 +18,7 @@ pub(crate) struct DigestDeps {
     pub(crate) config: Arc<HubConfig>,
     pub(crate) clock: Arc<dyn Clock>,
     pub(crate) hosts: Arc<dyn HostRepo>,
-    pub(crate) facts: Arc<dyn FactRepo>,
+    pub(crate) facts: Arc<dyn MetricSampleRepo>,
     pub(crate) incidents: Arc<dyn IncidentRepo>,
     pub(crate) advisories: Arc<dyn AdvisoryRepo>,
 }

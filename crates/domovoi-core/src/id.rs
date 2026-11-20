@@ -156,6 +156,20 @@ define_id!(
     PolicyVersionId
 );
 
+define_id!(
+    /// Identifies one stored knowledge fact row. It is not `capability::FactId`, which names a
+    /// safety-critical fact the policy evaluator reads.
+    FactRecordId
+);
+define_id!(
+    /// Identifies a stored relation between two subjects.
+    RelationId
+);
+define_id!(
+    /// Identifies a subject the owner invented, such as a VPN or a NAS pool.
+    EntityId
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

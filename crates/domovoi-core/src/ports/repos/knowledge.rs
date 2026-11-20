@@ -98,9 +98,9 @@ pub trait AdvisoryRepo: Send + Sync {
     async fn resolve(&self, id: AdvisoryId, at: Timestamp) -> Result<(), StoreError>;
 }
 
-/// Digest facts contributed by checks and skills.
+/// Metric samples (the wire calls them digest facts) contributed by checks and skills.
 #[async_trait]
-pub trait FactRepo: Send + Sync {
+pub trait MetricSampleRepo: Send + Sync {
     /// Appends a fact. Facts are never replaced; the digest picks the latest per key.
     async fn record(&self, fact: &DigestFact) -> Result<(), StoreError>;
 

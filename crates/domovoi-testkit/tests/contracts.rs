@@ -15,6 +15,17 @@ macro_rules! contract_tests {
 }
 
 contract_tests! {
+    in_memory_fact_insert_and_update_advance_versions_and_journal_together => fact_insert_and_update_advance_versions_and_journal_together,
+    in_memory_stale_fact_version_conflicts_and_changes_nothing => stale_fact_version_conflicts_and_changes_nothing,
+    in_memory_retracted_fact_leaves_search_but_stays_listable_by_status => retracted_fact_leaves_search_but_stays_listable_by_status,
+    in_memory_live_value_is_unique_per_subject_and_predicate => live_value_is_unique_per_subject_and_predicate,
+    in_memory_retracted_fact_cannot_be_updated => retracted_fact_cannot_be_updated,
+    in_memory_confirmation_upserts_and_is_read_back => confirmation_upserts_and_is_read_back,
+    in_memory_relation_live_edge_is_unique => relation_live_edge_is_unique,
+    in_memory_entity_names_are_unique_ignoring_case_and_versions_are_checked => entity_names_are_unique_ignoring_case_and_versions_are_checked,
+    in_memory_facts_page_orders_newest_first_and_resumes_from_the_cursor => facts_page_orders_newest_first_and_resumes_from_the_cursor,
+    in_memory_search_matches_whole_words_in_live_facts_only => search_matches_whole_words_in_live_facts_only,
+    in_memory_entity_in_use_sees_subjects_endpoints_and_depends_on_values => entity_in_use_sees_subjects_endpoints_and_depends_on_values,
     in_memory_host_repo_satisfies_contract => host_repo_contract,
     enrollment_token_is_single_use_in_memory => enrollment_token_is_single_use,
     expired_token_is_rejected_in_memory => expired_token_is_rejected,
@@ -26,7 +37,7 @@ contract_tests! {
     in_memory_baseline_repo_satisfies_contract => baseline_repo_contract,
     in_memory_ack_repo_satisfies_contract => ack_repo_contract,
     in_memory_advisory_repo_satisfies_contract => advisory_repo_contract,
-    in_memory_fact_repo_satisfies_contract => fact_repo_contract,
+    in_memory_metric_sample_repo_satisfies_contract => metric_sample_repo_contract,
     in_memory_triage_cache_repo_satisfies_contract => triage_cache_repo_contract,
     in_memory_usage_repo_satisfies_contract => usage_repo_contract,
     in_memory_admission_repo_satisfies_contract => admission_repo_contract,

@@ -11,6 +11,10 @@ pub const SYSTEM_INCIDENTS: &str = "incidents";
 pub const SYSTEM_ACTIONS: &str = "actions";
 /// The operation writer.
 pub const SYSTEM_OPERATIONS: &str = "operations";
+/// The knowledge service: sweeps and service-internal changes.
+pub const SYSTEM_KNOWLEDGE: &str = "knowledge";
+/// The host profile task.
+pub const SYSTEM_PROFILE: &str = "profile";
 /// The audit verifier, which records a broken chain at hub start.
 pub const SYSTEM_AUDIT: &str = "audit";
 

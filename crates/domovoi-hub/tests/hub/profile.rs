@@ -48,7 +48,7 @@ const KERNEL_TEXT: &str =
 const SKILL_TEXT: &str = "listening_ports: 2049 ephemeris (nfs)";
 
 /// What the agent said its machine is, as a handshake would.
-fn handshake(when: Timestamp) -> HostFacts {
+pub(crate) fn handshake(when: Timestamp) -> HostFacts {
     HostFacts {
         hostname: "diskstation".to_owned(),
         os: "Debian GNU/Linux 13".to_owned(),
@@ -131,7 +131,7 @@ fn connect(a: &Api, id: HostId, version: &str) {
 }
 
 /// The connected agent of the harness host, its facts, its checks and its answers.
-fn seed(a: &Api, version: &str) {
+pub(crate) fn seed(a: &Api, version: &str) {
     connect(a, a.nas.id, version);
     a.link.set_checks(a.nas.id, announced());
     a.link.on_tool(|_, call| {
@@ -143,7 +143,7 @@ fn seed(a: &Api, version: &str) {
 }
 
 /// The hub's pieces put together as the profile task and the API use them.
-fn profile_deps(a: &Api) -> ProfileDeps {
+pub(crate) fn profile_deps(a: &Api) -> ProfileDeps {
     ProfileDeps {
         evidence: Evidence::new(
             evidence_caps(a.link.clone()),
@@ -161,6 +161,7 @@ fn profile_deps(a: &Api) -> ProfileDeps {
         settings: a.store.clone(),
         clock: a.clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        knowledge: None,
     }
 }
 
@@ -391,6 +392,7 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
         settings: a.store.clone(),
         clock: a.clock.clone(),
         redactor: Arc::new(PatternRedactor::default()),
+        knowledge: None,
     };
     let profile = refresh(&deps, &a.nas).await.unwrap();
     let titles = profile

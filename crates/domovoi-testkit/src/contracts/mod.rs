@@ -12,6 +12,8 @@ mod hosts;
 mod incident_groups;
 mod incidents;
 mod knowledge;
+mod knowledge_store;
+mod knowledge_store_more;
 mod notify;
 mod operations;
 mod policy;
@@ -25,8 +27,21 @@ pub use admission::admission_repo_contract;
 pub use hosts::{enrollment_token_is_single_use, expired_token_is_rejected, host_repo_contract};
 pub use incidents::{incident_repo_contract, signal_repo_contract};
 pub use knowledge::{
-    ack_repo_contract, advisory_repo_contract, baseline_repo_contract, fact_repo_contract,
+    ack_repo_contract, advisory_repo_contract, baseline_repo_contract, metric_sample_repo_contract,
     note_repo_contract,
+};
+pub use knowledge_store::{
+    KnowledgeSubject, confirmation_upserts_and_is_read_back,
+    fact_insert_and_update_advance_versions_and_journal_together,
+    live_value_is_unique_per_subject_and_predicate, retracted_fact_cannot_be_updated,
+    retracted_fact_leaves_search_but_stays_listable_by_status,
+    stale_fact_version_conflicts_and_changes_nothing,
+};
+pub use knowledge_store_more::{
+    entity_in_use_sees_subjects_endpoints_and_depends_on_values,
+    entity_names_are_unique_ignoring_case_and_versions_are_checked,
+    facts_page_orders_newest_first_and_resumes_from_the_cursor, relation_live_edge_is_unique,
+    search_matches_whole_words_in_live_facts_only,
 };
 pub use notify::notify_state_repo_contract;
 pub use operations::*;

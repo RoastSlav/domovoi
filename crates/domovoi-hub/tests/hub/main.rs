@@ -45,6 +45,8 @@ mod harness;
 #[cfg(test)]
 mod interactions;
 #[cfg(test)]
+mod knowledge_api;
+#[cfg(test)]
 mod legacy_retirement;
 #[cfg(test)]
 mod operation_controls;
@@ -64,6 +66,7 @@ mod policy_env;
 mod presence;
 #[cfg(test)]
 mod profile;
+mod profile_backfill;
 #[cfg(test)]
 mod readiness;
 #[cfg(test)]

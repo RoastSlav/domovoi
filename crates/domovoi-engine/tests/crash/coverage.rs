@@ -22,8 +22,9 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
-const COMMIT_SITES: [&str; 7] = [
+const COMMIT_SITES: [&str; 8] = [
     "effects/runner.rs",
+    "knowledge/service.rs",
     "legacy.rs",
     "manager/actor.rs",
     "operations/startup.rs",

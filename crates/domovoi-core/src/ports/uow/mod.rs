@@ -2,6 +2,7 @@
 
 mod effects;
 mod journal;
+mod knowledge_refs;
 mod lifecycle;
 mod operations;
 mod topic;

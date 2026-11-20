@@ -451,6 +451,6 @@ impl AdvisoryFacts for Store {
         from: Timestamp,
         until: Timestamp,
     ) -> Result<Vec<DigestFact>, domovoi_core::ports::StoreError> {
-        domovoi_core::ports::FactRepo::list(self, host, from, until).await
+        domovoi_core::ports::MetricSampleRepo::list(self, host, from, until).await
     }
 }

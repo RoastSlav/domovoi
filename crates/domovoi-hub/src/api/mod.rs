@@ -7,6 +7,7 @@
 
 pub mod dto;
 pub mod dto_admin;
+pub mod dto_knowledge;
 pub mod dto_operations;
 pub mod dto_policy;
 pub mod dto_policy_query;
@@ -26,6 +27,8 @@ mod followups;
 mod host_docker;
 pub(crate) mod hosts;
 pub(crate) mod incidents;
+mod knowledge;
+mod knowledge_graph;
 mod logs;
 mod notes;
 mod operation_controls;
@@ -52,7 +55,7 @@ use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::HostName;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LogSource, MetricSampleRepo,
     NoteRepo, Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_engine::ManagerHandle;
@@ -94,7 +97,7 @@ pub struct ApiDeps {
     /// Advisories.
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Digest facts.
-    pub facts: Arc<dyn FactRepo>,
+    pub facts: Arc<dyn MetricSampleRepo>,
     /// Model usage for the settings page.
     pub usage: Arc<dyn UsageRepo>,
     /// Ack rules ("known conditions"), read for the list and written by the UI.
@@ -269,6 +272,7 @@ pub(crate) async fn host_named(
         (name = "actions", description = "Retired legacy actions, read only"),
         (name = "operations", description = "Operations, their steps and step approvals"),
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
+        (name = "knowledge", description = "Facts, relations and entities the hub knows"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "system", description = "Settings, advisories, digest, events and health")
@@ -332,6 +336,26 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(policy_shadow::simulate))
         .routes(routes!(policy_shadow::list))
         .routes(routes!(policy_shadow::detail))
+        .routes(routes!(knowledge::list, knowledge::assert_fact))
+        .routes(routes!(knowledge::get))
+        .routes(routes!(knowledge::accept))
+        .routes(routes!(knowledge::retract))
+        .routes(routes!(knowledge::verify))
+        .routes(routes!(knowledge::confirm))
+        .routes(routes!(knowledge::management_paths))
+        .routes(routes!(
+            knowledge_graph::list_relations,
+            knowledge_graph::assert_relation
+        ))
+        .routes(routes!(knowledge_graph::retract_relation))
+        .routes(routes!(
+            knowledge_graph::list_entities,
+            knowledge_graph::create_entity
+        ))
+        .routes(routes!(
+            knowledge_graph::rename_entity,
+            knowledge_graph::delete_entity
+        ))
         .routes(routes!(hosts::list))
         .routes(routes!(hosts::detail))
         .routes(routes!(hosts::enrollment))

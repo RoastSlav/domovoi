@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteHit, NoteRepo, StoreError,
+    AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo, StoreError,
 };
 use domovoi_core::{
     AckRule, AckRuleId, Advisory, AdvisoryId, BaselineEntry, BaselineKind, DigestFact, HostId,
@@ -241,7 +241,7 @@ impl AdvisoryRepo for InMemoryStore {
 }
 
 #[async_trait]
-impl FactRepo for InMemoryStore {
+impl MetricSampleRepo for InMemoryStore {
     async fn record(&self, fact: &DigestFact) -> Result<(), StoreError> {
         self.begin()?.facts.push(fact.clone());
         Ok(())

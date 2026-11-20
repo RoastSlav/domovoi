@@ -25,6 +25,14 @@ mod gates;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod knowledge;
+#[cfg(test)]
+mod knowledge_graph;
+#[cfg(test)]
+mod knowledge_paths;
+#[cfg(test)]
+mod knowledge_source;
+#[cfg(test)]
 mod limits;
 #[cfg(test)]
 mod liveness;

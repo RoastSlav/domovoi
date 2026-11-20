@@ -55,6 +55,7 @@ pub(super) fn apply(
         StateWrite::Note { note, expected } => apply_note(state, note, *expected, receipt),
         StateWrite::Operation(write) => super::uow_operations::apply(state, write, receipt),
         StateWrite::Policy(write) => super::policy::apply(state, write),
+        StateWrite::Knowledge(write) => super::knowledge_apply::apply(state, write, receipt),
     }
 }
 

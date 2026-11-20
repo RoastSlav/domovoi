@@ -612,6 +612,197 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists entities. */
+        get: operations["list_entities"];
+        put?: never;
+        /** Creates an entity. */
+        post: operations["create_entity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/entities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Renames an entity. */
+        put: operations["rename_entity"];
+        post?: never;
+        /** Deletes an entity nothing refers to. */
+        delete: operations["delete_entity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists facts, or searches them when `q` is given. */
+        get: operations["list_facts"];
+        put?: never;
+        /** States a fact as the owner. A safety-critical predicate needs the password. */
+        post: operations["assert_fact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One fact. */
+        get: operations["get_fact"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Makes a fact the owner's own. A safety-critical predicate needs the password. */
+        post: operations["accept_fact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirms a management path against the helper's verified coverage. Needs the password. */
+        post: operations["confirm_management_path"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts/{id}/retract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraws a fact. It only removes trust, so it needs no password. */
+        post: operations["retract_fact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/facts/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Says a fact still holds. A safety-critical predicate needs the password. */
+        post: operations["verify_fact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/hosts/{name}/management-paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A host's management paths. */
+        get: operations["list_management_paths"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/relations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lists relations. */
+        get: operations["list_relations"];
+        put?: never;
+        /** States a relation as the owner. */
+        post: operations["assert_relation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/relations/{id}/retract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraws a relation. */
+        post: operations["retract_relation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notes": {
         parameters: {
             query?: never;
@@ -1813,6 +2004,41 @@ export interface components {
              */
             values: Record<string, never>;
         };
+        /** @description Creating an entity. */
+        EntityCreate: {
+            /** @description A lowercase slug of 1 to 32 characters. */
+            kind: string;
+            /** @description A name of 1 to 80 characters, unique ignoring case. */
+            name: string;
+        };
+        /** @description One entity. */
+        EntityDto: {
+            /** @description When it was created. */
+            created_at: string;
+            /** @description The owner who created it. */
+            created_by: string;
+            /** @description Entity id. */
+            id: string;
+            /** @description The kind, a lowercase slug. */
+            kind: string;
+            /** @description The name. */
+            name: string;
+            /**
+             * Format: int64
+             * @description The version a later change must name.
+             */
+            version: number;
+        };
+        /** @description Renaming an entity. */
+        EntityRename: {
+            /**
+             * Format: int64
+             * @description The version the client read.
+             */
+            expected_version: number;
+            /** @description The new name. */
+            name: string;
+        };
         /** @description The body of every error response. */
         ErrorBody: {
             /** @description A stable machine-readable code, for example `not_found`. */
@@ -2189,6 +2415,86 @@ export interface components {
             /** @description `error` or `warning`. */
             severity: string;
         };
+        /** @description An action on one fact, at the version the client read. */
+        KnowledgeFactAction: {
+            /**
+             * Format: int64
+             * @description The version the client read.
+             */
+            expected_version: number;
+            /** @description The password, needed to verify or accept a safety-critical fact and to confirm a path. */
+            password?: string | null;
+        };
+        /** @description One fact. */
+        KnowledgeFactDto: {
+            /** @description Who wrote it. */
+            actor: string;
+            /** @description Whether the retention purge cleared its content. */
+            content_purged: boolean;
+            /** @description When it was written. */
+            created_at: string;
+            /** @description What it was derived from. */
+            evidence?: string | null;
+            /** @description When it stops being fresh. */
+            fresh_until?: string | null;
+            /** @description Fact id. */
+            id: string;
+            /** @description When it was last confirmed. */
+            last_verified_at?: string | null;
+            /** @description When it was last seen to hold. */
+            observed_at: string;
+            /** @description The predicate. */
+            predicate: string;
+            /** @description When it was retracted. */
+            retracted_at?: string | null;
+            /** @description `user`, `discovered`, `integration`, `inferred` or `imported`. */
+            source: string;
+            /** @description The status now: `current`, `stale`, `disputed`, `superseded` or `retracted`. */
+            status: string;
+            /** @description The status stored in the row. */
+            stored_status: string;
+            /** @description The subject reference. */
+            subject: string;
+            /** @description The fact it replaced. */
+            supersedes?: string | null;
+            /** @description After this time it no longer holds. */
+            valid_until?: string | null;
+            /** @description The value; `null` once the retention purge cleared it. */
+            value?: unknown;
+            /**
+             * Format: int64
+             * @description The version a later change must name.
+             */
+            version: number;
+        };
+        /**
+         * @description Facts to assert. The source is always the signed-in owner; a `source` or `actor` field is
+         *     refused.
+         */
+        KnowledgeFactInput: {
+            /** @description What it was derived from, as `<kind>:<id>`. */
+            evidence?: string | null;
+            /** @description The password, needed for safety-critical predicates. */
+            password?: string | null;
+            /** @description The predicate, for example `role`. */
+            predicate: string;
+            /**
+             * @description The subject: `host:<id>`, `container:<host id>/<name>`, `unit:<host id>/<name>` or
+             *     `entity:<id>`.
+             */
+            subject: string;
+            /** @description After this time the fact no longer holds. */
+            valid_until?: string | null;
+            /** @description The value; its shape depends on the predicate. */
+            value: unknown;
+        };
+        /** @description A page of facts. */
+        KnowledgeFactPageDto: {
+            /** @description The facts, newest first. */
+            items: components["schemas"]["KnowledgeFactDto"][];
+            /** @description Pass as `cursor` for the next page; `null` on the last. */
+            next_cursor?: string | null;
+        };
         /** @description What the recorder did in the last 24 hours. */
         Last24hDto: {
             /** @description By enforced outcome. */
@@ -2250,6 +2556,26 @@ export interface components {
             password: string;
             /** @description Login name. */
             username: string;
+        };
+        /** @description One management path. */
+        ManagementPathDto: {
+            confirmation?: components["schemas"]["PathConfirmationDto"] | null;
+            /** @description The path fact. */
+            fact: components["schemas"]["KnowledgeFactDto"];
+            /** @description `candidate`, `unconfirmed`, `confirmed` or `stale`. */
+            state: string;
+        };
+        /** @description A host's management paths. */
+        ManagementPathsDto: {
+            /**
+             * @description Whether the hub can currently verify the helper's coverage; paths cannot be confirmed
+             *     while it cannot.
+             */
+            coverage_available: boolean;
+            /** @description The host name. */
+            host: string;
+            /** @description The paths, by range. */
+            paths: components["schemas"]["ManagementPathDto"][];
         };
         /** @description Models available to a candidate provider. */
         ModelsDto: {
@@ -2441,6 +2767,13 @@ export interface components {
             /** @description Whether it must be given. */
             required: boolean;
         };
+        /** @description The confirmation of a management path. The helper's evidence is not returned. */
+        PathConfirmationDto: {
+            /** @description When. */
+            confirmed_at: string;
+            /** @description Who confirmed it. */
+            confirmed_by: string;
+        };
         /** @description Why an operation is paused. */
         PauseReasonDto: {
             /** @description For `budget`: the limit that ran out. */
@@ -2614,6 +2947,66 @@ export interface components {
             failing: string[];
             /** @description True when no check failed. */
             ready: boolean;
+        };
+        /** @description One relation. */
+        RelationDto: {
+            /** @description Who wrote it. */
+            actor: string;
+            /** @description Whether the retention purge cleared its endpoints. */
+            content_purged: boolean;
+            /** @description When it was written. */
+            created_at: string;
+            /** @description What it was derived from. */
+            evidence?: string | null;
+            /** @description The source end; `null` once the retention purge cleared it. */
+            from?: string | null;
+            /** @description Relation id. */
+            id: string;
+            /** @description What the edge means. */
+            kind: string;
+            /** @description When it was last seen to hold. */
+            observed_at: string;
+            /** @description When it was retracted. */
+            retracted_at?: string | null;
+            /** @description Where it came from. */
+            source: string;
+            /** @description The status now. */
+            status: string;
+            /** @description The status stored in the row. */
+            stored_status: string;
+            /** @description The target end; `null` once the retention purge cleared it. */
+            to?: string | null;
+            /**
+             * Format: int64
+             * @description The version a later change must name.
+             */
+            version: number;
+        };
+        /** @description A relation to assert. The source is always the signed-in owner. */
+        RelationInput: {
+            /** @description What it was derived from, as `<kind>:<id>`. */
+            evidence?: string | null;
+            /** @description The source end, a subject reference. */
+            from: string;
+            /** @description `depends_on`, `runs_on`, `routes_to`, `stores_on`, `backs_up_to` or `managed_from`. */
+            kind: string;
+            /** @description The target end, a subject reference. */
+            to: string;
+        };
+        /** @description A page of relations. */
+        RelationPageDto: {
+            /** @description The relations, newest first. */
+            items: components["schemas"]["RelationDto"][];
+            /** @description Pass as `cursor` for the next page; `null` on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description Retracting a relation. */
+        RelationRetractInput: {
+            /**
+             * Format: int64
+             * @description The version the client read.
+             */
+            expected_version: number;
         };
         /** @description One re-run decision next to the recorded one. */
         ReplayedDto: {
@@ -5021,6 +5414,830 @@ export interface operations {
                 };
             };
             /** @description Not muted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_entities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entities, by name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityDto"];
+                };
+            };
+            /** @description The kind or name is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description An entity with this name exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rename_entity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntityRename"];
+            };
+        };
+        responses: {
+            /** @description Renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityDto"];
+                };
+            };
+            /** @description The name is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such entity */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The name is taken, or someone changed it meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_entity: {
+        parameters: {
+            query: {
+                /** @description The version the client read. */
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                /** @description The entity id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such entity */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Still in use, or someone changed it meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_facts: {
+        parameters: {
+            query?: {
+                /** @description Host name. */
+                host?: string;
+                /** @description A subject reference. */
+                subject?: string;
+                /** @description A predicate. */
+                predicate?: string;
+                /** @description A source. */
+                source?: string;
+                /** @description Comma-separated statuses; default is every live status. */
+                status?: string;
+                /** @description Full-text search; ignores `cursor` and sets no `next_cursor`. */
+                q?: string;
+                /** @description Page size, default 50, at most 200 (50 with `q`). */
+                limit?: number;
+                /** @description Cursor from the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The facts, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactPageDto"];
+                };
+            };
+            /** @description A filter value is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    assert_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFactInput"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactDto"];
+                };
+            };
+            /** @description The fact is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The fact id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The fact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such fact */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    accept_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The fact id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFactAction"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such fact */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The fact is not live, or someone changed it meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    confirm_management_path: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The fact id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFactAction"];
+            };
+        };
+        responses: {
+            /** @description Confirmed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagementPathDto"];
+                };
+            };
+            /** @description The fact is not a management path */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such fact */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not the owner's, not live, not covered, or coverage cannot be verified */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    retract_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The fact id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFactAction"];
+            };
+        };
+        responses: {
+            /** @description Retracted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such fact */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The fact is not live, or someone changed it meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    verify_fact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The fact id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFactAction"];
+            };
+        };
+        responses: {
+            /** @description Verified */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFactDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such fact */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The fact is not live, or someone changed it meanwhile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_management_paths: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The paths and whether coverage can be verified */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagementPathsDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_relations: {
+        parameters: {
+            query?: {
+                /** @description A subject reference matched at either end. */
+                subject?: string;
+                /** @description A relation kind. */
+                kind?: string;
+                /** @description Whether retracted relations are listed too. */
+                include_retracted?: boolean;
+                /** @description Page size, default 50, at most 200. */
+                limit?: number;
+                /** @description Cursor from the previous page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The relations, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationPageDto"];
+                };
+            };
+            /** @description A filter value is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    assert_relation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationInput"];
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationDto"];
+                };
+            };
+            /** @description The relation is not valid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    retract_relation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The relation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationRetractInput"];
+            };
+        };
+        responses: {
+            /** @description Retracted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such relation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not live, or someone changed it meanwhile */
             409: {
                 headers: {
                     [name: string]: unknown;

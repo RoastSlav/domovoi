@@ -138,6 +138,7 @@ pub(super) async fn apply(
         StateWrite::Note { note, expected } => apply_note(conn, note, *expected, receipt).await,
         StateWrite::Operation(write) => super::operations::apply(conn, write, receipt).await,
         StateWrite::Policy(write) => crate::policy::apply(conn, write, receipt).await,
+        StateWrite::Knowledge(write) => crate::facts::apply(conn, write, receipt).await,
     }
 }
 

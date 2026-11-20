@@ -25,6 +25,12 @@ pub enum AggregateKind {
     Operation,
     /// A policy version, draft or published.
     Policy,
+    /// A knowledge fact.
+    Fact,
+    /// A knowledge relation.
+    Relation,
+    /// A knowledge entity.
+    Entity,
 }
 
 impl AggregateKind {
@@ -42,6 +48,9 @@ impl AggregateKind {
             Self::Note => "note",
             Self::Operation => "operation",
             Self::Policy => "policy",
+            Self::Fact => "fact",
+            Self::Relation => "relation",
+            Self::Entity => "entity",
         }
     }
 
@@ -54,6 +63,9 @@ impl AggregateKind {
             "note" => Some(Self::Note),
             "operation" => Some(Self::Operation),
             "policy" => Some(Self::Policy),
+            "fact" => Some(Self::Fact),
+            "relation" => Some(Self::Relation),
+            "entity" => Some(Self::Entity),
             _ => None,
         }
     }
@@ -240,6 +252,8 @@ pub enum StateWrite {
     Operation(OperationWrite),
     /// One change to the policy store: a draft, a publication or a batch of shadow decisions.
     Policy(PolicyWrite),
+    /// One change to the knowledge store: a fact, a relation, an entity or a confirmation.
+    Knowledge(crate::knowledge::KnowledgeWrite),
 }
 
 /// Everything one business event changes.

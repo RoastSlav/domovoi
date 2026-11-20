@@ -35,8 +35,8 @@ pub struct RetentionSection {
     /// are stored apart from the audit log. Default 30.
     #[serde(default = "d30")]
     pub execution_outputs_days: u32,
-    /// Days the content of a retracted fact is kept. Not applied yet: applies once
-    /// knowledge facts exist. Default 30.
+    /// Days the content of a retracted fact or relation is kept; its tombstone stays.
+    /// Default 30.
     #[serde(default = "d30")]
     pub retracted_facts_days: u32,
 }
@@ -140,7 +140,7 @@ pub const RETENTION_KEYS: &[RetentionKey] = &[
     RetentionKey {
         key: "retracted_facts_days",
         default_days: 30,
-        applies: Applies::Once("knowledge facts exist"),
+        applies: Applies::Now,
     },
 ];
 
@@ -190,11 +190,7 @@ mod tests {
             .collect();
         assert_eq!(
             unbuilt,
-            vec![
-                "operation_journal_days",
-                "execution_outputs_days",
-                "retracted_facts_days"
-            ]
+            vec!["operation_journal_days", "execution_outputs_days"]
         );
         for entry in RETENTION_KEYS {
             match entry.applies {

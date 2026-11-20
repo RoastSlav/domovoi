@@ -11,6 +11,7 @@ pub mod chat;
 pub mod clock;
 pub mod context;
 pub mod hostfs;
+pub mod knowledge;
 pub mod llm;
 pub mod logs;
 pub mod process;
@@ -39,6 +40,7 @@ pub use chat::{
 pub use clock::Clock;
 pub use context::ContextSource;
 pub use hostfs::{FsError, HostFs};
+pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};
 pub use llm::{
     LlmCapability, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role,
     StopReason, ToolSpec, Usage, UsageSource,

@@ -1,6 +1,8 @@
 //! Contracts for notes, baselines, ack rules, maintenance windows, advisories and facts.
 
-use domovoi_core::ports::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteRepo, StoreError};
+use domovoi_core::ports::{
+    AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteRepo, StoreError,
+};
 use domovoi_core::{
     AckRule, AckRuleId, Advisory, AdvisoryId, AdvisoryKind, BaselineEntry, BaselineKind, CheckKey,
     Criticality, DigestFact, FactValue, HostId, MaintenanceWindow, Note, NoteId,
@@ -257,7 +259,7 @@ pub async fn advisory_repo_contract(repo: &dyn AdvisoryRepo) -> ContractResult {
 }
 
 /// Exercises fact recording and range queries on an empty `repo`.
-pub async fn fact_repo_contract(repo: &dyn FactRepo) -> ContractResult {
+pub async fn metric_sample_repo_contract(repo: &dyn MetricSampleRepo) -> ContractResult {
     let host = HostId::new();
     let fact = |host, secs, value: f64| DigestFact {
         host,

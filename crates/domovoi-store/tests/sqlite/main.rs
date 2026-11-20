@@ -26,6 +26,10 @@ mod durability;
 #[cfg(test)]
 mod journal_feed;
 #[cfg(test)]
+mod knowledge;
+#[cfg(test)]
+mod metric_samples;
+#[cfg(test)]
 mod migrations;
 #[cfg(test)]
 mod operations;
