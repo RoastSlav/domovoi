@@ -319,19 +319,11 @@ impl<S: SweepStore> World<S> {
         let _ = self.manager.tick().await;
     }
 
-    /// Waits until the manager's queue has drained and the operation service has no effect
-    /// in flight, so a read of the store is not torn by a commit landing between two of its
-    /// queries.
-    ///
-    /// Each round yields, drains the manager and looks for work in flight. Fifteen quiet
-    /// rounds, a second of time apart, also cover a pending verification, whose wait is at
-    /// most ten seconds here.
-    pub async fn quiesce(&self)
-    where
-        S: OperationRepo,
-    {
-        let mut quiet = 0;
-        for _ in 0..600 {
+    /// Lets the manager drain its queue over fifteen rounds a second of fake time apart, so a
+    /// read of the store is not torn by a commit landing between two of its queries. The
+    /// operation service is waited for separately, by [`World::operations_quiet`].
+    pub async fn quiesce(&self) {
+        for _ in 0..15 {
             for _ in 0..20 {
                 tokio::task::yield_now().await;
             }
@@ -339,17 +331,8 @@ impl<S: SweepStore> World<S> {
                 self.manager.tick().await.is_ok(),
                 "the manager stopped while waiting for it to go quiet"
             );
-            quiet = if self.operation_effects_busy().await {
-                0
-            } else {
-                quiet + 1
-            };
-            if quiet >= 15 {
-                return;
-            }
             self.advance(1);
         }
-        panic!("the services never went quiet");
     }
 
     /// Waits until the operation service has nothing left to do at the current fake time: no
