@@ -3,7 +3,9 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # Pushes to the integration branch seed the Rust caches that pull requests targeting it restore.
+    # Pull requests can only read caches written on their base branch or the default branch.
+    branches: [main, overhaul-investigation]
   merge_group:
 
 permissions:
@@ -304,10 +306,23 @@ jobs:
           npm run gen:api
           git diff --exit-code -- src/api
       - run: npm run build
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(npx playwright --version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - name: Install Chromium and its system libraries
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install Chromium system libraries (browser restored from cache)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - name: Browser smoke test
-        run: |
-          npx playwright install --with-deps chromium
-          npm run smoke
+        run: npm run smoke
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -354,6 +369,10 @@ jobs:
       - name: Install the pinned toolchain from rust-toolchain.toml
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: docs
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
       - run: cargo xtask docs-links
 
   metadata:
@@ -369,51 +388,36 @@ jobs:
 
   rust:
     name: Rust (fmt, clippy, tests, docs, arch-check)
+    # Starts as soon as the files are classified: nothing here needs the web build or the book check.
     if: ${{ !cancelled() }}
-    needs: [changes, web, web-build, docs-links, metadata]
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Check dependencies
+      - name: Check the classification
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
-          WEB_RESULT: ${{ needs.web.result }}
-          WEB_BUILD_RESULT: ${{ needs.web-build.result }}
-          DOCS_REQUIRED: ${{ needs.changes.outputs.docs_links }}
-          DOCS_RESULT: ${{ needs.docs-links.result }}
-          METADATA_REQUIRED: ${{ needs.changes.outputs.metadata_only }}
-          METADATA_RESULT: ${{ needs.metadata.result }}
         run: |
-          set -euo pipefail
           [[ "$CHANGES_RESULT" == success ]] || { echo "::error::Could not classify changed files."; exit 1; }
-          [[ "$WEB_RESULT" == success || "$WEB_RESULT" == skipped ]] || { echo "::error::Web checks did not pass."; exit 1; }
-          [[ "$WEB_BUILD_RESULT" == success || "$WEB_BUILD_RESULT" == skipped ]] || { echo "::error::Web build did not pass."; exit 1; }
-          check() {
-            local required="$1" result="$2" label="$3"
-            if [[ "$required" == true && "$result" != success ]]; then
-              echo "::error::$label did not pass (result: $result)."
-              exit 1
-            fi
-          }
-          check "$DOCS_REQUIRED" "$DOCS_RESULT" "Book links check"
-          check "$METADATA_REQUIRED" "$METADATA_RESULT" "Locked workspace metadata check"
       - name: Install the pinned toolchain from rust-toolchain.toml
         if: >-
           needs.changes.outputs.rust == 'true' ||
           needs.changes.outputs.architecture == 'true' ||
           needs.changes.outputs.openapi == 'true' ||
-          needs.changes.outputs.config_docs == 'true' ||
-          needs.changes.outputs.embedded_ui == 'true'
+          needs.changes.outputs.config_docs == 'true'
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
         if: >-
           needs.changes.outputs.rust == 'true' ||
           needs.changes.outputs.architecture == 'true' ||
           needs.changes.outputs.openapi == 'true' ||
-          needs.changes.outputs.config_docs == 'true' ||
-          needs.changes.outputs.embedded_ui == 'true'
+          needs.changes.outputs.config_docs == 'true'
       - uses: taiki-e/install-action@v2
         if: needs.changes.outputs.rust == 'true'
         with:
@@ -458,19 +462,56 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
+
+  embedded-ui:
+    name: Embedded UI (build, hub clippy, tests)
+    if: ${{ !cancelled() && needs.changes.outputs.embedded_ui == 'true' }}
+    needs: [changes, web, web-build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the web build
+        env:
+          WEB_RESULT: ${{ needs.web.result }}
+          WEB_BUILD_RESULT: ${{ needs.web-build.result }}
+        run: |
+          set -euo pipefail
+          [[ "$WEB_RESULT" == success || "$WEB_RESULT" == skipped ]] || { echo "::error::Web checks did not pass."; exit 1; }
+          [[ "$WEB_BUILD_RESULT" == success || "$WEB_BUILD_RESULT" == skipped ]] || { echo "::error::Web build did not pass."; exit 1; }
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: embedded-ui
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
       - uses: actions/download-artifact@v8
-        if: needs.changes.outputs.embedded_ui == 'true'
         with:
           name: web-dist
           path: web/dist
       - name: Build application with embedded UI
-        if: needs.changes.outputs.embedded_ui == 'true'
         run: cargo build --package domovoi --features embed-ui --locked
       - name: Hub with embedded UI (clippy, tests)
-        if: needs.changes.outputs.embedded_ui == 'true'
         run: |
           cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
           cargo test --package domovoi-hub --features embed-ui --locked
+
+  gate:
+    name: CI passed
+    if: ${{ always() }}
+    needs: [changes, pr-title, web, web-build, docs-links, metadata, rust, embedded-ui, deny, msrv, musl, actionlint, shellcheck, installer, units]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every check that ran passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" == failure || "$result" == cancelled ]]; then
+              echo "::error::A required CI job did not pass (results: $RESULTS)."
+              exit 1
+            fi
+          done
 
   deny:
     name: Supply chain (cargo-deny)
@@ -509,7 +550,9 @@ jobs:
           rustup target add x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
         with:
-          key: musl
+          shared-key: musl
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
       - run: cargo check --workspace --locked --target x86_64-unknown-linux-musl
 
   actionlint:
@@ -566,12 +609,15 @@ jobs:
   coverage:
     name: Coverage
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.coverage == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.coverage == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install && rustup component add llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+          cache-on-failure: true
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov,cargo-nextest

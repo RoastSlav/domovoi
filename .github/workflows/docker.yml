@@ -27,6 +27,10 @@ jobs:
           push: false
           load: true
           tags: domovoi:ci
+          # Web dependencies and the web build stay cached while their inputs are unchanged; the Rust
+          # layer rebuilds whenever any source file changes.
+          cache-from: type=gha,scope=hub-image
+          cache-to: type=gha,scope=hub-image,mode=max
       - name: version
         run: docker run --rm domovoi:ci version
       - name: selftest --offline
