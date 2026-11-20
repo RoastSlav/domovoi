@@ -26,7 +26,7 @@ contract_tests! {
     in_memory_baseline_repo_satisfies_contract => baseline_repo_contract,
     in_memory_ack_repo_satisfies_contract => ack_repo_contract,
     in_memory_advisory_repo_satisfies_contract => advisory_repo_contract,
-    in_memory_fact_repo_satisfies_contract => fact_repo_contract,
+    in_memory_metric_sample_repo_satisfies_contract => metric_sample_repo_contract,
     in_memory_triage_cache_repo_satisfies_contract => triage_cache_repo_contract,
     in_memory_usage_repo_satisfies_contract => usage_repo_contract,
     in_memory_admission_repo_satisfies_contract => admission_repo_contract,

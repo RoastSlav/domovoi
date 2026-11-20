@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use domovoi_config::HubConfig;
-use domovoi_core::ports::{AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, StoreError};
+use domovoi_core::ports::{AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, StoreError};
 use domovoi_core::{Host, HostName};
 use jiff::Timestamp;
 
@@ -51,7 +51,7 @@ pub struct BriefingService {
     pub(super) config: Arc<HubConfig>,
     pub(super) clock: Arc<dyn Clock>,
     pub(super) hosts: Arc<dyn HostRepo>,
-    pub(super) facts: Arc<dyn FactRepo>,
+    pub(super) facts: Arc<dyn MetricSampleRepo>,
     pub(super) incidents: Arc<dyn IncidentRepo>,
     pub(super) advisories: Arc<dyn AdvisoryRepo>,
     pub(super) profiles: Option<ProfileDeps>,

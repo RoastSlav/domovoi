@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
-use domovoi_core::ports::{FactRepo, HostRepo, NoteRepo, Presence};
+use domovoi_core::ports::{MetricSampleRepo, HostRepo, NoteRepo, Presence};
 use domovoi_core::{AgentIdentity, AuthenticatedReport, DigestFact, FactValue, ReportedProtocol};
 use domovoi_hub::api::notes_import::{MAX_FILE_BYTES, MAX_FILES};
 use domovoi_proto::PROTOCOL_VERSION;
@@ -185,7 +185,7 @@ async fn host_detail_shows_latest_facts_of_the_last_day() {
         fact(&a, "os.release", FactValue::Text("Debian 13".to_owned()), 0),
         fact(&a, "old.fact", FactValue::Number(1.0), 25),
     ] {
-        FactRepo::record(&*a.store, &f).await.unwrap();
+        MetricSampleRepo::record(&*a.store, &f).await.unwrap();
     }
     let detail = a.get("/api/v1/hosts/nas", &login).await;
     assert_eq!(detail.status, StatusCode::OK, "{}", detail.text);

@@ -52,7 +52,7 @@ use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::HostName;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, LogSource,
+    AckRepo, ActionRepo, AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, LogSource,
     NoteRepo, Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_engine::ManagerHandle;
@@ -94,7 +94,7 @@ pub struct ApiDeps {
     /// Advisories.
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Digest facts.
-    pub facts: Arc<dyn FactRepo>,
+    pub facts: Arc<dyn MetricSampleRepo>,
     /// Model usage for the settings page.
     pub usage: Arc<dyn UsageRepo>,
     /// Ack rules ("known conditions"), read for the list and written by the UI.

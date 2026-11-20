@@ -27,7 +27,7 @@ contract_tests! {
     sqlite_baseline_repo_satisfies_contract => baseline_repo_contract,
     sqlite_ack_repo_satisfies_contract => ack_repo_contract,
     sqlite_advisory_repo_satisfies_contract => advisory_repo_contract,
-    sqlite_fact_repo_satisfies_contract => fact_repo_contract,
+    sqlite_metric_sample_repo_satisfies_contract => metric_sample_repo_contract,
     sqlite_triage_cache_repo_satisfies_contract => triage_cache_repo_contract,
     sqlite_usage_repo_satisfies_contract => usage_repo_contract,
     sqlite_admission_repo_satisfies_contract => admission_repo_contract,

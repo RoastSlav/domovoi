@@ -1,7 +1,7 @@
 //! Baselines, ack rules, maintenance windows, advisories and digest facts.
 
 use async_trait::async_trait;
-use domovoi_core::ports::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, StoreError};
+use domovoi_core::ports::{AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, StoreError};
 use domovoi_core::{
     AckRule, AckRuleId, Advisory, AdvisoryId, BaselineEntry, BaselineKind, DigestFact, HostId,
     MaintenanceWindow,
@@ -258,9 +258,9 @@ impl AdvisoryRepo for Store {
 }
 
 #[async_trait]
-impl FactRepo for Store {
+impl MetricSampleRepo for Store {
     async fn record(&self, fact: &DigestFact) -> Result<(), StoreError> {
-        const SQL: &str = "INSERT INTO digest_facts \
+        const SQL: &str = "INSERT INTO metric_samples \
             (host_id, key, label, value, unit, observed_at) VALUES (?, ?, ?, ?, ?, ?)";
         sqlx::query(SQL)
             .bind(fact.host.to_string())
@@ -281,7 +281,7 @@ impl FactRepo for Store {
         from: Timestamp,
         until: Timestamp,
     ) -> Result<Vec<DigestFact>, StoreError> {
-        const SQL: &str = "SELECT key, label, value, unit, observed_at FROM digest_facts \
+        const SQL: &str = "SELECT key, label, value, unit, observed_at FROM metric_samples \
             WHERE host_id = ? AND observed_at >= ? AND observed_at < ? ORDER BY observed_at, id";
         let rows: Vec<(String, String, String, Option<String>, i64)> = sqlx::query_as(SQL)
             .bind(host.to_string())

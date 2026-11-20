@@ -32,7 +32,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{
-    AgentLink, AuditLog, Clock, FactRepo, HostReconciler, HostRepo, SignalSink, StoreError,
+    AgentLink, AuditLog, Clock, MetricSampleRepo, HostReconciler, HostRepo, SignalSink, StoreError,
 };
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -71,7 +71,7 @@ pub struct AgentServerDeps {
     /// Hosts, agents and enrollment tokens.
     pub hosts: Arc<dyn HostRepo>,
     /// Where `digest_facts` go.
-    pub facts: Arc<dyn FactRepo>,
+    pub facts: Arc<dyn MetricSampleRepo>,
     /// Where agent signals and liveness signals go.
     pub sink: Arc<dyn SignalSink>,
     /// Where a change of an agent's reported protocol is recorded.

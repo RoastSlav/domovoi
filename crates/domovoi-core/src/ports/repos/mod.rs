@@ -29,7 +29,7 @@ pub use admission::{AdmissionOutcome, AdmissionPurpose, AdmissionRepo};
 pub use audit::{AuditEvent, AuditFilter, AuditLog};
 pub use hosts::{EnrollmentToken, HostRepo};
 pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalRepo};
-pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, FactRepo, NoteHit, NoteRepo};
+pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo};
 pub use notify::NotifyStateRepo;
 pub use operations::{OperationFilter, OperationRepo};
 pub use policy::PolicyRepo;

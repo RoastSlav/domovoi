@@ -25,7 +25,7 @@ pub use admission::admission_repo_contract;
 pub use hosts::{enrollment_token_is_single_use, expired_token_is_rejected, host_repo_contract};
 pub use incidents::{incident_repo_contract, signal_repo_contract};
 pub use knowledge::{
-    ack_repo_contract, advisory_repo_contract, baseline_repo_contract, fact_repo_contract,
+    ack_repo_contract, advisory_repo_contract, baseline_repo_contract, metric_sample_repo_contract,
     note_repo_contract,
 };
 pub use notify::notify_state_repo_contract;

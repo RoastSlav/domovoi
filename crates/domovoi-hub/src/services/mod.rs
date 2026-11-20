@@ -26,7 +26,7 @@ use std::sync::Arc;
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AdvisoryRepo, Clock, FactRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
+    AdvisoryRepo, Clock, MetricSampleRepo, HostRepo, IncidentRepo, OperationRepo, Redactor,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;
@@ -84,7 +84,7 @@ pub struct ServicesDeps {
     /// Hosts, read only.
     pub hosts: Arc<dyn HostRepo>,
     /// Digest facts.
-    pub facts: Arc<dyn FactRepo>,
+    pub facts: Arc<dyn MetricSampleRepo>,
     /// Advisories.
     pub advisories: Arc<dyn AdvisoryRepo>,
     /// Presence and catalogues of agents.
