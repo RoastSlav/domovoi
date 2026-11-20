@@ -34,7 +34,7 @@ mod tests {
     use crate::format::{Drill, load_all};
     use crate::probes::{self, Probe};
     use crate::score::{Score, score};
-    use crate::world::{Model, run, starter_skill};
+    use crate::world::{Carrier, Model, run, run_with, starter_skill};
 
     /// The lowest passing score.
     const PASS: u32 = 80;
@@ -154,6 +154,42 @@ mod tests {
             "a drill failed:
 {report}"
         );
+    }
+
+    /// The "Proposals not offered" lines of a run's report.
+    fn not_offered(outcome: &crate::world::Outcome) -> Vec<String> {
+        match &outcome.outcome {
+            TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } => report
+                .details
+                .split_once("Proposals not offered:")
+                .map(|(_, lines)| {
+                    lines
+                        .lines()
+                        .filter(|line| line.starts_with("- "))
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A scripted report delivered as a `propose_plan` and a `finish` call gives the same
+    /// report, proposals, score, request count and "not offered" lines as the same report
+    /// delivered as text.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn meta_and_text_carriers_agree_on_every_drill() {
+        for drill in &load_all() {
+            let text = run_with(drill, Model::Scripted, Carrier::Text).await;
+            let meta = run_with(drill, Model::Scripted, Carrier::Meta).await;
+            assert_eq!(
+                frozen(drill, &text),
+                frozen(drill, &meta),
+                "{} differs by carrier",
+                drill.name
+            );
+            assert_eq!(not_offered(&text), not_offered(&meta), "{}", drill.name);
+        }
     }
 
     /// The recorded snapshots hold only redacted drill output: no drill's secret appears in
