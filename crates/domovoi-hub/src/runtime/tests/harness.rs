@@ -334,7 +334,6 @@ secret = {{ env = "TEST_SECRET" }}
             if let Some(task) = runtime.triage_task {
                 let _ = task.await;
             }
-            let _ = runtime.actions_task.await;
             if let Some(task) = runtime.operations_task {
                 let _ = task.await;
             }

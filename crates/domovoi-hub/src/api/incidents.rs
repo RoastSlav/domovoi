@@ -172,10 +172,7 @@ pub(super) async fn detail(
         triage,
         card: CardDto::from(&card),
         timeline: timeline.iter().map(TimelineEntryDto::from).collect(),
-        actions: actions
-            .iter()
-            .map(|a| ActionDto::from(a).labelled(state.deps.config.orchestration.enabled))
-            .collect(),
+        actions: actions.iter().map(ActionDto::from).collect(),
         operations: super::operations::for_incident(&state, incident.id()).await?,
         tools_used: tool_usage(&timeline),
         as_of_seq,

@@ -1,54 +1,15 @@
-//! Actions: list, approve and deny. Approval is the web surface's path to `Approved`
-//! (INV-1); destructive skills need the skill's name typed exactly (INV-6).
+//! Actions: the read-only list of retired legacy actions. Approving happens on operation
+//! steps (INV-1).
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Query, State};
+use domovoi_core::ActionStatus;
 use domovoi_core::ports::ActionFilter;
-use domovoi_core::{ActionError, ActionId, ActionRequest, ActionStatus, PlanBinding, PlanHash};
-use domovoi_engine::ApprovalError;
 
-use super::dto::{ActionDto, ActionPage, ActionQuery, ApproveRequest};
+use super::dto::{ActionDto, ActionPage, ActionQuery};
 use super::error::{ApiError, ErrorBody};
 use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, host_named, page};
-use crate::services::{ApproveError, ApproveInput};
-
-fn parse_id(id: &str) -> Result<ActionId, ApiError> {
-    id.parse().map_err(|_| ApiError::NotFound)
-}
-
-fn approval_error(err: ApprovalError) -> ApiError {
-    match err {
-        ApprovalError::NotFound(_) => ApiError::NotFound,
-        ApprovalError::BadToken => ApiError::Forbidden(err.to_string()),
-        ApprovalError::PlanChanged => ApiError::Conflict(
-            "the plan changed since you opened it; reload the page and review it again".to_owned(),
-        ),
-        ApprovalError::NotYetSupported => ApiError::Conflict(
-            "policy authorizations are not supported yet; a person must approve".to_owned(),
-        ),
-        ApprovalError::MissingAuthorization | ApprovalError::InconsistentAuthorization => {
-            ApiError::Conflict(
-                "the action's stored approval is not valid; reload and review it again".to_owned(),
-            )
-        }
-        ApprovalError::Refused(ActionError::DestructiveNeedsTypedConfirmation) => {
-            ApiError::Forbidden("type the skill's name to approve a destructive action".to_owned())
-        }
-        ApprovalError::Refused(refused) => ApiError::Conflict(refused.to_string()),
-        ApprovalError::StaleEffect => ApiError::Conflict(
-            "another runner took over this step; reload and try again".to_owned(),
-        ),
-        ApprovalError::Store(e) => ApiError::internal("approval failed", e),
-        ApprovalError::Unavailable => {
-            ApiError::Unavailable("the action service is restarting; try again".to_owned())
-        }
-    }
-}
-
-async fn load(state: &ApiState, id: ActionId) -> Result<ActionRequest, ApiError> {
-    state.deps.actions.get(id).await?.ok_or(ApiError::NotFound)
-}
 
 /// Actions, newest first.
 #[utoipa::path(
@@ -97,97 +58,8 @@ pub(super) async fn list(
         .list(&filter, &page(query.cursor, query.limit))
         .await?;
     Ok(Json(ActionPage {
-        items: got
-            .items
-            .iter()
-            .map(|a| ActionDto::from(a).labelled(state.deps.config.orchestration.enabled))
-            .collect(),
+        items: got.items.iter().map(ActionDto::from).collect(),
         next_cursor: got.next_cursor,
         as_of_seq,
     }))
-}
-
-/// Approves a proposed action. Destructive skills need `confirm_text` equal to the skill's
-/// name; chat buttons can never approve them.
-#[utoipa::path(
-    post, path = "/api/v1/actions/{id}/approve", operation_id = "approve_action", tag = "actions",
-    params(("id" = String, Path, description = "Action id")),
-    request_body = ApproveRequest,
-    responses(
-        (status = 200, description = "Approved; it runs next", body = ActionDto),
-        (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 403, description = "Destructive without the typed confirmation", body = ErrorBody),
-        (status = 404, description = "No such action", body = ErrorBody),
-        (status = 409, description = "Not proposed any more, expired, or the plan hash does not match", body = ErrorBody),
-        (status = 503, description = "The action service is shutting down", body = ErrorBody),
-    )
-)]
-pub(super) async fn approve(
-    State(state): State<ApiState>,
-    auth: Authed,
-    Path(id): Path<String>,
-    Json(req): Json<ApproveRequest>,
-) -> Result<Json<ActionDto>, ApiError> {
-    // The lookup comes first so an unknown id is a 404, not a missing-hash 400.
-    let action = load(&state, parse_id(&id)?).await?;
-    let plan_hash = req
-        .plan_hash
-        .as_deref()
-        .and_then(|text| text.parse::<PlanHash>().ok())
-        .ok_or_else(|| {
-            ApiError::BadRequest(
-                "plan_hash is required: 64 hex characters, as shown on the action".to_owned(),
-            )
-        })?;
-    let approved = state
-        .services()
-        .approvals
-        .approve(
-            &auth.caller(),
-            &action,
-            ApproveInput {
-                binding: PlanBinding::Full(plan_hash),
-                chat_token: None,
-                confirm_text: req.confirm_text.as_deref(),
-            },
-        )
-        .await
-        .map_err(|err| match err {
-            ApproveError::Approval(err) => approval_error(err),
-            ApproveError::WebOnly => {
-                ApiError::Forbidden("Approve this one in the web UI".to_owned())
-            }
-        })?;
-    Ok(Json(
-        ActionDto::from(&approved).labelled(state.deps.config.orchestration.enabled),
-    ))
-}
-
-/// Denies a proposed action.
-#[utoipa::path(
-    post, path = "/api/v1/actions/{id}/deny", operation_id = "deny_action", tag = "actions",
-    params(("id" = String, Path, description = "Action id")),
-    responses(
-        (status = 200, description = "Denied", body = ActionDto),
-        (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 404, description = "No such action", body = ErrorBody),
-        (status = 409, description = "Not proposed any more", body = ErrorBody),
-        (status = 503, description = "The action service is shutting down", body = ErrorBody),
-    )
-)]
-pub(super) async fn deny(
-    State(state): State<ApiState>,
-    auth: Authed,
-    Path(id): Path<String>,
-) -> Result<Json<ActionDto>, ApiError> {
-    let action = load(&state, parse_id(&id)?).await?;
-    let denied = state
-        .services()
-        .approvals
-        .deny(&auth.caller(), &action)
-        .await
-        .map_err(approval_error)?;
-    Ok(Json(
-        ActionDto::from(&denied).labelled(state.deps.config.orchestration.enabled),
-    ))
 }

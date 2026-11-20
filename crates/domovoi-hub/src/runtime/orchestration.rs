@@ -1,11 +1,9 @@
-//! The operation service, started only while `[orchestration] enabled` is set, and the
-//! reconciler that tells it, beside the action service, when an agent authenticated.
+//! The operation service, started only while `[orchestration] enabled` is set.
 
 use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
-use domovoi_core::HostId;
-use domovoi_core::ports::{ActionCaps, Clock, HostReconciler, TargetResolver};
+use domovoi_core::ports::{ActionCaps, Clock, TargetResolver};
 use domovoi_engine::TriageHandle;
 use domovoi_engine::events::DomainEvent;
 use domovoi_engine::operations::{
@@ -99,53 +97,4 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         }),
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
-}
-
-/// Fans one authenticated `hello` out to every service that reconciles dispatched work.
-pub(crate) struct CompositeReconciler {
-    members: Vec<Arc<dyn HostReconciler>>,
-}
-
-impl CompositeReconciler {
-    /// A reconciler that tells every one of `members`, concurrently.
-    #[must_use]
-    pub(crate) fn new(members: Vec<Arc<dyn HostReconciler>>) -> Self {
-        Self { members }
-    }
-}
-
-#[async_trait::async_trait]
-impl HostReconciler for CompositeReconciler {
-    async fn reconcile_host(&self, host: HostId) {
-        futures::future::join_all(
-            self.members
-                .iter()
-                .map(|member| member.reconcile_host(host)),
-        )
-        .await;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use domovoi_core::HostId;
-    use domovoi_core::ports::HostReconciler;
-    use domovoi_testkit::RecordingReconciler;
-
-    use super::CompositeReconciler;
-
-    #[tokio::test]
-    async fn the_composite_reconciles_through_every_member() {
-        let first = Arc::new(RecordingReconciler::new());
-        let second = Arc::new(RecordingReconciler::new());
-        let composite = CompositeReconciler::new(vec![first.clone(), second.clone()]);
-        let host = HostId::new();
-
-        composite.reconcile_host(host).await;
-
-        assert_eq!(first.hosts(), vec![host]);
-        assert_eq!(second.hosts(), vec![host]);
-    }
 }

@@ -26,10 +26,7 @@ use domovoi_core::{
     ActionRequest, CheckKey, HostId, HostName, Principal, ReadToolCall, Risk, Severity, Signal,
     SignalClass, SkillSummary, SourceKind, TargetKey,
 };
-use domovoi_engine::{
-    ActionDeps, ActionService, ActionSettings, EnginePolicy, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor,
-};
+use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_hub::agent_server::{
     AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
 };
@@ -45,7 +42,7 @@ use domovoi_hub::services::{PolicyDeps, PolicyService, Services, ServicesDeps};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::{host, manifest};
-use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
+use domovoi_testkit::link::{evidence_caps, observer_of};
 use domovoi_testkit::{CannedLogSource, FakeAgentLink, FakeTargetResolver};
 use jiff::{SignedDuration, Timestamp};
 use tokio::io::AsyncBufReadExt;
@@ -452,33 +449,6 @@ async fn main() -> Result<()> {
         bus: bus.clone(),
         shutdown: shutdown.clone(),
     });
-    let caps = action_caps(link.clone());
-    let (actions_service, _actions_task) = ActionService::spawn(
-        ActionDeps {
-            actions: store.clone(),
-            incidents: store.clone(),
-            audit: store.clone(),
-            uow: store.clone(),
-            effects: store.clone(),
-            advisories: store.clone(),
-            probe: caps.probe,
-            observer: caps.observer,
-            journal: caps.journal,
-            capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::following(
-                link.clone(),
-            )),
-            handoff: caps.handoff,
-            rerun: caps.rerun,
-            hosts: store.clone(),
-            redactor: Arc::new(PatternRedactor::default()),
-            clock: clock.clone(),
-            manager: manager.clone(),
-            bus: bus.clone(),
-            shutdown: shutdown.clone(),
-        },
-        ActionSettings::default(),
-    );
-
     let config = config()?;
     let server = agent_server(dir.path(), clock.clone(), store.clone(), manager.clone())?;
     let profile_deps = ProfileDeps {
@@ -546,8 +516,6 @@ async fn main() -> Result<()> {
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: None,
-        actions: store.clone(),
-        actions_service,
         operations: None,
         operation_repo: store.clone(),
         incidents: store.clone(),

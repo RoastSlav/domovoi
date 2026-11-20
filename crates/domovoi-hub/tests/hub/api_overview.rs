@@ -193,14 +193,11 @@ async fn action_list_filters_by_decided_and_since() {
     let login = a.admin().await;
     let waiting = a.propose(Risk::Write).await;
     let denied = a.propose(Risk::Write).await;
-    let reply = a
-        .post(
-            &format!("/api/v1/actions/{}/deny", denied.id()),
-            &login,
-            json!({}),
-        )
-        .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let mut retired = denied.clone();
+    retired.deny(a.now()).unwrap();
+    ActionRepo::update_from(&*a.store, &retired, "proposed")
+        .await
+        .unwrap();
 
     let decided = a.get("/api/v1/actions?decided=true", &login).await;
     let items = decided.body["items"].as_array().unwrap();

@@ -85,7 +85,7 @@ pub struct ApiDeps {
     pub incidents: Arc<dyn IncidentRepo>,
     /// Recent signals, for cards.
     pub signals: Arc<dyn SignalRepo>,
-    /// Actions, read only; changes go through `services.approvals`.
+    /// Actions, read only: retired legacy history.
     pub actions: Arc<dyn ActionRepo>,
     /// Hosts.
     pub hosts: Arc<dyn HostRepo>,
@@ -266,7 +266,7 @@ pub(crate) async fn host_named(
     tags(
         (name = "auth", description = "Setup, login and sessions"),
         (name = "incidents", description = "Incidents and their triage"),
-        (name = "actions", description = "Proposed actions and approvals"),
+        (name = "actions", description = "Retired legacy actions, read only"),
         (name = "operations", description = "Operations, their steps and step approvals"),
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
@@ -309,8 +309,6 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(followups::history, followups::clear))
         .routes(routes!(incidents::retry_triage))
         .routes(routes!(actions::list))
-        .routes(routes!(actions::approve))
-        .routes(routes!(actions::deny))
         .routes(routes!(operations::list))
         .routes(routes!(operations::detail))
         .routes(routes!(operations::trace))

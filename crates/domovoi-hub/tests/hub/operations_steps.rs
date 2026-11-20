@@ -1,5 +1,4 @@
-//! Approving and denying Execution steps over the API, the legacy action endpoints beside
-//! them, and the incident's investigation retry.
+//! Approving and denying Execution steps over the API, and the incident's investigation retry.
 
 use axum::http::StatusCode;
 use domovoi_core::ports::{AggregateRef, EffectStatus};
@@ -7,7 +6,7 @@ use domovoi_core::{ApprovalChannel, OperationId, Risk, StepId};
 use jiff::SignedDuration;
 use serde_json::{Value, json};
 
-use crate::api_harness::{Api, Login, api, api_with_operations, api_with_triage_and_operations};
+use crate::api_harness::{Api, Login, api_with_operations, api_with_triage_and_operations};
 
 /// The stored v2 plan hash of Execution step `step`.
 async fn hash_of(a: &Api, op: OperationId, step: StepId) -> String {
@@ -353,53 +352,6 @@ async fn deny_step_refuses_the_execution() {
         StatusCode::CONFLICT,
         "a denied step cannot be approved"
     );
-}
-
-#[tokio::test]
-async fn legacy_action_endpoints_still_work_and_are_labelled() {
-    let on = api_with_operations().await;
-    let login = on.admin().await;
-    let action = on.propose(Risk::Write).await;
-    let listed = on.get("/api/v1/actions", &login).await;
-    assert_eq!(listed.body["items"][0]["legacy"], true, "{}", listed.text);
-    let approved = on
-        .post(
-            &format!("/api/v1/actions/{}/approve", action.id()),
-            &login,
-            json!({ "plan_hash": action.plan_hash_for_approval().to_string() }),
-        )
-        .await;
-    assert_eq!(approved.status, StatusCode::OK, "{}", approved.text);
-    assert_eq!(approved.body["status"], "approved");
-    assert_eq!(approved.body["legacy"], true);
-    let mut after = approved.body["status"].clone();
-    for _ in 0..10_000 {
-        let now = on.get("/api/v1/actions?status=approved", &login).await;
-        if now.body["items"].as_array().unwrap().is_empty() {
-            after = Value::Null;
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(
-        after,
-        Value::Null,
-        "the legacy executor took the approved action"
-    );
-
-    let off = api().await;
-    let login = off.admin().await;
-    let action = off.propose(Risk::Write).await;
-    let listed = off.get("/api/v1/actions", &login).await;
-    assert_eq!(listed.body["items"][0]["legacy"], false, "{}", listed.text);
-    let approved = off
-        .post(
-            &format!("/api/v1/actions/{}/approve", action.id()),
-            &login,
-            json!({ "plan_hash": action.plan_hash_for_approval().to_string() }),
-        )
-        .await;
-    assert_eq!(approved.body["legacy"], false);
 }
 
 #[tokio::test]

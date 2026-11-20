@@ -151,9 +151,9 @@ async fn agent_that_never_reconnects_keeps_dispatched_action() {
 }
 
 #[tokio::test]
-async fn a_host_already_connected_is_reconciled_when_the_action_service_arrives() {
-    // The agent server starts before the action service, so an agent can authenticate in
-    // between: its dispatched runs must still be settled.
+async fn a_host_already_connected_is_reconciled_when_the_reconciler_arrives() {
+    // The agent server starts before the operation service, so an agent can authenticate in
+    // between: its dispatched work must still be settled.
     let hub = Hub::start().await;
     let (ident, _agent) = online(&hub, "nas").await;
 
@@ -164,7 +164,7 @@ async fn a_host_already_connected_is_reconciled_when_the_action_service_arrives(
     assert_eq!(
         asked,
         vec![ident.host],
-        "a host that was live before the service existed is reconciled too",
+        "a host that was live before the reconciler existed is reconciled too",
     );
 }
 

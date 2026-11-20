@@ -27,8 +27,8 @@ use domovoi_core::ports::{
     AgentLink, ChatGateway, Clock, InteractionSink, LogSource, ProcessExecutor,
 };
 use domovoi_engine::{
-    ActionDeps, ActionService, DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps,
-    ManagerHandle, PatternRedactor,
+    DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps, ManagerHandle,
+    PatternRedactor,
 };
 use domovoi_llm::LlmBuildError;
 use domovoi_store::{Store, StoreOpenError};
@@ -141,7 +141,6 @@ pub struct HubRuntime {
     pub(crate) gateways: Vec<(Arc<dyn ChatGateway>, Arc<dyn InteractionSink>)>,
     pub(crate) manager_task: JoinHandle<()>,
     pub(crate) triage_task: Option<JoinHandle<()>>,
-    pub(crate) actions_task: JoinHandle<()>,
     /// The operation service, present only while `[orchestration] enabled` is set.
     pub(crate) operations_task: Option<JoinHandle<()>>,
     pub(crate) profile_task: JoinHandle<()>,
@@ -254,29 +253,6 @@ impl HubRuntime {
         let evidence = Evidence::new(evidence_caps(link.clone()), clock.clone(), registry.clone());
         let catalog = HostCatalog::new(observer_of(link.clone()));
         let caps_bundle = action_caps(link);
-        let (actions_service, actions_task) = ActionService::spawn(
-            ActionDeps {
-                actions: store.clone(),
-                incidents: store.clone(),
-                audit: store.clone(),
-                uow: store.clone(),
-                effects: store.clone(),
-                advisories: store.clone(),
-                probe: caps_bundle.probe.clone(),
-                observer: caps_bundle.observer.clone(),
-                journal: caps_bundle.journal.clone(),
-                capabilities: registry.clone(),
-                handoff: caps_bundle.handoff.clone(),
-                rerun: caps_bundle.rerun.clone(),
-                hosts: store.clone(),
-                redactor: redactor.clone(),
-                clock: clock.clone(),
-                manager: manager.clone(),
-                bus: bus.clone(),
-                shutdown: worker_shutdown.clone(),
-            },
-            settings::actions(),
-        );
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
             store: &store,
@@ -308,14 +284,8 @@ impl HubRuntime {
                 Some((handle, task)) => (Some(handle), Some(task)),
                 None => (None, None),
             };
-        match &operations {
-            Some(handle) => {
-                server.set_reconciler(Arc::new(orchestration::CompositeReconciler::new(vec![
-                    Arc::new(actions_service.clone()),
-                    Arc::new(handle.clone()),
-                ])));
-            }
-            None => server.set_reconciler(Arc::new(actions_service.clone())),
+        if let Some(handle) = &operations {
+            server.set_reconciler(Arc::new(handle.clone()));
         }
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
@@ -366,8 +336,6 @@ impl HubRuntime {
         let services = crate::services::Services::new(crate::services::ServicesDeps {
             manager: manager.clone(),
             triage: triage.0.clone(),
-            actions: store.clone(),
-            actions_service: actions_service.clone(),
             operations: operations.clone(),
             operation_repo: store.clone(),
             incidents: store.clone(),
@@ -456,7 +424,6 @@ impl HubRuntime {
                 store: store.clone(),
                 redactor: redactor.clone(),
             },
-            actions_service,
             dispatcher.clone(),
             digest,
             updates,
@@ -478,7 +445,6 @@ impl HubRuntime {
             gateways,
             manager_task,
             triage_task: triage.1,
-            actions_task,
             operations_task,
             profile_task,
             policy_task: policy.task,

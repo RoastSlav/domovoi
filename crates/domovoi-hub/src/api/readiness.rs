@@ -18,8 +18,6 @@ pub const STORE_WRITABLE: &str = "store_writable";
 pub const MIGRATIONS: &str = "migrations";
 /// The incident manager task is running.
 pub const INCIDENT_MANAGER: &str = "incident_manager";
-/// The action service task is running.
-pub const ACTION_SERVICE: &str = "action_service";
 
 /// The body of `/readyz`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
@@ -70,10 +68,6 @@ async fn check(state: &ApiState) -> ReadyzBody {
     if !deps.manager.is_alive() {
         tracing::warn!("readiness: the incident manager is not running");
         failing.push(INCIDENT_MANAGER.to_owned());
-    }
-    if !deps.services.approvals.is_alive() {
-        tracing::warn!("readiness: the action service is not running");
-        failing.push(ACTION_SERVICE.to_owned());
     }
     ReadyzBody {
         ready: failing.is_empty(),

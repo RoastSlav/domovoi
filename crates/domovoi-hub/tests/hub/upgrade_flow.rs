@@ -1,5 +1,5 @@
 //! The end-to-end upgrade: a database written before the rework opens at the current
-//! schema, the services run against it, new writes are chained and journaled, the audit
+//! schema, its open legacy actions are retired, the services run against it, new writes are chained and journaled, the audit
 //! history still verifies, and the invariants hold after a restart.
 //!
 //! The fixture is never modified: every test copies it into a temporary directory first.
@@ -14,19 +14,15 @@ use domovoi_core::ports::{
     JournalEntry, JournalRead, Page, VersionedRead,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentId, PlanBinding, Severity,
-    Signal, SignalClass, SourceKind, UserId,
+    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentId, Severity, Signal,
+    SignalClass, SourceKind, UserId,
 };
-use domovoi_engine::{
-    ActionDeps, ActionHandle, ActionService, ActionSettings, EnginePolicy, IncidentManager,
-    ManagerDeps, ManagerHandle, PatternRedactor,
-};
+use domovoi_engine::legacy::{LegacyDrainDeps, LegacyDrainReport, drain_legacy_actions};
+use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_store::{Store, StoreOptions};
-use domovoi_testkit::approvals::human;
+use domovoi_testkit::FakeClock;
 use domovoi_testkit::build::T0;
 use domovoi_testkit::crash::{Exempt, check_invariants_except};
-use domovoi_testkit::link::action_caps;
-use domovoi_testkit::{FakeAgentLink, FakeClock};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
@@ -181,86 +177,47 @@ async fn new_incident_after_upgrade_is_stored_and_journaled() {
     harness.stop().await;
 }
 
-/// U4: the fixture's proposal is approved through the writer, audited as the first row of
-/// the chain, and journaled; the fixture's approved action is then refused by the executor
-/// because its host announces no skills.
+/// U4: the actions left open by the old executor are retired at the first start: the
+/// proposal expires, the approval is not run, and the retirement is audited and journaled.
 #[tokio::test]
-async fn legacy_action_can_be_approved_after_upgrade() {
+async fn open_legacy_actions_are_retired_after_upgrade() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let (store, _path) = upgraded(dir.path()).await;
-    let actions = actions(&store).await;
-    let proposed = actions
+    let before = actions(&store).await;
+    let proposed = before
         .iter()
         .find(|action| action.status() == &ActionStatus::Proposed)
         .expect("the fixture has a proposal");
-    let approved_before = actions
+    let approved = before
         .iter()
         .find(|action| action.status() == &ActionStatus::Approved)
         .expect("the fixture has an approved action");
-    let anchor = store
-        .audit_anchor()
-        .await
-        .expect("the anchor is readable")
-        .expect("the upgrade wrote an anchor");
 
-    let harness = Harness::start(store.clone());
-    let approved = harness
-        .actions
-        .approve(
-            proposed.id(),
-            domovoi_testkit::approvals::authorize(human(UserId::new())),
-            None,
-            PlanBinding::Full(proposed.plan_hash_for_approval()),
-            domovoi_testkit::approvals::provenance(),
-        )
-        .await
-        .expect("a proposal stored before the rework can be approved");
-    assert_eq!(approved.status(), &ActionStatus::Approved);
+    let report = drain(&store).await;
 
-    let rows = audit(&store, "action.approved", proposed.id()).await;
-    assert_eq!(rows.len(), 1, "the approval is audited once");
-    let seq = rows[0];
-    let prev: Vec<u8> = sqlx::query_scalar("SELECT prev_hash FROM audit_log WHERE seq = ?")
-        .bind(i64::try_from(seq).expect("a sequence number fits"))
-        .fetch_one(store.pool_for_tests())
-        .await
-        .expect("the row has its chain fields");
-    let expected = if seq == anchor.legacy_last_id + 1 {
-        anchor.hash().to_vec()
-    } else {
-        sqlx::query_scalar("SELECT hash FROM audit_log WHERE seq = ?")
-            .bind(i64::try_from(seq - 1).expect("a sequence number fits"))
-            .fetch_one(store.pool_for_tests())
-            .await
-            .expect("the row before it has its chain fields")
-    };
+    assert_eq!(report.expired, 1, "the proposal is retired");
+    assert_eq!(report.not_run, 1, "the approval is retired");
     assert_eq!(
-        prev, expected,
-        "the approval chains onto the row before it, or onto the anchor when it is first"
+        terminal(&store, proposed.id()).await.status(),
+        &ActionStatus::Expired
     );
-
-    let transitions = journal_for(&store, AggregateRef::action(proposed.id())).await;
-    let approval = transitions
-        .iter()
-        .filter(|entry| {
-            entry.kind == "action.transition"
-                && entry.payload.get("from").and_then(|from| from.as_str()) == Some("proposed")
-        })
-        .count();
-    assert_eq!(approval, 1, "the approval is journaled from proposed");
-
-    let refused = terminal(&store, approved_before.id()).await;
     assert!(
-        matches!(refused.status(), ActionStatus::Rejected { .. }),
-        "the host announces no skills, so the executor rejects the legacy approval: {:?}",
-        refused.status()
+        matches!(
+            terminal(&store, approved.id()).await.status(),
+            ActionStatus::NotRun { .. }
+        ),
+        "an approved action that never ran is recorded as not run"
     );
-    let kinds = audit_kinds(&store, approved_before.id()).await;
-    assert!(
-        kinds.iter().any(|kind| kind == "action.rejected"),
-        "the refusal is audited: {kinds:?}"
-    );
-    harness.stop().await;
+    for action in [proposed, approved] {
+        let kinds = audit_kinds(&store, action.id()).await;
+        assert!(!kinds.is_empty(), "the retirement is audited: {kinds:?}");
+        let moves = journal_for(&store, AggregateRef::action(action.id())).await;
+        assert!(
+            moves.iter().any(|entry| entry.kind == "action.transition"),
+            "the retirement is journaled"
+        );
+    }
+    assert_eq!(drain(&store).await, LegacyDrainReport::default());
 }
 
 /// U5: the legacy history still matches its anchor and everything written afterwards is a
@@ -269,24 +226,7 @@ async fn legacy_action_can_be_approved_after_upgrade() {
 async fn audit_verifies_after_upgrade() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let (store, _path) = upgraded(dir.path()).await;
-    let harness = Harness::start(store.clone());
-    let proposed = actions(&store)
-        .await
-        .into_iter()
-        .find(|action| action.status() == &ActionStatus::Proposed)
-        .expect("the fixture has a proposal");
-    harness
-        .actions
-        .approve(
-            proposed.id(),
-            domovoi_testkit::approvals::authorize(human(UserId::new())),
-            None,
-            PlanBinding::Full(proposed.plan_hash_for_approval()),
-            domovoi_testkit::approvals::provenance(),
-        )
-        .await
-        .expect("the approval is stored");
-    harness.stop().await;
+    drain(&store).await;
 
     let report = store
         .verify_audit(VerifyScope::Full)
@@ -314,17 +254,8 @@ async fn invariants_hold_after_upgrade_and_a_restart() {
         .await
         .expect("the upgraded fixture alone satisfies the invariants");
 
+    drain(&store).await;
     let harness = Harness::start(store.clone());
-    // The harness's executor settles the fixture's stored approval on its own. Wait for that
-    // to finish before reading the invariants: the reader takes the action row and its journal
-    // in separate queries, so a rejection landing between them is not a torn write.
-    if let Some(approved) = actions(&store)
-        .await
-        .into_iter()
-        .find(|action| action.status() == &ActionStatus::Approved)
-    {
-        let _ = terminal(&store, approved.id()).await;
-    }
     let incident = open_incident(&store).await;
     harness
         .manager
@@ -458,21 +389,6 @@ async fn timeline_journal(store: &Store, incident: IncidentId) -> Vec<JournalEnt
         .collect()
 }
 
-/// The sequence numbers of the audit rows of `kind` about `action`, oldest first.
-async fn audit(store: &Store, kind: &str, action: ActionId) -> Vec<u64> {
-    sqlx::query_scalar::<_, i64>(
-        "SELECT seq FROM audit_log WHERE kind = ? AND subject = ? ORDER BY seq",
-    )
-    .bind(kind)
-    .bind(format!("action:{action}"))
-    .fetch_all(store.pool_for_tests())
-    .await
-    .expect("the audit rows are readable")
-    .into_iter()
-    .map(|seq| u64::try_from(seq).expect("a sequence number is positive"))
-    .collect()
-}
-
 /// Every audit kind recorded for `action`.
 async fn audit_kinds(store: &Store, action: ActionId) -> Vec<String> {
     AuditLog::list(
@@ -491,23 +407,20 @@ async fn audit_kinds(store: &Store, action: ActionId) -> Vec<String> {
     .collect()
 }
 
-/// Polls the store until `action` has an outcome. The executor's start-up scan needs no
-/// clock, so plain yields are enough.
+/// The stored `action`, which must be past every open status.
 async fn terminal(store: &Store, action: ActionId) -> ActionRequest {
-    for _ in 0..10_000 {
-        let found = ActionRepo::get(store, action)
-            .await
-            .expect("the action is readable")
-            .expect("the action is still there");
-        if !matches!(
+    let found = ActionRepo::get(store, action)
+        .await
+        .expect("the action is readable")
+        .expect("the action is still there");
+    assert!(
+        !matches!(
             found.status(),
             ActionStatus::Proposed | ActionStatus::Approved | ActionStatus::Dispatched { .. }
-        ) {
-            return found;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("action {action} never reached an outcome");
+        ),
+        "action {action} is still open"
+    );
+    found
 }
 
 /// What the fixture wrote before the journal existed, so the invariants can allow for it. The
@@ -520,20 +433,16 @@ async fn legacy(store: &Store) -> Exempt {
     }
 }
 
-/// The manager and the action service over an upgraded store, with no agent connected and no
-/// skills announced, so every run is refused before it dispatches.
+/// The incident manager over an upgraded store.
 struct Harness {
     manager: ManagerHandle,
-    actions: ActionHandle,
     shutdown: CancellationToken,
     manager_task: Option<JoinHandle<()>>,
-    action_task: Option<JoinHandle<()>>,
 }
 
 impl Harness {
     fn start(store: Arc<SqliteStore>) -> Self {
         let clock = Arc::new(FakeClock::new(T0));
-        let link = Arc::new(FakeAgentLink::new());
         let (bus, _events) = broadcast::channel(256);
         let shutdown = CancellationToken::new();
         let (manager, manager_task) = IncidentManager::spawn(ManagerDeps {
@@ -541,56 +450,40 @@ impl Harness {
             uow: store.clone(),
             versions: store.clone(),
             acks: store.clone(),
-            clock: clock.clone(),
+            clock,
             redactor: Arc::new(PatternRedactor::default()),
             policy: EnginePolicy {
                 tick_every: jiff::SignedDuration::from_hours(24),
                 ..EnginePolicy::default()
             },
-            bus: bus.clone(),
+            bus,
             shutdown: shutdown.clone(),
         });
-        let caps = action_caps(link);
-        let (actions, action_task) = ActionService::spawn(
-            ActionDeps {
-                actions: store.clone(),
-                incidents: store.clone(),
-                audit: store.clone(),
-                uow: store.clone(),
-                effects: store.clone(),
-                advisories: store.clone(),
-                probe: caps.probe,
-                observer: caps.observer,
-                journal: caps.journal,
-                capabilities: Arc::new(domovoi_testkit::FakeCapabilityRegistry::empty()),
-                handoff: caps.handoff,
-                rerun: caps.rerun,
-                hosts: store.clone(),
-                redactor: Arc::new(PatternRedactor::default()),
-                clock,
-                manager: manager.clone(),
-                bus,
-                shutdown: shutdown.clone(),
-            },
-            ActionSettings {
-                offline_wait: jiff::SignedDuration::ZERO,
-                ..ActionSettings::default()
-            },
-        );
         Self {
             manager,
-            actions,
             shutdown,
             manager_task: Some(manager_task),
-            action_task: Some(action_task),
         }
     }
 
     async fn stop(mut self) {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
-        join(self.action_task.take()).await;
     }
+}
+
+/// Retires the open legacy actions as the hub does before it starts any service.
+async fn drain(store: &Arc<SqliteStore>) -> LegacyDrainReport {
+    drain_legacy_actions(&LegacyDrainDeps {
+        actions: store.clone(),
+        incidents: store.clone(),
+        uow: store.clone(),
+        effects: store.clone(),
+        effect_read: store.clone(),
+        clock: Arc::new(FakeClock::new(T0)),
+    })
+    .await
+    .expect("the open legacy actions are retired")
 }
 
 /// Waits for a service task, bounded so a stuck task fails the test instead of hanging.

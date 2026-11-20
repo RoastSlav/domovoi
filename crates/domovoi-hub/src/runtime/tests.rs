@@ -1,5 +1,6 @@
 mod delivery_state;
 mod harness;
+mod legacy_retirement;
 mod orchestration;
 
 use std::collections::BTreeMap;

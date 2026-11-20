@@ -396,11 +396,11 @@ async fn webhook_without_auth_never_reaches_signal_sink() {
 mod api {
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode, header};
-    use domovoi_core::{ActionStatus, Risk};
+    use domovoi_core::Risk;
     use domovoi_hub::auth::csrf::NO_TOKEN_PATHS;
     use serde_json::json;
 
-    use crate::api_harness::{Api, Login, ORIGIN, SECRETS, api};
+    use crate::api_harness::{Api, ORIGIN, SECRETS, api};
 
     /// Every unsafe method and concrete path of the API, from the OpenAPI document, with
     /// path parameters filled in from `a`.
@@ -524,45 +524,6 @@ mod api {
         )
         .await;
         assert_eq!(same, StatusCode::NO_CONTENT, "the hub's own origin is fine");
-    }
-
-    #[tokio::test]
-    async fn destructive_approve_requires_exact_confirm_text() {
-        let a = api().await;
-        let login: Login = a.admin().await;
-        let action = a.propose(Risk::Destructive).await;
-        let uri = format!("/api/v1/actions/{}/approve", action.id());
-        for confirm in [
-            json!({}),
-            json!({ "confirm_text": null }),
-            json!({ "confirm_text": "" }),
-            json!({ "confirm_text": "RESTART_CONTAINER" }),
-            json!({ "confirm_text": "restart_container " }),
-            json!({ "confirm_text": " restart_container" }),
-            json!({ "confirm_text": "restart" }),
-        ] {
-            let mut body = confirm.clone();
-            body["plan_hash"] = json!(action.plan_hash_for_approval().to_string());
-            let reply = a.post(&uri, &login, body).await;
-            assert_eq!(reply.status, StatusCode::FORBIDDEN, "{confirm}");
-            let stored = domovoi_core::ports::ActionRepo::get(&*a.store, action.id())
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(stored.status(), &ActionStatus::Proposed);
-        }
-        let reply = a
-            .post(
-                &uri,
-                &login,
-                json!({
-                    "confirm_text": "restart_container",
-                    "plan_hash": action.plan_hash_for_approval().to_string(),
-                }),
-            )
-            .await;
-        assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
-        assert_eq!(reply.body["status"], "approved");
     }
 
     #[tokio::test]
@@ -860,6 +821,8 @@ mod chat {
     use domovoi_core::ports::{ActionRepo, InteractionSink};
     use domovoi_core::{ActionStatus, CardButton, InteractionKind, InteractionReply, Risk};
 
+    use domovoi_hub::auth::interactions::{STALE_CARD, WEB_ONLY};
+
     use crate::api_harness::api_with_triage;
     use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed, status_of};
 
@@ -871,17 +834,20 @@ mod chat {
         a.admin().await;
         let c = chat(&a).await;
         let (action, token) = proposed(&a, Risk::Destructive).await;
-        for button in [
-            approve(&action, &token),
-            CardButton::OpenInWeb {
-                action: action.id(),
-            },
+        for (button, reason) in [
+            (approve(&action, &token), STALE_CARD),
+            (
+                CardButton::OpenInWeb {
+                    action: action.id(),
+                },
+                WEB_ONLY,
+            ),
         ] {
             let reply = c.authorizer.deliver(press(&a, ALLOWED, button)).await;
             assert_eq!(
                 reply,
                 InteractionReply::Rejected {
-                    reason: "Approve this one in the web UI".to_owned()
+                    reason: reason.to_owned()
                 }
             );
         }
