@@ -9,7 +9,7 @@ use domovoi_core::ports::{ActionCaps, Clock, HostReconciler, TargetResolver};
 use domovoi_engine::TriageHandle;
 use domovoi_engine::events::DomainEvent;
 use domovoi_engine::operations::{
-    InvestigateDeps, OperationDeps, OperationHandle, OperationService,
+    InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
 };
 use domovoi_engine::targets::TargetService;
 use domovoi_engine::{Evidence, PatternRedactor};
@@ -91,6 +91,11 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         shutdown: shutdown.clone(),
         investigate: triage.map(|triage| InvestigateDeps {
             triage: triage.clone(),
+            // `POST /api/v1/operations/{id}/steps/{step}/answer` reaches the writer.
+            settings: InvestigateSettings {
+                allow_questions: true,
+                ..InvestigateSettings::default()
+            },
         }),
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
