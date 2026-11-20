@@ -15,6 +15,23 @@ macro_rules! contract_tests {
 }
 
 contract_tests! {
+    in_memory_first_revision_must_be_the_outcome => first_revision_must_be_the_outcome,
+    in_memory_a_summary_needs_a_finished_operation => a_summary_needs_a_finished_operation,
+    in_memory_revisions_are_dense_and_a_stale_revision_conflicts => revisions_are_dense_and_a_stale_revision_conflicts,
+    in_memory_source_must_match_field_ownership => source_must_match_field_ownership,
+    in_memory_current_returns_the_newest_revision_of_each_field_in_order => current_returns_the_newest_revision_of_each_field_in_order,
+    in_memory_the_projection_equals_the_fold_of_the_revisions => the_projection_equals_the_fold_of_the_revisions,
+    in_memory_search_is_host_scoped => search_is_host_scoped,
+    in_memory_search_returns_all_word_matches_before_any_word_matches => search_returns_all_word_matches_before_any_word_matches,
+    in_memory_search_with_no_words_lists_the_newest_first => search_with_no_words_lists_the_newest_first,
+    in_memory_search_never_reads_user_text_as_syntax => search_never_reads_user_text_as_syntax,
+    in_memory_search_excludes_the_given_operation => search_excludes_the_given_operation,
+    in_memory_search_sees_only_the_current_text => search_sees_only_the_current_text,
+    in_memory_search_finds_outcome_tags => search_finds_outcome_tags,
+    in_memory_similar_scores_check_target_contract_and_words => similar_scores_check_target_contract_and_words,
+    in_memory_similar_stays_on_one_host_and_never_returns_the_excluded_operation => similar_stays_on_one_host_and_never_returns_the_excluded_operation,
+    in_memory_undrafted_lists_only_finished_operations_with_no_revision => undrafted_lists_only_finished_operations_with_no_revision,
+    in_memory_briefs_cover_only_operations_that_have_a_summary => briefs_cover_only_operations_that_have_a_summary,
     in_memory_fact_insert_and_update_advance_versions_and_journal_together => fact_insert_and_update_advance_versions_and_journal_together,
     in_memory_stale_fact_version_conflicts_and_changes_nothing => stale_fact_version_conflicts_and_changes_nothing,
     in_memory_retracted_fact_leaves_search_but_stays_listable_by_status => retracted_fact_leaves_search_but_stays_listable_by_status,

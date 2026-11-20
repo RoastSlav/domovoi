@@ -149,6 +149,7 @@ fn summarize(tx: &Transaction) -> TxSummary {
                     ExecutionGuard::Version(_) => "execution:version".to_owned(),
                 },
                 OperationWrite::IncidentLink { .. } => "incident_link".to_owned(),
+                OperationWrite::SummaryField(_) => "summary:field".to_owned(),
             }),
             StateWrite::Knowledge(write) => writes.push(labels::knowledge(write)),
             StateWrite::Policy(write) => writes.push(

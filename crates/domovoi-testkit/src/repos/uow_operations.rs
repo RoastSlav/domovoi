@@ -59,6 +59,7 @@ pub(super) fn apply(
             operation,
             incident,
         } => link_incident(state, *operation, *incident),
+        OperationWrite::SummaryField(write) => super::experience::apply(state, write),
     }
 }
 
