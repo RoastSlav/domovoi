@@ -224,6 +224,25 @@ mod tests {
                 "{}",
                 drill.name
             );
+            // Every read recorded as answered reached the agent (the context bundle makes a
+            // few reads of its own, so the agent may have seen more).
+            let reached = outcome
+                .link
+                .iter()
+                .filter(|request| matches!(request, LinkRequest::Tool { .. }))
+                .count();
+            let answered = outcome
+                .evidence_steps
+                .iter()
+                .filter(|(tool, step)| {
+                    tool != "run_read_skill" && *step != domovoi_core::StepOutcome::Refused
+                })
+                .count();
+            assert!(
+                reached >= answered,
+                "{}: {reached} < {answered}",
+                drill.name
+            );
         }
     }
 

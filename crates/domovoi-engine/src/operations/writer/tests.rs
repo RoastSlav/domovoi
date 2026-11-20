@@ -39,7 +39,29 @@ fn host() -> HostId {
     HostId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0001))
 }
 
+/// A unit of work over the store that can be told to refuse the next commit that writes
+/// anything.
+struct FailCommit {
+    inner: Arc<InMemoryStore>,
+    armed: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl domovoi_core::ports::UnitOfWork for FailCommit {
+    async fn commit(
+        &self,
+        tx: domovoi_core::ports::Transaction,
+    ) -> Result<domovoi_core::ports::CommitReceipt, domovoi_core::ports::CommitError> {
+        let writes = !tx.writes.is_empty();
+        if writes && self.armed.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return Err(domovoi_core::ports::CommitError::Backend("disk".to_owned()));
+        }
+        domovoi_core::ports::UnitOfWork::commit(&*self.inner, tx).await
+    }
+}
+
 struct World {
+    commits: Arc<FailCommit>,
     store: Arc<InMemoryStore>,
     clock: Arc<FakeClock>,
     link: Arc<FakeAgentLink>,
@@ -87,11 +109,15 @@ async fn world() -> World {
     let registry = Arc::new(FakeCapabilityRegistry::following(link.clone()));
     let caps = action_caps(link.clone());
     let shutdown = CancellationToken::new();
+    let commits = Arc::new(FailCommit {
+        inner: store.clone(),
+        armed: std::sync::atomic::AtomicBool::new(false),
+    });
     let (handle, _task) = OperationService::spawn_bare(
         OperationDeps {
             bus: tokio::sync::broadcast::channel(16).0,
             operations: store.clone(),
-            uow: store.clone(),
+            uow: commits.clone(),
             effects: store.clone(),
             effect_read: store.clone(),
             advisories: store.clone(),
@@ -112,6 +138,7 @@ async fn world() -> World {
         OperationSettings::default(),
     );
     World {
+        commits,
         store,
         clock,
         link,
@@ -1046,7 +1073,7 @@ async fn a_read_that_does_not_validate_is_dropped_and_the_report_is_not_lost() {
 }
 
 #[tokio::test]
-async fn a_store_failure_leaves_the_turn_running_and_the_effect_held() {
+async fn evidence_steps_and_the_turn_commit_atomically() {
     let w = world().await;
     let (op, turn, held) = turn_with_effect(&w).await;
     let end = turn_end(
@@ -1055,8 +1082,9 @@ async fn a_store_failure_leaves_the_turn_running_and_the_effect_held() {
         held,
         vec![read("docker_ps", StepOutcome::Succeeded)],
     );
-    w.store
-        .fail_next(domovoi_core::ports::StoreError::Backend("disk".to_owned()));
+    w.commits
+        .armed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let failed = w
         .send(|reply| OperationCommand::FinishTurn {
             end: end.clone(),

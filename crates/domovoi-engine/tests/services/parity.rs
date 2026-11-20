@@ -281,6 +281,11 @@ async fn tool_call_budget_is_enforced_the_same() {
         .filter(|record| record.progress.outcome == StepOutcome::Refused)
         .count();
     assert_eq!((steps.len(), refused), (20, 5));
+    let reached = tool_requests(&w)
+        .into_iter()
+        .filter(|(_, call)| call.starts_with("DockerPs"))
+        .count();
+    assert_eq!(reached, 15, "the agent ran the 15 allowed calls");
     assert_eq!(snapshot.operation.budgets.used.evidence_requests, 15);
 }
 

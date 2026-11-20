@@ -15,7 +15,7 @@ use domovoi_engine::operations::{DecideError, NewEdge, OperationEvent, RecordedS
 use serde_json::{Value, json};
 
 use crate::harness::host_id;
-use crate::inv::{Inv, InvSetup, inv, of_kind, report, report_json, restart_report, turns};
+use crate::inv::{Inv, InvSetup, inv, of_kind, output_kind, report, restart_report, turns};
 use crate::support::Fixture;
 
 /// A model turn that calls tools: `(id, name, input)` each.
@@ -407,19 +407,26 @@ async fn staged_steps_are_stored_through_propose_execution() {
 #[tokio::test]
 async fn cached_report_proposals_go_through_the_validator() {
     let w = inv(InvSetup::default()).await;
-    w.llm.push_text(report_json(
-        "ACTION_NEEDED",
-        json!([{"skill": "wipe_disk", "args": {}, "reason": "Make room."}]),
-    ));
-    let op = w.start().await;
+    w.llm.push_text(restart_report("nginx"));
+    let first = w.start().await;
+    w.until(first, |s| {
+        s.operation.status == OperationStatus::WaitingApproval
+    })
+    .await;
+    // The repeat reuses that report, but the skill has been switched off since.
+    w.resolve(&w.incident).await;
+    w.caps
+        .disable(host_id(), SkillName::parse("restart_container").unwrap());
+    let repeat = w.add_incident("nginx", crate::inv::disk(92.1)).await;
+    let op = w.ops.investigate(&repeat, false).await.unwrap();
     let snapshot = w.until_closed(op).await;
 
+    assert_eq!(output_kind(turns(&snapshot)[0]), "cached");
+    assert_eq!(w.llm.requests().len(), 1, "the model was not asked again");
     assert!(of_kind(&snapshot, StepKind::Execution).is_empty());
     let shown = format!("{:?}", w.last_outcome());
-    assert!(
-        shown.contains("wipe_disk: not a skill on this host"),
-        "{shown}"
-    );
+    assert!(shown.contains("Proposals not offered:"), "{shown}");
+    assert!(shown.contains("restart_container: "), "{shown}");
 }
 
 #[tokio::test]

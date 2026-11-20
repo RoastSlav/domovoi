@@ -207,3 +207,83 @@ impl EffectHandler for CallModel {
         finish_turn(shared, held, operation, ended, evidence, vec![draft]).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use domovoi_core::{ReadTool, ReadToolCall, StepIntent};
+    use serde_json::{Value, json};
+
+    use super::*;
+
+    /// Arguments for every read tool, with the optional ones both set and left out.
+    fn samples() -> Vec<(&'static str, Value)> {
+        vec![
+            ("docker_ps", json!({})),
+            ("docker_ps", json!({"all": true})),
+            ("docker_logs", json!({"container": "nginx"})),
+            ("docker_logs", json!({"container": "nginx", "lines": 50})),
+            ("docker_inspect", json!({"container": "nginx"})),
+            ("docker_events", json!({})),
+            (
+                "docker_events",
+                json!({"container": "nginx", "since_minutes": 30}),
+            ),
+            ("host_overview", json!({})),
+            ("journal", json!({})),
+            (
+                "journal",
+                json!({"unit": "ssh", "since_minutes": 10, "lines": 20, "kernel": true}),
+            ),
+            ("listening_ports", json!({})),
+            ("smart_report", json!({"device": "/dev/sda"})),
+            ("incident_history", json!({})),
+            ("incident_history", json!({"limit": 3})),
+            ("notes_search", json!({"query": "disk"})),
+            ("notes_search", json!({"query": "disk", "limit": 2})),
+            ("run_read_skill", json!({"skill": "disk_report"})),
+            (
+                "run_read_skill",
+                json!({"skill": "disk_report", "args": {"path": "/"}}),
+            ),
+        ]
+    }
+
+    /// The args a recorded read stores must parse back to the very same call, or the writer
+    /// would drop every read of the turn.
+    #[test]
+    fn recorded_reads_round_trip_for_every_read_tool() {
+        let mut seen: Vec<&str> = Vec::new();
+        for (tool, args) in samples() {
+            let call = ReadToolCall::from_json(tool, args.clone())
+                .unwrap_or_else(|err| panic!("{tool} {args}: {err}"));
+            let record = EvidenceRecord {
+                call: call.clone(),
+                class: EvidenceClass::Observed,
+                summary: "seen".to_owned(),
+                output: "text".to_owned(),
+            };
+            let steps = recorded(HostId::new(), &[record]);
+            assert_eq!(steps.len(), 1, "{tool} {args}");
+            let step = &steps[0];
+            assert_eq!(step.tool, tool);
+            let intent = StepIntent::EvidenceRequest {
+                host: step.host,
+                tool: step.tool.clone(),
+                args: step.args.clone(),
+            };
+            intent
+                .validate()
+                .unwrap_or_else(|err| panic!("{tool} {args}: {err}"));
+            let again = ReadToolCall::from_json(&step.tool, step.args.clone()).expect("parses");
+            assert_eq!(again, call, "{tool} {args}");
+            seen.push(tool);
+        }
+        for tool in ReadTool::ALL {
+            assert!(
+                seen.contains(&tool.name()),
+                "{} is not covered",
+                tool.name()
+            );
+        }
+    }
+}
