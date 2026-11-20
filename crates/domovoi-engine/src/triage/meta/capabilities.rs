@@ -1,7 +1,7 @@
 //! `list_capabilities` and `describe_capability`: what can be done on the incident's host,
 //! read from the hub-owned contracts and the host's enabled skills. Nothing is run.
 
-use domovoi_core::capability::{CapabilityContract, contract_id_of, skill_contract};
+use domovoi_core::capability::{CapabilityContract, SkillFloor, contract_id_of, skill_contract};
 use domovoi_core::{Availability, ContractId, EffectClass, HostId, ReadTool, SkillSummary};
 use serde::Serialize;
 
@@ -76,8 +76,9 @@ fn entries(ctx: &Ctx<'_>, host: HostId) -> Vec<Entry> {
         let effect = registry
             .effective_effect(host, &summary.name)
             .unwrap_or(EffectClass::from(summary.risk));
-        let mut contract = skill_contract(&summary, None);
-        contract.effect = effect;
+        // The floor carries the effective class, so every field that depends on the risk
+        // (category, reversibility, verification) agrees with `effect`.
+        let contract = skill_contract(&summary, SkillFloor::new(effect).ok());
         all.push(Entry {
             usage: usage(&id, effect, true),
             title: summary.description.clone(),

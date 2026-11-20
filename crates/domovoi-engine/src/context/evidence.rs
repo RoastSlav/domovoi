@@ -73,7 +73,10 @@ impl EvidenceSource {
         let (class, text) = tools::read_redacted(deps, scope, call.clone(), query.deadline).await;
         let tool = call.tool().name();
         let args = args_text(call);
-        let id = ContextItemId::new(&Self::source_id(), &format!("{tool}:{}", digest(call)));
+        let id = ContextItemId::new(
+            &Self::source_id(),
+            &format!("{}:{tool}:{}", scope_key(&query.scope), digest(call)),
+        );
         let title = chars(&deps.redactor.redact(&format!("{tool} {args}")), TITLE_MAX);
         let reference = chars(
             &deps.redactor.redact(&format!("{tool} {args}")),
@@ -161,6 +164,16 @@ fn scope_of(scope: &ContextScope) -> Scope {
             host: *host,
             incident: Some(*incident),
         },
+    }
+}
+
+/// The scope as part of an item's identity: the same read on another host, incident or
+/// operation is a different fact.
+fn scope_key(scope: &ContextScope) -> String {
+    match scope {
+        ContextScope::Host(host) => format!("h{host}"),
+        ContextScope::Incident { host, incident } => format!("h{host}:i{incident}"),
+        ContextScope::Operation { host, operation } => format!("h{host}:o{operation}"),
     }
 }
 

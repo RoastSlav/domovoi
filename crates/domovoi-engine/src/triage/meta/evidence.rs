@@ -72,11 +72,24 @@ pub(super) async fn request(
                 .reason()
                 .unwrap_or("the read gave no answer")
                 .to_owned();
-            let mut result = finish(deps, &format!("error: {reason}"), true);
-            if !matches!(class, EvidenceClass::Refused(_)) {
-                result.content.push('\n');
-                result.content.push_str(UNKNOWN_NOTE);
-            }
+            let unknown = !matches!(class, EvidenceClass::Refused(_));
+            // The note is part of the answer, so the bound applies to the reason and the
+            // note is kept whole beside it.
+            let room = if unknown {
+                MAX_RESULT_BYTES.saturating_sub(UNKNOWN_NOTE.len() + 1)
+            } else {
+                MAX_RESULT_BYTES
+            };
+            let head = cut(&deps.redactor.redact(&format!("error: {reason}")), room);
+            let content = if unknown {
+                format!("{head}\n{UNKNOWN_NOTE}")
+            } else {
+                head
+            };
+            let result = ToolResult {
+                content,
+                is_error: true,
+            };
             (result, reason)
         }
     };

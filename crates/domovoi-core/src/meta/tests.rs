@@ -197,3 +197,9 @@ fn describe_capability_rejects_control_characters_and_long_ids() {
         assert!(MetaToolCall::from_json("describe_capability", json!({ "contract": id })).is_err());
     }
 }
+
+#[test]
+fn a_blank_question_is_rejected_and_surrounding_space_is_kept() {
+    assert!(MetaToolCall::from_json("ask_user", json!({"question": "   "})).is_err());
+    assert!(MetaToolCall::from_json("ask_user", json!({"question": " ok? "})).is_ok());
+}

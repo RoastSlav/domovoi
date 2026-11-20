@@ -9,12 +9,14 @@ use domovoi_core::context::{
 };
 use domovoi_core::meta::{MetaTool, ToolSet};
 use domovoi_core::ports::{
-    Clock, ContextSource, HostAvailability, LlmCapability, LlmError, LlmRequest, Part,
+    Clock, ContextSource, HostAvailability, LinkError, LlmCapability, LlmError, LlmRequest, Part,
 };
-use domovoi_core::{ReadToolCall, Risk, SkillName, TriageOutcome, TriageReport, UserId};
+use domovoi_core::{
+    EffectClass, ReadToolCall, Risk, SkillName, TriageOutcome, TriageReport, UserId,
+};
 use domovoi_engine::context::EvidenceSource;
 use domovoi_engine::triage::{
-    BUDGET_EXHAUSTED, NO_CALLS_LEFT, SYSTEM_PROMPT, TriageDeps, UNKNOWN_NOTE,
+    BUDGET_EXHAUSTED, MAX_RESULT_BYTES, NO_CALLS_LEFT, SYSTEM_PROMPT, TriageDeps, UNKNOWN_NOTE,
 };
 use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
 use domovoi_testkit::build::manifest;
@@ -175,9 +177,68 @@ async fn calls_after_finish_in_one_response_are_ignored() {
         .await
         .unwrap();
     assert!(
-        !timeline.iter().any(|e| e.kind == "triage.tools"),
+        !timeline
+            .iter()
+            .filter(|e| e.kind == "triage.tools")
+            .any(|e| format!("{e:?}").contains("docker_ps")),
         "nothing after finish is recorded"
     );
+}
+
+/// The tool calls the run recorded in the incident's `triage.tools` entry.
+async fn recorded_tools(w: &World) -> Vec<Value> {
+    let timeline = domovoi_core::ports::IncidentRepo::timeline(&*w.store, w.incident.id())
+        .await
+        .unwrap();
+    timeline
+        .iter()
+        .find(|e| e.kind == "triage.tools")
+        .map(|e| e.detail["tools"].as_array().cloned().unwrap_or_default())
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn a_valid_finish_is_recorded_and_not_charged_to_the_tool_call_budget() {
+    let w = world(Setup::default()).await;
+    let list: Vec<(String, String, Value)> = (0..15)
+        .map(|n| (format!("l{n}"), "list_capabilities".to_owned(), json!({})))
+        .collect();
+    let mut refs: Vec<(&str, &str, Value)> = list
+        .iter()
+        .map(|(id, name, input)| (id.as_str(), name.as_str(), input.clone()))
+        .collect();
+    refs.push(("f1", "finish", finish_report()));
+    w.primary.push_ok(calls(&refs));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+    assert_eq!(w.primary.requests().len(), 1, "finish was honoured");
+
+    let tools = recorded_tools(&w).await;
+    assert_eq!(tools.len(), 16, "{tools:?}");
+    let last = tools.last().unwrap();
+    assert_eq!(last["tool"], "finish");
+    assert_eq!(last["failed"], false);
+    assert_eq!(last["refused"], false);
+    assert!(
+        tools.iter().all(|t| t["refused"] == false),
+        "no call was refused for the budget: {tools:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_rejected_finish_is_recorded_as_failed() {
+    let w = world(Setup::default()).await;
+    let mut bad = finish_report();
+    bad["headline"] = json!("");
+    w.primary.push_ok(finish_call("f1", bad));
+    w.primary.push_ok(finish_call("f2", finish_report()));
+    assert!(matches!(w.run().await, TriageOutcome::Report(_)));
+
+    let tools = recorded_tools(&w).await;
+    assert_eq!(tools.len(), 2, "{tools:?}");
+    assert_eq!(tools[0]["tool"], "finish");
+    assert_eq!(tools[0]["failed"], true, "the rejected finish failed");
+    assert_eq!(tools[1]["tool"], "finish");
+    assert_eq!(tools[1]["failed"], false, "the repaired finish did not");
 }
 
 #[tokio::test]
@@ -271,6 +332,26 @@ async fn missing_evidence_is_unknown_not_false() {
         "a known empty is not unknown"
     );
     assert_eq!(docker_ps_reads(&w), 0, "nothing reached the link");
+}
+
+#[tokio::test]
+async fn a_failed_read_with_a_huge_reason_stays_within_the_limit_and_keeps_the_note() {
+    let w = world(Setup::default()).await;
+    w.link
+        .on_tool(|_, _| Err(LinkError::Transport("x".repeat(20 * 1024))));
+    w.primary
+        .push_ok(read_calls(&[("c1", "docker_ps", json!({}))]));
+    w.primary.push_text(report());
+    w.run().await;
+    let (content, is_error) = results(&w.primary.requests()[1]).remove(0);
+    assert!(is_error);
+    assert!(
+        content.len() <= MAX_RESULT_BYTES,
+        "{} bytes over {MAX_RESULT_BYTES}",
+        content.len()
+    );
+    assert!(content.starts_with("error: "), "{}", &content[..40]);
+    assert!(content.ends_with(UNKNOWN_NOTE), "the note is intact");
 }
 
 #[tokio::test]
@@ -486,6 +567,64 @@ async fn describe_capability_prints_manifest_text_as_data() {
     );
     assert_eq!(names(&requests[0]), names(&requests[1]));
     assert!(report_of(&outcome).proposals.is_empty());
+}
+
+/// The text `describe_capability` returns for `skill`, declared `declared` and raised to
+/// `floor` by the hub.
+async fn described_with_floor(declared: Risk, floor: EffectClass) -> String {
+    let w = world(Setup::default()).await;
+    let summary = manifest("floored_skill", declared)
+        .unwrap()
+        .summary(domovoi_core::ScriptDigest::of_bytes(b"floored"));
+    w.link.set_skills(host_id(), vec![summary]);
+    w.capabilities
+        .set_effect(host_id(), SkillName::parse("floored_skill").unwrap(), floor);
+    w.primary.push_ok(calls(&[(
+        "d1",
+        "describe_capability",
+        json!({"contract": "skill.floored_skill"}),
+    )]));
+    w.primary.push_text(report());
+    w.run().await;
+    let (content, is_error) = results(&w.primary.requests()[1]).remove(0);
+    assert!(!is_error, "{content}");
+    content
+}
+
+#[tokio::test]
+async fn describe_capability_of_a_read_skill_raised_to_mutate_is_consistent() {
+    let text = described_with_floor(Risk::Read, EffectClass::Mutate).await;
+    for expected in [
+        "effect: mutate
+",
+        "category: skill.mutate
+",
+        "reversibility: reversible
+",
+        "use: propose_plan contract \"skill.floored_skill\"",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text}");
+    }
+    assert!(!text.contains("verification: none"), "{text}");
+    assert!(!text.contains("skill.read"), "{text}");
+}
+
+#[tokio::test]
+async fn describe_capability_of_a_write_skill_raised_to_destructive_is_consistent() {
+    let text = described_with_floor(Risk::Write, EffectClass::Destructive).await;
+    for expected in [
+        "effect: destructive
+",
+        "category: skill.destructive
+",
+        "reversibility: irreversible
+",
+        "use: propose_plan contract \"skill.floored_skill\"",
+    ] {
+        assert!(text.contains(expected), "missing {expected:?} in {text}");
+    }
+    assert!(!text.contains("skill.mutate"), "{text}");
+    assert!(!text.contains("verification: none"), "{text}");
 }
 
 #[tokio::test]
@@ -748,11 +887,26 @@ async fn evidence_source_reports_unavailable_as_an_unknown_item_and_refused_as_a
     let known = source.fetch(&query(read.clone())).await;
     let again = source.fetch(&query(read.clone())).await;
     assert_eq!(known.items[0].id, again.items[0].id, "a stable id");
-    assert!(
-        known.items[0]
-            .id
-            .as_str()
-            .starts_with("evidence:docker_ps:")
+    assert!(known.items[0].id.as_str().starts_with("evidence:"));
+    assert!(known.items[0].id.as_str().contains(":docker_ps:"));
+
+    // The same read on another host, or in another incident, is a different fact.
+    let mut other_host = query(read.clone());
+    other_host.scope = ContextScope::Host(domovoi_core::HostId::new());
+    let elsewhere = source.fetch(&other_host).await;
+    assert_ne!(
+        known.items[0].id, elsewhere.items[0].id,
+        "another host has another id"
+    );
+    let mut in_incident = query(read.clone());
+    in_incident.scope = ContextScope::Incident {
+        host: host_id(),
+        incident: domovoi_core::IncidentId::new(),
+    };
+    let scoped = source.fetch(&in_incident).await;
+    assert_ne!(
+        known.items[0].id, scoped.items[0].id,
+        "another incident has another id"
     );
 
     // A read skill called with arguments its manifest rejects is refused, which is a gap.

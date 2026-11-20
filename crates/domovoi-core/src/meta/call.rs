@@ -182,6 +182,9 @@ fn text(field: &str, value: &str, min: usize, max: usize) -> Result<(), String> 
     if count < min || count > max {
         return Err(format!("{field}: must be {min} to {max} characters"));
     }
+    if value.trim().is_empty() {
+        return Err(format!("{field}: must not be blank"));
+    }
     if value.chars().any(char::is_control) {
         return Err(format!("{field}: must not contain control characters"));
     }

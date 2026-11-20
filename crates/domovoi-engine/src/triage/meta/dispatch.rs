@@ -107,6 +107,7 @@ pub(super) async fn handle(
         Ok(call) => call,
         Err(err) => {
             if tool == Some(MetaTool::Finish) {
+                used.push(record::recorded(name, &input, ctx.skills, true, false));
                 return Handled::FinishRejected(ctx.shared.deps.redactor.redact(&err.to_string()));
             }
             used.push(record::recorded(name, &input, ctx.skills, true, false));
@@ -126,7 +127,11 @@ pub(super) async fn handle(
         }
     };
     let call = match call {
-        MetaToolCall::Finish(report) => return Handled::Finish(report),
+        MetaToolCall::Finish(report) => {
+            // `finish` is the answer, not a read: it is recorded but never charged.
+            used.push(record::recorded(name, &input, ctx.skills, false, false));
+            return Handled::Finish(report);
+        }
         other => other,
     };
     let max = ctx.shared.settings.budget.max_tool_calls;

@@ -51,7 +51,11 @@ fn stored(snapshot: &OperationSnapshot, turn: StepId, planned: &PlannedStep) -> 
         .iter()
         .any(|record| match &record.step.intent {
             domovoi_core::StepIntent::Execution(intent) => {
-                intent.contract == planned.contract && intent.args == planned.args
+                intent.contract == planned.contract
+                    && intent.host == planned.host
+                    && intent.check == planned.check
+                    && intent.target == planned.target
+                    && intent.args == planned.args
             }
             _ => false,
         })
@@ -125,4 +129,151 @@ pub(super) async fn store_plan(
 /// The skill name of a `skill.<name>` contract id, else the id itself.
 fn short_name(contract: &str) -> &str {
     contract.strip_prefix("skill.").unwrap_or(contract)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use domovoi_core::capability::{ContractVersion, TargetIdentity};
+    use domovoi_core::{
+        Budgets, CheckKey, ContractId, HostId, Operation, OperationKind, PinnedSubject, SkillName,
+        Step, StepIntent, StepProgress, StepRecord, TargetKey,
+    };
+    use jiff::Timestamp;
+
+    use super::*;
+
+    /// What a stored or planned step runs.
+    #[derive(Clone)]
+    struct Run {
+        host: HostId,
+        check: &'static str,
+        target: Option<&'static str>,
+    }
+
+    fn intent_of(run: &Run) -> ExecutionIntent {
+        ExecutionIntent {
+            contract: ContractId::skill(&SkillName::parse("restart_container").expect("a name")),
+            contract_version: 1,
+            host: run.host,
+            check: CheckKey::parse(run.check).expect("a check key"),
+            target: run
+                .target
+                .map(|t| TargetKey::parse(t).expect("a target key")),
+            args: BTreeMap::from([("container".to_owned(), "nginx".to_owned())]),
+            retry_of: None,
+        }
+    }
+
+    fn planned(run: &Run) -> PlannedStep {
+        let intent = intent_of(run);
+        PlannedStep {
+            input: PlanStepInput {
+                contract: intent.contract.to_string(),
+                args: BTreeMap::new(),
+                host: None,
+                target: None,
+                reason: "It is stuck.".to_owned(),
+                retry_of: None,
+            },
+            contract: intent.contract,
+            version: ContractVersion::new(1).expect("a version"),
+            host: intent.host,
+            check: intent.check,
+            target: intent.target,
+            args: intent.args,
+            reason: "It is stuck.".to_owned(),
+            identity: TargetIdentity::parse("container:nginx").expect("an identity"),
+            retry_of: None,
+            note: None,
+        }
+    }
+
+    /// A snapshot whose turn stored one Execution step for each of `stored`.
+    fn snapshot_with(turn: StepId, stored: &[Run]) -> OperationSnapshot {
+        let subject = PinnedSubject {
+            host: HostId::new(),
+            check: CheckKey::parse("disk.usage").expect("a check key"),
+            target: None,
+        };
+        let operation = Operation::queued(
+            OperationId::new(),
+            OperationKind::Investigate,
+            "Investigate: disk",
+            vec![subject],
+            None,
+            Budgets::new(Default::default()),
+            Timestamp::UNIX_EPOCH,
+        )
+        .expect("an operation");
+        let steps = stored
+            .iter()
+            .enumerate()
+            .map(|(ordinal, run)| {
+                let intent = StepIntent::Execution(intent_of(run));
+                StepRecord {
+                    step: Step {
+                        id: StepId::new(),
+                        operation: operation.id,
+                        ordinal: u32::try_from(ordinal).expect("few steps"),
+                        kind: intent.kind(),
+                        phase: "p".to_owned(),
+                        parent: Some(turn),
+                        cycle: 0,
+                        intent,
+                        created_at: Timestamp::UNIX_EPOCH,
+                    },
+                    progress: StepProgress::pending(),
+                }
+            })
+            .collect();
+        OperationSnapshot {
+            operation,
+            version: 1,
+            steps,
+            edges: Vec::new(),
+            executions: Vec::new(),
+            incidents: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_stored_step_is_recognised_only_for_the_same_pinned_subject() {
+        let turn = StepId::new();
+        let host = HostId::new();
+        let first = Run {
+            host,
+            check: "docker.container",
+            target: Some("nginx"),
+        };
+        let snapshot = snapshot_with(turn, std::slice::from_ref(&first));
+
+        assert!(
+            stored(&snapshot, turn, &planned(&first)),
+            "a redelivery keeps the stored step"
+        );
+        let other_target = Run {
+            target: Some("redis"),
+            ..first.clone()
+        };
+        let other_check = Run {
+            check: "docker.health",
+            ..first.clone()
+        };
+        let other_host = Run {
+            host: HostId::new(),
+            ..first.clone()
+        };
+        for different in [other_target, other_check, other_host] {
+            assert!(
+                !stored(&snapshot, turn, &planned(&different)),
+                "same contract and arguments, different subject: still to be stored"
+            );
+        }
+        assert!(
+            !stored(&snapshot, StepId::new(), &planned(&first)),
+            "another turn's step is not this turn's"
+        );
+    }
 }
