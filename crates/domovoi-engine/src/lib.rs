@@ -28,6 +28,7 @@ pub mod digest;
 pub mod effects;
 pub mod events;
 pub mod evidence;
+pub mod legacy;
 pub mod manager;
 pub mod notify;
 pub mod operations;

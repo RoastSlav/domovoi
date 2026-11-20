@@ -199,6 +199,53 @@ fn proposed_expires_after_the_window() {
 }
 
 #[test]
+fn expire_at_upgrade_is_only_valid_from_proposed() {
+    let mut req = proposed(Risk::Write);
+    let change = req.expire_at_upgrade(at(60)).unwrap();
+    assert_eq!(change.from, ActionStatus::Proposed);
+    assert_eq!(change.to, ActionStatus::Expired);
+    assert_eq!(req.status(), &ActionStatus::Expired);
+    assert!(at(60) < req.expires_at(), "the window was still open");
+
+    let mut denied = proposed(Risk::Write);
+    denied.deny(at(60)).unwrap();
+    let mut verified = succeeded();
+    verified.verified(true, at(240)).unwrap();
+    let mut verify_failed = succeeded();
+    verify_failed.verified(false, at(240)).unwrap();
+    let mut failed = dispatched();
+    failed.complete(Err("boom".to_owned()), at(180)).unwrap();
+    let mut unknown = dispatched();
+    unknown.outcome_unknown("lost".to_owned(), at(180)).unwrap();
+    let mut not_run = approved(Risk::Write);
+    not_run.never_ran("never".to_owned(), at(180)).unwrap();
+    let mut rejected = approved(Risk::Write);
+    rejected.reject("changed".to_owned(), at(180)).unwrap();
+    let mut expired = proposed(Risk::Write);
+    expired.expire(at(3600)).unwrap();
+    for mut other in [
+        approved(Risk::Write),
+        dispatched(),
+        succeeded(),
+        denied,
+        verified,
+        verify_failed,
+        failed,
+        unknown,
+        not_run,
+        rejected,
+        expired,
+    ] {
+        let before = other.clone();
+        assert!(matches!(
+            other.expire_at_upgrade(at(300)),
+            Err(ActionError::NotAllowed { .. })
+        ));
+        assert_eq!(other, before, "a refused move changes nothing");
+    }
+}
+
+#[test]
 fn approve_after_expiry_fails() {
     let mut req = proposed(Risk::Write);
     let before = req.clone();

@@ -84,6 +84,9 @@ pub enum RuntimeError {
     /// Persisted runtime state could not be read or written.
     #[error(transparent)]
     Store(#[from] domovoi_core::ports::StoreError),
+    /// The open legacy actions could not be retired at start.
+    #[error(transparent)]
+    LegacyDrain(#[from] domovoi_engine::legacy::LegacyDrainError),
     /// The capability registry could not be built.
     #[error(transparent)]
     Registry(#[from] crate::capability::RegistryError),
@@ -187,6 +190,17 @@ impl HubRuntime {
         let redactor = Arc::new(PatternRedactor::new(secrets));
         let clock = deps.clock;
         let test_executor = deps.process_executor.clone();
+        // The legacy executor is gone: settle every open legacy action before any task
+        // that could write actions or claim effects starts.
+        domovoi_engine::legacy::drain_legacy_actions(&domovoi_engine::legacy::LegacyDrainDeps {
+            actions: store.clone(),
+            incidents: store.clone(),
+            uow: store.clone(),
+            effects: store.clone(),
+            effect_read: store.clone(),
+            clock: clock.clone(),
+        })
+        .await?;
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
