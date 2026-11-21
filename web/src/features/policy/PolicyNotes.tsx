@@ -1,5 +1,6 @@
 import { InlineMessage, StatusPill } from "../../components";
 import { ruleMarkMeta } from "../../design/tone";
+import styles from "./policy.module.css";
 
 /**
  * The hub's notes about a policy, each shown word for word.
@@ -7,13 +8,13 @@ import { ruleMarkMeta } from "../../design/tone";
  */
 export function PolicyNotes({ notes }: { notes: readonly string[] }) {
   return (
-    <>
-      {notes.map((note) => (
-        <InlineMessage key={note} tone="info">
-          {note}
-        </InlineMessage>
-      ))}
-    </>
+    <InlineMessage tone="info">
+      <ul className={styles.notes}>
+        {notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </InlineMessage>
   );
 }
 

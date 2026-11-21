@@ -3,6 +3,7 @@ import { usePolicyOverview } from "../../api/hooks/policy";
 import type { PolicyOverview } from "../../api/types";
 import {
   DetailsScope,
+  Grid,
   InfoTip,
   LinkButton,
   PageHeader,
@@ -17,7 +18,7 @@ import {
 import { ActiveRules } from "./ActiveRules";
 import { ActiveSummary } from "./ActiveSummary";
 import { DecisionsTab } from "./DecisionsTab";
-import { DraftCard } from "./DraftCard";
+import { DraftCard, DraftStale } from "./DraftCard";
 import { PolicyNotes } from "./PolicyNotes";
 import { PRECEDENCE_HELP } from "./policyText";
 import { ShadowCard } from "./ShadowCard";
@@ -87,11 +88,13 @@ export function PolicyPage() {
       <PageHeader
         title="Policy"
         docs="concepts/policy.html"
-        intro="What Domovoi may do without asking you, what it asks you about and what it never offers."
-        meta={
-          <InfoTip title="How rules combine" learnMore="concepts/policy.html">
-            {PRECEDENCE_HELP}
-          </InfoTip>
+        intro={
+          <>
+            What Domovoi may do without asking you, what it asks you about and what it never offers.{" "}
+            <InfoTip title="How rules combine" learnMore="concepts/policy.html">
+              {PRECEDENCE_HELP}
+            </InfoTip>
+          </>
         }
         actions={<Actions overview={overview.data} />}
       />
@@ -103,16 +106,19 @@ export function PolicyPage() {
         >
           {(data) => (
             <Stack gap={4}>
-              <Visible category="P0" id="policy.mode">
-                <PolicyNotes notes={data.notes} />
-              </Visible>
+              <DraftStale overview={data} />
+              <Grid min="sm" gap={4}>
+                <Visible category="P0" id="policy.active">
+                  <ActiveSummary version={data.active} zone={data.time_window_zone} />
+                </Visible>
+                <DraftCard overview={data} />
+              </Grid>
               <Visible category="P0" id="policy.shadow">
                 <ShadowCard overview={data} />
               </Visible>
-              <Visible category="P0" id="policy.active">
-                <ActiveSummary version={data.active} zone={data.time_window_zone} />
+              <Visible category="P0" id="policy.mode">
+                <PolicyNotes notes={data.notes} />
               </Visible>
-              <DraftCard overview={data} />
               {data.active && (
                 <DetailsScope>
                   <Visible category="P3" id="policy.fingerprint" label="Fingerprint" count={1}>

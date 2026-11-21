@@ -125,7 +125,7 @@ test("a_stale_draft_warns_that_the_active_version_changed", async () => {
 
 test("a_draft_based_on_the_active_version_is_not_stale", async () => {
   show();
-  expect(await screen.findByText(/Draft revision 4/)).toBeVisible();
+  expect(await screen.findByText(/Revision 4/)).toBeVisible();
   expect(screen.queryByText("The active version changed since this draft began")).toBeNull();
 });
 

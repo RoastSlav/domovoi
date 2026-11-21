@@ -1,5 +1,5 @@
 import type { PolicyVersionSummary } from "../../api/types";
-import { Cluster, KeyValueList, RelativeTime, Text } from "../../components";
+import { Card, KeyValueList, RelativeTime, Stack, Text } from "../../components";
 import { actorText } from "./ruleText";
 
 /** What a policy without a published version means. */
@@ -18,27 +18,45 @@ export function ActiveSummary({
   version: PolicyVersionSummary | null | undefined;
   zone: string;
 }) {
-  if (!version) return <Text>{NO_POLICY_TEXT}</Text>;
+  if (!version) {
+    return (
+      <Card label="Active policy">
+        <Stack gap={2}>
+          <Text strong block>
+            Active policy
+          </Text>
+          <Text muted block>
+            {NO_POLICY_TEXT}
+          </Text>
+        </Stack>
+      </Card>
+    );
+  }
   return (
-    <Cluster gap={4}>
-      <KeyValueList
-        items={[
-          { label: "Active version", value: `Version ${version.number}` },
-          {
-            label: "Published",
-            value: (
-              <>
-                by {actorText(version.published_by)} <RelativeTime at={version.published_at} />
-              </>
-            ),
-          },
-          {
-            label: "Rules",
-            value: `${version.rule_count} rules, ${version.locked_count} locked, ${version.shadow_count} shadow`,
-          },
-          { label: "Time zone", value: zone },
-        ]}
-      />
-    </Cluster>
+    <Card label="Active policy">
+      <Stack gap={2}>
+        <Text strong block>
+          Active policy
+        </Text>
+        <KeyValueList
+          items={[
+            { label: "Active version", value: `Version ${version.number}` },
+            {
+              label: "Published",
+              value: (
+                <>
+                  by {actorText(version.published_by)} <RelativeTime at={version.published_at} />
+                </>
+              ),
+            },
+            {
+              label: "Rules",
+              value: `${version.rule_count} rules, ${version.locked_count} locked, ${version.shadow_count} shadow`,
+            },
+            { label: "Time zone", value: zone },
+          ]}
+        />
+      </Stack>
+    </Card>
   );
 }
