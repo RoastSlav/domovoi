@@ -5,6 +5,7 @@ import { IconButton } from "../components";
 import { Icon } from "../design/icons";
 import brand from "./brand.module.css";
 import { HostSelect } from "./HostSelect";
+import { OperatorToggle } from "./OperatorToggle";
 import { useTrail } from "./PageTitle";
 import { SIDEBAR_ID } from "./Sidebar";
 import styles from "./topbar.module.css";
@@ -71,6 +72,7 @@ export function TopBar({
       </Link>
       <Breadcrumb />
       <div ref={slot} className={styles.actions} />
+      <OperatorToggle />
       <div className={styles.hostSelect}>
         <HostSelect />
       </div>

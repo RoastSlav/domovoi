@@ -100,7 +100,13 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
     within(within(nav()).getByRole("group", { name: group, hidden: true }))
       .getAllByRole("link", { hidden: true })
       .map((link) => link.textContent);
-  expect(linksOf("Respond")).toEqual(["Overview", "Incidents", "Operations", "Approvals", "Chat"]);
+  expect(linksOf("Respond")).toEqual([
+    "Overview",
+    "Incidents",
+    "Operations",
+    "Operator",
+    "Approvals",
+  ]);
   expect(linksOf("Fleet")).toEqual(["Hosts", "Skills", "Capabilities", "Logs"]);
   expect(linksOf("Knowledge")).toEqual(["Known conditions", "Notes", "Digest"]);
   expect(linksOf("System")).toEqual(["Settings"]);

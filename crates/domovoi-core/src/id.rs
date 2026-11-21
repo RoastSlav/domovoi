@@ -169,6 +169,19 @@ define_id!(
     /// Identifies a subject the owner invented, such as a VPN or a NAS pool.
     EntityId
 );
+define_id!(
+    /// Identifies an Operator conversation.
+    ConversationId
+);
+define_id!(
+    /// Identifies one message of an Operator conversation.
+    MessageId
+);
+define_id!(
+    /// The client-chosen id of one question and its answer: the request id that makes a send
+    /// idempotent and lets a stale reply be recognised.
+    TurnId
+);
 
 #[cfg(test)]
 mod tests {

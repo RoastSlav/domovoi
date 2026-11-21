@@ -559,3 +559,35 @@ async fn migration_adds_the_policy_tables_and_keeps_existing_rows() {
         .unwrap();
     assert_eq!(compat, vec![(1, MIN_READER.to_owned())]);
 }
+
+#[tokio::test]
+async fn conversation_tables_exist_after_upgrade_from_the_schema5_fixture() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let mut original = raw(&fixture()).await;
+    for table in ["hosts", "incidents", "signals", "incident_events", "notes"] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let before: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.clone()))
+            .fetch_one(&mut original)
+            .await
+            .unwrap();
+        let after: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(before.0, after.0, "{table} keeps its rows");
+    }
+    sqlx::Connection::close(original).await.unwrap();
+    for table in ["conversations", "messages"] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let count: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0, "{table} starts empty");
+    }
+    assert_eq!(MIN_READER, "0.0.0");
+}

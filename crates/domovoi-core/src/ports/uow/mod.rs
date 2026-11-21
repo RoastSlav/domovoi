@@ -1,5 +1,6 @@
 //! The unit of work: one atomic commit for state, journal, audit and effects.
 
+mod conversations;
 mod effects;
 mod journal;
 mod knowledge_refs;
@@ -8,6 +9,7 @@ mod operations;
 mod topic;
 mod transaction;
 
+pub use conversations::{ConversationWrite, MessageGuard};
 pub use effects::{
     ClaimToken, EffectCompletion, EffectDraft, EffectKind, EffectRead, EffectRecord, EffectStatus,
 };

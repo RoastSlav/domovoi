@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use domovoi_core::ports::{Clock, LlmError, LlmProvider, LlmRequest, LlmResponse};
+use domovoi_core::ports::{AnswerSink, Clock, LlmError, LlmProvider, LlmRequest, LlmResponse};
 use jiff::SignedDuration;
 
 /// The hard per-call deadline used when none is configured.
@@ -52,9 +52,26 @@ impl LlmProvider for Deadline {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        self.race(self.inner.complete(req)).await
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        sink: &dyn AnswerSink,
+    ) -> Result<LlmResponse, LlmError> {
+        self.race(self.inner.complete_streaming(req, sink)).await
+    }
+}
+
+impl Deadline {
+    /// Races `call` against the hard deadline.
+    async fn race(
+        &self,
+        call: impl std::future::Future<Output = Result<LlmResponse, LlmError>>,
+    ) -> Result<LlmResponse, LlmError> {
         let now = self.clock.now();
         let deadline_at = now.checked_add(self.after).unwrap_or(now);
-        let call = self.inner.complete(req);
         let timer = self.clock.sleep_until(deadline_at);
         futures::pin_mut!(call, timer);
         match futures::future::select(call, timer).await {

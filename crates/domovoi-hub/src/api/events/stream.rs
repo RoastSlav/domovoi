@@ -6,9 +6,11 @@ use std::sync::Arc;
 use axum::response::sse::Event;
 use domovoi_core::ports::{Clock, JournalFeed, Redactor, TopicSet};
 use jiff::Timestamp;
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 
 use super::wire::{self, JournalFrame};
 use super::{BATCH_ROWS, KEEP_ALIVE, LAG_LIMIT_ROWS, StreamGuard};
+use crate::api::operator::live::LiveFrame;
 
 /// Everything one open connection owns.
 pub(super) struct Machine {
@@ -23,7 +25,17 @@ pub(super) struct Machine {
     /// At most one batch of frames waiting to be written to the socket.
     pub pending: VecDeque<Event>,
     pub last_send: Timestamp,
+    /// Live frames of answers being written, only for a connection that follows a conversation.
+    pub live: Option<Receiver<LiveFrame>>,
     pub _guard: StreamGuard,
+}
+
+/// The next live frame, or never when this connection has no live receiver.
+async fn next_live(live: &mut Option<Receiver<LiveFrame>>) -> Result<LiveFrame, RecvError> {
+    match live {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Why a cursor can no longer be served from the journal.
@@ -105,11 +117,28 @@ impl Machine {
         let clock = self.clock.clone();
         let cursor = self.cursor;
         let deadline = self.last_send + KEEP_ALIVE;
+        let mut live = self.live.take();
+        let mut keep_live = true;
         tokio::select! {
             () = feed.wait_after(cursor) => {}
             () = clock.sleep_until(deadline) => {
                 self.pending.push_back(wire::keepalive());
             }
+            frame = next_live(&mut live) => match frame {
+                Ok(frame) => {
+                    // Live frames never move the cursor and are never replayed.
+                    if self.topics.contains_conversation(&frame.conversation) {
+                        self.pending.push_back(wire::live_event(&frame));
+                    }
+                }
+                Err(RecvError::Lagged(missed)) => {
+                    metrics::counter!("domovoi_sse_live_dropped_total").increment(missed);
+                }
+                Err(RecvError::Closed) => keep_live = false,
+            },
+        }
+        if keep_live {
+            self.live = live;
         }
         Ok(())
     }
@@ -230,6 +259,7 @@ mod tests {
             cursor: 2,
             pending: VecDeque::new(),
             last_send: Timestamp::UNIX_EPOCH,
+            live: None,
             _guard: StreamGuard::acquire(&open).unwrap(),
         };
         machine.advance().await.unwrap();

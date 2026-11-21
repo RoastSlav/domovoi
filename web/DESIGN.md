@@ -213,7 +213,7 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
   padding on the first column; rows stack as cards on phones), `Stepper`, `Timeline`,
   `KeyValueList`, `FilterChips`, `Tabs` (underline style, 13 px/500, the active tab in text
   colour with a 2 px accent underline, counts as `Count`), `RelativeTime`, `Countdown`,
-  `CopyBlock`, `Markdown`, `ChatThread`, **`StatTile`** (a dashboard number: 12 px/500 muted label with an optional tone dot, a 24 px/600 tabular value, an optional hint line, and `to` to make it a link card).
+  `CopyBlock`, `Markdown`, `ChatThread`, **`OperatorThread`** (a durable Operator conversation: turns with a status, live text for the pending answer replaced by the saved one, Stop, Retry on the last failed or stopped answer, and a composer; it is not `ChatThread`, which stays the incident follow-up), **`StatTile`** (a dashboard number: 12 px/500 muted label with an optional tone dot, a 24 px/600 tabular value, an optional hint line, and `to` to make it a link card).
 - **Forms:** `Field` (around every input: a 13 px/500 label with badges inline to its right,
   a 12 px muted hint 6 px under the control, the error below), `TextInput`, `NumberInput`
   (digits right-aligned), `Textarea`, `Select` (custom chevron), `PasswordInput`,
@@ -417,7 +417,7 @@ one thing per press: tooltip, popover or menu; dialog or palette; the panel or i
 focus; then the graph selection. An attention-centre entry and an autonomy-state indicator join
 the shell.
 
-**New kit components** (each added to the kit, this list and `/dev/design` together): a graph
+**New kit components** (`OperatorThread` is in the kit; the Operator is a surface of the right slot, and its `turn status` vocabulary is `Answering`, `Answered`, `Not answered`, `Stopped`) (each added to the kit, this list and `/dev/design` together): a graph
 canvas with an outline (real DOM, the screen-reader path) and keyboard navigation (arrows move
 between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
 key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a

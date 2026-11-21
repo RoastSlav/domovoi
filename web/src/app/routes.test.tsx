@@ -132,3 +132,17 @@ test("operations_routes_render_their_pages", async () => {
   renderApp("/operations/op-1");
   expect(await heading("Operation")).toBeVisible();
 });
+
+test("old_chat_route_redirects_to_the_operator_workspace", async () => {
+  route("GET /api/v1/conversations", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
+  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
+  renderApp("/chat");
+
+  expect(await heading("Operator")).toBeVisible();
+  const nav = screen.getByRole("navigation", { name: "Main", hidden: true });
+  expect(within(nav).getByRole("link", { name: "Operator", hidden: true })).toHaveAttribute(
+    "href",
+    "/operator",
+  );
+  expect(within(nav).queryByRole("link", { name: "Chat", hidden: true })).toBeNull();
+});

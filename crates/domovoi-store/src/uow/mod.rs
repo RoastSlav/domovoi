@@ -1,5 +1,6 @@
 //! The SQLite unit of work: one `BEGIN IMMEDIATE ... COMMIT` on the single writer connection.
 
+mod conversations;
 mod effects;
 mod feed;
 mod journal;

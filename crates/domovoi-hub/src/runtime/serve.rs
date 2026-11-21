@@ -29,6 +29,7 @@ pub(super) async fn run(
         gateways,
         manager_task,
         triage_task,
+        conversation_task,
         operations_task,
         profile_task,
         knowledge_task,
@@ -110,6 +111,10 @@ pub(super) async fn run(
     if let Some(mut task) = triage_task {
         let grace = deadline(clock.now(), 10).min(total);
         clean &= finish(&mut task, &clock, grace).await;
+    }
+    {
+        let mut task = conversation_task;
+        clean &= finish(&mut task, &clock, total).await;
     }
     if let Some(mut task) = operations_task {
         clean &= finish(&mut task, &clock, total).await;

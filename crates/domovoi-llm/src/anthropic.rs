@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason,
+    AnswerSink, LlmError, LlmMessage, LlmProvider, LlmRequest, LlmResponse, Part, Role, StopReason,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -72,6 +72,25 @@ impl LlmProvider for Anthropic {
     }
 
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        self.turn(req, None).await
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        sink: &dyn AnswerSink,
+    ) -> Result<LlmResponse, LlmError> {
+        self.turn(req, Some(sink)).await
+    }
+}
+
+impl Anthropic {
+    /// One turn; text is forwarded to `sink` while it streams in.
+    async fn turn(
+        &self,
+        req: LlmRequest,
+        sink: Option<&dyn AnswerSink>,
+    ) -> Result<LlmResponse, LlmError> {
         let mut body = request_body(&self.model, &req);
         body["stream"] = Value::Bool(true);
         tracing::debug!(model = %self.model, messages = req.messages.len(), "anthropic turn");
@@ -82,11 +101,28 @@ impl LlmProvider for Anthropic {
             .header("anthropic-version", API_VERSION)
             .json(&body);
         let secret = Some(&self.api_key);
-        let response = match http::send_streaming::<WireResponse>(request, secret).await? {
-            Reply::Whole(response) => response,
-            Reply::Stream(mut events) => anthropic_stream::assemble(&mut events, secret).await?,
-        };
-        Ok(into_response(response, &req, self.price.as_ref()))
+        let (response, streamed) =
+            match http::send_streaming::<WireResponse>(request, secret).await? {
+                Reply::Whole(response) => (response, false),
+                Reply::Stream(mut events) => (
+                    anthropic_stream::assemble(&mut events, secret, sink).await?,
+                    true,
+                ),
+            };
+        let response = into_response(response, &req, self.price.as_ref());
+        if let (Some(sink), false) = (sink, streamed) {
+            emit_text(&response, sink);
+        }
+        Ok(response)
+    }
+}
+
+/// Hands the text parts of a response that did not stream to `sink`, once each.
+pub(crate) fn emit_text(response: &LlmResponse, sink: &dyn AnswerSink) {
+    for part in &response.parts {
+        if let Part::Text(text) = part {
+            sink.text(text);
+        }
     }
 }
 

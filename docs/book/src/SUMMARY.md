@@ -19,6 +19,7 @@
 - [Verdicts, cards and threads](concepts/cards.md)
 - [Actions and approvals](concepts/actions.md)
 - [Operations](concepts/operations.md)
+- [Operator](concepts/operator.md)
 - [Capabilities](concepts/capabilities.md)
 - [Policy](concepts/policy.md)
 - [Knowledge](concepts/knowledge.md)

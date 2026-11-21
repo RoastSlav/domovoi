@@ -38,9 +38,18 @@ export interface JournalStreamOptions {
   enabled?: boolean;
   /** Called once per journal row, in order, never for a row at or below the last seen `seq`. */
   onFrame: (frame: JournalFrame) => void;
+  /**
+   * Called for the ephemeral `live.start`, `live.text`, `live.tool` and `live.end` events with
+   * their parsed JSON. They carry no id: they never move the resume cursor and are never
+   * deduplicated or replayed.
+   */
+  onLive?: (name: string, data: unknown) => void;
   /** Called when the client lost its place and refetched its snapshots. */
   onReset?: () => void;
 }
+
+/** The ephemeral event names the hub sends beside journal rows. */
+export const LIVE_EVENTS = ["live.start", "live.text", "live.tool", "live.end"] as const;
 
 /** The delay before reconnect attempt `attempt`, counting from 0. */
 export function retryDelay(attempt: number): number {
@@ -116,6 +125,15 @@ export function useJournalStream(options: JournalStreamOptions): Live {
         lastId.current = frame.seq;
         latest.current.onFrame(frame);
       });
+      for (const name of LIVE_EVENTS) {
+        source.addEventListener(name, (message) => {
+          try {
+            latest.current.onLive?.(name, JSON.parse((message as MessageEvent).data as string));
+          } catch {
+            // A malformed live frame is dropped; the saved answer repairs the thread.
+          }
+        });
+      }
       source.addEventListener("reset", (message) => {
         const reset = parseResetFrame((message as MessageEvent).data);
         if (reset) {

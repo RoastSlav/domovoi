@@ -127,6 +127,21 @@ curl -b cookies.txt -X POST -H "X-CSRF-Token: $csrf" -H 'Content-Type: applicati
 
 `POST /api/v1/incidents/{id}/followups/clear` forgets the conversation: the next question is shown none of the earlier ones. It answers `204`, or `404` for an id that is not a stored incident, and works whether triage is on or off. A clear also wins over a question that was still being answered: that answer is never remembered, and the next question does not see it.
 
+## Conversations
+
+Operator conversations are read-only questions about the hosts. See [Operator](../concepts/operator.md). Every route needs a logged-in session, and every `POST`, `PUT` and `DELETE` also needs the CSRF header. `POST /api/v1/chat` is removed; use these routes instead.
+
+- `GET /api/v1/conversations` lists conversations, newest first, as `{"items": […], "next_cursor": "…", "as_of_seq": 0}`. Filters: `host` (a host name), `operation` (an operation id), `cursor` and `limit`. Each item has `id`, `title` (the first question, empty before one is asked), `scope` (`{"kind": "global"}` or `{"kind": "host", "host_id", "host_name"}`), `operation_id`, `message_count`, `created_at`, `updated_at` and `version`.
+- `POST /api/v1/conversations` starts one and answers `201` with the conversation. The body is `{"scope": {"kind": "global"}}` or `{"scope": {"kind": "host", "host": "nas"}}`, with an optional `operation_id`. `scope` is required: there is no implicit "all hosts". `400` when it is missing or malformed, `404` for an unknown host or operation.
+- `GET /api/v1/conversations/{id}` returns the summary fields with `messages` (oldest first), `turn_in_progress` (`{"turn", "message"}` while an answer is being written, else `null`) and `as_of_seq`.
+- `DELETE /api/v1/conversations/{id}` answers `204`. `409` while an answer is being written: stop it first.
+- `PUT /api/v1/conversations/{id}/operation` with `{"operation_id": "<uuid>"}` attaches an operation, or `{"operation_id": null}` detaches it. Answers the updated summary.
+- `POST /api/v1/conversations/{id}/messages` with `{"turn": "<uuid>", "text": "…"}` asks a question. `turn` is a client-generated uuid, and sending the same turn again changes nothing. The question is 1 to 1000 characters. A new turn answers `202` with `{"user", "assistant", "as_of_seq"}`: the committed question and the pending answer. A turn that was already sent answers `200` with the stored pair, whatever state the answer is in. `409` while another answer is being written or the conversation is full.
+- `POST /api/v1/conversations/{id}/turns/{turn}/cancel` stops an answer that is being written. It answers `200 {"status": "cancelled"}` when this call stopped it; the status is otherwise the answer's current state.
+- `POST /api/v1/conversations/{id}/messages/{message}/retry` asks the same question again and answers `202` like a new turn. Only the last answer can be retried, and only after it failed or was stopped: `409` otherwise.
+
+A message is `{"id", "ordinal", "role", "status", "turn", "text", "failure", "failure_detail", "tools", "created_at", "completed_at"}`. `role` is `user` or `assistant`; `status` is `pending`, `complete`, `failed` or `cancelled`. `text` is empty while the answer is pending, failed or cancelled. `tools` lists the read tools the model used, as `{"tool", "failed"}`.
+
 ## Settings
 
 `GET /api/v1/settings` returns, under `editable`:
@@ -210,7 +225,7 @@ Confirmation is not available yet. `confirm` fails with the message `the helper'
 
 `GET /api/v1/events` streams committed journal rows as server-sent events. It needs a session and serves at most 32 streams at once (`503` beyond that).
 
-- `topics`: comma-separated, at most 16. Default `incidents,approvals,operations`. Also `operation:<id>`; `hosts` and `conversations:<id>` are accepted and deliver nothing yet. An unknown topic is `400`.
+- `topics`: comma-separated, at most 16. Default `incidents,approvals,operations`. Also `operation:<id>` and `conversations:<id>`. `hosts` is accepted and delivers nothing yet. An unknown topic is `400`.
 - `after` or the `Last-Event-ID` header (which wins): resume after this journal position. Without either, the stream starts at the head.
 
 Frames:
@@ -227,6 +242,11 @@ Frames:
 
   `kind` and `aggregate_type` are open strings: show an unknown one generically. Incident timeline rows carry only `kind` and a redacted `summary`; fetch the incident for the rest. A payload over 16 KiB is sent as `null` with `"payload_truncated": true`.
 - `reset`: `{"reason": "pruned" | "ahead" | "lagged", "head_seq": 4821}`, with `id: <head_seq>`. What you hold may be incomplete, so refetch it. `pruned`: the position is older than the journal keeps. `ahead`: it is newer than the journal (a restored backup). `lagged`: the client fell more than 5,000 rows behind. The stream then continues from the head.
+- Live answer frames, sent only on a stream that follows `conversations:<id>`. They carry no `id` line, are never replayed after a reconnect, may be dropped when a client is slow, and are followed by the committed message as a `journal` row. Each carries the `conversation` id and `turn`:
+  - `live.start`: `{"conversation", "turn", "message"}`, when an answer begins. `message` is the pending assistant message.
+  - `live.text`: `{"conversation", "turn", "attempt", "text"}`, a snapshot of the safe text written so far for that attempt, not a delta. A later frame with the same attempt replaces the earlier one. The attempt number rises when the model starts again, or when redaction changes text already shown; the text then starts over, and may be empty.
+  - `live.tool`: `{"conversation", "turn", "tool", "state", "failed"}`, when a read tool starts (`state` `started`) or finishes (`finished`). `tool` is a read tool name, or `unknown tool`.
+  - `live.end`: `{"conversation", "turn", "status"}`, when the answer settles: `complete`, `failed`, `cancelled` or `discarded`.
 - `: keepalive`, a comment sent after 15 seconds of silence.
 
 Incident lists, an incident, action lists and the overview each return `as_of_seq`, the journal position they were read at. Apply only events with a greater `seq`.

@@ -14,6 +14,7 @@
 
 mod briefing;
 mod caller;
+mod conversations;
 mod hosts;
 mod incidents;
 mod knowledge;
@@ -35,6 +36,7 @@ use domovoi_engine::triage::TriageHandle;
 
 pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
+pub use conversations::ConversationCommands;
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
 pub use incidents::{FollowUpError, IncidentService, RetriageError, Retriaged, latest_triage};
 pub use knowledge::{KNOWLEDGE_PASSWORD_REQUIRED, KnowledgeCommandError, KnowledgeCommands};
@@ -71,6 +73,8 @@ pub struct Services {
     pub policy: PolicyService,
     /// Facts, relations and entities the hub knows.
     pub knowledge: KnowledgeCommands,
+    /// Operator conversations: create, ask, stop, retry, attach, delete.
+    pub conversations: ConversationCommands,
 }
 
 /// What the services are built from.
@@ -105,6 +109,8 @@ pub struct ServicesDeps {
     pub policy: PolicyService,
     /// The knowledge use cases.
     pub knowledge: KnowledgeCommands,
+    /// The Operator conversation use cases.
+    pub conversations: ConversationCommands,
 }
 
 impl Services {
@@ -140,6 +146,7 @@ impl Services {
             },
             policy: deps.policy,
             knowledge: deps.knowledge,
+            conversations: deps.conversations,
         }
     }
 }

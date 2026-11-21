@@ -1,4 +1,6 @@
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
+import { OPERATOR_ID, onWorkspace } from "../features/operator/OperatorSurface";
+import { useRightSlot } from "./rightSlot";
 import { useHosts } from "../api/hooks/hosts";
 import { useLogout } from "../api/hooks/session";
 import { CommandPalette, useActionFeedback, type PaletteGroup } from "../components";
@@ -21,6 +23,8 @@ export function AppPalette({
   open: boolean;
 }) {
   const navigate = useNavigate();
+  const slot = useRightSlot();
+  const location = useLocation();
   const hosts = useHosts();
   const { theme, setTheme } = useTheme();
   const logout = useActionFeedback(useLogout(), { success: () => null, error: "sign out" });
@@ -54,6 +58,13 @@ export function AppPalette({
     {
       title: "Actions",
       items: [
+        {
+          id: "operator",
+          label: "Ask the Operator",
+          icon: "chat",
+          keywords: ["operator", "chat", "question", "ask"],
+          onSelect: () => (onWorkspace(location.pathname) ? undefined : slot.open(OPERATOR_ID)),
+        },
         {
           id: "theme",
           label: theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme",

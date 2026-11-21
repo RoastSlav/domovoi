@@ -6,7 +6,7 @@ Domovoi keeps raw data for a limited time and keeps the records that explain wha
 | --- | --- | --- | --- |
 | `signals_days` | 30 days | signals | |
 | `incident_timeline_days` | 90 days | every incident timeline entry except follow-up conversations | |
-| `conversations_days` | 180 days | follow-up questions, answers and their clear markers on an incident | |
+| `conversations_days` | 180 days | follow-up questions, answers and their clear markers on an incident; Operator conversation messages | the Operator conversations themselves, with their scope and attached operation |
 | `notifications_days` | 30 days | the notification state of a resolved incident | held alerts and the state of open incidents |
 | `triage_cache_days` | 90 days | cached triage reports | |
 | `resolved_advisories_days` | 30 days | advisories, counted from resolving | open advisories |

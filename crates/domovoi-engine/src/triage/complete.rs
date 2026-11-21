@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    CallOutcome, LlmError, LlmProvider, LlmRequest, LlmResponse, Usage, UsageEntry,
+    AnswerSink, CallOutcome, LlmError, LlmProvider, LlmRequest, LlmResponse, Usage, UsageEntry,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -21,6 +21,7 @@ pub(crate) async fn complete(
     provider: &Arc<dyn LlmProvider>,
     req: LlmRequest,
     deadline: Timestamp,
+    sink: Option<&dyn AnswerSink>,
 ) -> Result<LlmResponse, LlmError> {
     let (req, trimmed) = fit_to_cap(req, shared.settings.max_prompt_bytes)?;
     let bytes = prompt_size(&req);
@@ -43,7 +44,13 @@ pub(crate) async fn complete(
         ));
     }
     let started = shared.deps.clock.now();
-    let result = match tokio::time::timeout(left.unsigned_abs(), provider.complete(req)).await {
+    let call = async {
+        match sink {
+            Some(sink) => provider.complete_streaming(req, sink).await,
+            None => provider.complete(req).await,
+        }
+    };
+    let result = match tokio::time::timeout(left.unsigned_abs(), call).await {
         Ok(result) => result,
         Err(_) => Err(LlmError::Unavailable(
             "the run deadline passed while the model was answering; \

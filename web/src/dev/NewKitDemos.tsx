@@ -8,6 +8,8 @@ import {
   Grid,
   Kbd,
   Menu,
+  OperatorThread,
+  type OperatorTurn,
   RelativeTime,
   StatTile,
   Stack,
@@ -19,8 +21,33 @@ import {
   type Column,
   type PaletteGroup,
 } from "../components";
+import { describeTurnFailure } from "../design/messages";
 import { hostConnectionMeta } from "../design/tone";
 import { Demo, Group } from "./Demo";
+
+const AT = new Date(Date.now() - 300_000).toISOString();
+
+const TURNS: OperatorTurn[] = [
+  { id: "u1", at: AT, role: "user", status: "complete", text: "Why is the NAS slow?" },
+  {
+    id: "a1",
+    at: AT,
+    role: "assistant",
+    status: "complete",
+    text: "Two restarts of **nginx** in the last hour.",
+    tools: [{ name: "journal", host: "nas-01" }],
+  },
+  { id: "u2", at: AT, role: "user", status: "complete", text: "And the disks?" },
+  {
+    id: "a2",
+    at: AT,
+    role: "assistant",
+    status: "failed",
+    text: "",
+    problem: describeTurnFailure("budget_spent"),
+    canRetry: true,
+  },
+];
 
 interface HostRow {
   name: string;
@@ -163,6 +190,32 @@ export function NewKitDemos() {
           <Text muted>{clicked}</Text>
           <StatusPill meta={hostConnectionMeta("connected")} />
         </Stack>
+      </Demo>
+      <Demo name="Operator thread: saved answers, a failed answer with Retry">
+        <OperatorThread
+          turns={TURNS}
+          draft=""
+          label="Ask the Operator"
+          hint="Read-only. It never changes anything."
+          onDraftChange={() => undefined}
+          onSend={() => undefined}
+          onRetry={() => undefined}
+        />
+      </Demo>
+      <Demo name="Operator thread: answering, with live text and Stop">
+        <OperatorThread
+          turns={[
+            { id: "u3", at: AT, role: "user", status: "complete", text: "Summarise today." },
+            { id: "a3", at: AT, role: "assistant", status: "pending", text: "" },
+          ]}
+          live={{ text: "Nothing needs you today. The backup ", tools: [] }}
+          draft=""
+          label="Ask the Operator"
+          hint="Read-only. It never changes anything."
+          onDraftChange={() => undefined}
+          onSend={() => undefined}
+          onStop={() => undefined}
+        />
       </Demo>
       <Demo name="Menu with shortcut hints, and the floating SubmitBar (always shown here)">
         <Stack gap={3}>

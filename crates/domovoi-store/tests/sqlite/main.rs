@@ -22,6 +22,8 @@ mod concurrency;
 #[cfg(test)]
 mod contracts;
 #[cfg(test)]
+mod conversations;
+#[cfg(test)]
 mod durability;
 #[cfg(test)]
 mod experience;

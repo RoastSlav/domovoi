@@ -2,14 +2,16 @@
 
 use std::fmt;
 
-use crate::id::{ActionId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId};
+use crate::id::{
+    ActionId, ConversationId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId,
+};
 use crate::policy_store::PolicyWrite;
 use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
-    AuditDraft, EffectCancel, EffectCompletion, EffectDeath, EffectDraft, EffectReschedule,
-    JournalDraft, OperationWrite,
+    AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
+    EffectReschedule, JournalDraft, OperationWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -31,6 +33,8 @@ pub enum AggregateKind {
     Relation,
     /// A knowledge entity.
     Entity,
+    /// An Operator conversation and its messages.
+    Conversation,
 }
 
 impl AggregateKind {
@@ -51,6 +55,7 @@ impl AggregateKind {
             Self::Fact => "fact",
             Self::Relation => "relation",
             Self::Entity => "entity",
+            Self::Conversation => "conversation",
         }
     }
 
@@ -66,6 +71,7 @@ impl AggregateKind {
             "fact" => Some(Self::Fact),
             "relation" => Some(Self::Relation),
             "entity" => Some(Self::Entity),
+            "conversation" => Some(Self::Conversation),
             _ => None,
         }
     }
@@ -115,6 +121,17 @@ impl AggregateRef {
     pub fn operation(id: OperationId) -> Self {
         Self {
             kind: AggregateKind::Operation,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// A conversation reference: the aggregate of every conversation journal entry.
+    #[must_use]
+    pub fn conversation(id: ConversationId) -> Self {
+        Self {
+            kind: AggregateKind::Conversation,
             id: id.to_string(),
         }
     }
@@ -254,6 +271,8 @@ pub enum StateWrite {
     Policy(PolicyWrite),
     /// One change to the knowledge store: a fact, a relation, an entity or a confirmation.
     Knowledge(crate::knowledge::KnowledgeWrite),
+    /// One change to an Operator conversation or its messages.
+    Conversation(ConversationWrite),
 }
 
 /// Everything one business event changes.
@@ -400,88 +419,4 @@ pub enum CommitError {
 }
 
 #[cfg(test)]
-mod tests {
-    use jiff::Timestamp;
-
-    use super::super::ClaimToken;
-    use super::*;
-
-    #[test]
-    fn aggregate_kinds_round_trip() {
-        for kind in [
-            AggregateKind::Incident,
-            AggregateKind::Action,
-            AggregateKind::Note,
-            AggregateKind::Operation,
-            AggregateKind::Policy,
-        ] {
-            assert_eq!(AggregateKind::parse(kind.as_str()), Some(kind));
-        }
-        assert_eq!(AggregateKind::parse("host"), None);
-        assert_eq!(
-            AggregateKind::LEGACY,
-            [
-                AggregateKind::Incident,
-                AggregateKind::Action,
-                AggregateKind::Note
-            ]
-        );
-    }
-
-    #[test]
-    fn a_cancellation_alone_makes_a_transaction_non_empty() {
-        let cancel = EffectCancel {
-            aggregate: AggregateRef::operation(OperationId::new()),
-            at: Timestamp::constant(1_700_000_000, 0),
-        };
-        assert!(!Transaction::new().cancel_effects(cancel).is_empty());
-    }
-
-    #[test]
-    fn aggregate_ref_displays_as_kind_and_id() {
-        let id = IncidentId::from_uuid(uuid::Uuid::from_u128(7));
-        assert_eq!(
-            AggregateRef::incident(id).to_string(),
-            format!("incident:{id}")
-        );
-    }
-
-    #[test]
-    fn an_empty_transaction_reports_itself_empty() {
-        assert!(Transaction::new().is_empty());
-        assert!(
-            !Transaction::default()
-                .write(StateWrite::DiscardPendingIncident {
-                    id: IncidentId::new(),
-                    expected: 1,
-                })
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn a_transaction_with_only_effect_lifecycle_rows_is_not_empty() {
-        let token = ClaimToken::new();
-        assert!(
-            !Transaction::new()
-                .reschedule(EffectReschedule {
-                    id: EffectId::new(),
-                    claim_token: token,
-                    not_before: Timestamp::constant(1_700_000_000, 0),
-                    error: "offline".to_owned(),
-                    at: Timestamp::constant(1_700_000_000, 0),
-                })
-                .is_empty()
-        );
-        assert!(
-            !Transaction::new()
-                .kill(EffectDeath {
-                    id: EffectId::new(),
-                    claim_token: token,
-                    error: "gave up".to_owned(),
-                    at: Timestamp::constant(1_700_000_000, 0),
-                })
-                .is_empty()
-        );
-    }
-}
+mod tests;

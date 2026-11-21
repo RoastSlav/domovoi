@@ -4,11 +4,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use domovoi_core::ports::{LlmMessage, LlmProvider, Part, Redactor, Role};
+use domovoi_core::ports::{AnswerSink, LlmMessage, LlmProvider, Part, Redactor, Role};
 use domovoi_core::{HostId, ReadToolCall, SkillSummary};
 use jiff::Timestamp;
 
 use super::admission::{Purpose, Refusal, admit, unpriced_text};
+use super::agent::ToolUse;
 use super::chain::{Attempt, AttemptError, ChainState, run_chain, thread_messages};
 use super::followup::{MAX_ANSWER_CHARS, clip, provider_failure};
 use super::tools::{Scope, cut, run};
@@ -49,6 +50,15 @@ pub enum ChatRole {
     User,
     /// The model.
     Assistant,
+}
+
+/// A finished chat answer and the read tools the model used to reach it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatAnswer {
+    /// The answer, redacted and cut to the answer limit.
+    pub text: String,
+    /// The tool calls the model made, in order.
+    pub tools: Vec<ToolUse>,
 }
 
 /// One turn of the general chat the operator already had.
@@ -212,6 +222,21 @@ pub(crate) async fn answer(
     history: &[ChatTurn],
     question: &str,
 ) -> Result<String, TriageError> {
+    answer_with(shared, host, overview, history, question, None)
+        .await
+        .map(|answer| answer.text)
+}
+
+/// [`answer`] that also reports the tools used, and streams the text each model request
+/// writes to `sink` when one is given. The sink sees raw text; the caller redacts it.
+pub(crate) async fn answer_with(
+    shared: &Shared,
+    host: Option<HostId>,
+    overview: &str,
+    history: &[ChatTurn],
+    question: &str,
+    sink: Option<Arc<dyn AnswerSink>>,
+) -> Result<ChatAnswer, TriageError> {
     // One answer in flight per worker, like follow-up questions: a second chat at once is
     // refused before it can take a run of the hour.
     let _answer_permit = match shared.questions.try_acquire() {
@@ -264,8 +289,8 @@ pub(crate) async fn answer(
     };
     let chat_turns = remembered(deps.redactor.as_ref(), history);
     let asked = cut(&deps.redactor.redact(question), QUESTION_BYTES);
-    // The calls the model makes are not recorded: a general chat has no incident whose
-    // timeline they could go on.
+    // The calls the model makes are returned, not recorded: a general chat has no incident
+    // whose timeline they could go on.
     let attempt = ChatAttempt {
         shared,
         host,
@@ -274,14 +299,20 @@ pub(crate) async fn answer(
         question: &asked,
         skills: &skills,
     };
-    let mut state = ChainState::new(shared);
+    let mut state = match sink {
+        Some(sink) => ChainState::streaming(shared, sink),
+        None => ChainState::new(shared),
+    };
     let answer = run_chain(shared, &mut state, &attempt)
         .await
         .map_err(|reasons| provider_failure(deps.redactor.as_ref(), &reasons))?;
-    Ok(clip(
-        deps.redactor.redact(answer.as_str()).as_str(),
-        MAX_ANSWER_CHARS,
-    ))
+    Ok(ChatAnswer {
+        text: clip(
+            deps.redactor.redact(answer.as_str()).as_str(),
+            MAX_ANSWER_CHARS,
+        ),
+        tools: state.used,
+    })
 }
 
 #[cfg(test)]

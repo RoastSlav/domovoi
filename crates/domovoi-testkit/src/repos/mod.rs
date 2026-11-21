@@ -4,6 +4,7 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod conversations;
 mod experience;
 mod health;
 mod hosts;
@@ -17,6 +18,7 @@ mod policy;
 mod triage;
 mod uow;
 mod uow_apply;
+mod uow_conversations;
 mod uow_operations;
 mod uow_queue;
 
@@ -98,6 +100,10 @@ struct State {
     sessions: BTreeMap<[u8; 32], Session>,
     notify: BTreeMap<IncidentId, (domovoi_core::NotifyState, Timestamp)>,
     operations: BTreeMap<OperationId, Operation>,
+    /// Operator conversations.
+    conversations: BTreeMap<domovoi_core::ConversationId, domovoi_core::conversation::Conversation>,
+    /// Operator messages by id.
+    messages: BTreeMap<domovoi_core::MessageId, domovoi_core::conversation::Message>,
     /// Each operation's steps in ordinal order.
     op_steps: BTreeMap<OperationId, Vec<StepRecord>>,
     /// Each operation's edges in insertion order.

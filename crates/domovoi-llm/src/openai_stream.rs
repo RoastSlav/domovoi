@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::ports::LlmError;
+use domovoi_core::ports::{AnswerSink, LlmError};
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
@@ -71,9 +71,12 @@ struct Partial {
 
 /// Reads `events` to the end and returns what the model said. A stream that stops before
 /// a finish reason or `[DONE]` was cut off and is an error.
+///
+/// Every answer-text fragment is also handed to `sink`, in order; reasoning never is.
 pub(crate) async fn assemble(
     events: &mut Events,
     secret: Option<&SecretString>,
+    sink: Option<&dyn AnswerSink>,
 ) -> Result<WireResponse, LlmError> {
     let mut content = String::new();
     let mut reasoning = String::new();
@@ -108,6 +111,9 @@ pub(crate) async fn assemble(
         }
         for choice in chunk.choices {
             if let Some(text) = choice.delta.content {
+                if let Some(sink) = sink {
+                    sink.text(&text);
+                }
                 content.push_str(&text);
             }
             if let Some(text) = choice.delta.reasoning {

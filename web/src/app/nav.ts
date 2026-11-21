@@ -56,13 +56,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         preload: PAGES.operations.preload,
       },
       {
+        to: "/operator",
+        label: "Operator",
+        icon: "chat",
+        preload: PAGES.operator.preload,
+      },
+      {
         to: "/approvals",
         label: "Approvals",
         icon: "approve",
         count: { field: "approvals_waiting", tone: "pending", label: "waiting" },
         preload: PAGES.approvals.preload,
       },
-      { to: "/chat", label: "Chat", icon: "chat", preload: PAGES.chat.preload },
     ],
   },
   {

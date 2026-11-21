@@ -69,7 +69,9 @@ export function AppRoutes() {
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
             <Route path="/operations" element={<PAGES.operations.Page />} />
             <Route path="/operations/:id" element={<PAGES.operation.Page />} />
-            <Route path="/chat" element={<PAGES.chat.Page />} />
+            <Route path="/operator" element={<PAGES.operator.Page />} />
+            <Route path="/operator/:id" element={<PAGES.operator.Page />} />
+            <Route path="/chat" element={<Navigate to="/operator" replace />} />
             <Route path="/rules" element={<PAGES.rules.Page />} />
             <Route path="/approvals" element={<PAGES.approvals.Page />} />
             <Route path="/hosts" element={<PAGES.hosts.Page />} />

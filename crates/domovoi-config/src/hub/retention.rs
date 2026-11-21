@@ -15,7 +15,7 @@ pub struct RetentionSection {
     /// Default 90.
     #[serde(default = "d90")]
     pub incident_timeline_days: u32,
-    /// Days a follow-up question and answer on an incident are kept. Default 180.
+    /// Days follow-up questions on an incident and Operator conversation messages are kept. Default 180.
     #[serde(default = "d180")]
     pub conversations_days: u32,
     /// Days the notification state of a resolved incident is kept. Default 30.

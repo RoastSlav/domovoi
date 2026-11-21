@@ -2,6 +2,8 @@
 //! in-memory store, plus the gates that keep the sweep covering every write.
 
 #[cfg(test)]
+mod conversations;
+#[cfg(test)]
 mod coverage;
 #[cfg(test)]
 mod knowledge;

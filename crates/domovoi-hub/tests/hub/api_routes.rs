@@ -646,10 +646,46 @@ async fn orchestration_off_keeps_questions_and_chat_and_refuses_a_retry() {
         )
         .await;
     assert_eq!(ask.status, StatusCode::OK, "{}", ask.text);
-    let chat = a
-        .post("/api/v1/chat", &login, json!({ "question": "Is it fine?" }))
+    let conversation = a
+        .post(
+            "/api/v1/conversations",
+            &login,
+            json!({ "scope": { "kind": "global" } }),
+        )
         .await;
-    assert_eq!(chat.status, StatusCode::OK, "{}", chat.text);
+    assert_eq!(
+        conversation.status,
+        StatusCode::CREATED,
+        "{}",
+        conversation.text
+    );
+    let id = conversation.body["id"].as_str().unwrap().to_owned();
+    let chat = a
+        .post(
+            &format!("/api/v1/conversations/{id}/messages"),
+            &login,
+            json!({ "turn": "0196ac01-0000-7000-8000-0000000000a1", "text": "Is it fine?" }),
+        )
+        .await;
+    assert_eq!(chat.status, StatusCode::ACCEPTED, "{}", chat.text);
+    loop {
+        let detail = a.get(&format!("/api/v1/conversations/{id}"), &login).await;
+        if detail.body["turn_in_progress"].is_null() {
+            assert_eq!(
+                detail.body["messages"][1]["status"], "complete",
+                "{}",
+                detail.text
+            );
+            break;
+        }
+        let seen = detail.body["as_of_seq"].as_u64().unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            a.state.deps().journal.wait_after(seen),
+        )
+        .await
+        .expect("the answer settles");
+    }
 
     let retry = a
         .post(

@@ -522,6 +522,20 @@ async fn main() -> Result<()> {
             clock: clock.clone(),
         },
     ));
+    let live = domovoi_hub::api::operator::live::LiveBus::new();
+    let (conversation_handle, _conversation_task) =
+        domovoi_engine::conversations::ConversationService::spawn(
+            domovoi_engine::conversations::ConversationDeps {
+                conversations: store.clone(),
+                uow: store.clone(),
+                model: Arc::new(domovoi_engine::conversations::DisabledModel),
+                live: live.clone(),
+                redactor: Arc::new(PatternRedactor::default()),
+                clock: clock.clone(),
+                shutdown: shutdown.clone(),
+            },
+        )
+        .await?;
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: None,
@@ -542,6 +556,7 @@ async fn main() -> Result<()> {
             store.clone(),
             auth.clone(),
         ),
+        conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -557,6 +572,8 @@ async fn main() -> Result<()> {
         services,
         triage: None,
         operation_repo: store.clone(),
+        conversations: store.clone(),
+        live,
         experience: store.clone(),
         agents,
         capabilities: registry,

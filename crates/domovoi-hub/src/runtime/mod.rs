@@ -2,8 +2,10 @@
 
 pub(crate) mod adapters;
 pub mod caps;
+mod conversations_build;
 mod delivery;
 mod dispatcher;
+mod error;
 pub(crate) mod every;
 mod knowledge;
 mod local;
@@ -31,14 +33,11 @@ use domovoi_engine::{
     DomainEvent, Evidence, HostCatalog, IncidentManager, ManagerDeps, ManagerHandle,
     PatternRedactor,
 };
-use domovoi_llm::LlmBuildError;
-use domovoi_store::{Store, StoreOpenError};
+use domovoi_store::Store;
 use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, RealNetProbes, ServerSettings,
-};
+use crate::agent_server::{AgentServer, AgentServerDeps, RealNetProbes, ServerSettings};
 use crate::capability::{HubRegistry, RegistryDeps, RegistryError};
 use caps::{LinkCapabilities, action_caps, evidence_caps, observer_of};
 
@@ -49,6 +48,7 @@ use crate::ingest::{IngestDeps, IngestState};
 use crate::runtime::updates::UpdateChecker;
 
 pub(crate) use dispatcher::Dispatcher;
+pub use error::RuntimeError;
 pub use local::{LocalAgents, LocalEnrollment};
 pub use lock::{HubLock, LockError};
 pub(crate) mod backup_job;
@@ -76,55 +76,6 @@ pub struct HubDeps {
     pub logs: Option<Arc<dyn LogSource>>,
 }
 
-/// Why the hub could not be built, served or stopped.
-#[derive(Debug, thiserror::Error)]
-pub enum RuntimeError {
-    /// Opening or migrating SQLite failed.
-    #[error(transparent)]
-    StoreOpen(#[from] StoreOpenError),
-    /// Persisted runtime state could not be read or written.
-    #[error(transparent)]
-    Store(#[from] domovoi_core::ports::StoreError),
-    /// The open legacy actions could not be retired at start.
-    #[error(transparent)]
-    LegacyDrain(#[from] domovoi_engine::legacy::LegacyDrainError),
-    /// The capability registry could not be built.
-    #[error(transparent)]
-    Registry(#[from] crate::capability::RegistryError),
-    /// Agent-server settings or its TLS identity failed.
-    #[error(transparent)]
-    Agent(#[from] AgentServerError),
-    /// A language model adapter could not be built.
-    #[error(transparent)]
-    Llm(#[from] LlmBuildError),
-    /// A chat adapter could not be built.
-    #[error("could not build a chat adapter: {0}")]
-    Chat(String),
-    /// A URL derived from configuration was invalid.
-    #[error("invalid hub URL: {0}")]
-    Url(String),
-    /// A configured listener could not be opened.
-    #[error("could not bind {name}: {source}")]
-    Bind {
-        /// Which listener failed.
-        name: &'static str,
-        /// The operating-system error.
-        source: std::io::Error,
-    },
-    /// A server task stopped unexpectedly.
-    #[error("{0}")]
-    Serve(String),
-    /// Another hub process holds this data directory.
-    #[error(transparent)]
-    Locked(#[from] LockError),
-    /// The settings could not be loaded.
-    #[error(transparent)]
-    Settings(#[from] crate::settings::LoadError),
-    /// The runtime exceeded its shutdown budget.
-    #[error("hub shutdown did not complete within 15 seconds")]
-    ShutdownTimeout,
-}
-
 /// A fully assembled hub. Build starts engine consumers; [`run`](Self::run) opens intake.
 pub struct HubRuntime {
     pub(crate) lock: HubLock,
@@ -146,6 +97,8 @@ pub struct HubRuntime {
     pub(crate) operations_task: Option<JoinHandle<()>>,
     pub(crate) profile_task: JoinHandle<()>,
     pub(crate) knowledge_task: JoinHandle<()>,
+    /// The Operator conversation writer; it also runs the background answer turns.
+    pub(crate) conversation_task: JoinHandle<()>,
     pub(crate) policy_task: Option<JoinHandle<()>>,
     pub(crate) intake_shutdown: CancellationToken,
     pub(crate) worker_shutdown: CancellationToken,
@@ -340,6 +293,16 @@ impl HubRuntime {
         };
         crate::profile::backfill::backfill(&profile_deps).await;
         let updates = UpdateChecker::load(store.clone(), clock.clone()).await;
+        let live = crate::api::operator::live::LiveBus::new();
+        let (conversations, conversation_task) = conversations_build::build(
+            &store,
+            triage.0.clone(),
+            &live,
+            &redactor,
+            &clock,
+            &worker_shutdown,
+        )
+        .await?;
         let services = crate::services::Services::new(crate::services::ServicesDeps {
             manager: manager.clone(),
             triage: triage.0.clone(),
@@ -360,6 +323,7 @@ impl HubRuntime {
                 store.clone(),
                 auth.clone(),
             ),
+            conversations,
         });
         let api = ApiState::new(
             ApiDeps {
@@ -376,6 +340,8 @@ impl HubRuntime {
                 services: services.clone(),
                 triage: triage.0,
                 operation_repo: store.clone(),
+                conversations: store.clone(),
+                live,
                 experience: store.clone(),
                 policy: store.clone(),
                 agents: Arc::new(server.clone()),
@@ -460,6 +426,7 @@ impl HubRuntime {
             gateways,
             manager_task,
             triage_task: triage.1,
+            conversation_task,
             operations_task,
             profile_task,
             knowledge_task,

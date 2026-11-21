@@ -15,6 +15,7 @@ macro_rules! contract_tests {
 }
 
 contract_tests! {
+    in_memory_conversation_repo_satisfies_contract => conversation_repo_contract,
     in_memory_first_revision_must_be_the_outcome => first_revision_must_be_the_outcome,
     in_memory_a_summary_needs_a_finished_operation => a_summary_needs_a_finished_operation,
     in_memory_revisions_are_dense_and_a_stale_revision_conflicts => revisions_are_dense_and_a_stale_revision_conflicts,
