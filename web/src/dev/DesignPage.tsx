@@ -4,6 +4,7 @@ import { TONES } from "../design/tone";
 import { LayoutDemos, StateDemos } from "./ContentDemos";
 import { FleetDemos } from "./FleetDemos";
 import { FormDemos } from "./FormDemos";
+import { KnowledgeDemos } from "./KnowledgeDemos";
 import { NewKitDemos } from "./NewKitDemos";
 import { OperationDemos } from "./OperationDemos";
 import { PolicyDemos } from "./PolicyDemos";
@@ -105,6 +106,7 @@ export default function DesignPage() {
       <RespondDemos />
       <OperationDemos />
       <PolicyDemos />
+      <KnowledgeDemos />
       <VisibilityDemos />
       <FleetDemos />
       <SystemDemos />

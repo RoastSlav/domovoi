@@ -86,6 +86,10 @@
   order: 2;
 }
 
+.slot[data-slot="experience"] {
+  order: 2;
+}
+
 .slot[data-slot="waiting"] {
   order: 2;
 }

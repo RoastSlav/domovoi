@@ -33,6 +33,26 @@ The search covers summaries by their words. It looks at one host by default. A s
 
 Everything shown from past operations is labelled **historical evidence, not authorization**.
 
+## The Experience page and summaries
+
+**Experience** (under Knowledge in the sidebar) searches finished operations. It looks at the host
+you chose at the top. With no host chosen it asks you to pick one, and searching every host is a
+separate button you press on purpose. An empty search lists the newest finished operations.
+
+Each result shows the goal, how it ended, whether the fix was verified, the hosts, what ran and the
+problem, cause and fix with the source of each: "Drafted by the model, not checked" or "Written or
+confirmed by you". The page says at the top that these are historical evidence, not authorization:
+a past approval or success never lets anything run now, and every action still needs its own
+approval.
+
+On a finished operation's page, **Resolution summary** shows each field and where it came from.
+Domovoi's own fields have no buttons. For a model draft you can **Confirm** it as written or **Edit**
+it, and you can add a problem, cause or fix that is missing. If someone changed the text while you
+were editing, you see the message from the hub, your text stays and the summary reloads. **Edit
+history** lists every revision with who wrote it. **Similar past operations** appears on the
+operation page and, when an incident has investigations, on the incident page. It loads when you
+open it at the Standard and Essential detail levels.
+
 ## Retention
 
 Summaries are kept with the operation. They hold no raw command output. Deleting data does not remove it from backups until those rotate.

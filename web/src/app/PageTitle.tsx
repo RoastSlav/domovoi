@@ -58,6 +58,22 @@ function policyDetail(rest: string): string | undefined {
   }
 }
 
+/** What a page under Knowledge is called until the page itself says. */
+function knowledgeDetail(rest: string): string | undefined {
+  switch (rest.split("/")[0]) {
+    case "paths":
+      return "Management paths";
+    case "experience":
+      return "Experience";
+    case "facts":
+      return "Fact";
+    case "entities":
+      return "Entity";
+    default:
+      return undefined;
+  }
+}
+
 /** What a page about one thing is called until the page itself says (`usePageName`). */
 function defaultDetail(section: string, rest: string | undefined): string | undefined {
   if (!rest) {
@@ -72,6 +88,8 @@ function defaultDetail(section: string, rest: string | undefined): string | unde
       return "Operation";
     case "policy":
       return policyDetail(rest);
+    case "knowledge":
+      return knowledgeDetail(rest);
     case "notes":
       return rest === "new" ? "New note" : "Note";
     default:

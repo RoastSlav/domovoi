@@ -49,6 +49,9 @@ const PAGES = [
     ["policy", "/policy"],
     ["policy-draft", "/policy/draft"],
     ["policy-simulator", "/policy/simulator"],
+    ["knowledge", "/knowledge"],
+    ["knowledge-paths", "/knowledge/paths"],
+    ["experience", "/knowledge/experience"],
     ["settings", "/settings"],
     ["design", "/dev/design"],
     ["login", "/login"],
@@ -56,6 +59,10 @@ const PAGES = [
 
 if (process.env.SCREENS_OPERATION) {
     PAGES.push(["operation", `/operations/${process.env.SCREENS_OPERATION}`]);
+}
+
+if (process.env.SCREENS_FACT) {
+    PAGES.push(["fact", `/knowledge/facts/${process.env.SCREENS_FACT}`]);
 }
 
 if (process.env.SCREENS_DECISION) {

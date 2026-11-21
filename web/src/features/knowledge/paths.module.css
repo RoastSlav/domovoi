@@ -1,0 +1,46 @@
+/* Placement only: tokens and kit components carry the look. */
+.stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+
+.coverageText {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.reasons {
+  margin: var(--space-2) 0;
+  padding-inline-start: var(--space-5);
+}
+
+.cidr {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.checked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+}
+
+.add {
+  display: flex;
+}

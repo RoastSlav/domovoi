@@ -1,6 +1,6 @@
 # Detail level
 
-The web UI can show more or less detail. You choose a **detail level**, and it applies to the screens that offer one (today the Operations list and each operation's page).
+The web UI can show more or less detail. You choose a **detail level**, and it applies to the screens that offer one: the Operations list and each operation's page, the policy pages, the Knowledge pages (facts, fact and entity details, management paths) and the Experience search.
 
 | Level                  | Shows                                                                                                  |
 | ---------------------- | ------------------------------------------------------------------------------------------------------ |

@@ -537,4 +537,122 @@ export const CHECKS = [
             await visible(page.getByText("Hard limits", { exact: true }), "the hard-limits card");
         },
     },
+    {
+        name: "knowledge lists facts and proposals, and a safety-related accept asks for the password first",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/knowledge", WIDE_DESK);
+            await visible(
+                page.getByRole("heading", { level: 1, name: "Knowledge" }),
+                "the heading",
+            );
+            await visible(page.getByText("media server"), "the role fact");
+            await page.getByRole("tab", { name: /^Proposals/ }).click();
+            await visible(page.getByText("10.0.0.0/8"), "the inferred network");
+            const card = page.getByRole("group", { name: /Trusted network/ });
+            await card.getByRole("button", { name: "Accept" }).click();
+            const dialog = page.getByRole("dialog");
+            await visible(dialog.getByLabel("Password"), "the password prompt");
+            expect(
+                !server.posts.some((entry) => entry.path.endsWith("/accept")),
+                "Opening the prompt already posted an accept.",
+            );
+            await dialog.getByLabel("Password").fill("correct horse");
+            await dialog.getByRole("button", { name: "Accept", exact: true }).click();
+            const post = await waitForPost(server, "/accept");
+            expect(post, "Confirming posted no accept.");
+            expect(
+                post.body?.password === "correct horse" && post.body?.expected_version === 1,
+                `The accept body was ${JSON.stringify({ ...post.body, password: "�" })}.`,
+            );
+            expect(
+                !("source" in post.body) && !("actor" in post.body),
+                "The accept body names a source or an actor.",
+            );
+            await open(ctx, "/knowledge/facts/fact-inferred-role", WIDE_DESK);
+            await visible(page.getByText("Current", { exact: true }), "the status");
+            await visible(page.getByText("Inferred by Domovoi").first(), "the source");
+            await visible(page.getByRole("button", { name: "Make it mine" }), "Accept");
+        },
+    },
+    {
+        name: "management paths say coverage cannot be verified, block, and never send a confirm",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/knowledge/paths?host=nas", WIDE_DESK);
+            await visible(page.getByText("Cannot be verified yet").first(), "the coverage pill");
+            await visible(
+                page.getByText(/Unattended containment is blocked on nas/),
+                "the blocked message",
+            );
+            const confirm = page.getByRole("button", { name: /^Confirm/ }).first();
+            await visible(confirm, "Confirm");
+            expect(await confirm.isDisabled(), "Confirm is enabled while coverage is unavailable.");
+            await confirm.click({ force: true }).catch(() => undefined);
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            expect(
+                !server.posts.some((entry) => entry.path.endsWith("/confirm")),
+                "A confirm request was sent while coverage is unavailable.",
+            );
+            const text = await page.locator("body").innerText();
+            expect(
+                !/(covered|protected)/i.test(text),
+                "The paths page calls a path covered or protected.",
+            );
+        },
+    },
+    {
+        name: "experience shows the historical label and sources; four pages fit 375 px and pass axe in both levels and schemes",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/knowledge/experience?host=nas", WIDE_DESK);
+            await visible(
+                page.getByText("Historical evidence, not authorization").first(),
+                "the notice",
+            );
+            await visible(page.getByText("restart plex after the disk filled"), "a past operation");
+            await visible(
+                page.getByText("Drafted by the model, not checked").first(),
+                "the source of a narrative field",
+            );
+            const pages = [
+                ["/knowledge", "Knowledge", "media server"],
+                ["/knowledge/facts/fact-inferred-role", "Fact", "Inferred by Domovoi"],
+                ["/knowledge/paths?host=nas", "Management paths", "Cannot be verified yet"],
+                [
+                    "/knowledge/experience?host=nas",
+                    "Experience",
+                    "restart plex after the disk filled",
+                ],
+            ];
+            try {
+                for (const profile of ["detailed", "essential"]) {
+                    server.setPreference(profile);
+                    for (const scheme of ["light", "dark"]) {
+                        await page.emulateMedia({ colorScheme: scheme });
+                        for (const [path, name, loaded] of pages) {
+                            const what = `${name} (${profile}/${scheme})`;
+                            await open(ctx, path, WIDE_DESK);
+                            await visible(page.getByRole("heading", { level: 1 }), what);
+                            await visible(page.getByText(loaded).first(), `${what} content`);
+                            await axe(page, what);
+                            if (profile === "detailed" && scheme === "light") {
+                                await open(ctx, path, PHONE);
+                                await visible(page.getByText(loaded).first(), `${what} content`);
+                                await noSideways(page, name);
+                            }
+                        }
+                    }
+                }
+            } finally {
+                await page.emulateMedia({ colorScheme: "light" });
+            }
+        },
+    },
 ];

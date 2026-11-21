@@ -60,6 +60,30 @@ Relations follow the same rule: retracting one removes it at once, and its conte
 
 Journal and audit entries never contain fact values. They name the fact by its id and record what changed.
 
+## The Knowledge pages
+
+Open **Knowledge** in the sidebar to see and correct what Domovoi knows. The page follows the host
+you chose at the top: pick one host, or all of them.
+
+- **Facts** lists each fact with its source, status and when it was last seen or checked. You can
+  filter by status, source and kind, or search by words. Retracted and replaced facts are left out
+  until you choose their status. Select a fact to see where it came from, its times, any competing
+  values and its history.
+- **Proposals** are the facts Domovoi inferred. They are not yours until you accept one. Accepting
+  saves a new fact in your name and keeps the original as history. You can retract a proposal
+  instead.
+- **Relations** and **Entities** list how things connect and the things you named yourself, such as
+  a VPN. You can add, retract, rename and delete them. An entity cannot be deleted while a live fact
+  or relation uses it.
+
+On a fact you can accept it (make it yours), verify it (mark it as checked today) or retract it.
+When two sources disagree, both facts show as disputed and **Use this value** on the right one
+settles it. You can also add a fact of your own with **Add a fact**.
+
+Retracting asks you to confirm and never needs the password. Accepting, verifying or adding a
+management path or a trusted network asks for your password first, because Domovoi may use those
+for safety decisions. A wrong password changes nothing, and too many wrong tries make you wait.
+
 ## Management paths
 
 A management path records how a host is reached for management. Because a wrong path can lock you out, it counts only when it is current and confirmed by the owner.
@@ -69,6 +93,19 @@ A confirmation needs a verified, fresh helper attestation that shows the path co
 > the helper's coverage cannot be verified yet
 
 Monitoring and work you approve by hand are not affected by this.
+
+### The Management paths page
+
+**Management paths** (under Knowledge) shows one host at a time: each path with its state, source,
+freshness and who confirmed it. The page says plainly that the helper's check is not available yet,
+so **Confirm** is disabled with that reason and nothing is sent. You can still add a path, accept
+one Domovoi found and retract a wrong one. Adding and accepting ask for your password.
+
+A line at the top says whether unattended containment is blocked on the host and why: coverage
+cannot be verified, no paths, paths Domovoi found that you have not accepted, paths not confirmed,
+or stale paths. It only reports what the hub knows. It never says an action is allowed, and it
+reminds you that monitoring and actions you approve yourself are not affected. This version never
+shows a path as covered.
 
 ## Upgrading from host profile notes
 

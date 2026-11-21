@@ -55,6 +55,13 @@ export const keys = {
   incidentSimilar: (id: string, limit: number | undefined) =>
     ["operations", "incident-similar", id, limit ?? ""] as const,
   experienceSearch: (params: object) => ["experience", "search", params] as const,
+  knowledge: ["knowledge"] as const,
+  facts: (filters: object) => ["knowledge", "facts", filters] as const,
+  factSearch: (filters: object) => ["knowledge", "fact-search", filters] as const,
+  fact: (id: string) => ["knowledge", "fact", id] as const,
+  managementPaths: (host: string) => ["knowledge", "paths", host] as const,
+  relations: (filters: object) => ["knowledge", "relations", filters] as const,
+  entities: ["knowledge", "entities"] as const,
   conversations: ["conversations"] as const,
   conversationList: (filter: object) => ["conversations", "list", filter] as const,
   conversation: (id: string) => ["conversations", "detail", id] as const,
