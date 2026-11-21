@@ -50,6 +50,9 @@ pub enum RuntimeError {
     /// A key in `[packages]` cannot be used.
     #[error(transparent)]
     PackageKeys(#[from] crate::packages::keys::PackageKeysError),
+    /// The package store could not be opened.
+    #[error("{0}")]
+    Packages(String),
     /// The settings could not be loaded.
     #[error(transparent)]
     Settings(#[from] crate::settings::LoadError),

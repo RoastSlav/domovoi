@@ -152,6 +152,19 @@ impl PackageImporter {
         &self.store
     }
 
+    /// The `[packages]` section this importer follows: the one source of whether packages
+    /// are enabled and of their limits.
+    #[must_use]
+    pub const fn config(&self) -> &PackagesHubSection {
+        &self.config
+    }
+
+    /// The owner keys and revocation list this importer trusts.
+    #[must_use]
+    pub fn keys(&self) -> &PackageKeys {
+        &self.keys
+    }
+
     /// Streams `source` into the store's `.tmp`, hashing and counting as it goes.
     ///
     /// # Errors

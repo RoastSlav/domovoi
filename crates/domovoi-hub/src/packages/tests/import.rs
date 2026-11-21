@@ -3,7 +3,9 @@
 use domovoi_core::package::{ArchiveDigest, KeyId};
 use domovoi_testkit::PackageFixture;
 
-use super::{Chunks, Rig, zstd_prefixed, owner_ctx, owner_key, package_with, section, signature_for, trusted};
+use super::{
+    Chunks, Rig, owner_ctx, owner_key, package_with, section, signature_for, trusted, zstd_prefixed,
+};
 use crate::packages::{ImportError, ReaderSource};
 
 #[tokio::test]
