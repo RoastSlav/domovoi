@@ -46,6 +46,13 @@ export async function startServer(dist) {
     const streams = new Set();
     const posts = [];
     const unexpected = [];
+    const puts = [];
+    let preferences = { profile: "detailed", pages: {} };
+    let preferencesAt = null;
+
+    function preferencesState() {
+        return { version: 1, updated_at: preferencesAt, presentation: preferences };
+    }
 
     /** Bumps the journal position and tells every open stream. */
     function push(kind = "operation.changed") {
@@ -107,10 +114,17 @@ export async function startServer(dist) {
         if (request.method === "POST") {
             posts.push({ path: pathname, body });
         }
+        if (key === "PUT /api/v1/me/preferences") {
+            puts.push({ path: pathname, body });
+            preferences = body?.presentation ?? preferences;
+            preferencesAt = "2026-10-31T12:00:00Z";
+            return send(response, 200, preferencesState());
+        }
         if (key === "GET /api/v1/events") {
             return stream(request, response);
         }
         const reads = {
+            "GET /api/v1/me/preferences": () => preferencesState(),
             "GET /api/v1/session": () => ({
                 csrf_token: "t",
                 user: { id: "u", username: "admin" },
@@ -164,7 +178,14 @@ export async function startServer(dist) {
     return {
         base: `http://127.0.0.1:${port}`,
         posts,
+        puts,
         unexpected,
+        /** Sets the stored detail level, as if the user had chosen it earlier. */
+        setPreference(profile, pages = {}) {
+            preferences = { profile, pages };
+            preferencesAt = "2026-10-31T12:00:00Z";
+            puts.length = 0;
+        },
         /** Starts over with a fresh waiting operation, optionally with a destructive skill. */
         reset(options) {
             state = data.makeState(options);
