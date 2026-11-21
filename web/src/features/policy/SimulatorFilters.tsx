@@ -10,7 +10,7 @@ import {
 } from "../../components";
 import { shadowStatusMeta } from "../../design/tone";
 import { usePolicyChoices } from "./policyChoices";
-import { SimulatorChoices } from "./SimulatorChoices";
+import { ChoiceCards } from "./ChoiceCards";
 import styles from "./simulator.module.css";
 
 /** The filters and size of a simulation, as the form holds them before Run. */
@@ -56,7 +56,7 @@ function HostField({ value, onChange }: { onChange: (host: string) => void; valu
   const hosts = useHosts().data ?? [];
   if (hosts.length > 0 && hosts.length <= HOST_CHOICES) {
     return (
-      <SimulatorChoices
+      <ChoiceCards
         legend="Host"
         value={value}
         onChange={onChange}

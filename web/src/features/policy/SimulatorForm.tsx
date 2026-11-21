@@ -11,7 +11,7 @@ import {
   Visible,
 } from "../../components";
 import type { DescribedError } from "../../design/messages";
-import { SimulatorChoices, type SimulatorChoice } from "./SimulatorChoices";
+import { ChoiceCards, type Choice } from "./ChoiceCards";
 import { SimulatorFilters, type FilterValues } from "./SimulatorFilters";
 import { SIMULATION_CURRENT, SIMULATION_RECORDED } from "./policyText";
 import styles from "./simulator.module.css";
@@ -46,7 +46,7 @@ function RulesField({
         ? { source: "draft" }
         : { source: "version", number: Number(text.replace("version-", "")) },
     );
-  const choices: SimulatorChoice[] = [
+  const choices: Choice[] = [
     {
       value: "draft",
       label: draft ? `Draft, revision ${draft.revision}` : "Draft (none to simulate)",
@@ -59,7 +59,7 @@ function RulesField({
   const chosen = value === null ? "" : rulesValue(value);
   return (
     <Stack gap={3}>
-      <SimulatorChoices
+      <ChoiceCards
         legend="Test these rules"
         choices={choices}
         value={chosen}

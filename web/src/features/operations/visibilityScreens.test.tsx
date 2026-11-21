@@ -406,9 +406,16 @@ describe("operation details", () => {
           });
           view.unmount();
         }
+        // A live countdown ticks between renders; its seconds are not what this compares.
+        const steady = (text: string | undefined) =>
+          text?.replace(/Expires in [\d:]+/g, "Expires in");
         for (const entry of seen) {
-          expect(entry.banner, `${name} banner in ${entry.profile}`).toBe(seen[0]?.banner);
-          expect(entry.waiting, `${name} waiting in ${entry.profile}`).toBe(seen[0]?.waiting);
+          expect(steady(entry.banner), `${name} banner in ${entry.profile}`).toBe(
+            steady(seen[0]?.banner),
+          );
+          expect(steady(entry.waiting), `${name} waiting in ${entry.profile}`).toBe(
+            steady(seen[0]?.waiting),
+          );
         }
         withBanner += seen[0]?.banner ? 1 : 0;
         withWaiting += seen[0]?.waiting ? 1 : 0;

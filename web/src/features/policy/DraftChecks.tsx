@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { usePolicyOverview } from "../../api/hooks/policy";
 import { usePreviewRules } from "../../api/hooks/policyCommands";
 import { ApiFailure, type PolicyDraft, type PolicyPreview, type PolicyRule } from "../../api/types";
 import {
@@ -104,6 +105,9 @@ export function DraftCheckResults({
   error: ReturnType<typeof useDraftChecks>["error"];
   preview: PolicyPreview | undefined;
 }) {
+  // The hub's standing notes are on the overview; only what this check adds is shown here.
+  const standing = usePolicyOverview().data?.notes ?? [];
+  const own = (preview?.notes ?? []).filter((note) => !standing.includes(note));
   if (!preview && !error) return null;
   return (
     <>
@@ -122,7 +126,7 @@ export function DraftCheckResults({
           {preview && (
             <>
               <Findings preview={preview} />
-              <PolicyNotes notes={preview.notes} />
+              {own.length > 0 && <PolicyNotes notes={own} />}
               {preview.locked_changes.map((change) => (
                 <div key={`${change.rule}:${change.change}`}>
                   <StatusPill meta={lockChangeMeta(change.change)} />{" "}

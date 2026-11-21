@@ -61,3 +61,8 @@
   margin: 0;
   padding-inline-start: var(--space-4);
 }
+
+/* Editing one rule is its own screen: a single readable column, not a side panel. */
+.focusedEditor {
+  max-width: 44rem;
+}

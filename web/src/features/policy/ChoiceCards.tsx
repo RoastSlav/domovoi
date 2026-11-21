@@ -3,8 +3,8 @@ import { useId } from "react";
 import { Text } from "../../components";
 import styles from "./simulator.module.css";
 
-/** One choice in a `SimulatorChoices` group. */
-export interface SimulatorChoice {
+/** One choice in a `ChoiceCards` group. */
+export interface Choice {
   disabled?: boolean;
   /** One line under the label saying what the choice means. */
   hint?: string;
@@ -22,7 +22,7 @@ export interface SimulatorChoice {
  * @param onChange Receives the value the person picked.
  * @param hint One line under the group.
  */
-export function SimulatorChoices({
+export function ChoiceCards({
   legend,
   required = false,
   choices,
@@ -30,7 +30,7 @@ export function SimulatorChoices({
   onChange,
   hint,
 }: {
-  choices: readonly SimulatorChoice[];
+  choices: readonly Choice[];
   hint?: ReactNode;
   legend: string;
   onChange: (value: string) => void;

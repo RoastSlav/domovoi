@@ -93,8 +93,11 @@ test("removing_and_duplicating_rules_work_and_a_locked_removal_warns_about_the_p
   setup();
   await user.click(await screen.findByRole("button", { name: "Actions for ask-containers" }));
   await user.click(screen.getByRole("menuitem", { name: "Duplicate" }));
-  expect(await screen.findByText("ask-containers-copy")).toBeVisible();
+  expect(
+    await screen.findByRole("heading", { name: "Edit rule ask-containers-copy" }),
+  ).toBeVisible();
   expect(here()).toBe("/policy/draft?rule=ask-containers-copy");
+  await user.click(screen.getByRole("button", { name: "Back to the rules" }));
 
   await user.click(screen.getByRole("button", { name: "Actions for old-ask" }));
   await user.click(screen.getByRole("menuitem", { name: "Remove" }));
@@ -126,8 +129,9 @@ test("a_rule_with_an_unknown_outcome_opens_read_only_and_cannot_be_applied", asy
     expect(apply).toHaveAttribute("aria-disabled", "true");
     await user.click(apply);
     expect(screen.queryByText("Unsaved changes")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Back to the rules" }));
     expect(
-      within(screen.getByRole("table", { name: "Rules" })).getByText("from-newer"),
+      within(await screen.findByRole("table", { name: "Rules" })).getByText("from-newer"),
     ).toBeVisible();
   } finally {
     rules.pop();

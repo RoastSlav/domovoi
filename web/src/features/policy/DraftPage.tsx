@@ -25,12 +25,11 @@ import { DraftConfirms } from "./DraftConfirms";
 import { DraftCheckResults, useDraftChecks } from "./DraftChecks";
 import { PRECEDENCE_HELP } from "./policyText";
 import { useTimeWindowZone } from "./policyZone";
-import { RuleEditor } from "./RuleEditor";
+import { RuleScreen } from "./RuleScreen";
 import { RulesTable } from "./RulesTable";
 import { StartDraft } from "./StartDraft";
 import { useDraftState } from "./useDraftState";
 import { useSaveDraftFlow } from "./useSaveDraftFlow";
-import styles from "./policy.module.css";
 
 /** More unsaved changes than this ask before Discard throws them away. */
 const CONFIRM_DISCARD_FROM = 3;
@@ -95,6 +94,22 @@ function DraftEditor({ fetched, overview }: { fetched: PolicyDraft; overview: Po
     </Stack>
   );
 
+  if (open && wanted) {
+    return (
+      <RuleScreen
+        ruleId={wanted}
+        rules={working}
+        elsewhere={elsewhere}
+        issues={[...flow.issues, ...checks.issues]}
+        onApply={state.apply}
+        onBack={() => openRule(null)}
+        onReload={() => setReloading(true)}
+      >
+        {guard}
+      </RuleScreen>
+    );
+  }
+
   return (
     <Stack gap={5}>
       <PageHeader
@@ -139,28 +154,11 @@ function DraftEditor({ fetched, overview }: { fetched: PolicyDraft; overview: Po
         </Visible>
       )}
       <DraftBanner
-        dirty={dirty}
-        changes={changes}
         elsewhere={elsewhere}
         issues={[...flow.issues, ...checks.issues]}
         onReload={() => setReloading(true)}
       />
-      {open && wanted ? (
-        <div className={styles.editorLayout}>
-          {body}
-          <Visible category="P1" id="draft.editor">
-            <RuleEditor
-              key={wanted}
-              ruleId={wanted}
-              rules={working}
-              onApply={state.apply}
-              onClose={() => openRule(null)}
-            />
-          </Visible>
-        </div>
-      ) : (
-        body
-      )}
+      {body}
       <DraftDetails draft={saved} />
       <SubmitBar
         changes={changes}

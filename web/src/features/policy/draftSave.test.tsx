@@ -171,7 +171,7 @@ test("a_save_the_hub_rejects_shows_its_problems_in_the_banner", async () => {
   expect(await screen.findByText("The hub did not accept these rules")).toBeVisible();
   expect(screen.getByText("Too many rules.")).toBeVisible();
   expect(screen.getAllByText(/Unknown category\./).length).toBeGreaterThan(0);
-  expect(screen.getByText("You have unsaved changes")).toBeVisible();
+  expect(screen.getByText("1 unsaved change")).toBeVisible();
 });
 
 test("a_save_result_keeps_the_page_in_step_with_the_response", async () => {

@@ -14,8 +14,9 @@ export function ConstraintsBlock({ doc, zone }: { doc: DecisionDoc; zone: string
   if (doc.outcome !== "allow" || lines.length === 0) return null;
   return (
     <Stack gap={1}>
-      {lines.map((line) => (
-        <Text key={line} block>
+      {lines.map((line, index) => (
+        // The same sentence can appear twice (a limit and a condition), so the place is part of the key.
+        <Text key={`${index}:${line}`} block>
           {line}
         </Text>
       ))}

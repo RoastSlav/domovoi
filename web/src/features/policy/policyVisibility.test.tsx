@@ -9,7 +9,7 @@ import type {
   ShadowDetail,
 } from "../../api/types";
 import { PROFILE_IDS, type ProfileId } from "../../design/visibility";
-import { calls, resetApi, route } from "../../test/apiMock";
+import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { changeNote, hub } from "../../test/draftPage";
 import {
   DECISION_EXCEPTION,
@@ -160,7 +160,7 @@ async function showVersion(profile: ProfileId, pages?: Pages) {
   return view;
 }
 
-/** The editor after an edit and a failed check, so the banner and the validation show. */
+/** The editor after an edit, a failed check and a rejected save, so the banner and the validation show. */
 async function showEditor(profile: ProfileId, pages?: Pages) {
   hub.draft = DRAFT_4;
   hub.preview = PREVIEW_INVALID;
@@ -172,6 +172,13 @@ async function showEditor(profile: ProfileId, pages?: Pages) {
   const user = userEvent.setup();
   await changeNote(user, "ask-containers", "A note written in the test");
   await user.click(await screen.findByRole("button", { name: "Check rules" }));
+  await screen.findByText(/Checking changes nothing/);
+  route(PREVIEW, () =>
+    failure(400, "invalid", "invalid rules", undefined, [
+      { path: "rules.ask-containers", message: "Unknown category.", severity: "error" },
+    ]),
+  );
+  await user.click(screen.getByRole("button", { name: "Save draft" }));
   await ready(view, draftIds(OVERVIEW_ACTIVE, PREVIEW_INVALID, true));
   return view;
 }
@@ -278,7 +285,7 @@ const SCREENS: Screen[] = [
     show: (profile) => showVersion(profile),
   },
   {
-    name: "editor after an edit and a failed check",
+    name: "editor after an edit, a failed check and a rejected save",
     expected: draftIds(OVERVIEW_ACTIVE, PREVIEW_INVALID, true),
     show: (profile) => showEditor(profile),
   },
