@@ -933,6 +933,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in person's display preferences. */
+        get: operations["get_preferences"];
+        /** Saves the signed-in person's display preferences. */
+        put: operations["update_preferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notes": {
         parameters: {
             query?: never;
@@ -3195,6 +3213,38 @@ export interface components {
          * @enum {string}
          */
         PredicateOpDto: "equals" | "contains" | "at_most" | "at_least" | "in_network";
+        /** @description A person's stored preferences. A person who never saved any gets the defaults. */
+        PreferencesDto: {
+            /** @description How much detail pages show. */
+            presentation: components["schemas"]["PresentationDto"];
+            /** @description When the preferences were last saved, as RFC 3339; null while none are saved. */
+            updated_at?: string | null;
+            /**
+             * Format: int32
+             * @description The layout of the stored document; currently 1.
+             */
+            version: number;
+        };
+        /**
+         * @description A change to the preferences. A group left out or null stays as it is; a group given
+         *     replaces the stored one as a whole.
+         */
+        PreferencesUpdateDto: {
+            presentation?: components["schemas"]["PresentationDto"] | null;
+        };
+        /** @description How much detail pages show: one level for every page, and levels for single pages. */
+        PresentationDto: {
+            /**
+             * @description Levels for single pages, by page key (a lowercase letter, then lowercase letters,
+             *     digits, `-` and `_`, up to 32 characters; at most 32 pages). Each value is
+             *     `detailed`, `standard` or `essential`.
+             */
+            pages?: {
+                [key: string]: string;
+            };
+            /** @description The level pages use unless they have their own: `detailed`, `standard` or `essential`. */
+            profile: string;
+        };
         /** @description What a candidate rule set would do. */
         PreviewDto: {
             /**
@@ -7193,6 +7243,77 @@ export interface operations {
             };
             /** @description Not live, or someone changed it meanwhile */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The preferences, or the defaults */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesUpdateDto"];
+            };
+        };
+        responses: {
+            /** @description The preferences after the change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesDto"];
+                };
+            };
+            /** @description Unknown level or malformed page key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

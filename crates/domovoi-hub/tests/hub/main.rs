@@ -67,6 +67,8 @@ mod policy_api;
 #[cfg(test)]
 mod policy_env;
 #[cfg(test)]
+mod preferences;
+#[cfg(test)]
 mod presence;
 #[cfg(test)]
 mod profile;

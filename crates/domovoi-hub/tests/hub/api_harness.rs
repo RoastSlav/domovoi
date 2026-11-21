@@ -536,6 +536,7 @@ async fn build(
             auth.clone(),
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
+        settings: store.clone(),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
