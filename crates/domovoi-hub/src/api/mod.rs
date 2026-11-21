@@ -10,6 +10,8 @@ pub mod dto_admin;
 pub mod dto_experience;
 pub mod dto_knowledge;
 pub mod dto_operations;
+pub mod dto_packages;
+pub mod dto_packages_jobs;
 pub mod dto_policy;
 pub mod dto_policy_query;
 pub mod dto_policy_rule;
@@ -18,6 +20,7 @@ pub mod dto_query;
 pub mod dto_trace;
 pub mod error;
 pub mod notes_import;
+pub mod packages;
 
 mod actions;
 mod auth;
@@ -37,6 +40,9 @@ pub(crate) mod operation_errors;
 pub(crate) mod operations;
 pub mod operator;
 mod overview;
+mod packages_error;
+mod packages_hosts;
+mod packages_jobs;
 mod plan_binding;
 mod policy;
 mod policy_shadow;
@@ -288,6 +294,7 @@ pub(crate) async fn host_named(
         (name = "operator", description = "Operator conversations: read-only questions about the hosts"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
+        (name = "packages", description = "Signed packages: import, install jobs and what hosts report"),
         (name = "me", description = "The signed-in person's own preferences"),
         (name = "system", description = "Settings, advisories, digest, events and health")
     )
@@ -308,9 +315,16 @@ impl utoipa::Modify for SessionCookie {
     }
 }
 
-/// Every route with its OpenAPI description.
+/// Every route with its OpenAPI description, with the package upload limit of the largest
+/// archive any configuration allows.
 #[must_use]
 pub fn routes() -> OpenApiRouter<ApiState> {
+    routes_with(packages::UPLOAD_CEILING_BYTES)
+}
+
+/// Every route, with the package upload limited to `upload_limit` bytes of request body.
+#[must_use]
+pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(auth::session))
         .routes(routes!(auth::login))
@@ -425,11 +439,27 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(readiness::readyz))
         .routes(routes!(system::metrics))
         .routes(routes!(logs::list))
+        .routes(routes!(packages::status))
+        .routes(routes!(packages::list))
+        .routes(routes!(packages::detail, packages::delete))
+        .routes(routes!(packages_jobs::plan))
+        .routes(routes!(packages_jobs::list, packages_jobs::create))
+        .routes(routes!(packages_jobs::get))
+        .routes(routes!(packages_jobs::retry))
+        .routes(routes!(packages_jobs::cancel))
+        .routes(routes!(packages_hosts::list))
+        .routes(routes!(packages_hosts::refresh))
         .merge(
             // Inside the router's 1 MiB default, so this route alone takes a folder of notes.
             OpenApiRouter::new()
                 .routes(routes!(notes_import::import))
                 .layer(DefaultBodyLimit::max(notes_import::MAX_REQUEST_BYTES)),
+        )
+        .merge(
+            // The same for a package upload: the archive's limit plus the form around it.
+            OpenApiRouter::new()
+                .routes(routes!(packages::import))
+                .layer(DefaultBodyLimit::max(upload_limit)),
         )
 }
 

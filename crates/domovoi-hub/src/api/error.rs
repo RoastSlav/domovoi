@@ -85,6 +85,16 @@ pub enum ApiError {
     /// Submitted settings are not valid; every issue has its path.
     #[error("the settings are not valid")]
     Invalid(Vec<IssueDto>),
+    /// A refusal with its own status and stable code, for the package endpoints.
+    #[error("{message}")]
+    Coded {
+        /// The HTTP status.
+        status: StatusCode,
+        /// The stable machine-readable code, for example `package_conflict`.
+        code: &'static str,
+        /// One line for people.
+        message: String,
+    },
     /// Something failed inside the hub; details are logged, not returned.
     #[error("internal error")]
     Internal,
@@ -93,6 +103,7 @@ pub enum ApiError {
 impl ApiError {
     fn parts(&self) -> (StatusCode, &'static str) {
         match self {
+            Self::Coded { status, code, .. } => (*status, code),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
             Self::SetupRequired => (StatusCode::UNAUTHORIZED, "setup_required"),
             Self::BadCredentials => (StatusCode::UNAUTHORIZED, "bad_credentials"),
