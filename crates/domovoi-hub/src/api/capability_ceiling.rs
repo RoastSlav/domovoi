@@ -1,0 +1,143 @@
+//! The read-only view of one host's unattended ceiling, exactly as its agent reported it.
+//!
+//! The ceiling belongs to the host: this module reads the hub's memory of the agent's
+//! summary and projects it. It writes nothing, calls no agent and reads no settings.
+
+use std::collections::BTreeMap;
+
+use axum::Json;
+use axum::extract::{Path, State};
+use domovoi_core::capability::{CeilingEntry, CeilingTargets};
+use serde::Serialize;
+use utoipa::ToSchema;
+
+use super::error::{ApiError, ErrorBody};
+use super::{ApiState, Authed, host_named};
+use crate::capability::CeilingState;
+
+/// Which targets a ceiling entry covers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CeilingTargetsDto {
+    /// Every target of the contract.
+    Any,
+    /// Only these targets, sorted ascending.
+    Names {
+        /// The covered target names.
+        names: Vec<String>,
+    },
+}
+
+/// One capability's bound in the host's unattended ceiling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct CeilingEntryDto {
+    /// The exact contract id.
+    pub contract: String,
+    /// The targets the entry covers.
+    pub targets: CeilingTargetsDto,
+    /// The most runs allowed in any hour.
+    pub max_per_hour: u32,
+    /// How many runs may be active at once, when the entry sets a limit.
+    pub max_active: Option<u32>,
+    /// The longest hold in seconds, when the entry sets a limit.
+    pub max_ttl_secs: Option<i64>,
+    /// Argument bounds, key to integer bound.
+    pub args: BTreeMap<String, i64>,
+}
+
+impl From<&CeilingEntry> for CeilingEntryDto {
+    fn from(entry: &CeilingEntry) -> Self {
+        Self {
+            contract: entry.contract.to_string(),
+            targets: match &entry.targets {
+                CeilingTargets::Any => CeilingTargetsDto::Any,
+                CeilingTargets::Names(names) => {
+                    let mut names: Vec<String> = names.iter().map(ToString::to_string).collect();
+                    names.sort();
+                    CeilingTargetsDto::Names { names }
+                }
+            },
+            max_per_hour: entry.max_per_hour,
+            max_active: entry.max_active,
+            max_ttl_secs: entry.max_ttl.map(|ttl| ttl.as_secs()),
+            args: entry.args.clone(),
+        }
+    }
+}
+
+/// How the host's ceiling summary reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CeilingReporting {
+    /// A valid summary arrived.
+    Reported,
+    /// No summary reached the hub.
+    NotReported,
+    /// A summary arrived and could not be read; it is treated as not permissive.
+    Unreadable,
+}
+
+/// What one host reported as its unattended limits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct CeilingDto {
+    /// The host's name.
+    pub host: String,
+    /// Whether the host has a live agent session now.
+    pub connected: bool,
+    /// How the summary reads.
+    pub reporting: CeilingReporting,
+    /// `[unattended].enabled` on the host; only set when reported.
+    pub unattended_enabled: Option<bool>,
+    /// The agent's opaque configuration fingerprint, only when reported.
+    pub hash: Option<String>,
+    /// One entry per capability the host lets run unattended, sorted by contract.
+    pub entries: Vec<CeilingEntryDto>,
+    /// Why the summary could not be read; only set when unreadable.
+    pub unreadable_reason: Option<String>,
+}
+
+/// The unattended limits host `name` reported. Read only.
+#[utoipa::path(
+    get, path = "/api/v1/hosts/{name}/ceiling", operation_id = "get_host_ceiling",
+    tag = "hosts",
+    params(("name" = String, Path, description = "Host name")),
+    responses(
+        (status = 200, description = "What the host reported", body = CeilingDto),
+        (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 404, description = "No such host", body = ErrorBody),
+    )
+)]
+pub(super) async fn get_ceiling(
+    State(state): State<ApiState>,
+    _auth: Authed,
+    Path(name): Path<String>,
+) -> Result<Json<CeilingDto>, ApiError> {
+    let host = host_named(&state, &name).await?;
+    let report = state.deps.capabilities.ceiling(host.id);
+    let mut dto = CeilingDto {
+        host: host.name.to_string(),
+        connected: report.connected,
+        reporting: CeilingReporting::NotReported,
+        unattended_enabled: None,
+        hash: None,
+        entries: Vec::new(),
+        unreadable_reason: None,
+    };
+    match report.state {
+        CeilingState::NotReported => {}
+        CeilingState::Unreadable(reason) => {
+            dto.reporting = CeilingReporting::Unreadable;
+            dto.unreadable_reason = Some(reason.chars().take(200).collect());
+        }
+        CeilingState::Reported(summary) => {
+            let mut entries: Vec<CeilingEntryDto> =
+                summary.entries.iter().map(CeilingEntryDto::from).collect();
+            entries.sort_by(|a, b| a.contract.cmp(&b.contract));
+            dto.reporting = CeilingReporting::Reported;
+            dto.unattended_enabled = Some(summary.enabled);
+            dto.hash = report.hash.or(summary.hash);
+            dto.entries = entries;
+        }
+    }
+    Ok(Json(dto))
+}

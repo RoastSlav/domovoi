@@ -1369,6 +1369,58 @@
         }
       }
     },
+    "/api/v1/hosts/{name}/ceiling": {
+      "get": {
+        "tags": [
+          "hosts"
+        ],
+        "summary": "The unattended limits host `name` reported. Read only.",
+        "operationId": "get_host_ceiling",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Host name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the host reported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CeilingDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/hosts/{name}/checks": {
       "get": {
         "tags": [
@@ -8519,6 +8571,164 @@
             "description": "`complete`, `partial` or `stale`."
           }
         }
+      },
+      "CeilingDto": {
+        "type": "object",
+        "description": "What one host reported as its unattended limits.",
+        "required": [
+          "host",
+          "connected",
+          "reporting",
+          "entries"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "description": "Whether the host has a live agent session now."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CeilingEntryDto"
+            },
+            "description": "One entry per capability the host lets run unattended, sorted by contract."
+          },
+          "hash": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The agent's opaque configuration fingerprint, only when reported."
+          },
+          "host": {
+            "type": "string",
+            "description": "The host's name."
+          },
+          "reporting": {
+            "$ref": "#/components/schemas/CeilingReporting",
+            "description": "How the summary reads."
+          },
+          "unattended_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`[unattended].enabled` on the host; only set when reported."
+          },
+          "unreadable_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the summary could not be read; only set when unreadable."
+          }
+        }
+      },
+      "CeilingEntryDto": {
+        "type": "object",
+        "description": "One capability's bound in the host's unattended ceiling.",
+        "required": [
+          "contract",
+          "targets",
+          "max_per_hour",
+          "args"
+        ],
+        "properties": {
+          "args": {
+            "type": "object",
+            "description": "Argument bounds, key to integer bound.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "contract": {
+            "type": "string",
+            "description": "The exact contract id."
+          },
+          "max_active": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How many runs may be active at once, when the entry sets a limit.",
+            "minimum": 0
+          },
+          "max_per_hour": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most runs allowed in any hour.",
+            "minimum": 0
+          },
+          "max_ttl_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The longest hold in seconds, when the entry sets a limit."
+          },
+          "targets": {
+            "$ref": "#/components/schemas/CeilingTargetsDto",
+            "description": "The targets the entry covers."
+          }
+        }
+      },
+      "CeilingReporting": {
+        "type": "string",
+        "description": "How the host's ceiling summary reads.",
+        "enum": [
+          "reported",
+          "not_reported",
+          "unreadable"
+        ]
+      },
+      "CeilingTargetsDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Every target of the contract.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "any"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Only these targets, sorted ascending.",
+            "required": [
+              "names",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "names"
+                ]
+              },
+              "names": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The covered target names."
+              }
+            }
+          }
+        ],
+        "description": "Which targets a ceiling entry covers."
       },
       "CheckSettingsDto": {
         "type": "object",

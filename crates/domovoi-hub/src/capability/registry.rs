@@ -26,7 +26,7 @@ use domovoi_core::{Host, HostId, SkillName, SkillSummary};
 use jiff::Timestamp;
 
 use super::catalogue::CatalogueCache;
-use super::ceiling::{CeilingParse, covers, parse_ceiling};
+use super::ceiling::{CeilingParse, CeilingReport, covers, parse_ceiling, report_ceiling};
 use super::enablement::Enablement;
 use super::floors::{FloorWriteError, Floors};
 use super::host::HostCapabilities;
@@ -103,6 +103,19 @@ impl HubRegistry {
     /// Read only: the shadow policy recorder builds its inputs from it.
     pub fn view(&self, host: HostId) -> Option<HostView> {
         self.agent.view(host)
+    }
+
+    /// What `host`'s live session reported as its unattended ceiling. Read only, memory only;
+    /// it reads the same words the availability rows read.
+    pub fn ceiling(&self, host: HostId) -> CeilingReport {
+        match self.agent.view(host) {
+            None => report_ceiling(false, None, None),
+            Some(view) => report_ceiling(
+                true,
+                view.words.ceiling_summary.as_deref(),
+                view.words.ceiling_hash,
+            ),
+        }
     }
 
     /// One host's whole inventory, already computed. Used by the API.

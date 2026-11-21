@@ -30,6 +30,8 @@ mod availability;
 #[cfg(test)]
 mod capability;
 #[cfg(test)]
+mod capability_ceiling;
+#[cfg(test)]
 mod crash_sqlite;
 #[cfg(test)]
 mod csp;

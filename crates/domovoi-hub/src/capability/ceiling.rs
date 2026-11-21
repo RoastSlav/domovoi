@@ -53,6 +53,50 @@ pub enum CeilingParse {
     },
 }
 
+/// What the hub knows about one host's unattended ceiling right now. Memory only: nothing
+/// is stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CeilingReport {
+    /// Whether the host has a live agent session.
+    pub connected: bool,
+    /// The agent's opaque `ceiling_hash`, as reported.
+    pub hash: Option<String>,
+    /// What the summary said.
+    pub state: CeilingState,
+}
+
+/// How the agent's ceiling summary reads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CeilingState {
+    /// No summary reached the hub: the agent reported none, predates it, or is not connected.
+    NotReported,
+    /// A valid summary, exactly as the agent sent it.
+    Reported(CeilingSummary),
+    /// A summary arrived and [`parse_ceiling`] refused it. A fixed sentence, never the raw text.
+    Unreadable(String),
+}
+
+/// Reads one session's ceiling words into a [`CeilingReport`].
+#[must_use]
+pub fn report_ceiling(
+    connected: bool,
+    summary: Option<&str>,
+    hash: Option<String>,
+) -> CeilingReport {
+    let state = match parse_ceiling(summary) {
+        CeilingParse::Absent => CeilingState::NotReported,
+        CeilingParse::Parsed(ceiling) => CeilingState::Reported(ceiling),
+        CeilingParse::Malformed { reason: _ } => CeilingState::Unreadable(
+            "The summary is not valid JSON or does not match the expected shape.".to_owned(),
+        ),
+    };
+    CeilingReport {
+        connected,
+        hash,
+        state,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use domovoi_core::capability::{CeilingSummary, ContractId};
