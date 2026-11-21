@@ -21,6 +21,7 @@ pub const PURGED_TABLES: &[&str] = &[
     "sessions",
     "messages",
     "conversations",
+    "install_jobs",
 ];
 
 /// Purged tables that have a full-text index, with the statement that removes the index

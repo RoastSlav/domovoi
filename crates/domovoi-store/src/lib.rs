@@ -20,6 +20,7 @@ mod experience;
 mod facts;
 mod fts;
 mod health;
+mod install;
 mod integrity;
 mod policy;
 mod purge;

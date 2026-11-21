@@ -140,10 +140,7 @@ pub(super) async fn apply(
         StateWrite::Policy(write) => crate::policy::apply(conn, write, receipt).await,
         StateWrite::Knowledge(write) => crate::facts::apply(conn, write, receipt).await,
         StateWrite::Conversation(write) => super::conversations::apply(conn, write, receipt).await,
-        // Placeholder until the install tables exist: refuse, so nothing is silently dropped.
-        StateWrite::Install(_) => Err(CommitError::Backend(
-            "install writes are not implemented in the store yet".to_owned(),
-        )),
+        StateWrite::Install(write) => crate::install::apply(conn, write).await,
     }
 }
 

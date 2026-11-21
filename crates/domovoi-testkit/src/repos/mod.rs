@@ -9,6 +9,7 @@ mod experience;
 mod health;
 mod hosts;
 mod incidents;
+mod install;
 mod knowledge;
 mod knowledge_apply;
 mod knowledge_read;
@@ -19,6 +20,7 @@ mod triage;
 mod uow;
 mod uow_apply;
 mod uow_conversations;
+mod uow_install;
 mod uow_operations;
 mod uow_queue;
 
@@ -76,6 +78,8 @@ struct State {
     actions: BTreeMap<ActionId, ActionRequest>,
     audit: Vec<AuditEvent>,
     notes: BTreeMap<NoteId, Note>,
+    /// Package artifacts, install jobs, targets and host inventories.
+    install: install::InstallState,
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
     /// The last journal `seq` handed out; unlike `journal.len()` it survives pruning.

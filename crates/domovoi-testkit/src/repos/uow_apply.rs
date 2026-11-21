@@ -57,10 +57,7 @@ pub(super) fn apply(
         StateWrite::Policy(write) => super::policy::apply(state, write),
         StateWrite::Knowledge(write) => super::knowledge_apply::apply(state, write, receipt),
         StateWrite::Conversation(write) => super::uow_conversations::apply(state, write, receipt),
-        // Placeholder until the in-memory install state exists: refuse, so nothing is dropped.
-        StateWrite::Install(_) => Err(CommitError::Backend(
-            "install writes are not implemented in the in-memory store yet".to_owned(),
-        )),
+        StateWrite::Install(write) => super::uow_install::apply(state, write),
     }
 }
 
