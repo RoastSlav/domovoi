@@ -94,6 +94,12 @@ impl PackageKeys {
         self.owners.get(id)
     }
 
+    /// Whether `id` is on the revocation list, whether or not it is also an owner key.
+    #[must_use]
+    pub fn is_revoked(&self, id: &KeyId) -> bool {
+        self.revoked.contains(id)
+    }
+
     /// Every owner key with its id, revoked or not, in id order.
     pub fn owners(&self) -> impl Iterator<Item = (&KeyId, &OwnerKey)> {
         self.owners.iter()
