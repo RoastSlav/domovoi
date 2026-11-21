@@ -1,6 +1,5 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
-assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -792,7 +791,7 @@ expression: "HubConfig::json_schema()"
       "type": "object",
       "properties": {
         "conversations_days": {
-          "description": "Days a follow-up question and answer on an incident are kept. Default 180.",
+          "description": "Days follow-up questions on an incident and Operator conversation messages are kept. Default 180.",
           "type": "integer",
           "format": "uint32",
           "default": 180,
