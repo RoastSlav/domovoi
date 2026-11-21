@@ -1,9 +1,11 @@
 import { useNavigate } from "react-router";
 import type { LiveStatus } from "../api/events";
+import { useSavePreferences } from "../api/hooks/preferences";
 import { useLogout, useSession } from "../api/hooks/session";
-import { Menu, Tooltip, useActionFeedback } from "../components";
+import { Menu, Tooltip, useActionFeedback, usePresentationChoice } from "../components";
 import { Icon, type IconName } from "../design/icons";
 import { useTheme, type Theme } from "../design/theme";
+import { PROFILE_IDS, PROFILE_META } from "../design/visibility";
 import { liveMeta } from "../design/tone";
 import styles from "./sidebar.module.css";
 
@@ -34,6 +36,11 @@ function UserRow() {
   const navigate = useNavigate();
   const logout = useActionFeedback(useLogout(), { success: () => null, error: "sign out" });
   const { theme, setTheme } = useTheme();
+  const choice = usePresentationChoice();
+  const savePreferences = useActionFeedback(useSavePreferences(), {
+    success: (_saved, variables) => variables.message ?? null,
+    error: "save the detail level",
+  });
   const username = session.data?.user.username ?? "";
   const onLogout = () =>
     logout.mutate(undefined, { onSuccess: () => void navigate("/login", { replace: true }) });
@@ -55,6 +62,21 @@ function UserRow() {
             checked: theme === value,
             onSelect: () => setTheme(value),
           })),
+          ...PROFILE_IDS.map((profile) => ({
+            label: PROFILE_META[profile].label,
+            group: "Detail level",
+            checked: choice.profile === profile,
+            onSelect: () =>
+              savePreferences.mutate({
+                presentation: { profile, pages: { ...choice.pages } },
+                message: `Detail level set to ${PROFILE_META[profile].label}.`,
+              }),
+          })),
+          {
+            label: "Display settings",
+            icon: "gear" as const,
+            onSelect: () => void navigate("/settings/display"),
+          },
           { label: "Log out", icon: "logout", onSelect: onLogout },
         ]}
       />

@@ -171,6 +171,92 @@ hub with `host`) or renders `<AllHostsNote>` saying why not; the setup, login, w
 not-found pages are outside the shell's host scope and need no note. Navigation counts come from
 `useOverview(host)`: never fetch a list to count it.
 
+## Presentation profiles
+
+Every element of an operations-style screen has one category, and the detail level decides
+from the category alone whether it is shown, collapsed or hidden.
+
+| Category                                  | Detailed | Standard  | Essential                   |
+| ----------------------------------------- | -------- | --------- | --------------------------- |
+| P0 safety, approval, audit, current state | shown    | shown     | shown                       |
+| P1 primary                                | shown    | shown     | shown                       |
+| P2 technical detail                       | shown    | collapsed | collapsed                   |
+| P3 metadata                               | shown    | collapsed | hidden, behind "+N details" |
+
+The table is data in `src/design/visibility.ts` (`PRESENTATION`); nothing else decides.
+
+1. **P0 is never hidden or collapsed**, in any profile, and not by a per-page override.
+2. **Collapsed** is a labelled toggle with a count. The content is not rendered until it is opened.
+3. **Hidden** is one "+N details" button per `DetailsScope`. A P3 block outside a scope is shown collapsed instead, so it is never lost.
+4. **A P0 element never sits inside a P2 or P3 container.**
+5. **P0 and P1 look the same** in every profile. Durable history (what was recorded) is never left out of the page.
+6. **A profile is display only.** It never changes authorization, tools, audit, retention or which requests are made.
+7. **One provider, everything else asks.** `VisibilityProvider` holds the choice; components call `useVisibility`. Dialogs, toasts, menus and tooltips are exempt: they carry no category.
+
+**Custom** is a per-page override on top of the default level. The pages that offer one are
+listed in `VISIBILITY_PAGES` (`operations`, `operation`); a page names itself with
+`VisibilityPage`. **The default is Detailed**, for a new owner, an unknown value and any
+failure to load the choice: it fails visible.
+
+**Where to choose.** The account menu has a "Detail level" group (Detailed, Standard,
+Essential) and "Display settings". Settings, Display holds the default level, the per-page
+overrides, a table of what each level does and "Reset to Detailed"; it works also when a file
+manages the settings, because it is a preference, not a setting.
+
+**Where it is stored.** The choice is a per-user preference on the hub
+(`GET` and `PUT /api/v1/me/preferences`), so it is the same in every browser. A browser cache
+(`domovoi.visibility` in local storage) only avoids a flash of the wrong level on load; the
+hub's answer wins.
+
+**The guarantee.** A test renders each operations screen in every profile and asserts that
+every `data-visibility="P0"` element is present and not inside a collapsed container
+(`p0_visible_in_every_profile`).
+
+### Classify an element
+
+Ask in this order and stop at the first yes.
+
+1. **P0** if it says what is happening now, what waits for the person, what authority applies or what was recorded; if it is a failure, unknown, paused, limited, stale, load-error, empty or loading state; or if it is a decision control (approve, deny, confirm, a plan code).
+2. **P1** if it is the main content of the screen or a frequent action.
+3. **P2** if it is diagnostic: raw input or output, a relation, history, a secondary action.
+4. **P3** if it is an identifier, a time, a model parameter or other rarely needed metadata.
+
+Rules for code:
+
+- No P0 inside a P2 or P3 `Visible`.
+- A decision control is P0.
+- A P3 block sits inside a `DetailsScope`, placed right after the blocks it covers.
+- A list row or table cell takes `visibilityAttrs(category, id)`, not a wrapper `div`.
+- Dialogs, toasts, menus, tooltips and visually hidden live regions carry no category.
+- A page that needs a different result changes that element's category, never `PRESENTATION`.
+- `id` names the kind of block (`operation.banner`), never data.
+
+Operations screens, from the code:
+
+| Category | Elements (`id`)                                                                                                                                                                                                                                                                       |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | `operation.banner`, `operation.title`, `operation.controls`, `operation.progress`, `operation.scope`, `operation.waiting`, `operation.stale-note`, `operation.schema-warning`, `operations.state`, `operations.table`, `approval.card`, `incident.investigation-status`               |
+| P1       | `operation.steps-head`, `operation.incidents`, `operation.budgets`, `operation.cycle-tag`, `operation.cycle-label`, `operation.earlier-steps`, `operation.scope-note`, `operations.filters`, `operations.legacy-tag`, `approval.reason`, `approval.origin`, `incident.investigations` |
+| P3       | `operation.metadata`                                                                                                                                                                                                                                                                  |
+
+Step inspector: `inspector.outcome`, `inspector.reason` and `inspector.approval` are P0;
+`inspector.kind` and `inspector.summary` are P1; `inspector.intent`, `inspector.output` and
+`inspector.connections` are P2; `inspector.times` is P3.
+
+Steps (`operation.step`, from `stepVisibility.ts`):
+
+| Rule                                                                                            | Category         |
+| ----------------------------------------------------------------------------------------------- | ---------------- |
+| Kind `approval`, `execution`, `verification`, `question`                                        | P0               |
+| Kind `assessment`, `plan`, `policy_decision`, `notification`, `note`                            | P1               |
+| Kind `evidence_request`, `reasoning_turn`                                                       | P2               |
+| Unknown kind                                                                                    | P1               |
+| Outcome `failed`, `refused`, `not_run`, `unavailable`, `outcome_unknown`, or an unknown outcome | P0, for any kind |
+
+In the tree view a step takes the most important category of itself and its descendants, so a
+folded parent never hides a more important child. Consecutive collapsed steps fold into one
+"N technical steps" toggle.
+
 ## Components
 
 All in `src/components/`, exported from `index.ts`; pages import from that barrel only. If a
@@ -229,6 +315,8 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
   hover raised, the chosen option shows a check at the right, shortcut hints at the right in
   subtle mono; menus are radius 8, popovers 12; optional `icon`, `caption` and `valueMeta`
   dress the picker's button), `Popover` (kit-internal), **`CommandPalette`** (`open`, `onClose`, `groups` of `{ title, items: { id, label, icon?, hint?, keywords?, onSelect }[] }`; a search combobox over a listbox; lazily loaded, `preloadCommandPalette()` warms it).
+
+- **Visibility:** `Visible` (`category`, `id`; a P2 or P3 also takes `label`, `count`, `reveal`: draws a block as the detail level says; for a block of a screen, not for dialogs, toasts, menus or tooltips, and never around a P0 inside a P2 or P3), `DetailsScope` (groups the P3 blocks of one place under one "+N details" button; draws nothing when none is hidden), `Disclosure` (a labelled toggle with an optional `count` whose content is not rendered until opened; for technical detail or a run of rows, not for a page section, where `Section collapsed` serves, and not for anything a person must see), `VisibilityPage` (`page`: names the page for its per-page override; for the root of a page in `VISIBILITY_PAGES`, not for sections). Hooks: `useVisibility(category)` answers `shown`, `collapsed` or `hidden`; `useProfile()` answers the level in force here and whether it is a page override. `visibilityAttrs` marks a row or cell.
 
 **Newer kit components.** Both are built to this contract and join the kit, this list and
 `/dev/design` together.
@@ -338,6 +426,12 @@ act within ten seconds.
 
 **Approve a fix.** A step approval card follows the rules above and is decided on its operation's page. The Approvals page does not yet gather pending steps across operations: its "Waiting for you" area is an empty state that points to Operations. "Recently decided" shows the decision, who decided and when, in a compact list, and legacy actions appear there read-only.
 
+**Choose how much to see.** The default level is Detailed, so nothing is missing for a new
+owner. Someone who finds a screen busy picks Standard or Essential from the account menu, or
+sets one page apart in Settings, Display. What needs the person (an approval, a failure, the
+current state) is on screen at every level; the rest is one click away, behind a labelled
+toggle or a "+N details" button. The choice follows the person to every browser.
+
 **Check one host.**
 
 - Anything scoped to one host shows that host in the selector, and leaving restores the earlier choice.
@@ -395,21 +489,6 @@ with its tokens, kit component, `/dev/design` demo and test.
   and no information is carried only by motion. No page transition on route change; lazy pages
   show their skeleton in place.
 
-**Presentation profiles.** Detailed (default for a new owner), Standard and Essential, with Custom
-as per-page overrides. One set of components; every element carries a category, and visibility
-follows from it:
-
-| Category                                  | Detailed | Standard  | Essential                      |
-| ----------------------------------------- | -------- | --------- | ------------------------------ |
-| P0 safety, approval, audit, current state | shown    | shown     | shown                          |
-| P1 primary                                | shown    | shown     | shown                          |
-| P2 technical detail                       | shown    | collapsed | collapsed                      |
-| P3 metadata                               | shown    | collapsed | hidden, "+N details" indicator |
-
-P0 is never hidden or collapsed in any profile (a test asserts it for every page). Profiles are
-built before any page that uses them, after the shared visibility infrastructure. They change what
-is shown, never authority.
-
 **Shell additions.** One right-hand slot shared by the Operator panel and the inspector: side by
 side when the page keeps at least 640 px of content, otherwise the surface opened most recently wins
 and the other collapses to a tab; a full-screen sheet on phones; never over content. Escape closes
@@ -423,7 +502,7 @@ between connected nodes, Enter opens the inspector, Home and End go to the first
 key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
 reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, an agent refusal reason such as a rate limit, and the unverified human variant for containment without verified helper coverage (reason, NOT PROTECTED path list, step-up then typed confirmation, RW-37); model text secondary and labelled); a
-freshness label; the profile provider and visibility primitive.
+freshness label.
 
 **Lint and size amendments the graph will need, each written here before the code.** Computed
 geometry goes through one kit helper that sets SVG attributes and CSS custom properties; there is
@@ -471,26 +550,28 @@ as the graph.
 
 ## Checks that will fail your PR
 
-| What                                                           | Command         | Fix                                                              |
-| -------------------------------------------------------------- | --------------- | ---------------------------------------------------------------- |
-| Raw colour or `--palette-*` outside `tokens.css`               | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                 |
-| The two dark theme blocks differ                               | `npm test`      | Make them identical                                              |
-| A token pair below WCAG AA (text 4.5, UI 3)                    | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                     |
-| A status without label, tone, hint, icon                       | `npm test`      | Add it to its vocabulary in `src/design/`                        |
-| A hub error or failure without words                           | `npm test`      | Add it to `messages.ts`                                          |
-| "Oops", "Something went wrong", "Error:", "!" in text          | `npm test`      | Say what happened and what to do (`voice.test.ts`)               |
-| An axe violation in whatever a page test leaves on screen      | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment       |
-| Inline JSX `style`                                             | `npm run lint`  | A CSS module with tokens; computed values need a disable comment |
-| JSX `title=`                                                   | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                             |
-| A raw `<button>` in `src/features` or `src/app`                | `npm run lint`  | `Button` or `IconButton`                                         |
-| A verdict string literal (`"ACTION_NEEDED"`) in page code      | `npm run lint`  | `verdictMeta` and `StatusPill`                                   |
-| `disabled` on a control without `disabledReason`               | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint     |
-| `.mutate(` in a file with no `useActionFeedback`/`InlineError` | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top    |
-| A deep import of a kit file; `lucide-react` outside `Icon`     | `npm run lint`  | Import from the barrel; use `Icon`                               |
-| `fetch` outside `src/api`                                      | `npm run lint`  | A hook in `src/api/hooks/`                                       |
-| A source file over 250 lines (no exemptions)                   | `npm run lint`  | Split by responsibility                                          |
-| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB    | `npm run build` | Load it lazily or drop the dependency (`npm run size`)           |
-| A broken operations page, slot, focus or contrast in a browser | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`          |
+| What                                                           | Command         | Fix                                                                    |
+| -------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| Raw colour or `--palette-*` outside `tokens.css`               | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                       |
+| The two dark theme blocks differ                               | `npm test`      | Make them identical                                                    |
+| A token pair below WCAG AA (text 4.5, UI 3)                    | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                           |
+| A status without label, tone, hint, icon                       | `npm test`      | Add it to its vocabulary in `src/design/`                              |
+| A hub error or failure without words                           | `npm test`      | Add it to `messages.ts`                                                |
+| "Oops", "Something went wrong", "Error:", "!" in text          | `npm test`      | Say what happened and what to do (`voice.test.ts`)                     |
+| An axe violation in whatever a page test leaves on screen      | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment             |
+| Inline JSX `style`                                             | `npm run lint`  | A CSS module with tokens; computed values need a disable comment       |
+| JSX `title=`                                                   | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                   |
+| A raw `<button>` in `src/features` or `src/app`                | `npm run lint`  | `Button` or `IconButton`                                               |
+| A verdict string literal (`"ACTION_NEEDED"`) in page code      | `npm run lint`  | `verdictMeta` and `StatusPill`                                         |
+| `disabled` on a control without `disabledReason`               | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint           |
+| `.mutate(` in a file with no `useActionFeedback`/`InlineError` | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top          |
+| A deep import of a kit file; `lucide-react` outside `Icon`     | `npm run lint`  | Import from the barrel; use `Icon`                                     |
+| `fetch` outside `src/api`                                      | `npm run lint`  | A hook in `src/api/hooks/`                                             |
+| A source file over 250 lines (no exemptions)                   | `npm run lint`  | Split by responsibility                                                |
+| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB    | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                 |
+| A P0 element missing or collapsed in a profile                 | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`) |
+| Visibility primitive in approval, banner or API code           | `npm test`      | Remove it: the profile never gates authority                           |
+| A broken operations page, slot, focus or contrast in a browser | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 
@@ -513,6 +594,8 @@ TBT 27 ms; incidents LCP 1.4 s, CLS 0.021, TBT 0 ms. Incidents, Login and Setup 
 first download; every other page is in `pages.ts` and fetched when opened (a link fetches on
 hover or focus). Markdown is its own chunk; `vendor` is split so it stays cached across hub
 upgrades. A mutation refreshes only what it changed; polling stops when nothing can change.
+Bundle size after this change: initial JS 169.4 kB gzip, largest chunk 110.8 kB, CSS 23.4 kB gzip (within budget).
+
 Raise the budget only with a reason in the PR, and record the new number above.
 
 ## Recipes
@@ -572,6 +655,8 @@ sentence-case `label`, a `kind` (`text`, `number`, `bool`, `select`, `list`, `id
 tag, the read-only state with its reason, and the validation issue, laid out as a settings
 row. A new section is one entry in `SECTIONS`. Outside Settings wrap inputs in
 `<Field label hint path="the.path">`.
+
+**Add a display choice.** A per-person display choice (the detail level, or a later one such as density) is a hub preference under `me/preferences`, not a settings field: it is never in `hub.toml`, never locked by a file and never restarts the hub. Add it to the preferences body and the Display section, not to `SECTIONS`.
 
 **Add a table column.** One entry in `columns`: unique `key`; `label` (also the label when
 cards stack on a phone); `cell` (a status is a `StatusPill`, a time a `RelativeTime`);

@@ -3914,6 +3914,86 @@
         }
       }
     },
+    "/api/v1/me/preferences": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "The signed-in person's display preferences.",
+        "operationId": "get_preferences",
+        "responses": {
+          "200": {
+            "description": "The preferences, or the defaults",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Saves the signed-in person's display preferences.",
+        "operationId": "update_preferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The preferences after the change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown level or malformed page key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/notes": {
       "get": {
         "tags": [
@@ -10671,6 +10751,73 @@
           "in_network"
         ]
       },
+      "PreferencesDto": {
+        "type": "object",
+        "description": "A person's stored preferences. A person who never saved any gets the defaults.",
+        "required": [
+          "version",
+          "presentation"
+        ],
+        "properties": {
+          "presentation": {
+            "$ref": "#/components/schemas/PresentationDto",
+            "description": "How much detail pages show."
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the preferences were last saved, as RFC 3339; null while none are saved."
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The layout of the stored document; currently 1.",
+            "minimum": 0
+          }
+        }
+      },
+      "PreferencesUpdateDto": {
+        "type": "object",
+        "description": "A change to the preferences. A group left out or null stays as it is; a group given\nreplaces the stored one as a whole.",
+        "properties": {
+          "presentation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PresentationDto",
+                "description": "The new presentation settings."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "PresentationDto": {
+        "type": "object",
+        "description": "How much detail pages show: one level for every page, and levels for single pages.",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "pages": {
+            "type": "object",
+            "description": "Levels for single pages, by page key (a lowercase letter, then lowercase letters,\ndigits, `-` and `_`, up to 32 characters; at most 32 pages). Each value is\n`detailed`, `standard` or `essential`.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "profile": {
+            "type": "string",
+            "description": "The level pages use unless they have their own: `detailed`, `standard` or `essential`."
+          }
+        }
+      },
       "PreviewDto": {
         "type": "object",
         "description": "What a candidate rule set would do.",
@@ -13382,6 +13529,10 @@
     {
       "name": "notes",
       "description": "Host and global notes"
+    },
+    {
+      "name": "me",
+      "description": "The signed-in person's own preferences"
     },
     {
       "name": "system",

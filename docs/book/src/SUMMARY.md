@@ -38,6 +38,7 @@
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
 - [Retention](guide/retention.md)
+- [Detail level](guide/display.md)
 
 # Reference
 

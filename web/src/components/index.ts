@@ -96,5 +96,20 @@ export {
   type OperatorTurn,
 } from "./OperatorThread";
 
+// Visibility profiles
+export { Visible, type VisibleProps } from "./Visible";
+export { DetailsScope } from "./DetailsScope";
+export { Disclosure } from "./Disclosure";
+export {
+  DEFAULT_PRESENTATION_CHOICE,
+  VisibilityContext,
+  VisibilityPage,
+  useProfile,
+  usePresentationChoice,
+  useVisibility,
+  visibilityAttrs,
+  type PresentationChoice,
+} from "./visibilityContext";
+
 // Hooks
 export { useDebounced } from "./useDebounced";

@@ -1186,3 +1186,74 @@ fn operator_has_no_executor() {
         "executor names in the Operator API: {offenders:?}"
     );
 }
+
+/// The files allowed to name the display-preferences service and its settings key.
+const PREFERENCE_OWNERS: [&str; 4] = [
+    "crates/domovoi-hub/src/services/preferences",
+    "crates/domovoi-hub/src/services/mod.rs",
+    "crates/domovoi-hub/src/api/preferences.rs",
+    "crates/domovoi-hub/src/api/mod.rs",
+];
+
+/// The files that name the preferences service, build their settings key, or reach the
+/// service through `services().preferences` outside the owners.
+fn preference_leaks(files: &[(String, String)]) -> Vec<String> {
+    let mut leaks = Vec::new();
+    for (path, text) in files {
+        let owner = PREFERENCE_OWNERS
+            .iter()
+            .any(|prefix| path.starts_with(prefix));
+        let squeezed = squeezed(text);
+        for needle in ["PreferenceService", "preferences_key", "\"preferences."] {
+            if !owner && text.contains(needle) {
+                leaks.push(format!("{path} names {needle}"));
+            }
+        }
+        let reaches = squeezed.contains("services().preferences")
+            || squeezed.contains("services.preferences");
+        if reaches && path != "crates/domovoi-hub/src/api/preferences.rs" {
+            leaks.push(format!("{path} reaches the preferences service"));
+        }
+    }
+    leaks
+}
+
+/// Display preferences are presentation only: the service, its settings key and the handle on
+/// it appear nowhere that decides, approves, audits or runs anything.
+#[test]
+fn display_preferences_never_reach_authority() {
+    let files = workspace_production();
+    assert!(
+        files
+            .iter()
+            .any(|(path, _)| path == "crates/domovoi-hub/src/services/preferences.rs"),
+        "the scan sees the preferences service"
+    );
+    let leaks = preference_leaks(&files);
+    assert!(leaks.is_empty(), "preferences leak into: {leaks:#?}");
+}
+
+/// The preferences scan flags a forbidden use in a sample and lets the owners through.
+#[test]
+fn the_preferences_scan_flags_a_forbidden_use() {
+    let sample = |path: &str, text: &str| vec![(path.to_owned(), text.to_owned())];
+    for text in [
+        "fn f(p: PreferenceService) {}",
+        "fn f() { let k = preferences_key(user); }",
+        "fn f() { store.get(\"preferences.abc\"); }",
+        "fn f(s: &S) { s.services()\n    .preferences.get(&c); }",
+    ] {
+        let leaks = preference_leaks(&sample("crates/domovoi-hub/src/api/rules.rs", text));
+        assert!(!leaks.is_empty(), "missed: {text}");
+    }
+    let owner = sample(
+        "crates/domovoi-hub/src/services/preferences.rs",
+        "fn k() { format!(\"preferences.{u}\"); PreferenceService }",
+    );
+    assert!(preference_leaks(&owner).is_empty());
+    let handler = sample(
+        "crates/domovoi-hub/src/api/preferences.rs",
+        "fn h(s: &S) { s.services().preferences.get(&c); }",
+    );
+    assert!(preference_leaks(&handler).is_empty());
+}

@@ -1,6 +1,6 @@
 import type { OperationTrace } from "../../api/operationTrace";
 import type { Execution } from "../../api/types";
-import { Section, Stack } from "../../components";
+import { Section, Stack, Visible } from "../../components";
 import { ApprovalCard } from "../approvals/ApprovalCard";
 import { QuestionCard } from "./QuestionCard";
 import { awaitingExecutions, pendingQuestions, planTextFor } from "./steps";
@@ -35,23 +35,25 @@ export function WaitingForYou({
     return null;
   }
   return (
-    <div id="waiting-for-you">
-      <Section title="Waiting for you">
-        <Stack gap={3}>
-          {approvals.map((execution) => (
-            <ApprovalCard
-              key={execution.step}
-              source={{ kind: "step", operationId, execution }}
-              host={hostNames.get(execution.host_id)}
-              why={planTextFor(trace, execution.step)}
-              emphasis={approvals.length === 1 ? "primary" : "secondary"}
-            />
-          ))}
-          {questions.map((step) => (
-            <QuestionCard key={step.id} operationId={operationId} step={step} paused={paused} />
-          ))}
-        </Stack>
-      </Section>
-    </div>
+    <Visible category="P0" id="operation.waiting">
+      <div id="waiting-for-you">
+        <Section title="Waiting for you">
+          <Stack gap={3}>
+            {approvals.map((execution) => (
+              <ApprovalCard
+                key={execution.step}
+                source={{ kind: "step", operationId, execution }}
+                host={hostNames.get(execution.host_id)}
+                why={planTextFor(trace, execution.step)}
+                emphasis={approvals.length === 1 ? "primary" : "secondary"}
+              />
+            ))}
+            {questions.map((step) => (
+              <QuestionCard key={step.id} operationId={operationId} step={step} paused={paused} />
+            ))}
+          </Stack>
+        </Section>
+      </div>
+    </Visible>
   );
 }

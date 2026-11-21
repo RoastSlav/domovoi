@@ -324,6 +324,7 @@ impl HubRuntime {
                 auth.clone(),
             ),
             conversations,
+            settings: store.clone(),
         });
         let api = ApiState::new(
             ApiDeps {

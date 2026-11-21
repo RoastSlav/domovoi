@@ -23,12 +23,14 @@ mod policy;
 mod policy_publish;
 mod policy_simulate;
 mod policy_types;
+mod preferences;
 
 use std::sync::Arc;
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
     AdvisoryRepo, Clock, HostRepo, IncidentRepo, MetricSampleRepo, OperationRepo, Redactor,
+    SettingsRepo,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;
@@ -54,6 +56,11 @@ pub use policy_types::{
     BAD_PASSWORD_TEXT, PASSWORD_REQUIRED_TEXT, PolicyCommandError, PolicyDeps, Preview, RuleIssue,
     SavedDraft, StepUp,
 };
+pub use preferences::{
+    MAX_PAGE_KEY_CHARS, MAX_PAGE_OVERRIDES, PREFERENCES_VERSION, PreferenceError,
+    PreferenceService, Preferences, PreferencesUpdate, PresentationInput, PresentationPrefs,
+    Profile, preferences_key,
+};
 
 use crate::agent_server::AgentAdmin;
 use crate::profile::ProfileDeps;
@@ -75,6 +82,8 @@ pub struct Services {
     pub knowledge: KnowledgeCommands,
     /// Operator conversations: create, ask, stop, retry, attach, delete.
     pub conversations: ConversationCommands,
+    /// The signed-in person's own display preferences.
+    pub preferences: PreferenceService,
 }
 
 /// What the services are built from.
@@ -111,12 +120,15 @@ pub struct ServicesDeps {
     pub knowledge: KnowledgeCommands,
     /// The Operator conversation use cases.
     pub conversations: ConversationCommands,
+    /// The settings table, where display preferences are kept.
+    pub settings: Arc<dyn SettingsRepo>,
 }
 
 impl Services {
     /// The services over `deps`.
     #[must_use]
     pub fn new(deps: ServicesDeps) -> Self {
+        let preferences = PreferenceService::new(deps.settings.clone(), deps.clock.clone());
         Self {
             incidents: IncidentService {
                 manager: deps.manager,
@@ -147,6 +159,7 @@ impl Services {
             policy: deps.policy,
             knowledge: deps.knowledge,
             conversations: deps.conversations,
+            preferences,
         }
     }
 }

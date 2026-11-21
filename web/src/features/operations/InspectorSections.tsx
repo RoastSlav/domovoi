@@ -12,14 +12,15 @@ import {
   Skeleton,
   StatusPill,
   Text,
+  DetailsScope,
+  Visible,
 } from "../../components";
 import { Icon } from "../../design/icons";
 import { stepKindMeta, stepOutcomeMeta } from "../../design/tone";
 import { ApprovalCard } from "../approvals/ApprovalCard";
 import { connections } from "./steps";
+import { isProblemOutcome } from "./stepVisibility";
 import styles from "./operations.module.css";
-
-const PROBLEMS = new Set(["refused", "not_run", "unavailable", "failed", "outcome_unknown"]);
 
 function duration(step: TraceStep): string | undefined {
   if (!step.started_at || !step.ended_at) {
@@ -39,30 +40,47 @@ export function StepFacts({ step }: { step: TraceStep }) {
   const took = duration(step);
   return (
     <div className={styles.inspectorBlock}>
-      <Text strong>
-        <Icon name={kind.icon} size={16} /> {kind.label}
-      </Text>
-      <span>
-        <StatusPill meta={outcome} />
-      </span>
-      <Text muted size="sm">
-        Phase {step.phase}, cycle {step.cycle}
-      </Text>
-      <Text muted size="sm">
-        Started {step.started_at ? <RelativeTime at={step.started_at} /> : "–"}. Ended{" "}
-        {step.ended_at ? <RelativeTime at={step.ended_at} /> : "–"}.{took ? ` Took ${took}.` : ""}
-      </Text>
-      {step.summary && <Text block>{step.summary}</Text>}
+      <Visible category="P1" id="inspector.kind">
+        <Text strong>
+          <Icon name={kind.icon} size={16} /> {kind.label}
+        </Text>
+      </Visible>
+      <Visible category="P0" id="inspector.outcome">
+        <span>
+          <StatusPill meta={outcome} />
+        </span>
+      </Visible>
+      <DetailsScope>
+        <Visible category="P3" id="inspector.times" label="Times and phase" count={2}>
+          <Text muted size="sm">
+            Phase {step.phase}, cycle {step.cycle}
+          </Text>
+          <Text muted size="sm">
+            Started {step.started_at ? <RelativeTime at={step.started_at} /> : "–"}. Ended{" "}
+            {step.ended_at ? <RelativeTime at={step.ended_at} /> : "–"}.
+            {took ? ` Took ${took}.` : ""}
+          </Text>
+        </Visible>
+      </DetailsScope>
+      {step.summary && (
+        <Visible category="P1" id="inspector.summary">
+          <Text block>{step.summary}</Text>
+        </Visible>
+      )}
     </div>
   );
 }
 
 /** Why a step ended as it did, for the outcomes that need an explanation. */
 export function StepReason({ reason, outcome }: { reason: string | null; outcome: string }) {
-  if (!reason || !PROBLEMS.has(outcome)) {
+  if (!reason || !isProblemOutcome(outcome)) {
     return null;
   }
-  return <InlineMessage tone={stepOutcomeMeta(outcome).tone}>{reason}</InlineMessage>;
+  return (
+    <Visible category="P0" id="inspector.reason">
+      <InlineMessage tone={stepOutcomeMeta(outcome).tone}>{reason}</InlineMessage>
+    </Visible>
+  );
 }
 
 /** The action's approval card, read-only: the decision lives on the page, in "Waiting for you". */
@@ -81,23 +99,25 @@ export function StepAction({
     return <Text muted>No action details are stored for this step.</Text>;
   }
   return (
-    <div className={styles.inspectorBlock}>
-      <ApprovalCard
-        source={{ kind: "step", operationId, execution }}
-        host={hostNames.get(execution.host_id)}
-        readOnly
-      />
-      {execution.state === "awaiting_approval" && (
-        <>
-          <Text muted>Decide in Waiting for you on the page.</Text>
-          <span>
-            <Button size="sm" onClick={onReview}>
-              Go to Waiting for you
-            </Button>
-          </span>
-        </>
-      )}
-    </div>
+    <Visible category="P0" id="inspector.approval">
+      <div className={styles.inspectorBlock}>
+        <ApprovalCard
+          source={{ kind: "step", operationId, execution }}
+          host={hostNames.get(execution.host_id)}
+          readOnly
+        />
+        {execution.state === "awaiting_approval" && (
+          <>
+            <Text muted>Decide in Waiting for you on the page.</Text>
+            <span>
+              <Button size="sm" onClick={onReview}>
+                Go to Waiting for you
+              </Button>
+            </span>
+          </>
+        )}
+      </div>
+    </Visible>
   );
 }
 
@@ -113,27 +133,29 @@ export function StepConnections({
 }) {
   const links = connections(trace, stepId);
   return (
-    <div className={styles.inspectorBlock}>
-      <Text strong>Connections</Text>
-      {links.length === 0 && <Text muted>No connections</Text>}
-      <ul>
-        {links.map(({ edge, label, other }) => (
-          <li key={`${edge.from}-${edge.to}-${edge.kind}`}>
-            <Link
-              to={{ search: `?step=${other.id}` }}
-              replace
-              onClick={(event) => {
-                event.preventDefault();
-                onSelect(other.id, event.currentTarget);
-              }}
-            >
-              {label}: {stepKindMeta(other.kind).label}
-              {other.summary ? `, ${other.summary}` : ""}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Visible category="P2" id="inspector.connections" label="Connections" count={links.length}>
+      <div className={styles.inspectorBlock}>
+        <Text strong>Connections</Text>
+        {links.length === 0 && <Text muted>No connections</Text>}
+        <ul>
+          {links.map(({ edge, label, other }) => (
+            <li key={`${edge.from}-${edge.to}-${edge.kind}`}>
+              <Link
+                to={{ search: `?step=${other.id}` }}
+                replace
+                onClick={(event) => {
+                  event.preventDefault();
+                  onSelect(other.id, event.currentTarget);
+                }}
+              >
+                {label}: {stepKindMeta(other.kind).label}
+                {other.summary ? `, ${other.summary}` : ""}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Visible>
   );
 }
 
@@ -153,28 +175,42 @@ function intentItems(intent: unknown) {
 export function StepDetails({ operationId, stepId }: { operationId: string; stepId: string }) {
   const detail = useOperationStep(operationId, stepId);
   if (detail.isError) {
-    return <LoadError error={detail.error} context="load the step" onRetry={detail.refetch} />;
+    return (
+      <Visible category="P0" id="inspector.state">
+        <LoadError error={detail.error} context="load the step" onRetry={detail.refetch} />
+      </Visible>
+    );
   }
   if (!detail.data) {
-    return <Skeleton shape="rows" count={3} />;
+    return (
+      <Visible category="P0" id="inspector.state">
+        <Skeleton shape="rows" count={3} />
+      </Visible>
+    );
   }
   const items = intentItems(detail.data.intent);
   return (
     <div className={styles.inspectorBlock}>
       <Text strong>Details</Text>
-      {items.length > 0 && <KeyValueList mono items={items} />}
-      {detail.data.output ? (
-        <>
-          <CopyBlock label="Step output" text={detail.data.output} />
-          <Text muted size="sm">
-            Redacted and shortened to 16 KiB.
-          </Text>
-        </>
-      ) : (
-        <Text muted>
-          No output is stored for this step. Raw outputs are removed after the retention period.
-        </Text>
+      {items.length > 0 && (
+        <Visible category="P2" id="inspector.intent" label="Intent" count={items.length}>
+          <KeyValueList mono items={items} />
+        </Visible>
       )}
+      <Visible category="P2" id="inspector.output" label="Step output">
+        {detail.data.output ? (
+          <>
+            <CopyBlock label="Step output" text={detail.data.output} />
+            <Text muted size="sm">
+              Redacted and shortened to 16 KiB.
+            </Text>
+          </>
+        ) : (
+          <Text muted>
+            No output is stored for this step. Raw outputs are removed after the retention period.
+          </Text>
+        )}
+      </Visible>
     </div>
   );
 }

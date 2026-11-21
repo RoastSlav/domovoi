@@ -3893,6 +3893,73 @@ expression: spec
         ],
         "type": "string"
       },
+      "PreferencesDto": {
+        "description": "A person's stored preferences. A person who never saved any gets the defaults.",
+        "properties": {
+          "presentation": {
+            "$ref": "#/components/schemas/PresentationDto",
+            "description": "How much detail pages show."
+          },
+          "updated_at": {
+            "description": "When the preferences were last saved, as RFC 3339; null while none are saved.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "The layout of the stored document; currently 1.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "presentation"
+        ],
+        "type": "object"
+      },
+      "PreferencesUpdateDto": {
+        "description": "A change to the preferences. A group left out or null stays as it is; a group given\nreplaces the stored one as a whole.",
+        "properties": {
+          "presentation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PresentationDto",
+                "description": "The new presentation settings."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "PresentationDto": {
+        "description": "How much detail pages show: one level for every page, and levels for single pages.",
+        "properties": {
+          "pages": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Levels for single pages, by page key (a lowercase letter, then lowercase letters,\ndigits, `-` and `_`, up to 32 characters; at most 32 pages). Each value is\n`detailed`, `standard` or `essential`.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "profile": {
+            "description": "The level pages use unless they have their own: `detailed`, `standard` or `essential`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "profile"
+        ],
+        "type": "object"
+      },
       "PreviewDto": {
         "description": "What a candidate rule set would do.",
         "properties": {
@@ -10479,6 +10546,86 @@ expression: spec
         ]
       }
     },
+    "/api/v1/me/preferences": {
+      "get": {
+        "operationId": "get_preferences",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesDto"
+                }
+              }
+            },
+            "description": "The preferences, or the defaults"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "The signed-in person's display preferences.",
+        "tags": [
+          "me"
+        ]
+      },
+      "put": {
+        "operationId": "update_preferences",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesUpdateDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreferencesDto"
+                }
+              }
+            },
+            "description": "The preferences after the change"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown level or malformed page key"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Saves the signed-in person's display preferences.",
+        "tags": [
+          "me"
+        ]
+      }
+    },
     "/api/v1/notes": {
       "get": {
         "operationId": "list_notes",
@@ -13386,6 +13533,10 @@ expression: spec
     {
       "description": "Host and global notes",
       "name": "notes"
+    },
+    {
+      "description": "The signed-in person's own preferences",
+      "name": "me"
     },
     {
       "description": "Settings, advisories, digest, events and health",

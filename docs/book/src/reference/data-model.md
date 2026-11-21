@@ -49,7 +49,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `advisories` | Things worth knowing that are not incidents: a missing heartbeat, a stale image, an outdated agent. |
 | `users` | Web users: username and argon2id password hash. Usernames are case-sensitive. |
 | `sessions` | Web sessions: hashes of the session and CSRF tokens, owner and expiry. |
-| `settings` | Hub settings changed from the UI, as JSON values. |
+| `settings` | Hub settings changed from the UI, as JSON values. It also holds each account's display preferences under `preferences.<user id>`; a missing row means the default detail level. |
 | `notify_state` | Per incident: where its card and thread are on each chat platform, when it was last reminded about, folded repeats not yet mentioned, and an alert held for the end of quiet hours. |
 | `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
 | `effects` | The work outbox: side effects that must happen later, such as a verification re-check, with their due time, attempts, claim and lease. See [The effects table](#the-effects-table). |

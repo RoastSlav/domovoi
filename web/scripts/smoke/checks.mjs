@@ -5,6 +5,7 @@ import { PLAN_HASH } from "./data.mjs";
 const require = createRequire(import.meta.url);
 const AXE = require.resolve("axe-core");
 const WIDE = { width: 1440, height: 900 };
+const WIDE_DESK = { width: 1280, height: 900 };
 const PHONE = { width: 375, height: 812 };
 const WAIT = { timeout: 10_000 };
 
@@ -257,6 +258,106 @@ export const CHECKS = [
                 "the inspector",
             );
             await axe(page, "the detail page with the inspector open");
+        },
+    },
+    {
+        name: "every detail level keeps the approval visible, in both schemes and widths",
+        async run(ctx) {
+            const { page, server } = ctx;
+            try {
+                for (const profile of ["detailed", "standard", "essential"]) {
+                    for (const scheme of ["light", "dark"]) {
+                        for (const viewport of [WIDE_DESK, PHONE]) {
+                            const what = `${profile}/${scheme}/${viewport.width}px`;
+                            await page.emulateMedia({ colorScheme: scheme });
+                            server.reset();
+                            server.setPreference(profile);
+                            await operationPage(ctx, viewport);
+                            await visible(
+                                page.getByText("Waiting for your approval").first(),
+                                `the banner (${what})`,
+                            );
+                            const card = page.getByRole("group", {
+                                name: /Action restart_container/,
+                            });
+                            await visible(card, `the approval card (${what})`);
+                            const text = await card.first().innerText();
+                            expect(
+                                text.includes(`Plan ${PLAN_HASH.slice(0, 8)}`),
+                                `No plan prefix on the card (${what}).`,
+                            );
+                            expect(/v2/.test(text), `The card does not say v2 (${what}).`);
+                            const approve = page.getByRole("button", { name: /^Approve/ }).first();
+                            await visible(approve, `Approve (${what})`);
+                            expect(await approve.isEnabled(), `Approve is disabled (${what}).`);
+
+                            const folded = page.getByRole("button", {
+                                name: /^\d+ technical steps?/,
+                            });
+                            if (profile === "detailed") {
+                                expect(
+                                    (await folded.count()) === 0,
+                                    `Technical steps are folded in Detailed (${what}).`,
+                                );
+                                await visible(
+                                    page.getByRole("link", { name: /Model turn|Evidence/ }),
+                                    `technical step rows (${what})`,
+                                );
+                            } else {
+                                await visible(folded, `a technical steps toggle (${what})`);
+                            }
+                            if (profile === "essential") {
+                                await visible(
+                                    page.getByRole("button", { name: /^\+\d+ details?$/ }),
+                                    `a "+N details" button (${what})`,
+                                );
+                            }
+                            const wide = await page.evaluate(
+                                () =>
+                                    document.documentElement.scrollWidth >
+                                    document.documentElement.clientWidth,
+                            );
+                            expect(!wide, `The page scrolls sideways (${what}).`);
+                            await axe(page, `the operation page (${what})`);
+                        }
+                    }
+                }
+            } finally {
+                await page.emulateMedia({ colorScheme: "light" });
+            }
+        },
+    },
+    {
+        name: "choosing Essential in the account menu saves it and changes the page in place",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await operationPage(ctx, WIDE_DESK);
+            await visible(
+                page.getByRole("link", { name: /Model turn|Evidence/ }),
+                "technical step rows",
+            );
+            let navigated = false;
+            page.once("framenavigated", () => {
+                navigated = true;
+            });
+            await page.getByRole("button", { name: "Account menu" }).click();
+            await page.getByRole("menuitemradio", { name: "Essential" }).click();
+            for (let i = 0; i < 50 && server.puts.length === 0; i += 1) {
+                await page.waitForTimeout(100);
+            }
+            expect(server.puts.length === 1, `Expected one PUT, saw ${server.puts.length}.`);
+            const body = JSON.stringify(server.puts[0].body);
+            expect(
+                body === '{"presentation":{"profile":"essential","pages":{}}}',
+                `The saved preference is ${body}.`,
+            );
+            await visible(
+                page.getByRole("button", { name: /^\d+ technical steps?/ }),
+                "the folded technical steps",
+            );
+            expect(!navigated, "The page reloaded.");
         },
     },
 ];

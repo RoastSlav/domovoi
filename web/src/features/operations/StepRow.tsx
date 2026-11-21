@@ -1,9 +1,11 @@
 import { Link } from "react-router";
 import type { TraceStep } from "../../api/operationTrace";
 import type { Execution } from "../../api/types";
-import { RelativeTime, StatusPill, Tag, Text } from "../../components";
+import { RelativeTime, StatusPill, Tag, Text, visibilityAttrs } from "../../components";
 import { Icon } from "../../design/icons";
 import { stepKindMeta, stepOutcomeMeta } from "../../design/tone";
+import type { Category } from "../../design/visibility";
+import { stepCategory } from "./stepVisibility";
 import styles from "./operations.module.css";
 
 /**
@@ -12,11 +14,14 @@ import styles from "./operations.module.css";
  */
 export function StepRow({
   step,
+  category,
   execution,
   selected,
   retry,
   onSelect,
 }: {
+  /** The row's visibility category; the step's own when not given. */
+  category?: Category;
   step: TraceStep;
   execution: Execution | undefined;
   selected: boolean;
@@ -26,7 +31,11 @@ export function StepRow({
   const kind = stepKindMeta(step.kind);
   const at = step.ended_at ?? step.started_at;
   return (
-    <li className={styles.stepRow} data-selected={selected || undefined}>
+    <li
+      className={styles.stepRow}
+      data-selected={selected || undefined}
+      {...visibilityAttrs(category ?? stepCategory(step.kind, step.outcome), "operation.step")}
+    >
       <span className={styles.stepKind}>
         <Icon name={kind.icon} size={16} />
         <Link

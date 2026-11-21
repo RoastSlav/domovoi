@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Live } from "../api/events";
 import { calls, failure, resetApi, route } from "../test/apiMock";
@@ -442,4 +442,48 @@ test("layout_renders_the_slot_host_beside_main_and_the_skeleton_has_the_same_sha
   expect(skeletonBody?.tagName).toBe("DIV");
   expect(skeletonBody?.parentElement?.children).toHaveLength(2);
   expect(shape(skeletonBody)).toEqual([1]);
+});
+
+const PREFS = (profile: string, pages: Record<string, string> = {}) => ({
+  version: 1,
+  updated_at: null,
+  presentation: { profile, pages },
+});
+
+test("the_layout_mounts_the_visibility_provider_once", async () => {
+  route("GET /api/v1/me/preferences", () => PREFS("detailed"));
+  renderLayout();
+  await screen.findByRole("main");
+  await waitFor(() =>
+    expect(calls.filter((call) => call.route === "GET /api/v1/me/preferences")).toHaveLength(1),
+  );
+});
+
+test("account_menu_offers_detail_level_with_the_current_one_checked_and_saves_a_choice", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/me/preferences", () => PREFS("standard", { operation: "essential" }));
+  route("PUT /api/v1/me/preferences", (init) => ({
+    ...PREFS("detailed"),
+    presentation: (init.body as { presentation: object }).presentation,
+  }));
+  renderLayout();
+  await user.click(menuButton());
+  await waitFor(() =>
+    expect(calls.some((call) => call.route === "GET /api/v1/me/preferences")).toBe(true),
+  );
+  await user.click(within(sheet()).getByRole("button", { name: "Account menu" }));
+
+  const level = within(await screen.findByRole("group", { name: "Detail level" }));
+  await waitFor(() => expect(level.getByRole("menuitemradio", { name: "Standard" })).toBeChecked());
+  await user.click(level.getByRole("menuitemradio", { name: "Essential" }));
+  await waitFor(() =>
+    expect(calls.find((call) => call.route === "PUT /api/v1/me/preferences")?.init.body).toEqual({
+      presentation: { profile: "essential", pages: { operation: "essential" } },
+    }),
+  );
+  expect(await screen.findByText("Detail level set to Essential.")).toBeVisible();
+
+  await user.click(within(sheet()).getByRole("button", { name: "Account menu" }));
+  await user.click(screen.getByRole("menuitem", { name: "Display settings" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("/settings/display");
 });

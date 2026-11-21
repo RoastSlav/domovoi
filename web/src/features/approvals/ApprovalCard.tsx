@@ -11,6 +11,7 @@ import {
   StatusPill,
   Tag,
   Text,
+  Visible,
 } from "../../components";
 import type { Tone } from "../../design/status";
 import { riskMeta } from "../../design/tone";
@@ -139,74 +140,80 @@ export function ApprovalCard({
   const decide = plan.waiting && !readOnly;
 
   return (
-    <Card tone={plan.stateMeta.tone} label={`Action ${plan.skill}`}>
-      <Stack gap={3}>
-        <Cluster justify="between" align="start">
+    <Visible category="P0" id="approval.card">
+      <Card tone={plan.stateMeta.tone} label={`Action ${plan.skill}`}>
+        <Stack gap={3}>
+          <Cluster justify="between" align="start">
+            <Cluster>
+              <Text mono strong>
+                {plan.skill}
+              </Text>
+              {host && (
+                <Text muted size="sm">
+                  on {host}
+                </Text>
+              )}
+            </Cluster>
+            <Cluster>
+              <StatusPill meta={risk} />
+              <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
+                {risk.hint}
+              </InfoTip>
+              {source.kind === "legacy" && <Tag>Legacy</Tag>}
+              {!plan.waiting && <StatusPill meta={plan.stateMeta} />}
+            </Cluster>
+          </Cluster>
+
+          {(plan.check || plan.target) && (
+            <Cluster>
+              {plan.check && <Tag>Check {plan.check}</Tag>}
+              {plan.target && <Tag>Target {plan.target}</Tag>}
+            </Cluster>
+          )}
+          <ActionArgs args={plan.args} />
+          {why && (
+            <Visible category="P1" id="approval.reason">
+              <Text block>
+                <Text muted>Model's reason (not checked): </Text>
+                {why}
+              </Text>
+            </Visible>
+          )}
+          {extras && <Extras extras={extras} />}
+
           <Cluster>
-            <Text mono strong>
-              {plan.skill}
-            </Text>
-            {host && (
+            {plan.suggestedBy && plan.createdAt && (
+              <Visible category="P1" id="approval.origin">
+                <Text muted size="sm">
+                  {suggestedBy(plan.suggestedBy)} <RelativeTime at={plan.createdAt} />
+                </Text>
+              </Visible>
+            )}
+            {plan.approvedBy && (
               <Text muted size="sm">
-                on {host}
+                Approved by {plan.approvedBy}
+                {plan.approvedAt && (
+                  <>
+                    {" "}
+                    <RelativeTime at={plan.approvedAt} />
+                  </>
+                )}
               </Text>
             )}
+            {plan.waiting && <Expiry until={plan.expiresAt} />}
+            <PlanTag planHash={plan.planHash} binding={plan.planBinding} />
+            {operation && <Link to={`/operations/${operation.id}`}>{operation.goal}</Link>}
+            {incident && plan.family === "action" && (
+              <Link to={`/incidents/${incident.id}`}>{incident.title ?? "View incident"}</Link>
+            )}
           </Cluster>
-          <Cluster>
-            <StatusPill meta={risk} />
-            <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
-              {risk.hint}
-            </InfoTip>
-            {source.kind === "legacy" && <Tag>Legacy</Tag>}
-            {!plan.waiting && <StatusPill meta={plan.stateMeta} />}
-          </Cluster>
-        </Cluster>
 
-        {(plan.check || plan.target) && (
-          <Cluster>
-            {plan.check && <Tag>Check {plan.check}</Tag>}
-            {plan.target && <Tag>Target {plan.target}</Tag>}
-          </Cluster>
-        )}
-        <ActionArgs args={plan.args} />
-        {why && (
-          <Text block>
-            <Text muted>Model's reason (not checked): </Text>
-            {why}
-          </Text>
-        )}
-        {extras && <Extras extras={extras} />}
-
-        <Cluster>
-          {plan.suggestedBy && plan.createdAt && (
-            <Text muted size="sm">
-              {suggestedBy(plan.suggestedBy)} <RelativeTime at={plan.createdAt} />
-            </Text>
+          <StateNote plan={plan} />
+          {decide && source.kind === "step" && (
+            <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
           )}
-          {plan.approvedBy && (
-            <Text muted size="sm">
-              Approved by {plan.approvedBy}
-              {plan.approvedAt && (
-                <>
-                  {" "}
-                  <RelativeTime at={plan.approvedAt} />
-                </>
-              )}
-            </Text>
-          )}
-          {plan.waiting && <Expiry until={plan.expiresAt} />}
-          <PlanTag planHash={plan.planHash} binding={plan.planBinding} />
-          {operation && <Link to={`/operations/${operation.id}`}>{operation.goal}</Link>}
-          {incident && plan.family === "action" && (
-            <Link to={`/incidents/${incident.id}`}>{incident.title ?? "View incident"}</Link>
-          )}
-        </Cluster>
-
-        <StateNote plan={plan} />
-        {decide && source.kind === "step" && (
-          <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
-        )}
-      </Stack>
-    </Card>
+        </Stack>
+      </Card>
+    </Visible>
   );
 }

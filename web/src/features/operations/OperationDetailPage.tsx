@@ -15,6 +15,8 @@ import {
   Section,
   Skeleton,
   Stack,
+  Visible,
+  VisibilityPage,
 } from "../../components";
 import { CancelDialog } from "./CancelDialog";
 import { OperationBanner } from "./OperationBanner";
@@ -76,7 +78,7 @@ export function OperationDetailPage() {
   const { operation, trace, executions } = data;
   const running = trace.steps.find((step) => step.outcome === "running");
   return (
-    <>
+    <VisibilityPage page="operation">
       <OperationHeader
         operation={operation}
         hostNames={hostNames}
@@ -84,28 +86,40 @@ export function OperationDetailPage() {
       />
       <Stack gap={5}>
         {query.isError && (
-          <StaleNote updatedAt={query.dataUpdatedAt} onRetry={() => void query.refetch()} />
+          <Visible category="P0" id="operation.stale-note">
+            <StaleNote updatedAt={query.dataUpdatedAt} onRetry={() => void query.refetch()} />
+          </Visible>
         )}
-        <AllHostsNote>An operation is shown whatever host is selected.</AllHostsNote>
+        <Visible category="P1" id="operation.scope-note">
+          <AllHostsNote>An operation is shown whatever host is selected.</AllHostsNote>
+        </Visible>
         {trace.schema_version > 1 && (
-          <InlineMessage tone="warning">
-            This page was built for an older operation format. Some details may be missing.
-          </InlineMessage>
+          <Visible category="P0" id="operation.schema-warning">
+            <InlineMessage tone="warning">
+              This page was built for an older operation format. Some details may be missing.
+            </InlineMessage>
+          </Visible>
         )}
-        <OperationBanner
-          operation={operation}
-          trace={trace}
-          executions={executions}
-          hostNames={hostNames}
-          onShowStep={(step) => select(step.id, document.body)}
-          onReview={focusWaiting}
-          onCancel={() => setCancelling(true)}
-        />
+        <Visible category="P0" id="operation.banner">
+          <OperationBanner
+            operation={operation}
+            trace={trace}
+            executions={executions}
+            hostNames={hostNames}
+            onShowStep={(step) => select(step.id, document.body)}
+            onReview={focusWaiting}
+            onCancel={() => setCancelling(true)}
+          />
+        </Visible>
         {operation.status === "running" && (
-          <Progress label={running?.summary ? `Working: ${running.summary}` : "Working…"} />
+          <Visible category="P0" id="operation.progress">
+            <Progress label={running?.summary ? `Working: ${running.summary}` : "Working…"} />
+          </Visible>
         )}
         {operation.status === "queued" && (
-          <Progress label="Queued. It starts when a slot is free." />
+          <Visible category="P0" id="operation.progress">
+            <Progress label="Queued. It starts when a slot is free." />
+          </Visible>
         )}
         <WaitingForYou
           operationId={operation.id}
@@ -117,7 +131,9 @@ export function OperationDetailPage() {
         <Section
           title="Steps"
           actions={
-            <SegmentedControl label="View" options={VIEWS} value={view} onChange={setView} />
+            <Visible category="P1" id="operation.steps-head">
+              <SegmentedControl label="View" options={VIEWS} value={view} onChange={setView} />
+            </Visible>
           }
         >
           <StepOutline
@@ -149,6 +165,6 @@ export function OperationDetailPage() {
           onClose={() => setCancelling(false)}
         />
       )}
-    </>
+    </VisibilityPage>
   );
 }

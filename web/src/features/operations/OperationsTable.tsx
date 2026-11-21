@@ -1,4 +1,4 @@
-import { DataTable, RelativeTime, StatusPill, Tag, type Column } from "../../components";
+import { DataTable, RelativeTime, StatusPill, Tag, Visible, type Column } from "../../components";
 import { actionStatusMeta, operationStatusMeta } from "../../design/tone";
 import type { OperationRow } from "./operationRows";
 import styles from "./operations.module.css";
@@ -23,7 +23,11 @@ const COLUMNS: Column<OperationRow>[] = [
     cell: (row) => (
       <span className={styles.goal}>
         {row.goal}
-        {row.kind === "legacy" && <Tag hint={LEGACY_HINT}>Legacy</Tag>}
+        {row.kind === "legacy" && (
+          <Visible category="P1" id="operations.legacy-tag">
+            <Tag hint={LEGACY_HINT}>Legacy</Tag>
+          </Visible>
+        )}
       </span>
     ),
   },
@@ -52,12 +56,14 @@ const COLUMNS: Column<OperationRow>[] = [
 /** The merged operations and legacy actions as a table; each row opens its page. */
 export function OperationsTable({ rows }: { rows: OperationRow[] }) {
   return (
-    <DataTable
-      caption="Operations"
-      columns={COLUMNS}
-      rows={rows}
-      rowKey={(row) => `${row.kind}:${row.id}`}
-      rowHref={(row) => row.href}
-    />
+    <Visible category="P0" id="operations.table">
+      <DataTable
+        caption="Operations"
+        columns={COLUMNS}
+        rows={rows}
+        rowKey={(row) => `${row.kind}:${row.id}`}
+        rowHref={(row) => row.href}
+      />
+    </Visible>
   );
 }

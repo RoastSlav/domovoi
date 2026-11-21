@@ -40,6 +40,7 @@ mod overview;
 mod plan_binding;
 mod policy;
 mod policy_shadow;
+mod preferences;
 pub(crate) mod profile;
 pub mod readiness;
 mod rules;
@@ -287,6 +288,7 @@ pub(crate) async fn host_named(
         (name = "operator", description = "Operator conversations: read-only questions about the hosts"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
+        (name = "me", description = "The signed-in person's own preferences"),
         (name = "system", description = "Settings, advisories, digest, events and health")
     )
 )]
@@ -395,6 +397,7 @@ pub fn routes() -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::list, notes::create))
         .routes(routes!(notes::search))
         .routes(routes!(notes::get, notes::replace, notes::delete))
+        .routes(routes!(preferences::get, preferences::put))
         .routes(routes!(rules::list, rules::create))
         .routes(routes!(rules::delete))
         .routes(routes!(settings::show, settings_write::update))
