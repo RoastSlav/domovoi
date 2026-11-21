@@ -45,3 +45,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0026](0026-use-case-layer.md) | The hub's use-case layer and its module-edge rules | Accepted |
 | [0027](0027-policy-shadow-recording.md) | Record policy shadow decisions beside execution, never in the writer | Proposed |
 | [0028](0028-one-execution-path.md) | One execution path: the legacy action executor is removed and open legacy actions are retired at upgrade | Accepted |
+| [0029](0029-package-relay-boundary.md) | Package relay boundary: a closed call, a capability object and counted link operations for installing signed packages | Accepted |
