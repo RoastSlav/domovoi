@@ -116,7 +116,7 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
     "Notes",
     "Digest",
   ]);
-  expect(linksOf("System")).toEqual(["Policy", "Settings"]);
+  expect(linksOf("System")).toEqual(["Policy", "Audit log", "Settings"]);
   expect(navLink("Incidents")).toHaveAttribute("href", "/incidents");
   expect(navLink("Overview")).toHaveAttribute("href", "/");
   expect(within(sheet()).getByRole("link", { name: "Domovoi", hidden: true })).toHaveAttribute(

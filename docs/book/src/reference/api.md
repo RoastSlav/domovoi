@@ -154,6 +154,8 @@ A message is `{"id", "ordinal", "role", "status", "turn", "text", "failure", "fa
 
 `GET /api/v1/settings/schema` is the JSON schema with every field's description and default.
 
+The settings answer also includes a `retention` block: the nine periods, each with `days`, `default_days`, `applies` (`now` or `later`) and `applies_once`, plus `backups_keep` and `backups_keep_pre_migrate`.
+
 `PATCH /api/v1/settings` saves a change and restarts the hub with it:
 
 ```json
@@ -176,6 +178,40 @@ A message is `{"id", "ordinal", "role", "status", "turn", "text", "failure", "fa
 `POST /api/v1/settings/test/{discord,llm,heartbeat}` takes `{ changes }` in the same shape and tries the connection with those candidate values without saving them. A Discord test whose changes list no `discord.allowed_user_ids` is tried with a placeholder approver, so Test in the first run works before you choose approvers. A secret left as `{ "keep": true }` uses the stored one. Each session may run 10 tests a minute, and each test times out after 15 seconds.
 
 `GET` and `PUT /api/v1/hosts/{name}/checks` read and replace a host's check overrides. Each override has `enabled`, `interval_seconds` and `thresholds`. A saved change goes to the connected agent at once, or when it reconnects.
+
+## Audit log
+
+Both routes only read. See [Audit log](../guide/audit.md) for what the check can and cannot show.
+
+`GET /api/v1/audit` lists entries, newest first.
+
+- `history` is `legacy` or `chained`; leave it out for both.
+- `kind` filters on the entry kind.
+- `cursor` is a `next_cursor` from an earlier answer.
+- `limit` defaults to 50 and is at most 200.
+
+```json
+{ "items": [{ "seq": 1515, "at": "2026-01-01T09:00:00Z", "actor": "admin", "kind": "setting.changed", "subject": "notify", "detail": "{…}", "detail_truncated": false, "history": "chained", "hash": "9f0e…" }], "legacy_last_id": 1204, "next_cursor": null }
+```
+
+`detail` is redacted compact JSON text, cut at 4096 bytes, and `detail_truncated` says whether it was cut. `hash` is 64 hex characters, or `null` for a legacy entry. `legacy_last_id` is the last legacy row's id. `400` with ``unknown history `x`; use legacy or chained`` or `kind is too long`.
+
+`GET /api/v1/audit/verification?scope=recent|full` checks the log. `recent` checks the newest 10,000 chained entries and compares the legacy row count only. `full` also recomputes the legacy digest.
+
+```json
+{
+  "scope": "recent", "recent_limit": 10000, "checked_at": "2026-01-01T09:00:00Z",
+  "legacy": { "status": "count_only", "count": 1204, "expected_count": 1204, "actual_count": 1204, "digest_matches": null },
+  "chained": { "status": "intact", "checked": 311, "head_seq": 1515, "head_hash": "9f0e…", "first_broken_seq": null, "break_reason": null, "break_text": null },
+  "anchor": { "install_id": "…", "legacy_last_id": 1204, "legacy_count": 1204, "legacy_digest": "…", "anchor_hash": "…" },
+  "head": { "seq": 1515, "hash": "9f0e…" }
+}
+```
+
+- `legacy.status` is `verified`, `count_only`, `mismatch` or `not_verifiable`.
+- `chained.status` is `empty`, `intact` or `broken`. When it is broken, `first_broken_seq`, `break_reason` and `break_text` describe the first failing entry.
+- `head` is `null` when there are no chained entries.
+- `400` with ``unknown scope `x`; use recent or full``. `500` when the check cannot run; a failed check is never reported as a status.
 
 ## Preferences
 

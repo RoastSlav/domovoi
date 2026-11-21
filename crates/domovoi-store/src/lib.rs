@@ -10,6 +10,7 @@
 //!   [`RetentionPolicy`].
 
 mod audit_chain;
+mod audit_inspect;
 mod audit_verify;
 mod backup;
 mod codec;

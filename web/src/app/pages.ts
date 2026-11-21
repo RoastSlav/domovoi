@@ -39,6 +39,7 @@ export const PAGES = {
   experience: page(() =>
     import("../features/experience/ExperiencePage").then((m) => m.ExperiencePage),
   ),
+  audit: page(() => import("../features/audit/AuditPage").then((m) => m.AuditPage)),
   logs: page(() => import("../features/logs/LogsPage").then((m) => m.LogsPage)),
   overview: page(() => import("../features/overview/OverviewPage").then((m) => m.OverviewPage)),
   note: page(() => import("../features/notes/NoteEditorPage").then((m) => m.NoteEditorPage)),

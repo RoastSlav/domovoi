@@ -4,6 +4,7 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod audit_inspect;
 mod conversations;
 mod experience;
 mod health;

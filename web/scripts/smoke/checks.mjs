@@ -785,4 +785,66 @@ export const CHECKS = [
             }
         },
     },
+    {
+        name: "audit page shows both histories, the whole-log check and the entry dialog",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            const profiles = ["detailed", "standard", "essential"];
+            for (const profile of profiles) {
+                server.setPreference(profile);
+                await open(ctx, "/audit", WIDE_DESK);
+                await visible(page.getByRole("heading", { level: 1, name: "Audit log" }), "title");
+                await visible(page.getByText("Intact").first(), "the chained status");
+                await visible(page.getByText("Count matches").first(), "the legacy status");
+                await visible(page.getByText("What this check can show"), "the limits note");
+            }
+            server.setPreference("detailed");
+            await open(ctx, "/audit", WIDE_DESK);
+            await visible(page.getByLabel("Head hash"), "the head hash");
+            await page.getByRole("tab", { name: "Legacy history" }).click();
+            await visible(page.getByRole("button", { name: "Open entry 2" }), "legacy entries");
+            await page.getByRole("button", { name: "Check the whole log" }).click();
+            await visible(
+                page.getByText("Verified").first(),
+                "the legacy status after the full check",
+            );
+            await page.getByRole("tab", { name: "Chained history" }).click();
+            await page.getByRole("button", { name: "Open entry 7" }).click();
+            await visible(page.getByRole("dialog", { name: "Audit entry #7" }), "the entry dialog");
+            await visible(page.getByText("<b>marked</b>"), "the detail as text");
+            await page.keyboard.press("Escape");
+            try {
+                for (const scheme of ["light", "dark"]) {
+                    await page.emulateMedia({ colorScheme: scheme });
+                    await open(ctx, "/audit", WIDE_DESK);
+                    await visible(page.getByText("Intact").first(), "the status");
+                    await axe(page, `Audit page (${scheme})`);
+                }
+                await open(ctx, "/audit", PHONE);
+                await visible(page.getByText("Intact").first(), "the status");
+                await noSideways(page, "Audit page");
+            } finally {
+                await page.emulateMedia({ colorScheme: "light" });
+            }
+        },
+    },
+    {
+        name: "retention shows the nine periods read only with three marked not applied yet",
+        async run(ctx) {
+            const { page } = ctx;
+            ctx.server.reset();
+            ctx.server.setPreference("detailed");
+            await open(ctx, "/settings", WIDE_DESK);
+            await visible(page.getByText("Signals (days)"), "the periods");
+            await visible(page.getByText("What deletion does"), "what deletion does");
+            const marks = await page.getByText("Not applied yet").count();
+            expect(marks === 3, `Expected 3 "Not applied yet" marks, saw ${marks}.`);
+            await axe(page, "Settings retention");
+            await open(ctx, "/settings", PHONE);
+            await visible(page.getByText("Signals (days)"), "the periods");
+            await noSideways(page, "Settings retention");
+        },
+    },
 ];

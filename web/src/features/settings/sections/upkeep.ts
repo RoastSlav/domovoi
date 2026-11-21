@@ -1,4 +1,5 @@
 import { AboutSection } from "../views/AboutSection";
+import { RETENTION_SECTION } from "./retention";
 import { fixed, type SectionSpec } from "./types";
 
 /** The sections about the hub's own upkeep: leaked secrets, backups and release checks. */
@@ -25,8 +26,10 @@ export const UPKEEP_SECTIONS: SectionSpec[] = [
     fields: fixed([
       { path: "backup.dir", label: "Backup directory", kind: "text" },
       { path: "backup.keep", label: "Backups to keep", kind: "number" },
+      { path: "backup.keep_pre_migrate", label: "Pre-upgrade backups to keep", kind: "number" },
     ]),
   },
+  RETENTION_SECTION,
   {
     id: "updates",
     title: "About and updates",

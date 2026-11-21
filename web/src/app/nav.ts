@@ -112,10 +112,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    // The audit log goes here when it exists.
     title: "System",
     items: [
       { to: "/policy", label: "Policy", icon: "shield", preload: PAGES.policy.preload },
+      { to: "/audit", label: "Audit log", icon: "eye", preload: PAGES.audit.preload },
       { to: "/settings", label: "Settings", icon: "gear", preload: PAGES.settings.preload },
     ],
   },

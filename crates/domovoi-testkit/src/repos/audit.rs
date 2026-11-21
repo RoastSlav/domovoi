@@ -3,7 +3,7 @@ use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, Page, Paged, StoreE
 
 use super::{InMemoryStore, paginate};
 
-fn matches(filter: &AuditFilter, event: &AuditEvent) -> bool {
+pub(super) fn matches(filter: &AuditFilter, event: &AuditEvent) -> bool {
     filter.actor.as_ref().is_none_or(|a| a == &event.actor)
         && filter.kind.as_ref().is_none_or(|k| k == &event.kind)
         && filter.subject.as_ref().is_none_or(|s| s == &event.subject)

@@ -119,6 +119,60 @@ pub struct UsageSettings {
     pub cost_usd: f64,
 }
 
+/// The retention periods in force and how many backups are kept.
+#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
+pub struct RetentionSettings {
+    /// The nine `[retention]` periods, in registry order.
+    pub entries: Vec<RetentionEntry>,
+    /// Nightly backups kept.
+    pub backups_keep: u32,
+    /// Pre-upgrade backups kept.
+    pub backups_keep_pre_migrate: u32,
+}
+
+/// One `[retention]` period.
+#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
+pub struct RetentionEntry {
+    /// The setting's name, such as `signals_days`.
+    pub key: String,
+    /// The value in force, in days.
+    pub days: u32,
+    /// The default, in days.
+    pub default_days: u32,
+    /// `now` when the period is applied, `later` when it is declared but not applied yet.
+    pub applies: String,
+    /// What the period waits for, when `applies` is `later`.
+    pub applies_once: Option<String>,
+}
+
+fn retention(config: &domovoi_config::HubConfig) -> RetentionSettings {
+    let days = config.retention.days();
+    let entries = domovoi_config::hub::RETENTION_KEYS
+        .iter()
+        .map(|key| {
+            let (applies, applies_once) = match key.applies {
+                domovoi_config::hub::Applies::Now => ("now", None),
+                domovoi_config::hub::Applies::Once(reason) => ("later", Some(reason.to_owned())),
+            };
+            RetentionEntry {
+                key: key.key.to_owned(),
+                days: days
+                    .iter()
+                    .find(|(name, _)| *name == key.key)
+                    .map_or(key.default_days, |(_, value)| *value),
+                default_days: key.default_days,
+                applies: applies.to_owned(),
+                applies_once,
+            }
+        })
+        .collect();
+    RetentionSettings {
+        entries,
+        backups_keep: config.backup.keep,
+        backups_keep_pre_migrate: config.backup.keep_pre_migrate,
+    }
+}
+
 /// The effective settings.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct SettingsDto {
@@ -138,6 +192,8 @@ pub struct SettingsDto {
     pub heartbeat: HeartbeatSettings,
     /// Model usage this month.
     pub usage: UsageSettings,
+    /// The retention periods in force and the backup counts.
+    pub retention: RetentionSettings,
     /// Everything the settings page edits; `None` when the hub runs from a fixed
     /// configuration and settings are read-only.
     pub editable: Option<EditableSettings>,
@@ -291,6 +347,7 @@ pub(super) async fn show(
             tokens_out: usage.tokens_out,
             cost_usd,
         },
+        retention: retention(config),
         editable,
     }))
 }

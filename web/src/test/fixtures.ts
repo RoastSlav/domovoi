@@ -1,4 +1,12 @@
-import type { Action, Host, IncidentDetail, IncidentSummary, Overview } from "../api/types";
+import type {
+  Action,
+  AuditRow,
+  AuditVerification,
+  Host,
+  IncidentDetail,
+  IncidentSummary,
+  Overview,
+} from "../api/types";
 
 /** Times the fixtures use. */
 export const T0 = "2026-10-31T12:00:00Z";
@@ -108,4 +116,54 @@ export function stubMedia(matches: boolean): void {
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   }));
+}
+
+/** One audit entry; `overrides` change any field. */
+export function auditRow(overrides: Partial<AuditRow> = {}): AuditRow {
+  return {
+    seq: 12,
+    at: "2026-11-18T10:00:00Z",
+    actor: "user:0190",
+    kind: "action.approved",
+    subject: "action:0190",
+    detail: '{"plan_hash":"ab"}',
+    detail_truncated: false,
+    history: "chained",
+    hash: "9f".repeat(32),
+    ...overrides,
+  };
+}
+
+/** A check of the audit log: chained intact, legacy counted only. */
+export function verification(overrides: Partial<AuditVerification> = {}): AuditVerification {
+  return {
+    scope: "recent",
+    recent_limit: 10000,
+    checked_at: "2026-11-18T10:00:00Z",
+    legacy: {
+      status: "count_only",
+      count: 5,
+      expected_count: null,
+      actual_count: null,
+      digest_matches: null,
+    },
+    chained: {
+      status: "intact",
+      checked: 812,
+      head_seq: 817,
+      head_hash: "9f".repeat(32),
+      first_broken_seq: null,
+      break_reason: null,
+      break_text: null,
+    },
+    anchor: {
+      install_id: "install-1",
+      legacy_last_id: 5,
+      legacy_count: 5,
+      legacy_digest: "ab".repeat(32),
+      anchor_hash: "cd".repeat(32),
+    },
+    head: { seq: 817, hash: "9f".repeat(32) },
+    ...overrides,
+  };
 }

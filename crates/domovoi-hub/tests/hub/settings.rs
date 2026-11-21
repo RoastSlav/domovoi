@@ -112,7 +112,7 @@ async fn invalid_patch_returns_every_issue_with_its_path_and_stores_nothing() {
             "incidents": { "confirm_runs": 0 },
             "backup": { "keep": 0 }
         }),
-        None,
+        Some(PASSWORD),
     )
     .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
@@ -593,6 +593,46 @@ async fn retention_change_requires_step_up() {
     let after = editable(&a, &login).await;
     assert_eq!(after["values"]["retention"]["triage_cache_days"], 60);
     assert_eq!(after["fields"]["retention.triage_cache_days"], "ui");
+}
+
+#[tokio::test]
+async fn backup_counts_require_step_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    for (n, key) in ["keep", "keep_pre_migrate"].into_iter().enumerate() {
+        let change = json!({ "backup": { key: 9 } });
+        let missing = patch(&a, &login, n as u64, change.clone(), None).await;
+        assert_eq!(
+            missing.status,
+            StatusCode::FORBIDDEN,
+            "{key}: {}",
+            missing.text
+        );
+        assert!(
+            missing.body["message"]
+                .as_str()
+                .unwrap()
+                .contains("password")
+        );
+        let ok = patch(&a, &login, n as u64, change, Some(PASSWORD)).await;
+        assert_eq!(ok.status, StatusCode::OK, "{key}: {}", ok.text);
+        let after = editable(&a, &login).await;
+        assert_eq!(after["values"]["backup"][key], 9);
+    }
+    let audited = a
+        .audit
+        .list(&AuditFilter::default(), &Page::first(200))
+        .await
+        .unwrap();
+    assert!(
+        audited
+            .items
+            .iter()
+            .filter(|e| e.kind.starts_with("settings"))
+            .count()
+            >= 2,
+        "both changes are audited"
+    );
 }
 
 #[tokio::test]

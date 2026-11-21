@@ -67,6 +67,14 @@ pub const STEP_UP_SETTINGS: &[StepUpRule] = &[
         why: "changes how long data is kept; applies once configurable retention exists",
     },
     StepUpRule {
+        path: PathRule::Exact("backup.keep"),
+        why: "lowering the backup count can remove recovery points",
+    },
+    StepUpRule {
+        path: PathRule::Exact("backup.keep_pre_migrate"),
+        why: "lowering the pre-upgrade backup count can remove recovery points",
+    },
+    StepUpRule {
         path: PathRule::Under("packages"),
         why: "package installation can put code on hosts",
     },

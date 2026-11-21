@@ -623,6 +623,7 @@ async fn main() -> Result<()> {
         store_health: store.clone(),
         settings: None,
         audit: store.clone(),
+        audit_inspect: store.clone(),
         logs: Some(Arc::new(CannedLogSource::new(dev_logs()))),
         redactor: Arc::new(PatternRedactor::default()),
         update,

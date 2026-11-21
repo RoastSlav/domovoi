@@ -72,7 +72,7 @@ its detail. Legacy rows are never rewritten.
 
 `domovoi audit verify` reports the two parts separately, because they can fail differently: a legacy
 row edit or deletion changes the digest but not any chain, while an edit, deletion or unchained insert
-after the anchor breaks the chain.
+after the anchor breaks the chain. The web UI's [Audit log](../guide/audit.md) page shows the two parts the same way.
 
 ## Search
 

@@ -10,5 +10,5 @@ export {
   sourceOf,
 } from "./paths";
 export { buildChanges, fromInput, initialInputs, inputProblem, toInput } from "./values";
-export { changedPaths, isSensitive } from "./sensitive";
+export { changedPaths, isSensitive, sensitiveReason } from "./sensitive";
 export { booleanDefaultOf, defaultOf, describe, tidyDescription } from "./schema";

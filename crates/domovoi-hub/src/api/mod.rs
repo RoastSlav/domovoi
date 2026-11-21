@@ -7,6 +7,7 @@
 
 pub mod dto;
 pub mod dto_admin;
+pub mod dto_audit;
 pub mod dto_experience;
 pub mod dto_knowledge;
 pub mod dto_operations;
@@ -23,6 +24,7 @@ pub mod notes_import;
 pub mod packages;
 
 mod actions;
+mod audit;
 mod auth;
 mod capability;
 mod capability_ceiling;
@@ -155,6 +157,8 @@ pub struct ApiDeps {
     pub settings: Option<crate::settings::SettingsService>,
     /// The audit log.
     pub audit: Arc<dyn domovoi_core::ports::AuditLog>,
+    /// Read-only access to the audit log with its hash-chain fields.
+    pub audit_inspect: Arc<dyn domovoi_core::ports::AuditInspect>,
     /// Recent log lines of this process; `None` answers 503 where logs were not captured.
     pub logs: Option<Arc<dyn LogSource>>,
     /// Removes secrets from log text before it is served.
@@ -293,6 +297,7 @@ pub(crate) async fn host_named(
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
         (name = "knowledge", description = "Facts, relations and entities the hub knows"),
         (name = "operator", description = "Operator conversations: read-only questions about the hosts"),
+        (name = "audit", description = "The audit log and its verification"),
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "packages", description = "Signed packages: import, install jobs and what hosts report"),
@@ -441,6 +446,8 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(readiness::readyz))
         .routes(routes!(system::metrics))
         .routes(routes!(logs::list))
+        .routes(routes!(audit::list))
+        .routes(routes!(audit::verification))
         .routes(routes!(packages::status))
         .routes(routes!(packages::list))
         .routes(routes!(packages::detail, packages::delete))

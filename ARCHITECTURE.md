@@ -255,6 +255,7 @@ All ports are `async_trait` traits in `domovoi-core::ports`, object-safe, `Send 
 | `EffectCancel` | Cancel the pending effects of one operation, and only of that operation | store, testkit | engine |
 | `ExperienceRead` | Read resolution summaries, their revisions, host-scoped search and similar past operations; no write method (writes are `OperationWrite::SummaryField`) | store, testkit | engine, hub |
 | `KnowledgeRead` | Read facts, relations and entities, and search live facts | store, testkit | engine |
+| `AuditInspect` | Read audit rows with their chain fields, the anchor and verification | store, testkit | hub |
 | `ManagementCoverage` | Whether a verified helper attestation covers a management path on a host | engine (unavailable until the helper attestation ships), testkit | engine |
 
 Effect claims on `EffectQueue` are scoped to one aggregate: a claim names the operation whose effects it may take, and an empty scope claims nothing (ADR 0025).
@@ -359,6 +360,7 @@ flowchart LR
 - **Capability inventory:** `GET /api/v1/hosts/{name}/capabilities` returns one row per contract the hub knows, with its state, its catalogue state, its effect class, its execution path and the two agent labels (`root_agent`, `runner_installed`), plus the ids the agent reported that no contract describes. The `/capabilities` page renders it read-only: it enables, disables and approves nothing, and an `available` row is never a promise that a run will proceed.
 
 - **Host ceiling:** `GET /api/v1/hosts/{name}/ceiling` returns what the host's agent reported as its unattended limits (`reported`, `not_reported` or `unreadable`). It is read-only and never written by the hub. The Capability Center at `/capabilities` groups the inventory, packages (import and install wizard), host limits and helper placeholders as tabs.
+- **Audit log:** `GET /api/v1/audit` lists entries with their chain fields and `GET /api/v1/audit/verification` checks the chain; both only read. See the [HTTP API reference](docs/book/src/reference/api.md#audit-log).
 
 ## 11. LLM and triage
 

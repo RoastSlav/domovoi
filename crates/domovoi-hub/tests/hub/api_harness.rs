@@ -661,6 +661,7 @@ async fn assemble(
         store_health: store.clone(),
         settings: Some(settings),
         audit: store.clone(),
+        audit_inspect: store.clone(),
         update,
     };
     let state = ApiState::new(deps, auth);

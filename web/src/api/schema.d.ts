@@ -73,6 +73,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit entries, newest first, with their hash. */
+        get: operations["list_audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Checks the audit log: the legacy and the chained history separately. */
+        get: operations["verify_audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -2054,6 +2088,80 @@ export interface components {
             /** @description Plain text, at most 4000 characters. */
             answer: string;
         };
+        /** @description The anchor over the history written before the chain. */
+        AuditAnchorDto: {
+            /** @description The anchor's own hash, hex. */
+            anchor_hash: string;
+            /** @description The install this log belongs to. */
+            install_id: string;
+            /**
+             * Format: int64
+             * @description How many legacy entries there were.
+             */
+            legacy_count: number;
+            /** @description The digest of the legacy entries, hex. */
+            legacy_digest: string;
+            /**
+             * Format: int64
+             * @description The highest legacy sequence number.
+             */
+            legacy_last_id: number;
+        };
+        /** @description One page of audit entries, newest first. */
+        AuditPageDto: {
+            /** @description The entries. */
+            items: components["schemas"]["AuditRowDto"][];
+            /**
+             * Format: int64
+             * @description The highest sequence number written before the chain began; 0 on a fresh install.
+             */
+            legacy_last_id: number;
+            /** @description Pass as `cursor` for the next page; `null` on the last. */
+            next_cursor?: string | null;
+        };
+        /** @description One audit entry with its chain position. */
+        AuditRowDto: {
+            /** @description Who did it. */
+            actor: string;
+            /** @description When it was recorded, RFC 3339. */
+            at: string;
+            /** @description The entry's detail as compact JSON text, secrets removed, cut at 4096 bytes. */
+            detail: string;
+            /** @description Whether `detail` was cut. */
+            detail_truncated: boolean;
+            /** @description The entry's hash as 64 lower-case hex characters; `null` on a legacy entry. */
+            hash?: string | null;
+            /** @description `legacy` (written before the chain) or `chained`. */
+            history: string;
+            /** @description What kind of entry it is. */
+            kind: string;
+            /**
+             * Format: int64
+             * @description The entry's sequence number.
+             */
+            seq: number;
+            /** @description What it is about. */
+            subject: string;
+        };
+        /** @description The result of checking the audit log. */
+        AuditVerificationDto: {
+            /** @description The anchor both parts are judged against. */
+            anchor: components["schemas"]["AuditAnchorDto"];
+            /** @description The chained part. */
+            chained: components["schemas"]["ChainedHistoryDto"];
+            /** @description When the check finished, RFC 3339. */
+            checked_at: string;
+            head?: components["schemas"]["HeadDto"] | null;
+            /** @description The legacy part. */
+            legacy: components["schemas"]["LegacyHistoryDto"];
+            /**
+             * Format: int64
+             * @description How many of the newest chained entries a `recent` check covers.
+             */
+            recent_limit: number;
+            /** @description `recent` or `full`. */
+            scope: string;
+        };
         /** @description One limit to raise when resuming. */
         BudgetExtensionDto: {
             /**
@@ -2283,6 +2391,32 @@ export interface components {
             kind: "names";
             /** @description The covered target names. */
             names: string[];
+        };
+        /** @description The chained part of a verification. */
+        ChainedHistoryDto: {
+            /** @description A stable code for why (`broken`). */
+            break_reason?: string | null;
+            /** @description The reason in words (`broken`). */
+            break_text?: string | null;
+            /**
+             * Format: int64
+             * @description Entries checked (`intact`, `broken`).
+             */
+            checked?: number | null;
+            /**
+             * Format: int64
+             * @description The first entry that does not match (`broken`).
+             */
+            first_broken_seq?: number | null;
+            /** @description Its hash (`intact`). */
+            head_hash?: string | null;
+            /**
+             * Format: int64
+             * @description The newest checked entry (`intact`).
+             */
+            head_seq?: number | null;
+            /** @description `empty`, `intact` or `broken`. */
+            status: string;
         };
         /** @description One check's settings: on or off, interval, thresholds. */
         CheckSettingsDto: {
@@ -2737,6 +2871,16 @@ export interface components {
         FollowUpsDto: {
             /** @description The remembered questions and answers; empty when there are none or after a clear. */
             turns: components["schemas"]["TurnDto"][];
+        };
+        /** @description The newest stored entry's position. */
+        HeadDto: {
+            /** @description Its hash, hex. */
+            hash: string;
+            /**
+             * Format: int64
+             * @description Its sequence number.
+             */
+            seq: number;
         };
         /** @description The dead man's switch. */
         HeartbeatSettings: {
@@ -3250,6 +3394,28 @@ export interface components {
              * @description Decisions recorded.
              */
             total: number;
+        };
+        /** @description The legacy part of a verification. */
+        LegacyHistoryDto: {
+            /**
+             * Format: int64
+             * @description Entries found (`mismatch`).
+             */
+            actual_count?: number | null;
+            /**
+             * Format: int64
+             * @description Entries counted (`verified`, `count_only`).
+             */
+            count?: number | null;
+            /** @description Whether the digest still matched (`mismatch`). */
+            digest_matches?: boolean | null;
+            /**
+             * Format: int64
+             * @description Entries the anchor recorded (`mismatch`).
+             */
+            expected_count?: number | null;
+            /** @description `verified`, `count_only`, `mismatch` or `not_verifiable`. */
+            status: string;
         };
         /** @description One language model provider. */
         LlmSettings: {
@@ -4022,6 +4188,40 @@ export interface components {
             /** @description Limits to raise first, at most 7, each kind once. A spent limit must be raised. */
             extend?: components["schemas"]["BudgetExtensionDto"][];
         };
+        /** @description One `[retention]` period. */
+        RetentionEntry: {
+            /** @description `now` when the period is applied, `later` when it is declared but not applied yet. */
+            applies: string;
+            /** @description What the period waits for, when `applies` is `later`. */
+            applies_once?: string | null;
+            /**
+             * Format: int32
+             * @description The value in force, in days.
+             */
+            days: number;
+            /**
+             * Format: int32
+             * @description The default, in days.
+             */
+            default_days: number;
+            /** @description The setting's name, such as `signals_days`. */
+            key: string;
+        };
+        /** @description The retention periods in force and how many backups are kept. */
+        RetentionSettings: {
+            /**
+             * Format: int32
+             * @description Nightly backups kept.
+             */
+            backups_keep: number;
+            /**
+             * Format: int32
+             * @description Pre-upgrade backups kept.
+             */
+            backups_keep_pre_migrate: number;
+            /** @description The nine `[retention]` periods, in registry order. */
+            entries: components["schemas"]["RetentionEntry"][];
+        };
         /** @description Run one host's target again. */
         RetryRequestDto: {
             /** @description The package name, typed. */
@@ -4158,6 +4358,8 @@ export interface components {
             hub: components["schemas"]["HubSettings"];
             llm_primary?: components["schemas"]["LlmSettings"] | null;
             llm_secondary?: components["schemas"]["LlmSettings"] | null;
+            /** @description The retention periods in force and the backup counts. */
+            retention: components["schemas"]["RetentionSettings"];
             /** @description Triage limits. */
             triage: components["schemas"]["TriageSettings"];
             /** @description Model usage this month. */
@@ -5048,6 +5250,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdvisoryDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_audit: {
+        parameters: {
+            query?: {
+                /** @description `legacy` or `chained`: only that part of the history. */
+                history?: string;
+                /** @description Only entries of this exact kind, at most 100 characters. */
+                kind?: string;
+                /** @description Where the previous page ended. */
+                cursor?: string;
+                /** @description Entries per page, 1 to 200; default 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of audit entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPageDto"];
+                };
+            };
+            /** @description Unknown history or a kind that is too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    verify_audit: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `recent` (default) checks the newest chained entries and counts the older ones;
+                 *     `full` checks everything.
+                 */
+                scope?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The result of the check */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditVerificationDto"];
+                };
+            };
+            /** @description Unknown scope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Not logged in */

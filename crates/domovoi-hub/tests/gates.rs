@@ -1455,3 +1455,55 @@ fn host_ceiling_is_read_only_through_the_hub() {
     }
     assert!(text.contains("get, path = \"/api/v1/hosts/{name}/ceiling\""));
 }
+
+/// The audit inspection port is read only here and only the audit routes use it: no chat
+/// path, service, auth code or engine code names it, and the audit handlers never append.
+#[test]
+fn audit_inspection_is_read_only_and_only_the_audit_routes_use_it() {
+    let sources = hub_sources();
+    let violations = audit_inspect_violations(&sources);
+    assert!(violations.is_empty(), "{violations:#?}");
+    let sample = vec![
+        (
+            "crates/domovoi-hub/src/api/audit.rs".to_owned(),
+            "x.audit_inspect.rows()".to_owned(),
+        ),
+        (
+            "crates/domovoi-hub/src/chat/ask.rs".to_owned(),
+            "deps.audit_inspect.head()".to_owned(),
+        ),
+        (
+            "crates/domovoi-hub/src/api/dto_audit.rs".to_owned(),
+            "audit.append(&e)".to_owned(),
+        ),
+    ];
+    assert_eq!(
+        audit_inspect_violations(&sample).len(),
+        2,
+        "the scan sees forbidden uses"
+    );
+}
+
+fn audit_inspect_violations(sources: &[(String, String)]) -> Vec<String> {
+    const ALLOWED: [&str; 3] = [
+        "crates/domovoi-hub/src/api/audit.rs",
+        "crates/domovoi-hub/src/api/mod.rs",
+        "crates/domovoi-hub/src/runtime/mod.rs",
+    ];
+    let mut out = Vec::new();
+    for (path, text) in sources {
+        if text.contains("audit_inspect") && !ALLOWED.contains(&path.as_str()) {
+            out.push(format!("{path} reaches the audit inspection port"));
+        }
+        let handler = path.ends_with("api/audit.rs") || path.ends_with("api/dto_audit.rs");
+        if handler && text.contains(".append(") {
+            out.push(format!("{path} appends to the audit log"));
+        }
+    }
+    for (path, text) in tree("crates/domovoi-engine/src") {
+        if text.contains("AuditInspect") {
+            out.push(format!("{path} names AuditInspect"));
+        }
+    }
+    out
+}

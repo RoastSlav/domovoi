@@ -378,6 +378,7 @@ impl HubRuntime {
                 store_health: store.clone(),
                 settings,
                 audit: store.clone(),
+                audit_inspect: store.clone(),
                 logs: deps.logs,
                 redactor: redactor.clone(),
                 update: updates.clone(),
