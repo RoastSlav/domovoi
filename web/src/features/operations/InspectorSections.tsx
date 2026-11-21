@@ -19,7 +19,7 @@ import { Icon } from "../../design/icons";
 import { stepKindMeta, stepOutcomeMeta } from "../../design/tone";
 import { ApprovalCard } from "../approvals/ApprovalCard";
 import { connections } from "./steps";
-import { PROBLEM_OUTCOMES } from "./stepVisibility";
+import { isProblemOutcome } from "./stepVisibility";
 import styles from "./operations.module.css";
 
 function duration(step: TraceStep): string | undefined {
@@ -73,7 +73,7 @@ export function StepFacts({ step }: { step: TraceStep }) {
 
 /** Why a step ended as it did, for the outcomes that need an explanation. */
 export function StepReason({ reason, outcome }: { reason: string | null; outcome: string }) {
-  if (!reason || !PROBLEM_OUTCOMES.has(outcome)) {
+  if (!reason || !isProblemOutcome(outcome)) {
     return null;
   }
   return (
@@ -175,10 +175,18 @@ function intentItems(intent: unknown) {
 export function StepDetails({ operationId, stepId }: { operationId: string; stepId: string }) {
   const detail = useOperationStep(operationId, stepId);
   if (detail.isError) {
-    return <LoadError error={detail.error} context="load the step" onRetry={detail.refetch} />;
+    return (
+      <Visible category="P0" id="inspector.state">
+        <LoadError error={detail.error} context="load the step" onRetry={detail.refetch} />
+      </Visible>
+    );
   }
   if (!detail.data) {
-    return <Skeleton shape="rows" count={3} />;
+    return (
+      <Visible category="P0" id="inspector.state">
+        <Skeleton shape="rows" count={3} />
+      </Visible>
+    );
   }
   const items = intentItems(detail.data.intent);
   return (

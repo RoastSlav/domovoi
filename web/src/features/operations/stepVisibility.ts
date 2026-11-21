@@ -34,13 +34,14 @@ export const KIND_CATEGORY: Readonly<Record<string, Category>> = {
   reasoning_turn: "P2",
 };
 
-function isProblem(outcome: string): boolean {
+/** Whether an outcome says something went wrong or is not one this build knows. */
+export function isProblemOutcome(outcome: string): boolean {
   return PROBLEM_OUTCOMES.has(outcome) || !KNOWN_OUTCOMES.has(outcome);
 }
 
 /** The category of a step row: its kind's, raised to P0 by a problem or unknown outcome. */
 export function stepCategory(kind: string, outcome: string): Category {
-  if (isProblem(outcome)) {
+  if (isProblemOutcome(outcome)) {
     return "P0";
   }
   return KIND_CATEGORY[kind] ?? "P1";
@@ -48,7 +49,7 @@ export function stepCategory(kind: string, outcome: string): Category {
 
 /** The category of a step's reason: P0 when something went wrong or is unknown, else P1. */
 export function reasonCategory(outcome: string): Category {
-  return isProblem(outcome) ? "P0" : "P1";
+  return isProblemOutcome(outcome) ? "P0" : "P1";
 }
 
 /**
