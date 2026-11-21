@@ -19,6 +19,7 @@ mod hosts;
 mod incidents;
 mod knowledge;
 mod operations;
+mod packages;
 mod policy;
 mod policy_publish;
 mod policy_simulate;
@@ -46,6 +47,11 @@ pub use operations::{
     ANSWER_MAX, BudgetExtension, CANCEL_REASON_MAX, DEFAULT_CANCEL_REASON, EXTEND_MAX_COUNT,
     EXTEND_MAX_ENTRIES, EXTEND_MAX_MEASURED, OperationCommandError, OperationCommands, StepRef,
     SummaryCommandError, risk_of_skill,
+};
+pub use packages::{
+    JobInput, JobStatus, JobView, JobsQuery, MAX_JOB_HOSTS,
+    PASSWORD_REQUIRED_TEXT as PACKAGE_PASSWORD_REQUIRED_TEXT, PackageCommandError, PackageCommands,
+    PackageDeps, PackageDetail, PackagesStatus, PlanInput, RetryInput, job_status,
 };
 pub use policy::PolicyService;
 pub use policy_publish::PublishedVersion;
@@ -84,6 +90,8 @@ pub struct Services {
     pub conversations: ConversationCommands,
     /// The signed-in person's own display preferences.
     pub preferences: PreferenceService,
+    /// Signed packages: import, install jobs and what hosts report.
+    pub packages: PackageCommands,
 }
 
 /// What the services are built from.
@@ -122,6 +130,8 @@ pub struct ServicesDeps {
     pub conversations: ConversationCommands,
     /// The settings table, where display preferences are kept.
     pub settings: Arc<dyn SettingsRepo>,
+    /// The package use cases.
+    pub packages: PackageCommands,
 }
 
 impl Services {
@@ -160,6 +170,7 @@ impl Services {
             knowledge: deps.knowledge,
             conversations: deps.conversations,
             preferences,
+            packages: deps.packages,
         }
     }
 }

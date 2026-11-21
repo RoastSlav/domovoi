@@ -536,6 +536,33 @@ async fn main() -> Result<()> {
             },
         )
         .await?;
+    let package_files = domovoi_hub::packages::PackageStore::open(dir.path()).await?;
+    let package_importer = Arc::new(domovoi_hub::packages::PackageImporter::new(
+        config.packages.clone(),
+        Arc::new(domovoi_hub::packages::PackageKeys::from_config(
+            &config.packages,
+        )?),
+        package_files.clone(),
+        store.clone(),
+        store.clone(),
+        clock.clone(),
+    ));
+    let (package_handle, _package_task) = domovoi_engine::packages::InstallService::spawn(
+        domovoi_engine::packages::PackageDeps {
+            installs: store.clone(),
+            uow: store.clone(),
+            hosts: store.clone(),
+            resolver: Arc::new(FakeTargetResolver::new()),
+            registry: Arc::new(domovoi_testkit::FakeCapabilityRegistry::new(Arc::new(
+                ContractIndex::new(domovoi_core::capability::known_contracts())?,
+            ))),
+            caps: domovoi_hub::runtime::caps::package_caps(link.clone()),
+            files: Arc::new(package_files),
+            clock: clock.clone(),
+            shutdown: shutdown.clone(),
+        },
+        domovoi_engine::packages::PackageSettings::default(),
+    );
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: None,
@@ -558,6 +585,14 @@ async fn main() -> Result<()> {
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
         settings: store.clone(),
+        packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
+            handle: package_handle,
+            importer: package_importer,
+            installs: store.clone(),
+            hosts: store.clone(),
+            auth: auth.clone(),
+            clock: clock.clone(),
+        }),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
