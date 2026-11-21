@@ -295,3 +295,12 @@ export type ShadowPage = Schemas["ShadowPageDto"];
 export type ShadowRow = Schemas["ShadowSummaryRowDto"];
 /** One recorded decision with everything needed to replay it. */
 export type ShadowDetail = Schemas["ShadowDetailDto"];
+
+/** One page of audit entries. */
+export type AuditPage = Schemas["AuditPageDto"];
+/** One audit entry. */
+export type AuditRow = Schemas["AuditRowDto"];
+/** The result of checking the audit log. */
+export type AuditVerification = Schemas["AuditVerificationDto"];
+/** The retention periods in force. */
+export type RetentionSettings = Schemas["RetentionSettings"];

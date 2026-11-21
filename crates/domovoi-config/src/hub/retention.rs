@@ -59,7 +59,7 @@ impl Default for RetentionSection {
 
 impl RetentionSection {
     /// Every key with its value, in [`RETENTION_KEYS`] order.
-    pub(crate) fn days(&self) -> [(&'static str, u32); 9] {
+    pub fn days(&self) -> [(&'static str, u32); 9] {
         [
             ("signals_days", self.signals_days),
             ("incident_timeline_days", self.incident_timeline_days),

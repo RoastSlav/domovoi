@@ -414,6 +414,181 @@ expression: spec
         ],
         "type": "object"
       },
+      "AuditAnchorDto": {
+        "description": "The anchor over the history written before the chain.",
+        "properties": {
+          "anchor_hash": {
+            "description": "The anchor's own hash, hex.",
+            "type": "string"
+          },
+          "install_id": {
+            "description": "The install this log belongs to.",
+            "type": "string"
+          },
+          "legacy_count": {
+            "description": "How many legacy entries there were.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "legacy_digest": {
+            "description": "The digest of the legacy entries, hex.",
+            "type": "string"
+          },
+          "legacy_last_id": {
+            "description": "The highest legacy sequence number.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "install_id",
+          "legacy_last_id",
+          "legacy_count",
+          "legacy_digest",
+          "anchor_hash"
+        ],
+        "type": "object"
+      },
+      "AuditPageDto": {
+        "description": "One page of audit entries, newest first.",
+        "properties": {
+          "items": {
+            "description": "The entries.",
+            "items": {
+              "$ref": "#/components/schemas/AuditRowDto"
+            },
+            "type": "array"
+          },
+          "legacy_last_id": {
+            "description": "The highest sequence number written before the chain began; 0 on a fresh install.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; `null` on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "legacy_last_id",
+          "items"
+        ],
+        "type": "object"
+      },
+      "AuditRowDto": {
+        "description": "One audit entry with its chain position.",
+        "properties": {
+          "actor": {
+            "description": "Who did it.",
+            "type": "string"
+          },
+          "at": {
+            "description": "When it was recorded, RFC 3339.",
+            "type": "string"
+          },
+          "detail": {
+            "description": "The entry's detail as compact JSON text, secrets removed, cut at 4096 bytes.",
+            "type": "string"
+          },
+          "detail_truncated": {
+            "description": "Whether `detail` was cut.",
+            "type": "boolean"
+          },
+          "hash": {
+            "description": "The entry's hash as 64 lower-case hex characters; `null` on a legacy entry.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "history": {
+            "description": "`legacy` (written before the chain) or `chained`.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What kind of entry it is.",
+            "type": "string"
+          },
+          "seq": {
+            "description": "The entry's sequence number.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "subject": {
+            "description": "What it is about.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "actor",
+          "kind",
+          "subject",
+          "detail",
+          "detail_truncated",
+          "history"
+        ],
+        "type": "object"
+      },
+      "AuditVerificationDto": {
+        "description": "The result of checking the audit log.",
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AuditAnchorDto",
+            "description": "The anchor both parts are judged against."
+          },
+          "chained": {
+            "$ref": "#/components/schemas/ChainedHistoryDto",
+            "description": "The chained part."
+          },
+          "checked_at": {
+            "description": "When the check finished, RFC 3339.",
+            "type": "string"
+          },
+          "head": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HeadDto",
+                "description": "The newest stored entry; `null` before the first chained entry."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/LegacyHistoryDto",
+            "description": "The legacy part."
+          },
+          "recent_limit": {
+            "description": "How many of the newest chained entries a `recent` check covers.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "scope": {
+            "description": "`recent` or `full`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "recent_limit",
+          "checked_at",
+          "legacy",
+          "chained",
+          "anchor"
+        ],
+        "type": "object"
+      },
       "BudgetExtensionDto": {
         "description": "One limit to raise when resuming.",
         "properties": {
@@ -937,6 +1112,67 @@ expression: spec
             "type": "object"
           }
         ]
+      },
+      "ChainedHistoryDto": {
+        "description": "The chained part of a verification.",
+        "properties": {
+          "break_reason": {
+            "description": "A stable code for why (`broken`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "break_text": {
+            "description": "The reason in words (`broken`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checked": {
+            "description": "Entries checked (`intact`, `broken`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "first_broken_seq": {
+            "description": "The first entry that does not match (`broken`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "head_hash": {
+            "description": "Its hash (`intact`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "head_seq": {
+            "description": "The newest checked entry (`intact`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`empty`, `intact` or `broken`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
       },
       "CheckSettingsDto": {
         "description": "One check's settings: on or off, interval, thresholds.",
@@ -2058,6 +2294,26 @@ expression: spec
         },
         "required": [
           "turns"
+        ],
+        "type": "object"
+      },
+      "HeadDto": {
+        "description": "The newest stored entry's position.",
+        "properties": {
+          "hash": {
+            "description": "Its hash, hex.",
+            "type": "string"
+          },
+          "seq": {
+            "description": "Its sequence number.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "hash"
         ],
         "type": "object"
       },
@@ -3394,6 +3650,53 @@ expression: spec
           "by_enforced_outcome",
           "degraded",
           "differing"
+        ],
+        "type": "object"
+      },
+      "LegacyHistoryDto": {
+        "description": "The legacy part of a verification.",
+        "properties": {
+          "actual_count": {
+            "description": "Entries found (`mismatch`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "count": {
+            "description": "Entries counted (`verified`, `count_only`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "digest_matches": {
+            "description": "Whether the digest still matched (`mismatch`).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "expected_count": {
+            "description": "Entries the anchor recorded (`mismatch`).",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`verified`, `count_only`, `mismatch` or `not_verifiable`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
         ],
         "type": "object"
       },
@@ -5419,6 +5722,75 @@ expression: spec
         },
         "type": "object"
       },
+      "RetentionEntry": {
+        "description": "One `[retention]` period.",
+        "properties": {
+          "applies": {
+            "description": "`now` when the period is applied, `later` when it is declared but not applied yet.",
+            "type": "string"
+          },
+          "applies_once": {
+            "description": "What the period waits for, when `applies` is `later`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "days": {
+            "description": "The value in force, in days.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_days": {
+            "description": "The default, in days.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key": {
+            "description": "The setting's name, such as `signals_days`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "days",
+          "default_days",
+          "applies"
+        ],
+        "type": "object"
+      },
+      "RetentionSettings": {
+        "description": "The retention periods in force and how many backups are kept.",
+        "properties": {
+          "backups_keep": {
+            "description": "Nightly backups kept.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "backups_keep_pre_migrate": {
+            "description": "Pre-upgrade backups kept.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "entries": {
+            "description": "The nine `[retention]` periods, in registry order.",
+            "items": {
+              "$ref": "#/components/schemas/RetentionEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries",
+          "backups_keep",
+          "backups_keep_pre_migrate"
+        ],
+        "type": "object"
+      },
       "RetryRequestDto": {
         "additionalProperties": false,
         "description": "Run one host's target again.",
@@ -5816,6 +6188,10 @@ expression: spec
               }
             ]
           },
+          "retention": {
+            "$ref": "#/components/schemas/RetentionSettings",
+            "description": "The retention periods in force and the backup counts."
+          },
           "triage": {
             "$ref": "#/components/schemas/TriageSettings",
             "description": "Triage limits."
@@ -5837,7 +6213,8 @@ expression: spec
           "triage",
           "webhooks",
           "heartbeat",
-          "usage"
+          "usage",
+          "retention"
         ],
         "type": "object"
       },
@@ -7805,6 +8182,139 @@ expression: spec
         "summary": "Open advisories, newest first.",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "list_audit",
+        "parameters": [
+          {
+            "description": "`legacy` or `chained`: only that part of the history.",
+            "in": "query",
+            "name": "history",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only entries of this exact kind, at most 100 characters.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where the previous page ended.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Entries per page, 1 to 200; default 50.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            },
+            "description": "A page of audit entries"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown history or a kind that is too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Audit entries, newest first, with their hash.",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/verification": {
+      "get": {
+        "operationId": "verify_audit",
+        "parameters": [
+          {
+            "description": "`recent` (default) checks the newest chained entries and counts the older ones;\n`full` checks everything.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerificationDto"
+                }
+              }
+            },
+            "description": "The result of the check"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown scope"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Checks the audit log: the legacy and the chained history separately.",
+        "tags": [
+          "audit"
         ]
       }
     },
@@ -15354,6 +15864,10 @@ expression: spec
     {
       "description": "Operator conversations: read-only questions about the hosts",
       "name": "operator"
+    },
+    {
+      "description": "The audit log and its verification",
+      "name": "audit"
     },
     {
       "description": "Hosts, enrollment and skills",
