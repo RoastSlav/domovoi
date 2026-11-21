@@ -175,6 +175,26 @@ A message is `{"id", "ordinal", "role", "status", "turn", "text", "failure", "fa
 
 `GET` and `PUT /api/v1/hosts/{name}/checks` read and replace a host's check overrides. Each override has `enabled`, `interval_seconds` and `thresholds`. A saved change goes to the connected agent at once, or when it reconnects.
 
+## Preferences
+
+`GET /api/v1/me/preferences` returns the signed-in person's display preferences. There is no id in the path: it is always the person the session belongs to.
+
+```json
+{ "version": 2, "updated_at": "2026-01-01T09:00:00Z", "presentation": { "profile": "standard", "pages": { "operations": "detailed" } } }
+```
+
+`PUT /api/v1/me/preferences` saves them and answers the same shape. The body may carry `presentation`; leaving it out changes nothing.
+
+```json
+{ "presentation": { "profile": "standard", "pages": { "operations": "detailed" } } }
+```
+
+- `profile` is `detailed`, `standard` or `essential`. A person with nothing saved has `detailed`.
+- `pages` maps a page key to a profile that overrides `profile` on that page. A key matches `^[a-z][a-z0-9_-]{0,31}$`, and there are at most 32.
+- `400 bad_request` with a message for an unknown profile, a bad page key or too many pages.
+
+Preferences change only what the web UI draws. They do not change what a person may do, what is recorded, or what the UI asks the hub for. See [Detail level](../guide/display.md).
+
 ## Importing notes
 
 `POST /api/v1/notes/import` takes a folder of Markdown runbooks as `multipart/form-data`: one `files` field per file, and an optional `host` field naming the host they are about.
