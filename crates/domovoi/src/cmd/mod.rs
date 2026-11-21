@@ -7,6 +7,7 @@ mod digest;
 mod hub;
 mod hub_run;
 mod notify;
+mod package;
 mod restore;
 mod selftest;
 mod upgrade;
@@ -52,6 +53,9 @@ pub enum Command {
     /// Verify the audit log's hash chain or print its head.
     #[command(subcommand)]
     Audit(audit::AuditCommand),
+    /// Import signed packages into the hub's store, or list them, with no hub running.
+    #[command(subcommand)]
+    Package(package::PackageCommand),
     /// Print the hub's OpenAPI document as JSON (used by `cargo xtask openapi`).
     #[command(hide = true)]
     Openapi,
@@ -113,6 +117,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),
         Command::Audit(command) => block_on(audit::run(command)),
+        Command::Package(command) => block_on(package::run(command)),
         Command::Restore(args) => block_on(restore::run(args)),
         Command::Upgrade(args) => block_on(upgrade::run(args)),
     }
