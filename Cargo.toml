@@ -72,7 +72,7 @@ argon2 = "0.6.0"
 rand = "0.10.3"
 hmac = "0.13.0"
 subtle = "2.6.1"
-nix = { version = "0.31.3", features = ["signal", "process", "user", "fs"] }
+nix = { version = "0.32.0", features = ["signal", "process", "user", "fs"] }
 
 # TLS and protocol (rustls only; never OpenSSL, see deny.toml)
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
