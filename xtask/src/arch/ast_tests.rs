@@ -34,7 +34,7 @@ const OP_DISPATCH_PATH: &str = "crates/domovoi-engine/src/operations/effects/dis
 const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs";
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n}\n";
 
 fn hub_sites() -> Vec<(String, String)> {
     files(&[
@@ -63,6 +63,34 @@ fn engine_with(rel: &str, text: &str) -> Vec<(String, String)> {
 fn the_card_sites_pass_in_their_exact_counts() {
     assert!(exec_violations(&engine_sites()).is_empty());
     assert!(exec_violations(&hub_sites()).is_empty());
+}
+
+#[test]
+fn a_second_package_link_call_in_a_card_site_is_refused() {
+    for op in ["send_transfer", "start_capability", "capability_result"] {
+        let mut hub = hub_sites();
+        hub[0].1 = format!(
+            "{CAPS}fn again() {{ self.link.{op}(a, b, c); }}
+"
+        );
+        let violations = exec_violations(&hub);
+        assert!(has(&violations, "EXEC-2"), "{op}: {violations:#?}");
+    }
+}
+
+#[test]
+fn a_package_link_call_outside_the_runtime_capability_is_refused() {
+    for op in ["send_transfer", "start_capability", "capability_result"] {
+        let text = format!(
+            "fn f() {{ deps.link.{op}(a, b, c); }}
+"
+        );
+        let violations = exec_violations(&files(&[(
+            "crates/domovoi-engine/src/packages/other.rs",
+            &text,
+        )]));
+        assert!(has(&violations, "EXEC-2"), "{op}: {violations:#?}");
+    }
 }
 
 #[test]

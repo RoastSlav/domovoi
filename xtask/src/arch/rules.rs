@@ -209,6 +209,9 @@ pub const RAW_OPS: &[&str] = &[
     "run_capability",
     "hand_off",
     "await_handoff_result",
+    "send_transfer",
+    "start_capability",
+    "capability_result",
 ];
 
 /// Boundary paths, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one authorizing
@@ -336,6 +339,33 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
         op: BoundaryOp::Call("run_capability"),
         sites: &[],
         message: "`run_capability` has no caller; a skill runs only through `execute::execute_step(AuthorizedStep)` in operations/execute.rs (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("send_transfer"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package file reaches an agent only through `PackageRelay::relay_transfer`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `send_transfer` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("start_capability"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package capability is started only through `PackageRelay::dispatch_package`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `start_capability` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("capability_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package capability's answer is awaited only through `PackageRelay::package_result`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `capability_result` call belongs to the runtime capability (ADR 0029)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -505,6 +535,8 @@ pub const LINK_NAMES_ALLOWED_FILES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
+    "crates/domovoi-hub/src/agent_server/link_logs.rs",
+    "crates/domovoi-hub/src/agent_server/link_package.rs",
     "crates/domovoi-hub/src/agent_server/mod.rs",
     "crates/domovoi-hub/src/runtime/caps.rs",
     "crates/domovoi-hub/src/runtime/mod.rs",
