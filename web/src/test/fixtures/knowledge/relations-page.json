@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "id": "rel-plex",
+      "from": "container:host-nas/plex",
+      "kind": "runs_on",
+      "to": "host:host-nas",
+      "source": "user",
+      "status": "current",
+      "stored_status": "current",
+      "version": 1,
+      "observed_at": "2026-10-31T12:00:00Z",
+      "evidence": null,
+      "actor": "user:me",
+      "created_at": "2026-10-31T12:00:00Z",
+      "retracted_at": null,
+      "content_purged": false
+    },
+    {
+      "id": "rel-backup",
+      "from": "host:host-nas",
+      "kind": "backs_up_to",
+      "to": "entity:ent-vpn",
+      "source": "discovered",
+      "status": "current",
+      "stored_status": "current",
+      "version": 1,
+      "observed_at": "2026-10-31T12:00:00Z",
+      "evidence": null,
+      "actor": "user:me",
+      "created_at": "2026-10-31T12:00:00Z",
+      "retracted_at": null,
+      "content_purged": false
+    }
+  ],
+  "next_cursor": null
+}

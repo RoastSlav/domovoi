@@ -1,0 +1,18 @@
+[
+  {
+    "id": "ent-vpn",
+    "kind": "vpn",
+    "name": "Home VPN",
+    "created_by": "user:me",
+    "created_at": "2026-10-30T12:00:00Z",
+    "version": 1
+  },
+  {
+    "id": "ent-pool",
+    "kind": "pool",
+    "name": "Storage pool",
+    "created_by": "user:me",
+    "created_at": "2026-10-30T13:00:00Z",
+    "version": 2
+  }
+]

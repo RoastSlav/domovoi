@@ -88,6 +88,13 @@ export type SshLogin = "accepted" | "failed" | "many_failures";
 /** Where one step of a guided flow stands. */
 export type StepState = "done" | "current" | "skipped" | "upcoming";
 
+/** The effective status of a knowledge fact or relation. */
+export type KnowledgeStatus = "current" | "stale" | "disputed" | "superseded" | "retracted";
+/** Where a management path of a host stands. */
+export type PathState = "candidate" | "unconfirmed" | "confirmed" | "stale";
+/** Whether the helper's coverage of a path can be checked. */
+export type CoverageState = "unavailable" | "checkable";
+
 /** One vocabulary: every known value and how it is shown. */
 export type Table<K extends string> = Record<K, StatusMeta>;
 

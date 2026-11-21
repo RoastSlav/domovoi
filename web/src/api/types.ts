@@ -193,6 +193,27 @@ export type SimilarOperations = Schemas["SimilarOperationsDto"];
 /** The owner's search over past operations. */
 export type ExperienceSearch = Schemas["ExperienceSearchDto"];
 
+/** One fact in the knowledge store, with its source, status and freshness. */
+export type KnowledgeFact = Schemas["KnowledgeFactDto"];
+/** One page of knowledge facts. */
+export type KnowledgeFactPage = Schemas["KnowledgeFactPageDto"];
+/** A fact the owner asserts. */
+export type KnowledgeFactInput = Schemas["KnowledgeFactInput"];
+/** An owner's action on a fact: the version they read and, for safety-critical ones, the password. */
+export type KnowledgeFactAction = Schemas["KnowledgeFactAction"];
+/** A management path of a host: the fact, its state and who confirmed it. */
+export type ManagementPath = Schemas["ManagementPathDto"];
+/** A host's management paths and whether the helper's coverage can be checked. */
+export type ManagementPaths = Schemas["ManagementPathsDto"];
+/** A relation between two subjects. */
+export type KnowledgeRelation = Schemas["RelationDto"];
+/** One page of relations. */
+export type KnowledgeRelationPage = Schemas["RelationPageDto"];
+/** A relation the owner asserts. */
+export type KnowledgeRelationInput = Schemas["RelationInput"];
+/** A thing the owner names so facts can be about it. */
+export type KnowledgeEntity = Schemas["EntityDto"];
+
 /** A conversation with the Operator, without its messages. */
 export type ConversationSummary = Schemas["ConversationSummaryDto"];
 /** A conversation with its messages and the turn in progress. */

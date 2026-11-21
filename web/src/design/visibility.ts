@@ -112,4 +112,8 @@ export const VISIBILITY_PAGES: readonly { key: string; label: string }[] = [
   { key: "policy-draft", label: "Policy editor and publication" },
   { key: "policy-decision", label: "Policy decision" },
   { key: "policy-simulator", label: "Policy simulator" },
+  { key: "knowledge", label: "Knowledge" },
+  { key: "knowledge-detail", label: "Fact and entity detail" },
+  { key: "paths", label: "Management paths" },
+  { key: "experience", label: "Experience search" },
 ];

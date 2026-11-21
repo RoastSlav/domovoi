@@ -11,6 +11,7 @@ import {
   SSH_LOGINS,
   STEP_STATES,
 } from "./fleetVocab";
+import { COVERAGE_STATES, KNOWLEDGE_STATUSES, PATH_STATES } from "./knowledgeVocab";
 import {
   EDGE_KINDS,
   EXECUTION_STATES,
@@ -253,6 +254,21 @@ export function badgeMeta(value: string): StatusMeta {
   return Object.hasOwn(VERDICTS, value) ? verdictMeta(value) : severityMeta(value);
 }
 
+/** How the effective status of a fact or relation is shown. */
+export function knowledgeStatusMeta(status: string): StatusMeta {
+  return lookup(KNOWLEDGE_STATUSES, status);
+}
+
+/** How the state of a management path is shown. */
+export function pathStateMeta(state: string): StatusMeta {
+  return lookup(PATH_STATES, state);
+}
+
+/** How the helper's coverage is shown: never as covered, only as checkable or not. */
+export function coverageMeta(available: boolean): StatusMeta {
+  return lookup(COVERAGE_STATES, available ? "checkable" : "unavailable");
+}
+
 /** Every vocabulary with its known values, for tests and the design catalogue. */
 export const VOCABULARIES: {
   meta: (value: string) => StatusMeta;
@@ -280,5 +296,12 @@ export const VOCABULARIES: {
   { name: "Step kind", meta: stepKindMeta, values: Object.keys(STEP_KINDS) },
   { name: "Edge kind", meta: edgeKindMeta, values: Object.keys(EDGE_KINDS) },
   { name: "Turn status", meta: turnStatusMeta, values: Object.keys(TURN_STATUSES) },
+  { name: "Knowledge status", meta: knowledgeStatusMeta, values: Object.keys(KNOWLEDGE_STATUSES) },
+  { name: "Management path state", meta: pathStateMeta, values: Object.keys(PATH_STATES) },
+  {
+    name: "Coverage",
+    meta: (value) => lookup(COVERAGE_STATES, value),
+    values: Object.keys(COVERAGE_STATES),
+  },
   ...POLICY_VOCABULARIES,
 ];

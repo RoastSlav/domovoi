@@ -14,7 +14,12 @@ export { InlineError, InlineMessage } from "./InlineMessage";
 export { Banner } from "./Banner";
 export { ErrorDetail } from "./ErrorDetail";
 export { ToastProvider, useToast, type ToastAction, type ToastApi, type ToastInput } from "./Toast";
-export { useActionFeedback, type ActionFeedback, type FeedbackMessages } from "./useActionFeedback";
+export {
+  useActionFeedback,
+  type ActionFeedback,
+  type FeedbackCallbacks,
+  type FeedbackMessages,
+} from "./useActionFeedback";
 
 // Hints
 export { Tooltip } from "./Tooltip";
