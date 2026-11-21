@@ -10,10 +10,12 @@ use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{
     ActionAnswers, ActionCaps, AgentSnapshot, AvailabilityProbe, CheckRecheck, CheckRerun,
     EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, HostView,
-    JournalStatus, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    JournalStatus, LinkError, PackageCaps, PackageRelay, Presence, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary, TargetKey,
+    ActionId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch, PackageDispatch,
+    PackageOutputs, ReadToolCall, SkillSummary, TargetKey, TransferAnswer, TransferFrame,
 };
 use jiff::Timestamp;
 
@@ -40,6 +42,10 @@ struct JournalOf {
 }
 
 struct RerunOf {
+    link: Arc<dyn AgentLink>,
+}
+
+struct RelayOf {
     link: Arc<dyn AgentLink>,
 }
 
@@ -133,6 +139,43 @@ impl CheckRerun for RerunOf {
     }
 }
 
+#[async_trait]
+impl PackageRelay for RelayOf {
+    async fn relay_transfer(
+        &self,
+        host: HostId,
+        frame: TransferFrame,
+        expected_session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError> {
+        self.link
+            .send_transfer(host, frame, expected_session, deadline)
+            .await
+    }
+
+    async fn dispatch_package(
+        &self,
+        host: HostId,
+        req: PackageDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.link
+            .start_capability(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn package_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError> {
+        self.link.capability_result(host, handoff, deadline).await
+    }
+}
+
 /// The capabilities the action services need, all over one policy link.
 pub fn action_caps(link: Arc<dyn AgentLink>) -> ActionCaps {
     ActionCaps {
@@ -150,6 +193,17 @@ pub fn evidence_caps(link: Arc<dyn AgentLink>) -> EvidenceCaps {
         probe: Arc::new(ProbeOf { link: link.clone() }),
         observer: Arc::new(ObserverOf { link: link.clone() }),
         read: Arc::new(ReaderOf { link }),
+    }
+}
+
+/// The capabilities package installation needs, all over the one link: the same probe,
+/// observer and journal objects the action services hold, and the relay (ADR 0029).
+pub fn package_caps(link: Arc<dyn AgentLink>) -> PackageCaps {
+    PackageCaps {
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link: link.clone() }),
+        relay: Arc::new(RelayOf { link }),
     }
 }
 

@@ -30,6 +30,9 @@ pub const MAX_PENDING: usize = 256;
 
 pub(crate) use super::live::{Live, Liveness, SessionFacts, SessionState, Watch};
 
+#[path = "registry_reserved.rs"]
+mod reserved;
+
 /// What the hub knows about one host's agent.
 #[derive(Default)]
 pub(super) struct Entry {

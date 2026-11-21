@@ -281,3 +281,6 @@ async fn dropping_a_read_midway_releases_its_registered_request() {
         "an outer cancellation must not leave a stale request"
     );
 }
+
+#[path = "link_package_tests.rs"]
+mod package;

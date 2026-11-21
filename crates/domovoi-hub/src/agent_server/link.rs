@@ -9,18 +9,20 @@ use domovoi_core::capability::{
 };
 use domovoi_core::ports::{
     ActionAnswers, AgentLink, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock, HostAvailability,
-    HostRepo, LinkError, LogLine, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    HostRepo, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CheckKey, ContractId, HostId, JournalEpoch, ReadToolCall, RequestId,
     SkillSummary, TargetKey,
 };
+use domovoi_core::{
+    CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
+};
 use domovoi_proto::messages::{
-    ActionStatusQuery, CatalogEntry, GetCatalog, GetLogs, RunCheck, RunSkill, RunTool,
-    SkillOutcome, ToolFailureCode, ToolOutcome,
+    ActionStatusQuery, CatalogEntry, GetCatalog, RunCheck, RunSkill, RunTool, SkillOutcome,
+    ToolFailureCode, ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
-use jiff::SignedDuration;
 use jiff::Timestamp;
 use tokio::sync::oneshot;
 
@@ -166,56 +168,6 @@ impl WsAgentLink {
             () = self.clock.sleep_until(deadline) => Err(LinkError::Timeout),
         };
         Ok((reply?, facts))
-    }
-
-    /// The recent log lines of the agent on `host`: waits 10 s for a reply.
-    /// The window may not fit one frame, so the agent answers in chunks and the
-    /// hub asks again with `offset` advanced, until the reply says it has no
-    /// more lines. An agent that predates `get_logs` replies `unsupported`,
-    /// reported as [`LinkError::Rejected`] telling the person to update the agent.
-    pub async fn logs(
-        &self,
-        host: HostId,
-        lines: u16,
-        min_level: String,
-    ) -> Result<Vec<LogLine>, LinkError> {
-        let deadline = self.clock.now() + SignedDuration::from_secs(10);
-        let window = usize::from(lines);
-        let mut got: Vec<LogLine> = Vec::new();
-        loop {
-            let get = GetLogs {
-                lines,
-                min_level: min_level.clone(),
-                // The window is at most `lines`, which fits in a `u16`.
-                offset: got.len().min(window) as u16,
-                deadline,
-            };
-            let reply = match self.request(host, &Message::GetLogs(get), deadline).await? {
-                Message::Logs(reply) => reply,
-                Message::Unsupported(_) => {
-                    if !got.is_empty() {
-                        return Ok(got);
-                    }
-                    return Err(LinkError::Rejected(
-                        "the agent is too old to send logs; update it".to_owned(),
-                    ));
-                }
-                Message::Error(err) => {
-                    // A full request queue answers with a busy error right away, so
-                    // the caller does not wait out the deadline for it.
-                    return Err(LinkError::Rejected(err.message));
-                }
-                other => return Err(unexpected(&other)),
-            };
-            let more = reply.has_more;
-            let empty = reply.lines.is_empty();
-            got.extend(reply.lines);
-            if got.len() >= window || !more || empty {
-                break;
-            }
-        }
-        got.truncate(window);
-        Ok(got)
     }
 }
 
@@ -437,6 +389,37 @@ impl AgentLink for WsAgentLink {
         self.registry.host_view(host)
     }
 
+    async fn send_transfer(
+        &self,
+        host: HostId,
+        frame: TransferFrame,
+        expected_session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError> {
+        self.transfer(host, frame, expected_session, deadline).await
+    }
+
+    async fn start_capability(
+        &self,
+        host: HostId,
+        req: PackageDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.capability_dispatch(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn capability_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError> {
+        self.capability_answer(host, handoff, deadline).await
+    }
+
     async fn get_catalog(
         &self,
         host: HostId,
@@ -489,6 +472,11 @@ fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, Strin
         .map_err(|err| format!("{}: {}", entry.contract, err))?;
     Ok(CatalogImplementation { contract, version })
 }
+
+#[path = "link_logs.rs"]
+mod logs;
+#[path = "link_package.rs"]
+mod package;
 
 #[cfg(test)]
 #[path = "link_tests.rs"]

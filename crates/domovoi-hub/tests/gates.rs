@@ -87,7 +87,7 @@ fn source_files(
 
 /// The hub's one raw-link consumer, holding its exact count: the capability forward every raw
 /// link operation exactly once.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n}\n";
 
 /// The smallest tree that satisfies the hub's boundary cards, including the two sites that
 /// build a `Caller`.
