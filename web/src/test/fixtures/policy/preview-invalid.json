@@ -1,0 +1,20 @@
+{
+  "base_number": 3,
+  "rules_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "preview_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "validation": [
+    {
+      "rule": "plex-restart",
+      "message": "The time window starts and ends at the same time."
+    },
+    {
+      "rule": null,
+      "message": "Two rules share the id ask-containers."
+    }
+  ],
+  "report": null,
+  "blocking": [],
+  "locked_changes": [],
+  "notes": [],
+  "simulation": null
+}

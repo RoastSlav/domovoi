@@ -8,7 +8,10 @@ import { ConfirmDialog } from "../../components";
  * the browser's own prompt for closing or reloading the tab. Call `allowLeaving()` just
  * before navigating away on purpose, after a save or a delete.
  */
-export function useLeaveGuard(dirty: boolean): {
+export function useLeaveGuard(
+  dirty: boolean,
+  what = "note",
+): {
   allowLeaving: () => void;
   guard: ReactNode;
 } {
@@ -35,7 +38,7 @@ export function useLeaveGuard(dirty: boolean): {
     blocker.state === "blocked" ? (
       <ConfirmDialog
         title="Leave without saving?"
-        consequence="Your changes to this note are lost if you leave this page."
+        consequence={`Your changes to this ${what} are lost if you leave this page.`}
         confirmLabel="Leave without saving"
         tone="danger"
         onConfirm={() => blocker.proceed()}

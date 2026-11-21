@@ -1,0 +1,118 @@
+{
+  "execution_id": "0192a000-0000-7000-8000-00000000e002",
+  "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+  "host_id": "0192a000-0000-7000-8000-000000000001",
+  "contract": "skill.restart_plex",
+  "status": "evaluated",
+  "evaluated_at": "2026-11-20T10:02:00Z",
+  "degraded": false,
+  "policy_version": 3,
+  "enforced_outcome": "allow",
+  "shadow_outcome": "require_approval",
+  "reason": null,
+  "candidate": {
+    "contract": "skill.restart_plex",
+    "target": "plex",
+    "args": {
+      "grace_secs": 10
+    }
+  },
+  "enforced": {
+    "outcome": {
+      "kind": "allow"
+    },
+    "reason": "single_winner",
+    "matched": ["plex-restart", "no-destroy"],
+    "winners": ["plex-restart"],
+    "locked": [],
+    "overridden": [
+      {
+        "broader": "no-destroy",
+        "by": "plex-restart"
+      }
+    ],
+    "would_have_been": null,
+    "constraints": {
+      "max_per_hour": 3,
+      "max_ttl_secs": 600,
+      "targets": ["plex"],
+      "conditions": [
+        {
+          "kind": "time_window",
+          "start": {
+            "hour": 22,
+            "minute": 0
+          },
+          "end": {
+            "hour": 6,
+            "minute": 0
+          }
+        },
+        {
+          "kind": "requires_fact",
+          "fact": "plex.idle",
+          "expected": true
+        },
+        {
+          "kind": "arg_constraint",
+          "arg": "grace_secs",
+          "op": "int_at_most",
+          "value": 30
+        },
+        {
+          "kind": "max_ttl",
+          "max_ttl": "PT10M"
+        }
+      ]
+    },
+    "hard_limits_applied": [],
+    "facts_used": [
+      {
+        "fact": "plex.idle",
+        "status": "known"
+      },
+      {
+        "fact": "disk.free",
+        "status": "stale"
+      }
+    ],
+    "typed_confirmation": "none",
+    "warnings": [
+      {
+        "kind": "dangerous_exception",
+        "allow": "plex-restart",
+        "deny": "no-destroy"
+      }
+    ],
+    "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+    "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "shadow": {
+    "outcome": {
+      "kind": "require_approval"
+    },
+    "reason": "default",
+    "matched": [],
+    "winners": [],
+    "locked": [],
+    "overridden": [],
+    "would_have_been": null,
+    "constraints": {
+      "max_per_hour": null,
+      "max_ttl_secs": null,
+      "targets": null,
+      "conditions": []
+    },
+    "hard_limits_applied": [],
+    "facts_used": [],
+    "typed_confirmation": "none",
+    "warnings": [],
+    "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+    "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "inputs": {
+    "host": "nas",
+    "autonomy": "active"
+  },
+  "gaps": []
+}

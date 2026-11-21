@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Field } from "./Field";
 import { TextInput } from "./inputs";
@@ -15,20 +15,24 @@ export function PasswordPrompt({
   error,
   busy = false,
   confirmLabel = "Save",
+  title = "Confirm with your password",
+  children,
   onConfirm,
   onCancel,
 }: {
   busy?: boolean;
+  children?: ReactNode;
   confirmLabel?: string;
   error?: string | undefined;
   onCancel: () => void;
   onConfirm: (password: string) => void;
   reason: string;
+  title?: string;
 }) {
   const [password, setPassword] = useState("");
   return (
     <ConfirmDialog
-      title="Confirm with your password"
+      title={title}
       consequence={reason}
       confirmLabel={confirmLabel}
       confirmDisabledReason={password ? undefined : "Enter your password first."}
@@ -36,6 +40,7 @@ export function PasswordPrompt({
       onConfirm={() => onConfirm(password)}
       onCancel={onCancel}
     >
+      {children}
       <Field label="Password" error={error}>
         <TextInput
           type="password"

@@ -41,6 +41,23 @@ function decoded(segment: string): string {
   }
 }
 
+/** What a page under Policy is called: its last part, in words. */
+function policyDetail(rest: string): string | undefined {
+  const [first, second] = rest.split("/");
+  switch (first) {
+    case "versions":
+      return second ? `Version ${decoded(second)}` : undefined;
+    case "draft":
+      return second === "publish" ? "Publish" : "Draft";
+    case "decisions":
+      return "Decision";
+    case "simulator":
+      return "Simulator";
+    default:
+      return undefined;
+  }
+}
+
 /** What a page about one thing is called until the page itself says (`usePageName`). */
 function defaultDetail(section: string, rest: string | undefined): string | undefined {
   if (!rest) {
@@ -53,6 +70,8 @@ function defaultDetail(section: string, rest: string | undefined): string | unde
       return "Incident";
     case "operations":
       return "Operation";
+    case "policy":
+      return policyDetail(rest);
     case "notes":
       return rest === "new" ? "New note" : "Note";
     default:
@@ -108,7 +127,9 @@ function useHeadingFocus(pathname: string): void {
 export function PageTitleProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const [named, setNamed] = useState<Named | null>(null);
-  const [, section = "", rest] = pathname.split("/");
+  const [, section = "", ...tail] = pathname.split("/");
+  // Policy pages are nested two deep, so its detail reads the whole remainder.
+  const rest = section === "policy" ? tail.join("/") || undefined : tail[0];
 
   const trail = useMemo<Trail>(() => {
     const sectionItem = NAV_ITEMS.find((item) => item.to === `/${section}`);

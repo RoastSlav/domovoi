@@ -98,6 +98,28 @@ export function retryAfterText(seconds: number): string {
   return `Too many attempts. Try again in ${Math.max(0, Math.ceil(seconds))} s.`;
 }
 
+/** What a rejected password confirmation says. */
+export const WRONG_PASSWORD_TEXT = "That password is not right.";
+
+/**
+ * A failed password confirmation in words: a wrong password (403) or a lockout (429). Any
+ * other failure is `undefined`, so the caller describes it as any failed request.
+ */
+export function stepUpError(error: unknown): string | undefined {
+  if (!(error instanceof ApiFailure)) {
+    return undefined;
+  }
+  if (error.status === 403) {
+    return WRONG_PASSWORD_TEXT;
+  }
+  if (error.status === 429) {
+    return error.retryAfter !== undefined
+      ? retryAfterText(error.retryAfter)
+      : CATALOGUE.too_many_requests.reason;
+  }
+  return undefined;
+}
+
 /** What a rate-limited message says once its wait is over. */
 export const RETRY_NOW_TEXT = "You can try again now.";
 

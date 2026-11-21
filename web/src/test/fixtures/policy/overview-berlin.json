@@ -1,0 +1,47 @@
+{
+  "shadow_enabled": true,
+  "time_window_zone": "Europe/Berlin",
+  "active": {
+    "number": 3,
+    "published_at": "2026-11-18T09:00:00Z",
+    "published_by": "admin",
+    "rule_count": 12,
+    "locked_count": 1,
+    "shadow_count": 2,
+    "rules_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "draft": {
+    "revision": 4,
+    "based_on": 2,
+    "rule_count": 12,
+    "locked_count": 2,
+    "shadow_count": 2,
+    "updated_at": "2026-11-20T11:00:00Z",
+    "updated_by": "admin"
+  },
+  "shadow": {
+    "total_evaluated": 380,
+    "total_unevaluable": 12,
+    "total_skipped": 7,
+    "last_sweep_at": "2026-11-20T11:59:30Z",
+    "last_error": "stored rules unreadable",
+    "last_24h": {
+      "total": 40,
+      "by_status": {
+        "evaluated": 38,
+        "unevaluable": 2
+      },
+      "by_enforced_outcome": {
+        "require_approval": 30,
+        "allow": 8
+      },
+      "degraded": 40,
+      "differing": 5
+    }
+  },
+  "notes": [
+    "Nothing here is enforced. Approvals and limits do not read these rules yet.",
+    "Decisions are recorded for comparison only.",
+    "Publishing a version does not change what runs."
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "base_number": 3,
+  "rules_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "preview_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "validation": [],
+  "report": {
+    "blocked": true,
+    "findings": [
+      {
+        "key": "incomparable:ask-containers:plex-restart",
+        "kind": "incomparable_conflict",
+        "first": "ask-containers",
+        "second": "plex-restart",
+        "note": "ask-containers and plex-restart: incomparable conflict.",
+        "requires_acknowledgement": true,
+        "shadow": false,
+        "resolution": "deny"
+      },
+      {
+        "key": "equal_scope:plex-restart:plex-pause",
+        "kind": "equal_scope_conflict",
+        "first": "plex-restart",
+        "second": "plex-pause",
+        "note": "plex-restart and plex-pause: equal scope conflict.",
+        "requires_acknowledgement": true,
+        "shadow": false,
+        "resolution": "deny"
+      },
+      {
+        "key": "ineffective:plex-restart:no-destroy",
+        "kind": "ineffective_under_lock",
+        "first": "plex-restart",
+        "second": "no-destroy",
+        "note": "plex-restart and no-destroy: ineffective under lock.",
+        "requires_acknowledgement": true,
+        "shadow": false,
+        "resolution": null
+      },
+      {
+        "key": "outside:ask-containers",
+        "kind": "target_outside_every_ceiling",
+        "first": "ask-containers",
+        "second": "ask-containers",
+        "note": "ask-containers and ask-containers: target outside every ceiling.",
+        "requires_acknowledgement": false,
+        "shadow": false,
+        "resolution": null
+      },
+      {
+        "key": "incomparable:shadow-prune-small:ask-containers",
+        "kind": "incomparable_conflict",
+        "first": "shadow-prune-small",
+        "second": "ask-containers",
+        "note": "shadow-prune-small and ask-containers: incomparable conflict.",
+        "requires_acknowledgement": false,
+        "shadow": true,
+        "resolution": "require_approval"
+      }
+    ]
+  },
+  "blocking": [
+    "incomparable:ask-containers:plex-restart",
+    "equal_scope:plex-restart:plex-pause",
+    "ineffective:plex-restart:no-destroy"
+  ],
+  "locked_changes": [
+    {
+      "rule": "no-prune",
+      "change": "created"
+    }
+  ],
+  "notes": ["Locked rules changed: review them before saving."],
+  "simulation": {
+    "evaluated": 200,
+    "same": 190,
+    "changed": 6,
+    "not_replayable": 4,
+    "newly_allowed": 2,
+    "newly_denied": 3,
+    "newly_requires_approval": 1
+  }
+}
