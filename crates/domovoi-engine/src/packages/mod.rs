@@ -6,8 +6,8 @@
 //! over what it installs; the hub never opens an archive and never decides which keys a host
 //! trusts (ADR 0029).
 //!
-//! - [`plan`] shows what a request would do per host and binds it to plan hashes.
-//! - [`service`] holds the handle that creates, retries and cancels jobs and refreshes a
+//! - `plan` shows what a request would do per host and binds it to plan hashes.
+//! - `service` holds the handle that creates, retries and cancels jobs and refreshes a
 //!   host's inventory, and the task that runs the worker.
 //! - `execute` is the one place that talks to an agent about packages; `worker` is the one
 //!   place that calls it.
