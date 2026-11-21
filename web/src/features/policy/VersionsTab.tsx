@@ -15,6 +15,7 @@ import {
   Visible,
   type Column,
 } from "../../components";
+import { ruleMarkMeta } from "../../design/tone";
 import { actorText } from "./ruleText";
 
 /**
@@ -39,7 +40,12 @@ export function VersionsTab({ activeNumber }: { activeNumber: number | undefined
       { key: "by", label: "By", cell: (v) => actorText(v.published_by) },
       { key: "rules", label: "Rules", numeric: true, cell: (v) => v.rule_count },
       { key: "locked", label: "Locked", numeric: true, cell: (v) => v.locked_count },
-      { key: "shadow", label: "Shadow", numeric: true, cell: (v) => v.shadow_count },
+      {
+        key: "shadow",
+        label: ruleMarkMeta("shadow").label,
+        numeric: true,
+        cell: (v) => v.shadow_count,
+      },
     ],
     [activeNumber],
   );

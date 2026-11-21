@@ -27,9 +27,9 @@ export function DraftCard({ overview }: { overview: PolicyOverview }) {
       )}
       <Visible category="P1" id="policy.draft">
         <Stack gap={1}>
+          <Link to="/policy/draft">Draft revision {draft.revision}</Link>
           <Text>
-            <Link to="/policy/draft">Draft revision {draft.revision}</Link>
-            {draft.based_on != null ? `, based on version ${draft.based_on}` : ", started empty"}
+            {draft.based_on != null ? `Based on version ${draft.based_on}` : "Started empty"}
           </Text>
           <Text muted size="sm">
             {draft.rule_count} rules, {draft.locked_count} locked. Last changed by{" "}

@@ -4,6 +4,7 @@ import { usePolicyOverview, useShadowDecision } from "../../api/hooks/policy";
 import { ApiFailure, type ShadowDetail } from "../../api/types";
 import {
   Cluster,
+  DetailsScope,
   EmptyState,
   InlineMessage,
   KeyValueList,
@@ -118,23 +119,25 @@ function Evaluated({ detail, hostName }: { detail: ShadowDetail; hostName: strin
           <InputsBlock inputs={detail.inputs} />
         </Visible>
       )}
-      <Visible category="P3" id="decision.metadata" label="Details" count={4}>
-        <KeyValueList
-          mono
-          items={[
-            { label: "Evaluated at", value: detail.evaluated_at },
-            { label: "Policy version", value: String(detail.policy_version) },
-            {
-              label: "Ceiling fingerprint",
-              value: shadow?.ceilingHash ?? "not recorded",
-            },
-            {
-              label: "Execution and operation",
-              value: `${detail.execution_id} / ${detail.operation_id}`,
-            },
-          ]}
-        />
-      </Visible>
+      <DetailsScope>
+        <Visible category="P3" id="decision.metadata" label="Details" count={4}>
+          <KeyValueList
+            mono
+            items={[
+              { label: "Evaluated at", value: detail.evaluated_at },
+              { label: "Policy version", value: String(detail.policy_version) },
+              {
+                label: "Ceiling fingerprint",
+                value: shadow?.ceilingHash ?? "not recorded",
+              },
+              {
+                label: "Execution and operation",
+                value: `${detail.execution_id} / ${detail.operation_id}`,
+              },
+            ]}
+          />
+        </Visible>
+      </DetailsScope>
     </Stack>
   );
 }

@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router";
 import { usePolicyOverview } from "../../api/hooks/policy";
 import type { PolicyOverview } from "../../api/types";
 import {
+  DetailsScope,
   InfoTip,
   LinkButton,
   PageHeader,
@@ -22,6 +23,7 @@ import { PRECEDENCE_HELP } from "./policyText";
 import { ShadowCard } from "./ShadowCard";
 import { StartDraftButton } from "./StartDraft";
 import { VersionsTab } from "./VersionsTab";
+import styles from "./policy.module.css";
 
 const TABS = ["rules", "versions", "decisions"] as const;
 type TabId = (typeof TABS)[number];
@@ -112,9 +114,11 @@ export function PolicyPage() {
               </Visible>
               <DraftCard overview={data} />
               {data.active && (
-                <Visible category="P3" id="policy.fingerprint" label="Fingerprint" count={1}>
-                  <code>{data.active.rules_hash}</code>
-                </Visible>
+                <DetailsScope>
+                  <Visible category="P3" id="policy.fingerprint" label="Fingerprint" count={1}>
+                    <code className={styles.fingerprint}>{data.active.rules_hash}</code>
+                  </Visible>
+                </DetailsScope>
               )}
               <Tabs label="Policy views" tabs={viewTabs(data)} selected={tab} onSelect={select} />
             </Stack>

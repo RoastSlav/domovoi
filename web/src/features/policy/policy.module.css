@@ -48,3 +48,8 @@
   align-items: center;
   gap: var(--space-1);
 }
+
+/* A fingerprint is one long word: let it break so it never widens the page. */
+.fingerprint {
+  overflow-wrap: anywhere;
+}

@@ -1,3 +1,4 @@
+import { Icon } from "../design/icons";
 import { badgeMeta, type StatusMeta } from "../design/tone";
 import { Tooltip } from "./Tooltip";
 import styles from "./status.module.css";
@@ -7,6 +8,9 @@ import styles from "./status.module.css";
  * colour is never the only signal, and what the status means as a tooltip. `meta` always
  * comes from `design/tone`. `sm` is 18 px high, for dense lists.
  *
+ * A locked status draws its lock icon in place of the dot, so a locked rule reads differently
+ * from an ordinary one without colour.
+ *
  * Use it for every status in the product. Do not use it for labels that are not a status
  * (that is `Tag`) or for numbers (that is `Count`).
  */
@@ -14,7 +18,11 @@ export function StatusPill({ meta, size = "md" }: { meta: StatusMeta; size?: "sm
   return (
     <Tooltip content={meta.hint}>
       <span className={styles.pill} data-tone={meta.tone} data-size={size}>
-        <span className={styles.dot} aria-hidden="true" />
+        {meta.icon === "lock" ? (
+          <Icon name="lock" size={14} />
+        ) : (
+          <span className={styles.dot} aria-hidden="true" />
+        )}
         {meta.label}
       </span>
     </Tooltip>

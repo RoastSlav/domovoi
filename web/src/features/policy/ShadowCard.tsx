@@ -1,5 +1,6 @@
 import type { PolicyOverview } from "../../api/types";
 import { Grid, InlineMessage, RelativeTime, StatTile, Stack, Text } from "../../components";
+import { shadowStatusMeta } from "../../design/tone";
 
 /**
  * How the shadow recorder is doing: whether it is on, whether its last pass failed, and what
@@ -28,7 +29,10 @@ export function ShadowCard({ overview }: { overview: PolicyOverview }) {
             <StatTile label="Recorded" value={day.total} hint="in the last 24 hours" />
             <StatTile label="Degraded" value={day.degraded} />
             <StatTile label="Differing" value={day.differing} />
-            <StatTile label="Could not evaluate" value={day.by_status.unevaluable ?? 0} />
+            <StatTile
+              label={shadowStatusMeta("unevaluable").label}
+              value={day.by_status.unevaluable ?? 0}
+            />
           </Grid>
           <Text muted size="sm">
             {shadow.last_sweep_at ? (

@@ -4,6 +4,7 @@ import { usePolicyOverview, usePolicyVersion } from "../../api/hooks/policy";
 import { ApiFailure, type PolicyVersionDetail } from "../../api/types";
 import {
   Cluster,
+  DetailsScope,
   EmptyState,
   KeyValueList,
   LinkButton,
@@ -18,6 +19,7 @@ import {
   Visible,
   VisibilityPage,
 } from "../../components";
+import { ruleMarkMeta } from "../../design/tone";
 import { VersionAcks } from "./VersionAcks";
 import { RulesTable } from "./RulesTable";
 import { actorText } from "./ruleText";
@@ -53,7 +55,7 @@ function Body({ detail, zone }: { detail: PolicyVersionDetail; zone: string | un
             },
             { label: "Rules", value: v.rule_count },
             { label: "Locked", value: v.locked_count },
-            { label: "Shadow", value: v.shadow_count },
+            { label: ruleMarkMeta("shadow").label, value: v.shadow_count },
             { label: "Time zone", value: zone ?? "The hub did not say" },
           ]}
         />
@@ -64,9 +66,11 @@ function Body({ detail, zone }: { detail: PolicyVersionDetail; zone: string | un
       <Visible category="P0" id="version.acknowledgements">
         <VersionAcks items={detail.acknowledgements} />
       </Visible>
-      <Visible category="P3" id="policy.fingerprint" label="Fingerprint" count={1}>
-        <Text mono>{v.rules_hash}</Text>
-      </Visible>
+      <DetailsScope>
+        <Visible category="P3" id="policy.fingerprint" label="Fingerprint" count={1}>
+          <Text mono>{v.rules_hash}</Text>
+        </Visible>
+      </DetailsScope>
     </Stack>
   );
 }

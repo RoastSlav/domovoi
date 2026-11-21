@@ -12,6 +12,7 @@ import {
   Visible,
   type Chip,
 } from "../../components";
+import { shadowStatusMeta } from "../../design/tone";
 import { DecisionList } from "./DecisionList";
 
 type Show = "all" | "differing" | "unevaluable";
@@ -19,7 +20,7 @@ type Show = "all" | "differing" | "unevaluable";
 const CHIPS: Chip<Show>[] = [
   { value: "all", label: "All decisions" },
   { value: "differing", label: "Where the two differ" },
-  { value: "unevaluable", label: "Could not evaluate" },
+  { value: "unevaluable", label: shadowStatusMeta("unevaluable").label },
 ];
 
 /**
