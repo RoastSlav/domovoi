@@ -135,3 +135,20 @@
   color: var(--color-text-muted);
   font-size: var(--text-xs);
 }
+
+/* A workspace thread: left-aligned with the page, the composer resting at the bottom of the
+   column and kept in view while the transcript grows. */
+.chat[data-fill] {
+  display: flex;
+  flex-direction: column;
+  min-height: min(58dvh, 40rem);
+  margin-inline: 0;
+}
+
+.chat[data-fill] > :last-child {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding-block: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+}
