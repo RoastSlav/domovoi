@@ -33,3 +33,5 @@ lcov.info
 /hub.toml
 /agent.toml
 .env
+
+.github/skills
