@@ -135,7 +135,7 @@ export function RuleEditor({
         )}
         <Switch
           label="Enabled"
-          hint={ruleMarkMeta("disabled").hint}
+          hint="Turn it off to keep the rule but ignore it."
           checked={form.enabled}
           onChange={(enabled) => change({ enabled })}
         />
