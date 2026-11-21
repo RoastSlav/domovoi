@@ -13,6 +13,8 @@ import {
   QueryBoundary,
   Skeleton,
   Stack,
+  Visible,
+  VisibilityPage,
   type Chip,
 } from "../../components";
 import { operationStatusMeta } from "../../design/tone";
@@ -79,62 +81,68 @@ export function OperationsPage() {
   const legacyLoading = legacyApplies && actions.isPending;
 
   return (
-    <>
+    <VisibilityPage page="operations">
       <PageHeader
         title="Operations"
         docs="concepts/operations.html"
         intro="What Domovoi is investigating and fixing, and what waits for you."
       />
       <Stack gap={4}>
-        <FilterChips label="Status" options={CHIPS} value={status} onChange={choose} />
+        <Visible category="P1" id="operations.filters">
+          <FilterChips label="Status" options={CHIPS} value={status} onChange={choose} />
+        </Visible>
         {legacyApplies && actions.isError && (
-          <InlineMessage
-            tone="warning"
-            title="Could not load classic actions"
-            action={
-              <Button size="sm" onClick={() => void actions.refetch()}>
-                Retry
-              </Button>
-            }
-          />
+          <Visible category="P0" id="operations.state">
+            <InlineMessage
+              tone="warning"
+              title="Could not load classic actions"
+              action={
+                <Button size="sm" onClick={() => void actions.refetch()}>
+                  Retry
+                </Button>
+              }
+            />
+          </Visible>
         )}
-        <QueryBoundary
-          query={operations}
-          context="load operations"
-          loading={<Skeleton shape="rows" count={6} />}
-        >
-          {() =>
-            rows.length === 0 && legacyLoading ? (
-              <Skeleton shape="rows" count={6} />
-            ) : rows.length === 0 ? (
-              <EmptyState
-                icon="play"
-                title={status === "all" ? "No operations yet" : "No operations in this state"}
-                action={<Link to="/approvals">Go to Approvals</Link>}
-              >
-                <p>
-                  With orchestration on, each new incident is investigated as an operation. Classic
-                  approvals stay on the Approvals page.
-                </p>
-              </EmptyState>
-            ) : (
-              <Stack gap={3}>
-                <OperationsTable rows={rows} />
-                {operations.hasNextPage && (
-                  <div className={styles.more}>
-                    <Button
-                      onClick={() => void operations.fetchNextPage()}
-                      loading={operations.isFetchingNextPage}
-                    >
-                      Load more
-                    </Button>
-                  </div>
-                )}
-              </Stack>
-            )
-          }
-        </QueryBoundary>
+        <Visible category="P0" id="operations.state">
+          <QueryBoundary
+            query={operations}
+            context="load operations"
+            loading={<Skeleton shape="rows" count={6} />}
+          >
+            {() =>
+              rows.length === 0 && legacyLoading ? (
+                <Skeleton shape="rows" count={6} />
+              ) : rows.length === 0 ? (
+                <EmptyState
+                  icon="play"
+                  title={status === "all" ? "No operations yet" : "No operations in this state"}
+                  action={<Link to="/approvals">Go to Approvals</Link>}
+                >
+                  <p>
+                    With orchestration on, each new incident is investigated as an operation.
+                    Classic approvals stay on the Approvals page.
+                  </p>
+                </EmptyState>
+              ) : (
+                <Stack gap={3}>
+                  <OperationsTable rows={rows} />
+                  {operations.hasNextPage && (
+                    <div className={styles.more}>
+                      <Button
+                        onClick={() => void operations.fetchNextPage()}
+                        loading={operations.isFetchingNextPage}
+                      >
+                        Load more
+                      </Button>
+                    </div>
+                  )}
+                </Stack>
+              )
+            }
+          </QueryBoundary>
+        </Visible>
       </Stack>
-    </>
+    </VisibilityPage>
   );
 }

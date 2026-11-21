@@ -1,6 +1,14 @@
 import { usePauseOperation } from "../../api/hooks/operationControls";
 import type { OperationSummary } from "../../api/types";
-import { Button, Menu, PageHeader, StatusPill, Tag, useActionFeedback } from "../../components";
+import {
+  Button,
+  Menu,
+  PageHeader,
+  StatusPill,
+  Tag,
+  Visible,
+  useActionFeedback,
+} from "../../components";
 import { operationStatusMeta } from "../../design/tone";
 
 const TERMINAL = new Set(["succeeded", "failed", "escalated", "cancelled"]);
@@ -31,16 +39,24 @@ export function OperationHeader({
       title={operation.goal}
       meta={
         <>
-          <StatusPill meta={operationStatusMeta(operation.status)} />
-          {operation.cycle > 0 && <Tag>Cycle {operation.cycle}</Tag>}
-          {operation.hosts.map((host) => (
-            <Tag key={host}>{hostNames.get(host) ?? host}</Tag>
-          ))}
+          <Visible category="P0" id="operation.title">
+            <StatusPill meta={operationStatusMeta(operation.status)} />
+          </Visible>
+          {operation.cycle > 0 && (
+            <Visible category="P1" id="operation.cycle-tag">
+              <Tag>Cycle {operation.cycle}</Tag>
+            </Visible>
+          )}
+          <Visible category="P0" id="operation.title">
+            {operation.hosts.map((host) => (
+              <Tag key={host}>{hostNames.get(host) ?? host}</Tag>
+            ))}
+          </Visible>
         </>
       }
       actions={
         terminal ? undefined : (
-          <>
+          <Visible category="P0" id="operation.controls">
             {canPause && (
               <Button
                 icon="pause"
@@ -60,7 +76,7 @@ export function OperationHeader({
               text="More"
               items={[{ label: "Cancel operation…", icon: "ban", onSelect: onCancel }]}
             />
-          </>
+          </Visible>
         )
       }
     />

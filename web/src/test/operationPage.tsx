@@ -1,3 +1,5 @@
+import { ProfileProvider } from "./visibility";
+import type { ProfileId } from "../design/visibility";
 import { RightSlotHost, RightSlotProvider } from "../app/rightSlot";
 import type { OperationDetail, StepDetail } from "../api/types";
 import { OperationDetailPage } from "../features/operations/OperationDetailPage";
@@ -34,7 +36,19 @@ export function stepDetail(detail: OperationDetail, stepId: string): StepDetail 
  */
 export function showOperation(
   detail: OperationDetail,
-  { search = "", width = 1300, get }: { search?: string; width?: number; get?: () => unknown } = {},
+  {
+    search = "",
+    width = 1300,
+    get,
+    profile = "detailed",
+    pages = {},
+  }: {
+    search?: string;
+    width?: number;
+    get?: () => unknown;
+    profile?: ProfileId;
+    pages?: Record<string, ProfileId>;
+  } = {},
 ) {
   stubSlotEnvironment({ width, wide: true });
   route("GET /api/v1/hosts", () => [nas]);
@@ -45,11 +59,13 @@ export function showOperation(
   return renderAt(
     `/operations/${detail.operation.id}${search}`,
     "/operations/:id",
-    <RightSlotProvider>
-      <main id="main" tabIndex={-1}>
-        <OperationDetailPage />
-      </main>
-      <RightSlotHost />
-    </RightSlotProvider>,
+    <ProfileProvider profile={profile} pages={pages}>
+      <RightSlotProvider>
+        <main id="main" tabIndex={-1}>
+          <OperationDetailPage />
+        </main>
+        <RightSlotHost />
+      </RightSlotProvider>
+    </ProfileProvider>,
   );
 }
