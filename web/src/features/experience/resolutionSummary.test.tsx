@@ -48,7 +48,7 @@ async function row(label: string) {
 test("summary_states_not_ready_drafting_ready_and_failed", async () => {
   const view = show({ ...READY, state: "not_ready", fields: [], history: [] });
   await waitFor(() => expect(calls.filter((c) => c.route === GET)).toHaveLength(1));
-  await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
+  await waitFor(() => expect(screen.queryByText("Loadingâ€¦")).toBeNull());
   expect(screen.queryByText("Resolution summary")).toBeNull();
   view.unmount();
 
