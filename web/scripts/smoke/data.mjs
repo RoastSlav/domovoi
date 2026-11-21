@@ -19,6 +19,19 @@ function load(name) {
     return JSON.parse(readFileSync(join(fixtures, `${name}.json`), "utf8"));
 }
 
+const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "../../src/test/fixtures");
+
+/** A knowledge fixture, with its host id replaced by the id the mock hub gives `nas`. */
+export function knowledgeFixture(name, hostId) {
+    const text = readFileSync(join(fixtureRoot, "knowledge", `${name}.json`), "utf8");
+    return JSON.parse(text.replaceAll("host-nas", hostId));
+}
+
+/** An experience fixture, read fresh so the smoke test and vitest share one contract. */
+export function experienceFixture(name) {
+    return JSON.parse(readFileSync(join(fixtureRoot, "experience", `${name}.json`), "utf8"));
+}
+
 /** A fresh, mutable state for one run: the waiting-approval operation, one legacy action. */
 export function makeState({ destructive = false } = {}) {
     const trace = load("waiting-approval");
@@ -32,6 +45,7 @@ export function makeState({ destructive = false } = {}) {
         destructive,
         executionState: "awaiting_approval",
         approved: false,
+        facts: knowledgeFixture("facts-page", pinned.host).items,
     };
 }
 

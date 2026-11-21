@@ -155,6 +155,95 @@ export async function startServer(dist) {
         return undefined;
     }
 
+    /** The live statuses the hub lists when no status is asked for. */
+    const LIVE = ["current", "stale", "disputed"];
+    const SAFETY = ["management_path", "trusted_cidr"];
+
+    /** The knowledge and experience endpoints; undefined when the path is not one of them. */
+    function knowledgeRoute(method, url, body) {
+        const { pathname, searchParams } = url;
+        const hostId = state.hostId;
+        const ok = (payload) => ({ status: 200, payload });
+        const fixture = (name) => data.knowledgeFixture(name, hostId);
+        if (method === "GET" && pathname === "/api/v1/knowledge/facts") {
+            const wanted = (searchParams.get("status") ?? LIVE.join(",")).split(",");
+            const q = (searchParams.get("q") ?? "").toLowerCase();
+            const items = state.facts.filter(
+                (fact) =>
+                    wanted.includes(fact.status) &&
+                    (!searchParams.get("source") || fact.source === searchParams.get("source")) &&
+                    (!searchParams.get("predicate") ||
+                        fact.predicate === searchParams.get("predicate")) &&
+                    (!searchParams.get("subject") ||
+                        fact.subject === searchParams.get("subject")) &&
+                    (!q ||
+                        JSON.stringify(fact.value ?? "")
+                            .toLowerCase()
+                            .includes(q)),
+            );
+            return ok({ items, next_cursor: null });
+        }
+        const one = pathname.match(/^\/api\/v1\/knowledge\/facts\/([^/]+)$/);
+        if (method === "GET" && one) {
+            const found = state.facts.find((fact) => fact.id === one[1]);
+            return found
+                ? ok(found)
+                : { status: 404, payload: { error: "not_found", message: "no such fact" } };
+        }
+        const act = pathname.match(/^\/api\/v1\/knowledge\/facts\/([^/]+)\/(accept|retract)$/);
+        if (method === "POST" && act) {
+            const found = state.facts.find((fact) => fact.id === act[1]);
+            if (!found) {
+                return { status: 404, payload: { error: "not_found", message: "no such fact" } };
+            }
+            if (act[2] === "accept") {
+                if (SAFETY.includes(found.predicate) && !body?.password) {
+                    return {
+                        status: 403,
+                        payload: { error: "forbidden", message: "this change needs your password" },
+                    };
+                }
+                const mine = { ...found, id: `${found.id}-mine`, source: "user", actor: "user:u" };
+                found.status = "superseded";
+                found.stored_status = "superseded";
+                state.facts.push(mine);
+                return ok(mine);
+            }
+            found.status = "retracted";
+            found.stored_status = "retracted";
+            found.retracted_at = "2026-11-02T08:00:00Z";
+            return ok(found);
+        }
+        const paths = pathname.match(/^\/api\/v1\/knowledge\/hosts\/([^/]+)\/management-paths$/);
+        if (method === "GET" && paths) {
+            return paths[1] === "nas"
+                ? ok(fixture("paths-unavailable"))
+                : { status: 404, payload: { error: "not_found", message: "no such host" } };
+        }
+        if (method === "GET" && pathname === "/api/v1/knowledge/relations") {
+            return ok(fixture("relations-page"));
+        }
+        if (method === "GET" && pathname === "/api/v1/knowledge/entities") {
+            return ok(fixture("entities"));
+        }
+        if (method === "GET" && pathname === "/api/v1/experience/search") {
+            return ok(
+                data.experienceFixture(
+                    searchParams.get("scope") === "global" ? "search-global" : "search-host",
+                ),
+            );
+        }
+        const summary = pathname.match(/^\/api\/v1\/operations\/([^/]+)\/(summary|similar)$/);
+        if (method === "GET" && summary) {
+            return ok(
+                summary[2] === "similar"
+                    ? data.experienceFixture("similar")
+                    : data.experienceFixture("summary-ready"),
+            );
+        }
+        return undefined;
+    }
+
     function api(request, response, url, body) {
         const { pathname } = url;
         const id = state.trace.operation.id;
@@ -187,6 +276,10 @@ export async function startServer(dist) {
         };
         if (reads[key]) {
             return send(response, 200, reads[key]());
+        }
+        const knowledge = knowledgeRoute(request.method, url, body);
+        if (knowledge) {
+            return send(response, knowledge.status, knowledge.payload);
         }
         const policy = policyRoute(request.method, pathname);
         if (policy) {

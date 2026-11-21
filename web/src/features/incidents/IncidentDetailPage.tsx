@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Link, useParams } from "react-router";
 import { useIncident } from "../../api/hooks/incidents";
 import { useHostNames } from "../../api/hooks/hosts";
@@ -13,7 +14,6 @@ import {
   Stack,
   Text,
 } from "../../components";
-import { SimilarOperations } from "../experience/SimilarOperations";
 import { IncidentOperations } from "../operations/IncidentOperations";
 import { useActionOutcomes } from "../approvals/useActionOutcomes";
 import { ActionSections } from "./ActionSections";
@@ -28,6 +28,11 @@ import { MODEL_SETTINGS, useModelOff } from "./useModelOff";
 import { useStatusNews } from "./useStatusNews";
 import { WhatsGoingOn } from "./WhatsGoingOn";
 import styles from "./incidents.module.css";
+
+/** Loaded when an incident has investigations, so the first download stays small. */
+const SimilarOperations = lazy(() =>
+  import("../experience/SimilarOperations").then((m) => ({ default: m.SimilarOperations })),
+);
 
 /** From this width the page has two columns: what is going on on the left, what to do on the right. */
 export const TWO_COLUMN_QUERY = "(min-width: 1100px)";
@@ -111,7 +116,9 @@ export function IncidentDetailPage() {
           </div>
           {data.operations.length > 0 && (
             <div className={styles.slot} data-slot="experience">
-              <SimilarOperations source={{ incident: summary.id }} />
+              <Suspense fallback={null}>
+                <SimilarOperations source={{ incident: summary.id }} />
+              </Suspense>
             </div>
           )}
           <div className={styles.slot} data-slot="evidence">

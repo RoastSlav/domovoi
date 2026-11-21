@@ -661,13 +661,13 @@ The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` prove
 
 ## Performance budget
 
-<!-- budget:initial-js-gzip-kb 176 -->
+<!-- budget:initial-js-gzip-kb 177 -->
 
-| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                      |
-| ------------------------------ | ------------------------ | -------- | -------------------------------------------------------------------------- |
-| Initial JavaScript             | 179.0 kB, one chunk      | 173.9 kB | 176 kB (policy words and Policy navigation item are eager; pages are lazy) |
-| Largest chunk                  | 179.0 kB                 | 110.7 kB | 120 kB                                                                     |
-| Total CSS                      | 9.9 kB                   | 14.6 kB  | 30 kB                                                                      |
+| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                                            |
+| ------------------------------ | ------------------------ | -------- | ------------------------------------------------------------------------------------------------ |
+| Initial JavaScript             | 179.0 kB, one chunk      | 176.3 kB | 177 kB (policy and knowledge words and the Knowledge navigation items are eager; pages are lazy) |
+| Largest chunk                  | 179.0 kB                 | 111.7 kB | 120 kB                                                                                           |
+| Total CSS                      | 9.9 kB                   | 26.2 kB  | 30 kB                                                                                            |
 
 The Inter font file (latin subset, about 48 kB) is not counted by `npm run size`. It loads
 from the hub's own origin, is cached across upgrades, and uses `font-display: swap`, so it

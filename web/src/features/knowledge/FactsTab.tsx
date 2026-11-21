@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { useFactSearch, useFacts, type FactFilters } from "../../api/hooks/knowledge";
 import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
   EmptyState,
   InlineMessage,
+  LinkButton,
   QueryBoundary,
   Skeleton,
   Text,
@@ -138,11 +139,13 @@ export function FactsTab({ waiting }: { waiting: number }) {
       {waiting > 0 && (
         <Visible category="P0" id="knowledge.waiting-note">
           <div className={styles.note}>
-            <InlineMessage tone="pending">
+            <InlineMessage
+              tone="pending"
+              action={<LinkButton to={`?${proposals.toString()}`}>Review proposals</LinkButton>}
+            >
               {waiting === 1
-                ? "1 fact inferred by Domovoi waits for your word. "
-                : `${waiting} facts inferred by Domovoi wait for your word. `}
-              <Link to={`?${proposals.toString()}`}>Review proposals</Link>
+                ? "1 fact inferred by Domovoi waits for your word."
+                : `${waiting} facts inferred by Domovoi wait for your word.`}
             </InlineMessage>
           </div>
         </Visible>
