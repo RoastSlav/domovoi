@@ -655,4 +655,134 @@ export const CHECKS = [
             }
         },
     },
+    {
+        name: "packages tab imports a signed package and offers to install it",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/capabilities?tab=packages", WIDE_DESK);
+            await visible(page.getByRole("table", { name: "Imported packages" }), "the store list");
+            await visible(page.getByText("nginx-tools").first(), "the stored package");
+            await page.getByLabel("Package archive").setInputFiles({
+                name: "nginx-tools-1.2.0.tar.zst",
+                mimeType: "application/zstd",
+                buffer: Buffer.from("archive bytes"),
+            });
+            await page.getByLabel("Signature file").setInputFiles({
+                name: "nginx-tools-1.2.0.sig.toml",
+                mimeType: "application/toml",
+                buffer: Buffer.from('name = "nginx-tools"'),
+            });
+            await page.getByRole("button", { name: "Import package" }).click();
+            await visible(page.getByText("Imported nginx-tools 1.2.0"), "the import result");
+            const body = server.packages().bodies.at(-1) ?? "";
+            expect(
+                body.includes('name="archive"') && body.includes('name="signature"'),
+                "The import was not sent as an archive and a signature field.",
+            );
+            await page.getByRole("link", { name: "Install it" }).click();
+            await visible(
+                page.getByRole("heading", { level: 1, name: /Install package/ }),
+                "the wizard",
+            );
+            await visible(page.getByText(/nginx-tools/).first(), "the chosen package");
+        },
+    },
+    {
+        name: "install wizard shows the plan code, refuses until password and name, then follows the job to Succeeded",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(
+                ctx,
+                "/capabilities/install?package=nginx-tools&version=1.2.0&host=nas",
+                WIDE_DESK,
+            );
+            await page.getByRole("checkbox", { name: /nas/ }).check();
+            await page.getByRole("button", { name: "Next" }).click();
+            await visible(page.getByText(/Plan [0-9a-f]{8}/), "the plan code");
+            await page.getByRole("button", { name: "Review and confirm" }).click();
+            const dialog = page.getByRole("dialog");
+            const confirm = dialog.getByRole("button", { name: "Install", exact: true });
+            await visible(confirm, "the confirm button");
+            expect(await confirm.isDisabled(), "Confirm is enabled before the password and name.");
+            await dialog.locator('input[type="password"]').fill("correct horse");
+            expect(await confirm.isDisabled(), "Confirm is enabled before the name is typed.");
+            await dialog.getByRole("textbox", { name: /Type nginx-tools/ }).fill("nginx-tools");
+            await confirm.click();
+            const post = await waitForPost(server, "/api/v1/packages/jobs");
+            expect(post, "Confirming posted no install job.");
+            expect(
+                post.body?.plan_hash === "cd".repeat(32) &&
+                    post.body?.confirm_text === "nginx-tools" &&
+                    post.body?.password === "correct horse",
+                `The job body was ${JSON.stringify({ ...post.body, password: "�" })}.`,
+            );
+            await visible(page.getByText("Running").first(), "the running status");
+            await visible(page.getByText("Succeeded").first(), "the succeeded status after a poll");
+        },
+    },
+    {
+        name: "host limits are read only and the helper tab is a placeholder with no request",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/capabilities?tab=limits&host=nas", WIDE_DESK);
+            await visible(page.getByText("These limits belong to the host"), "the ownership note");
+            await visible(page.getByText("container.restart").first(), "a reported limit");
+            const editable = await page
+                .locator("main input, main textarea, main select, main [role='switch']")
+                .count();
+            expect(editable === 0, "The limits tab has an editable control.");
+            await open(ctx, "/capabilities?tab=helper", WIDE_DESK);
+            await visible(
+                page.getByText("Not available on this hub yet").first(),
+                "the placeholder",
+            );
+            expect(
+                !server.unexpected.some((key) => /helper/i.test(key)),
+                "A helper request was made.",
+            );
+        },
+    },
+    {
+        name: "capability center pages fit 375 px and pass axe in both schemes",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            const pages = [
+                ["/capabilities?tab=packages", "Packages tab", "Imported packages"],
+                [
+                    "/capabilities/install?package=nginx-tools&version=1.2.0&host=nas",
+                    "Install wizard",
+                    "Next",
+                ],
+                ["/capabilities/jobs/0192b000-0000-7000-8000-00000000a001", "Job page", "nas"],
+                ["/capabilities?tab=limits&host=nas", "Limits tab", "container.restart"],
+                ["/capabilities?tab=helper", "Helper tab", "Not available on this hub yet"],
+            ];
+            try {
+                for (const scheme of ["light", "dark"]) {
+                    await page.emulateMedia({ colorScheme: scheme });
+                    for (const [path, name, loaded] of pages) {
+                        const what = `${name} (${scheme})`;
+                        await open(ctx, path, WIDE_DESK);
+                        await visible(page.getByText(loaded).first(), `${what} content`);
+                        await axe(page, what);
+                        if (scheme === "light") {
+                            await open(ctx, path, PHONE);
+                            await visible(page.getByText(loaded).first(), `${what} content`);
+                            await noSideways(page, name);
+                        }
+                    }
+                }
+            } finally {
+                await page.emulateMedia({ colorScheme: "light" });
+            }
+        },
+    },
 ];

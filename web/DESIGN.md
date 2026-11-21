@@ -388,6 +388,16 @@ and never covers a field; switching section moves nothing. **Dialog form:** `Dia
 centred 360 px card on the page background, the logo tile above, a 20 px/600 title, fields
 and one full-width primary button.
 
+**Wizard.** A guided flow with a `Stepper`, one decision per step, and a review step that shows the
+plan code (the first 8 hex characters of the hash the hub computed). Confirming opens a dialog that
+asks for the password and the typed package name and submits the hash captured when the dialog
+opened; a changed plan blocks the confirm. A progress page follows and polls while anything works.
+The wizard has no switch, schedule or "apply to all" control.
+
+**Read-only host view.** A page that shows what a host reported about itself (its unattended
+limits, for example): it says who owns the data, says how to change it on the host, and never
+offers a control. "Not reported" and "unreadable" read as information, never as permission.
+
 **Policy editor.** The rules table sits beside an in-page rule editor, opened by `?rule=` in the
 address so a rule can be linked. The page has one primary action at a time: Review and publish, or
 Save while there are unsaved changes, which then takes the primary role from it. Unsaved changes
@@ -513,6 +523,12 @@ toggle or a "+N details" button. The choice follows the person to every browser.
   is fixed.
 - Decisions are recorded for comparison and are not enforced. Every recorded answer says so.
 
+**Install a package.** Import the owner-signed archive and its signature file on the Packages tab of
+the Capability Center, then choose the package and the hosts. Review the plan code, then confirm
+with your password and the package name typed by you. Watch each host on the progress page; a retry
+needs a fresh approval, and a result marked unknown means: check the host first. Installed is not
+enabled: nothing here turns a package's skills on.
+
 **Check one host.**
 
 - Anything scoped to one host shows that host in the selector, and leaving restores the earlier choice.
@@ -624,50 +640,52 @@ pinned automatically; the key id is a label); a changed key reads "helper key ch
 containment; the helper's fail-closed reasons (`state_missing`, `state_corrupt`, `state_key_mismatch`,
 `key_missing`, `uninitialized`, `generation_regressed`) show with the matching local action; a
 containment step the helper refuses because its safety identity changed carries the reason
-`safety_changed`. The owner confirms only covered paths. The Capability
-Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
-before the install wizard, which is built after the visibility infrastructure.
+`safety_changed`. The owner confirms only covered paths. The Capability Center
+reserves the Helper tab and `/capabilities/helper-key` as labelled placeholders until the hub
+collects helper data.
 Playback of a completed operation is the last U2 deliverable (D-25); the timeline and the outline
 do not depend on it, and its motion follows the same visualization class and reduced-motion rule
 as the graph.
 
 ## Checks that will fail your PR
 
-| What                                                                                                                                                  | Command         | Fix                                                                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| Raw colour or `--palette-*` outside `tokens.css`                                                                                                      | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                       |
-| The two dark theme blocks differ                                                                                                                      | `npm test`      | Make them identical                                                    |
-| A token pair below WCAG AA (text 4.5, UI 3)                                                                                                           | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                           |
-| A status without label, tone, hint, icon                                                                                                              | `npm test`      | Add it to its vocabulary in `src/design/`                              |
-| A hub error or failure without words                                                                                                                  | `npm test`      | Add it to `messages.ts`                                                |
-| "Oops", "Something went wrong", "Error:", "!" in text                                                                                                 | `npm test`      | Say what happened and what to do (`voice.test.ts`)                     |
-| An axe violation in whatever a page test leaves on screen                                                                                             | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment             |
-| Inline JSX `style`                                                                                                                                    | `npm run lint`  | A CSS module with tokens; computed values need a disable comment       |
-| JSX `title=`                                                                                                                                          | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                   |
-| A raw `<button>` in `src/features` or `src/app`                                                                                                       | `npm run lint`  | `Button` or `IconButton`                                               |
-| A verdict string literal (`"ACTION_NEEDED"`) in page code                                                                                             | `npm run lint`  | `verdictMeta` and `StatusPill`                                         |
-| `disabled` on a control without `disabledReason`                                                                                                      | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint           |
-| `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top          |
-| A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                     |
-| `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                             |
-| A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                |
-| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                 |
-| A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`) |
-| Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                           |
-| An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`             |
-| A broken operations page, slot, focus or contrast in a browser                                                                                        | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                |
+| What                                                                                                                                                  | Command         | Fix                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------- |
+| Raw colour or `--palette-*` outside `tokens.css`                                                                                                      | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                                 |
+| The two dark theme blocks differ                                                                                                                      | `npm test`      | Make them identical                                                              |
+| A token pair below WCAG AA (text 4.5, UI 3)                                                                                                           | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                                     |
+| A status without label, tone, hint, icon                                                                                                              | `npm test`      | Add it to its vocabulary in `src/design/`                                        |
+| A hub error or failure without words                                                                                                                  | `npm test`      | Add it to `messages.ts`                                                          |
+| "Oops", "Something went wrong", "Error:", "!" in text                                                                                                 | `npm test`      | Say what happened and what to do (`voice.test.ts`)                               |
+| An axe violation in whatever a page test leaves on screen                                                                                             | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment                       |
+| Inline JSX `style`                                                                                                                                    | `npm run lint`  | A CSS module with tokens; computed values need a disable comment                 |
+| JSX `title=`                                                                                                                                          | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                             |
+| A raw `<button>` in `src/features` or `src/app`                                                                                                       | `npm run lint`  | `Button` or `IconButton`                                                         |
+| A verdict string literal (`"ACTION_NEEDED"`) in page code                                                                                             | `npm run lint`  | `verdictMeta` and `StatusPill`                                                   |
+| `disabled` on a control without `disabledReason`                                                                                                      | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint                     |
+| `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top                    |
+| A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                               |
+| `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                                       |
+| A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                          |
+| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                           |
+| A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`)           |
+| Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                                     |
+| An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`                       |
+| A placeholder helper view that gains a helper request or data                                                                                         | `npm test`      | When the hub gains helper endpoints, replace the placeholder and update the test |
+| An install job created or retried outside the two authorization dialogs                                                                               | `npm test`      | Only the confirm buttons of the install and retry dialogs may call them          |
+| A broken operations page, slot, focus or contrast in a browser                                                                                        | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                          |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 
 ## Performance budget
 
-<!-- budget:initial-js-gzip-kb 177 -->
+<!-- budget:initial-js-gzip-kb 183 -->
 
-| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                                            |
-| ------------------------------ | ------------------------ | -------- | ------------------------------------------------------------------------------------------------ |
-| Initial JavaScript             | 179.0 kB, one chunk      | 176.3 kB | 177 kB (policy and knowledge words and the Knowledge navigation items are eager; pages are lazy) |
-| Largest chunk                  | 179.0 kB                 | 111.7 kB | 120 kB                                                                                           |
-| Total CSS                      | 9.9 kB                   | 26.2 kB  | 30 kB                                                                                            |
+| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                  |
+| ------------------------------ | ------------------------ | -------- | ---------------------------------------------------------------------- |
+| Initial JavaScript             | 179.0 kB, one chunk      | 179.8 kB | 183 kB (policy, knowledge and package words are eager; pages are lazy) |
+| Largest chunk                  | 179.0 kB                 | 111.7 kB | 120 kB                                                                 |
+| Total CSS                      | 9.9 kB                   | 26.8 kB  | 30 kB                                                                  |
 
 The Inter font file (latin subset, about 48 kB) is not counted by `npm run size`. It loads
 from the hub's own origin, is cached across upgrades, and uses `font-display: swap`, so it
@@ -706,6 +724,10 @@ it and `/dev/design` shows it. (3) Render `<StatusPill meta={…Meta(value)} />`
 its stripe from the same meta. (4) A new timeline kind goes in `KINDS` in `timeline.ts`.
 (5) Filtering on it is the hub's job: add the filter to the endpoint, never filter loaded
 pages in the browser.
+
+The package tables (`design/packageVocab.ts`) are vocabularies too: install target, install job,
+host package, key state, file status, privilege boundary and ceiling reporting. Failure codes of an
+install are worded in `design/packageFailures.ts`, read through `describeTargetFailure`.
 
 The policy tables (`design/policyVocab.ts`, `policyLimits.ts`, `policyRecord.ts` and `policyMeta.ts`)
 are vocabularies too. Add a value there and read it through `tone.ts`; a feature never writes a
