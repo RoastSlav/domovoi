@@ -8,8 +8,11 @@
 //! non-`Read` contract on that host with `NotAllowedOnHost(CeilingAbsent)`, never `Available`
 //! and never the permissive default. The hub adds no second ceiling language here.
 
+use domovoi_core::HostId;
 use domovoi_core::capability::{CeilingSummary, ContractId};
 use serde_json::from_str;
+
+use super::host::HostCapabilities;
 
 /// Maps the agent's `hello.ceiling_summary` (a JSON string, wire 1.2) into the hub's own
 /// capability types.
@@ -51,6 +54,63 @@ pub enum CeilingParse {
         /// What made it unusable.
         reason: String,
     },
+}
+
+/// What the hub knows about one host's unattended ceiling right now. Memory only: nothing
+/// is stored.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CeilingReport {
+    /// Whether the host has a live agent session.
+    pub connected: bool,
+    /// The agent's opaque `ceiling_hash`, as reported.
+    pub hash: Option<String>,
+    /// What the summary said.
+    pub state: CeilingState,
+}
+
+/// How the agent's ceiling summary reads.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CeilingState {
+    /// No summary reached the hub: the agent reported none, predates it, or is not connected.
+    NotReported,
+    /// A valid summary, exactly as the agent sent it.
+    Reported(CeilingSummary),
+    /// A summary arrived and [`parse_ceiling`] refused it. A fixed sentence, never the raw text.
+    Unreadable(String),
+}
+
+/// What `agent`'s live session for `host` reported as its ceiling. Read only.
+#[must_use]
+pub fn ceiling_of(agent: &dyn HostCapabilities, host: HostId) -> CeilingReport {
+    match agent.view(host) {
+        None => report_ceiling(false, None, None),
+        Some(view) => report_ceiling(
+            true,
+            view.words.ceiling_summary.as_deref(),
+            view.words.ceiling_hash,
+        ),
+    }
+}
+
+/// Reads one session's ceiling words into a [`CeilingReport`].
+#[must_use]
+pub fn report_ceiling(
+    connected: bool,
+    summary: Option<&str>,
+    hash: Option<String>,
+) -> CeilingReport {
+    let state = match parse_ceiling(summary) {
+        CeilingParse::Absent => CeilingState::NotReported,
+        CeilingParse::Parsed(ceiling) => CeilingState::Reported(ceiling),
+        CeilingParse::Malformed { reason: _ } => CeilingState::Unreadable(
+            "The summary is not valid JSON or does not match the expected shape.".to_owned(),
+        ),
+    };
+    CeilingReport {
+        connected,
+        hash,
+        state,
+    }
 }
 
 #[cfg(test)]

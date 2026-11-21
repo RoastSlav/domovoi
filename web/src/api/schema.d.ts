@@ -372,6 +372,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/ceiling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The unattended limits host `name` reported. Read only. */
+        get: operations["get_host_ceiling"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/checks": {
         parameters: {
             query?: never;
@@ -2208,6 +2225,64 @@ export interface components {
             hash?: string | null;
             /** @description `complete`, `partial` or `stale`. */
             state: string;
+        };
+        /** @description What one host reported as its unattended limits. */
+        CeilingDto: {
+            /** @description Whether the host has a live agent session now. */
+            connected: boolean;
+            /** @description One entry per capability the host lets run unattended, sorted by contract. */
+            entries: components["schemas"]["CeilingEntryDto"][];
+            /** @description The agent's opaque configuration fingerprint, only when reported. */
+            hash?: string | null;
+            /** @description The host's name. */
+            host: string;
+            /** @description How the summary reads. */
+            reporting: components["schemas"]["CeilingReporting"];
+            /** @description `[unattended].enabled` on the host; only set when reported. */
+            unattended_enabled?: boolean | null;
+            /** @description Why the summary could not be read; only set when unreadable. */
+            unreadable_reason?: string | null;
+        };
+        /** @description One capability's bound in the host's unattended ceiling. */
+        CeilingEntryDto: {
+            /** @description Argument bounds, key to integer bound. */
+            args: {
+                [key: string]: number;
+            };
+            /** @description The exact contract id. */
+            contract: string;
+            /**
+             * Format: int32
+             * @description How many runs may be active at once, when the entry sets a limit.
+             */
+            max_active?: number | null;
+            /**
+             * Format: int32
+             * @description The most runs allowed in any hour.
+             */
+            max_per_hour: number;
+            /**
+             * Format: int64
+             * @description The longest hold in seconds, when the entry sets a limit.
+             */
+            max_ttl_secs?: number | null;
+            /** @description The targets the entry covers. */
+            targets: components["schemas"]["CeilingTargetsDto"];
+        };
+        /**
+         * @description How the host's ceiling summary reads.
+         * @enum {string}
+         */
+        CeilingReporting: "reported" | "not_reported" | "unreadable";
+        /** @description Which targets a ceiling entry covers. */
+        CeilingTargetsDto: {
+            /** @enum {string} */
+            kind: "any";
+        } | {
+            /** @enum {string} */
+            kind: "names";
+            /** @description The covered target names. */
+            names: string[];
         };
         /** @description One check's settings: on or off, interval, thresholds. */
         CheckSettingsDto: {
@@ -5808,6 +5883,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CapabilitiesDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_host_ceiling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the host reported */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CeilingDto"];
                 };
             };
             /** @description Not logged in */

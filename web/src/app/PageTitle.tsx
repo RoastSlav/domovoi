@@ -74,6 +74,18 @@ function knowledgeDetail(rest: string): string | undefined {
   }
 }
 
+/** What a page under Capabilities is called until the page itself says. */
+function capabilitiesDetail(rest: string): string | undefined {
+  const first = rest.split("/")[0];
+  if (first === "install") {
+    return "Install package";
+  }
+  if (first === "jobs") {
+    return "Install job";
+  }
+  return first === "helper-key" ? "Helper key" : undefined;
+}
+
 /** What a page about one thing is called until the page itself says (`usePageName`). */
 function defaultDetail(section: string, rest: string | undefined): string | undefined {
   if (!rest) {
@@ -88,6 +100,8 @@ function defaultDetail(section: string, rest: string | undefined): string | unde
       return "Operation";
     case "policy":
       return policyDetail(rest);
+    case "capabilities":
+      return capabilitiesDetail(rest);
     case "knowledge":
       return knowledgeDetail(rest);
     case "notes":

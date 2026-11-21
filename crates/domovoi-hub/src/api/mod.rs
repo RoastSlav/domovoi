@@ -25,6 +25,7 @@ pub mod packages;
 mod actions;
 mod auth;
 mod capability;
+mod capability_ceiling;
 mod events;
 mod experience;
 mod followups;
@@ -406,6 +407,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(hosts::revoke))
         .routes(routes!(hosts::skills))
         .routes(routes!(capability::list_capabilities))
+        .routes(routes!(capability_ceiling::get_ceiling))
         .routes(routes!(hosts::logs))
         .routes(routes!(profile::get, profile::refresh))
         .routes(routes!(notes::list, notes::create))

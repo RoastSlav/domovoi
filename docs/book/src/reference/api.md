@@ -109,6 +109,8 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 
 `GET /api/v1/hosts/{name}/capabilities` returns the host's capability inventory: one row per contract the hub knows, with its state (`available`, `not_installed`, `disabled_by_hub`, `not_allowed_on_host`, `unavailable`, `host_unknown`, `host_absent` or `host_incompatible`), the reason code of a refusal, how much of the host's implementation list was read (`complete`, `partial` or `stale`), the effect class, the target kind, the execution path, and whether the agent runs as root or reported an isolated skill runner. `unknown_contracts` lists ids the agent reported that no contract describes. The endpoint is read-only: it enables, disables and approves nothing.
 
+`GET /api/v1/hosts/{name}/ceiling` returns what the host's agent reported as its unattended limits: `reporting` is `reported`, `not_reported` or `unreadable`, and only a reported answer carries `unattended_enabled`, `hash` and `entries` (per capability: targets, `max_per_hour`, `max_active`, `max_ttl_secs`, argument bounds), sorted by contract. `connected` says whether the host has a live agent. The endpoint is read-only: the host owns these limits and the hub cannot change them.
+
 ## Asking about an incident
 
 `POST /api/v1/incidents/{id}/ask` asks the triage model one question about an incident. It reads with the same read-only tools triage has, answers in plain text, and never proposes or runs actions.

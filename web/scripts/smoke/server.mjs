@@ -7,6 +7,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as data from "./data.mjs";
+import { makePackageState, packageRoute } from "./packages.mjs";
 
 const policyDir = join(dirname(fileURLToPath(import.meta.url)), "../../src/test/fixtures/policy");
 
@@ -57,6 +58,7 @@ function send(response, status, body) {
 /** Starts the server on 127.0.0.1 and returns its address and the handles the checks use. */
 export async function startServer(dist) {
     let state = data.makeState();
+    let packages = makePackageState(state.hostId);
     const streams = new Set();
     const posts = [];
     const unexpected = [];
@@ -281,6 +283,10 @@ export async function startServer(dist) {
         if (knowledge) {
             return send(response, knowledge.status, knowledge.payload);
         }
+        const packaged = packageRoute(packages, request.method, pathname, body);
+        if (packaged) {
+            return send(response, packaged.status, packaged.payload);
+        }
         const policy = policyRoute(request.method, pathname);
         if (policy) {
             return send(response, 200, policy());
@@ -334,6 +340,7 @@ export async function startServer(dist) {
         /** Starts over with a fresh waiting operation, optionally with a destructive skill. */
         reset(options) {
             state = data.makeState(options);
+            packages = makePackageState(state.hostId);
             posts.length = 0;
         },
         /** Pauses the operation behind the page's back and tells the stream. */
@@ -345,6 +352,7 @@ export async function startServer(dist) {
             push();
         },
         state: () => state,
+        packages: () => packages,
         close() {
             for (const open of streams) {
                 open.end();

@@ -20,7 +20,9 @@ mod inventory;
 mod registry;
 
 pub use catalogue::CatalogueCache;
-pub use ceiling::{CeilingParse, covers, parse_ceiling};
+pub use ceiling::{
+    CeilingParse, CeilingReport, CeilingState, covers, parse_ceiling, report_ceiling,
+};
 pub use enablement::{DISABLED_REASON, Enablement, host_skills_key};
 pub use floors::{FloorWriteError, Floors, host_floors_key};
 pub use host::HostCapabilities;

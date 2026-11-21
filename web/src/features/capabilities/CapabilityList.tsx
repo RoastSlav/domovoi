@@ -1,5 +1,14 @@
 import type { Capability } from "../../api/types";
-import { Cluster, DataTable, StatusPill, Tag, Text, type Column } from "../../components";
+import {
+  Cluster,
+  DataTable,
+  StatusPill,
+  Tag,
+  Text,
+  Visible,
+  visibilityAttrs,
+  type Column,
+} from "../../components";
 import { capabilityStateMeta } from "../../design/tone";
 import { catalogueSentence, executionSentence, runnerSentence } from "./capabilityText";
 
@@ -10,19 +19,25 @@ const COLUMNS: Column<Capability>[] = [
     label: "Capability",
     width: "18rem",
     cell: (capability) => (
-      <Cluster gap={2}>
-        <Text mono strong>
-          {capability.contract}
-        </Text>
-        {capability.from_hello_skills && <Tag>Skill</Tag>}
-      </Cluster>
+      <span {...visibilityAttrs("P1", "capabilities.row.title")}>
+        <Cluster gap={2}>
+          <Text mono strong>
+            {capability.contract}
+          </Text>
+          {capability.from_hello_skills && <Tag>Skill</Tag>}
+        </Cluster>
+      </span>
     ),
   },
   {
     key: "state",
     label: "State",
     width: "11rem",
-    cell: (capability) => <StatusPill meta={capabilityStateMeta(capability.state)} />,
+    cell: (capability) => (
+      <span {...visibilityAttrs("P0", "capabilities.row.state")}>
+        <StatusPill meta={capabilityStateMeta(capability.state)} />
+      </span>
+    ),
   },
   {
     key: "why",
@@ -36,7 +51,9 @@ const COLUMNS: Column<Capability>[] = [
     label: "Effect",
     width: "7rem",
     hint: "The class the hub gives this capability; it decides whether policy treats it as read-only.",
-    cell: (capability) => capability.effect,
+    cell: (capability) => (
+      <span {...visibilityAttrs("P1", "capabilities.row.title")}>{capability.effect}</span>
+    ),
   },
   {
     key: "execution",
@@ -44,7 +61,25 @@ const COLUMNS: Column<Capability>[] = [
     width: "10rem",
     tip: (capability) =>
       `${executionSentence(capability.execution)}. ${runnerSentence(capability)}`,
-    cell: (capability) => executionSentence(capability.execution),
+    cell: (capability) => (
+      <span {...visibilityAttrs("P0", "capabilities.row.authority")}>
+        {executionSentence(capability.execution)}
+        {capability.root_agent || !capability.runner_installed
+          ? ` (${runnerSentence(capability)})`
+          : ""}
+      </span>
+    ),
+  },
+  {
+    key: "technical",
+    label: "Technical",
+    cell: (capability) => (
+      <Visible category="P2" id="capabilities.row.technical" label="Technical details">
+        <Text size="sm" mono>
+          {`v${capability.version} · ${capability.category} · ${capability.target_kind} · ${capability.execution}`}
+        </Text>
+      </Visible>
+    ),
   },
 ];
 

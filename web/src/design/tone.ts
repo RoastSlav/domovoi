@@ -20,6 +20,7 @@ import {
   STEP_OUTCOMES,
 } from "./operationVocab";
 import { TURN_STATUSES } from "./operatorVocab";
+import { PACKAGE_VOCABULARIES } from "./packageVocab";
 import { POLICY_VOCABULARIES } from "./policyMeta";
 import { INCIDENT_GROUPS, INCIDENT_STATUSES, SEVERITIES, VERDICTS } from "./respondVocab";
 import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from "./status";
@@ -32,6 +33,15 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
+export {
+  ceilingReportingMeta,
+  fileStatusMeta,
+  hostPackageStatusMeta,
+  installJobStatusMeta,
+  installTargetStatusMeta,
+  keyStateMeta,
+  privilegeBoundaryMeta,
+} from "./packageVocab";
 export {
   comparisonMeta,
   decisionErrorMeta,
@@ -304,4 +314,5 @@ export const VOCABULARIES: {
     values: Object.keys(COVERAGE_STATES),
   },
   ...POLICY_VOCABULARIES,
+  ...PACKAGE_VOCABULARIES,
 ];

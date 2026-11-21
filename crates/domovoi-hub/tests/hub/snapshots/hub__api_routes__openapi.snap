@@ -780,6 +780,164 @@ expression: spec
         ],
         "type": "object"
       },
+      "CeilingDto": {
+        "description": "What one host reported as its unattended limits.",
+        "properties": {
+          "connected": {
+            "description": "Whether the host has a live agent session now.",
+            "type": "boolean"
+          },
+          "entries": {
+            "description": "One entry per capability the host lets run unattended, sorted by contract.",
+            "items": {
+              "$ref": "#/components/schemas/CeilingEntryDto"
+            },
+            "type": "array"
+          },
+          "hash": {
+            "description": "The agent's opaque configuration fingerprint, only when reported.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "reporting": {
+            "$ref": "#/components/schemas/CeilingReporting",
+            "description": "How the summary reads."
+          },
+          "unattended_enabled": {
+            "description": "`[unattended].enabled` on the host; only set when reported.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "unreadable_reason": {
+            "description": "Why the summary could not be read; only set when unreadable.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "host",
+          "connected",
+          "reporting",
+          "entries"
+        ],
+        "type": "object"
+      },
+      "CeilingEntryDto": {
+        "description": "One capability's bound in the host's unattended ceiling.",
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Argument bounds, key to integer bound.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "contract": {
+            "description": "The exact contract id.",
+            "type": "string"
+          },
+          "max_active": {
+            "description": "How many runs may be active at once, when the entry sets a limit.",
+            "format": "int32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_per_hour": {
+            "description": "The most runs allowed in any hour.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_ttl_secs": {
+            "description": "The longest hold in seconds, when the entry sets a limit.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "targets": {
+            "$ref": "#/components/schemas/CeilingTargetsDto",
+            "description": "The targets the entry covers."
+          }
+        },
+        "required": [
+          "contract",
+          "targets",
+          "max_per_hour",
+          "args"
+        ],
+        "type": "object"
+      },
+      "CeilingReporting": {
+        "description": "How the host's ceiling summary reads.",
+        "enum": [
+          "reported",
+          "not_reported",
+          "unreadable"
+        ],
+        "type": "string"
+      },
+      "CeilingTargetsDto": {
+        "description": "Which targets a ceiling entry covers.",
+        "oneOf": [
+          {
+            "description": "Every target of the contract.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "any"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Only these targets, sorted ascending.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "names"
+                ],
+                "type": "string"
+              },
+              "names": {
+                "description": "The covered target names.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "names",
+              "kind"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "CheckSettingsDto": {
         "description": "One check's settings: on or off, interval, thresholds.",
         "properties": {
@@ -8733,6 +8891,58 @@ expression: spec
           }
         },
         "summary": "The capability inventory of host `name`.",
+        "tags": [
+          "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/ceiling": {
+      "get": {
+        "operationId": "get_host_ceiling",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CeilingDto"
+                }
+              }
+            },
+            "description": "What the host reported"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "The unattended limits host `name` reported. Read only.",
         "tags": [
           "hosts"
         ]

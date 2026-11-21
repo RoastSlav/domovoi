@@ -1427,3 +1427,31 @@ fn hub_cannot_add_trusted_key() {
         }
     }
 }
+
+/// The host ceiling is read through the hub and never written: its handler names no settings
+/// store, agent link or `agent.toml`, and declares only a `get`.
+#[test]
+fn host_ceiling_is_read_only_through_the_hub() {
+    let text = hub_sources()
+        .into_iter()
+        .find(|(rel, _)| *rel == crate_path("api/capability_ceiling.rs"))
+        .map(|(_, text)| production_text(&text).to_owned())
+        .unwrap_or_default();
+    assert!(!text.is_empty(), "api/capability_ceiling.rs was not read");
+    for word in [
+        "SettingsRepo",
+        ".set(",
+        "AgentLink",
+        "agent.toml",
+        "post,",
+        "put,",
+        "delete,",
+        "patch,",
+    ] {
+        assert!(
+            !text.contains(word),
+            "the ceiling handler names {word}: it must stay read only"
+        );
+    }
+    assert!(text.contains("get, path = \"/api/v1/hosts/{name}/ceiling\""));
+}

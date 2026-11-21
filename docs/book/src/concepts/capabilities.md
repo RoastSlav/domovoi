@@ -26,6 +26,16 @@ Every capability row answers one question: *would the hub offer this here, and i
 
 Available is not approved. A row says the hub would offer the capability on that host; whether a particular request may run is decided when the request is made, by the policy layer and, for anything that changes a host, by you. The Capabilities page only reports: it never enables, disables or approves anything.
 
+## Host limits
+
+Every host decides for itself what may run without a person: the `[unattended]` section of its `agent.toml` is its unattended ceiling. The agent sends a summary of it when it connects, and the **Host limits** tab of the Capability Center shows that summary for the selected host, read-only. Hub policy may only narrow what the host allows, never widen it.
+
+- **Reported by the host** lists each capability that may run unattended, the targets it covers, and its limits per hour, at once and for how long.
+- **Not reported** means the host has sent no limits, because it is offline or its agent does not send them yet. This is information, not a fault. Until a host reports, Domovoi treats unattended actions on it as not allowed.
+- **Unreadable** means the host sent something the hub could not read. It is treated as not allowed.
+
+To change a host's limits, edit the `[unattended]` section of `/etc/domovoi/agent.toml` on that host and restart the agent. The hub has no way to do it.
+
 ## The host's own list
 
 The hub reads a host's implementation list page by page and checks it against the fingerprint the agent announced. If any part of that read fails — a page does not arrive, the agent leaves, the fingerprint does not match — the list is shown as unverified, and a capability missing from it is never reported as "not installed": an unread list proves nothing about what a host lacks.

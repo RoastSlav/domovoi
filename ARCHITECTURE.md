@@ -358,6 +358,8 @@ flowchart LR
 - **Experience:** `GET /api/v1/operations/{id}/summary`, `POST /api/v1/operations/{id}/summary/{field}` (narrative fields only), `GET /api/v1/operations/{id}/similar`, `GET /api/v1/incidents/{id}/similar-operations` and `GET /api/v1/experience/search` (one host by default; `scope=global` only on request). Operation rows carry a `resolution` brief.
 - **Capability inventory:** `GET /api/v1/hosts/{name}/capabilities` returns one row per contract the hub knows, with its state, its catalogue state, its effect class, its execution path and the two agent labels (`root_agent`, `runner_installed`), plus the ids the agent reported that no contract describes. The `/capabilities` page renders it read-only: it enables, disables and approves nothing, and an `available` row is never a promise that a run will proceed.
 
+- **Host ceiling:** `GET /api/v1/hosts/{name}/ceiling` returns what the host's agent reported as its unattended limits (`reported`, `not_reported` or `unreadable`). It is read-only and never written by the hub. The Capability Center at `/capabilities` groups the inventory, packages (import and install wizard), host limits and helper placeholders as tabs.
+
 ## 11. LLM and triage
 
 - `LlmProvider` exposes one turn: messages + tool definitions in, assistant text or tool calls + usage out. Adapters: Anthropic Messages API, OpenAI-compatible Chat Completions (covers Ollama, LM Studio, OpenRouter), and a **CLI provider** that runs a locally installed coding-agent CLI in print mode through an injected `ProcessExecutor` with a fixed argv template.
