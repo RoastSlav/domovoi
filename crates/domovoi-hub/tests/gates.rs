@@ -87,7 +87,7 @@ fn source_files(
 
 /// The hub's one raw-link consumer, holding its exact count: the capability forward every raw
 /// link operation exactly once.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n}\n";
 
 /// The smallest tree that satisfies the hub's boundary cards, including the two sites that
 /// build a `Caller`.
@@ -1154,6 +1154,11 @@ fn operator_has_no_executor() {
         "run_capability",
         "start_skill",
         "PolicyPermit",
+        "PackageHandle",
+        "PackageCommands",
+        "PackageCall",
+        "InstallService",
+        "web_package_authorization",
     ];
     fn scan(dir: &std::path::Path, files: &mut usize, offenders: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
@@ -1256,4 +1261,169 @@ fn the_preferences_scan_flags_a_forbidden_use() {
         "fn h(s: &S) { s.services().preferences.get(&c); }",
     );
     assert!(preference_leaks(&handler).is_empty());
+}
+
+/// The text of a source file before its first `#[cfg(test)]`, so a test module does not count.
+fn production_text(text: &str) -> &str {
+    text.split("#[cfg(test)]").next().unwrap_or(text)
+}
+
+/// A package approval is made in one place and used in one: `web_package_authorization` is
+/// defined in `auth/approval.rs` and called only by the package service's create and retry,
+/// and neither a transport, the chat authorizer nor the Operator names it or the install
+/// service (ADR 0029).
+#[test]
+fn package_approval_has_one_production_site() {
+    let definition = crate_path("auth/approval.rs");
+    let service = crate_path("services/packages/jobs.rs");
+    let mut sites = Vec::new();
+    for (rel, text) in hub_sources() {
+        let text = squeezed(production_text(&text));
+        if text.contains("web_package_authorization(") {
+            sites.push(rel.clone());
+        }
+        if rel != service && rel != crate_path("services/packages/mod.rs") {
+            for call in [
+                "handle.create_job(",
+                "handle.retry_target(",
+                "handle.cancel_target(",
+                "handle.refresh_inventory(",
+            ] {
+                assert!(
+                    !text.contains(call) || rel.starts_with(&crate_path("services/packages/")),
+                    "{rel} reaches the install service ({call}); only the package service does"
+                );
+            }
+        }
+    }
+    sites.sort();
+    assert_eq!(
+        sites,
+        vec![definition, service.clone()],
+        "a package approval is made by auth/approval.rs and requested only by the package service"
+    );
+    let jobs = hub_sources()
+        .into_iter()
+        .find(|(rel, _)| *rel == service)
+        .map(|(_, text)| squeezed(production_text(&text)))
+        .unwrap_or_default();
+    assert_eq!(
+        jobs.matches("web_package_authorization(").count(),
+        2,
+        "one approval for a new job and one for a retry"
+    );
+    assert!(
+        jobs.find("step_up(")
+            .zip(jobs.find("web_package_authorization("))
+            .is_some_and(|(password, approval)| password < approval),
+        "the password is checked before an approval is made"
+    );
+}
+
+/// No job comes from chat, the model or a transport other than the package endpoints: the
+/// chat authorizer, the Operator API and the conversation service never name the install
+/// service, the package commands, a package call or the approval constructor.
+#[test]
+fn jobs_never_come_from_the_model_or_chat() {
+    const WORDS: &[&str] = &[
+        "PackageHandle",
+        "PackageCommands",
+        "InstallService",
+        "PackageCall",
+        "PackageDispatch",
+        "JobRequest",
+        "web_package_authorization",
+        "create_job",
+        "retry_target",
+        "refresh_inventory",
+    ];
+    let guarded = [
+        "auth/interactions/",
+        "api/operator/",
+        "services/conversations.rs",
+        "services/operations/",
+        "services/incidents.rs",
+    ];
+    let mut checked = 0;
+    for (rel, text) in hub_sources() {
+        if !guarded.iter().any(|part| rel.contains(part)) {
+            continue;
+        }
+        checked += 1;
+        for word in WORDS {
+            assert!(
+                !production_text(&text).contains(word),
+                "{rel} reaches package installation ({word})"
+            );
+        }
+    }
+    assert!(checked >= 10, "the scan found only {checked} sources");
+    // Chat has no surface for it either: a chat caller is refused by the service itself.
+    let service = hub_sources()
+        .into_iter()
+        .find(|(rel, _)| *rel == crate_path("services/packages/mod.rs"))
+        .map(|(_, text)| text)
+        .unwrap_or_default();
+    assert!(
+        service.contains("Surface::Chat { .. } => Err(PackageCommandError::WebOnly)"),
+        "the package service no longer refuses a chat caller"
+    );
+    // The transports hold no handle: only the services layer names the install service.
+    for (rel, text) in hub_sources() {
+        if rel.contains("/api/") || rel.contains("/ingest/") {
+            assert!(
+                !production_text(&text).contains("PackageHandle"),
+                "{rel} holds the install service handle"
+            );
+        }
+    }
+}
+
+/// The hub cannot add, replace or remove a key an agent trusts. Its half: the owner keys are
+/// built once from `hub.toml` and have no way to change, no hub source names a key-changing
+/// request, and the package call the relay carries has no key field.
+#[test]
+fn hub_cannot_add_trusted_key() {
+    const WORDS: &[&str] = &[
+        "add_key",
+        "AddKey",
+        "revoke_key",
+        "RevokeKey",
+        "trusted_keys",
+        "set_owner_key",
+        "insert_owner",
+    ];
+    for (rel, text) in hub_sources() {
+        for word in WORDS {
+            assert!(
+                !production_text(&text).contains(word),
+                "{rel} names a key-changing request ({word})"
+            );
+        }
+    }
+    let keys = hub_sources()
+        .into_iter()
+        .find(|(rel, _)| *rel == crate_path("packages/keys.rs"))
+        .map(|(_, text)| production_text(&text).to_owned())
+        .unwrap_or_default();
+    assert!(!keys.is_empty(), "packages/keys.rs was not read");
+    assert!(
+        !keys.contains("&mut self"),
+        "PackageKeys has a method that changes it after it is built"
+    );
+    assert!(
+        !keys.contains("pub fn insert") && !keys.contains("pub fn remove"),
+        "PackageKeys has a way to add or remove a key"
+    );
+    // The setting paths that hold keys are file-only: the web settings layer names them as
+    // refused, and no service writes `owner_keys`.
+    for (rel, text) in hub_sources() {
+        if rel.contains("/services/") || rel.contains("/api/") {
+            assert!(
+                !production_text(&text).contains("packages.owner_keys")
+                    && !production_text(&text).contains("packages.revoked"),
+                "{rel} reaches the owner keys"
+            );
+        }
+    }
 }

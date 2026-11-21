@@ -16,6 +16,7 @@ pub mod knowledge;
 pub mod live;
 pub mod llm;
 pub mod logs;
+pub mod package_files;
 pub mod process;
 pub mod reconcile;
 pub mod redact;
@@ -34,7 +35,7 @@ pub use capability::{
 };
 pub use caps::{
     ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
-    HostRead, JournalStatus,
+    HostRead, JournalStatus, PackageCaps, PackageRelay,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
@@ -50,6 +51,7 @@ pub use llm::{
     Role, StopReason, ToolPhase, ToolSpec, Usage, UsageSource,
 };
 pub use logs::{LogLine, LogSource};
+pub use package_files::{ArtifactReader, FileError, PackageFiles};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use reconcile::HostReconciler;
 pub use redact::Redactor;

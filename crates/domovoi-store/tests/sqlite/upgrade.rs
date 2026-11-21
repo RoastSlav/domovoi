@@ -591,3 +591,71 @@ async fn conversation_tables_exist_after_upgrade_from_the_schema5_fixture() {
     }
     assert_eq!(MIN_READER, "0.0.0");
 }
+
+#[tokio::test]
+async fn install_tables_exist_after_upgrade_from_the_schema5_fixture() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let mut original = raw(&fixture()).await;
+    for table in [
+        "hosts",
+        "incidents",
+        "signals",
+        "incident_events",
+        "actions",
+        "notes",
+    ] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let before: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.clone()))
+            .fetch_one(&mut original)
+            .await
+            .unwrap();
+        let after: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(before.0, after.0, "{table} keeps its rows");
+    }
+    sqlx::Connection::close(original).await.unwrap();
+    for table in [
+        "package_artifacts",
+        "install_jobs",
+        "install_job_targets",
+        "host_packages",
+    ] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let count: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(count.0, 0, "{table} starts empty");
+    }
+
+    // The partial unique index refuses a second non-terminal target for one host, and only
+    // such a target.
+    sqlx::query(
+        "INSERT INTO install_jobs (id, kind, name, version, requested_by, created_at, job_plan_hash)          VALUES ('j1', 'uninstall', 'tools', '1.0.0', 'u', 1, ?)",
+    )
+    .bind("ab".repeat(32))
+    .execute(store.pool_for_tests())
+    .await
+    .unwrap();
+    let insert = |id: &'static str, attempt: i64, status: &'static str| {
+        sqlx::query(
+            "INSERT INTO install_job_targets (id, job_id, host_id, attempt, execution_id, status,              plan_hash, approved_by, approval_channel, approved_at, approval_client,              authorization_kind, expires_at, queued_at)              VALUES (?, 'j1', 'h1', ?, ?, ?, ?, 'u', '{}', 1, 'web', 'human', 9, 1)",
+        )
+        .bind(id)
+        .bind(attempt)
+        .bind(id)
+        .bind(status)
+        .bind("ab".repeat(32))
+        .execute(store.pool_for_tests())
+    };
+    insert("t1", 1, "failed").await.unwrap();
+    insert("t2", 2, "queued").await.unwrap();
+    assert!(insert("t3", 3, "dispatched").await.is_err());
+    insert("t4", 4, "succeeded").await.unwrap();
+}

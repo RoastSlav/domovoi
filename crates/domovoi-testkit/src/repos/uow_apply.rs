@@ -57,6 +57,7 @@ pub(super) fn apply(
         StateWrite::Policy(write) => super::policy::apply(state, write),
         StateWrite::Knowledge(write) => super::knowledge_apply::apply(state, write, receipt),
         StateWrite::Conversation(write) => super::uow_conversations::apply(state, write, receipt),
+        StateWrite::Install(write) => super::uow_install::apply(state, write),
     }
 }
 

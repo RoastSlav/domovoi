@@ -1085,6 +1085,54 @@ expression: spec
         },
         "type": "object"
       },
+      "CreateJobRequestDto": {
+        "additionalProperties": false,
+        "description": "Create a job. The plan hash is the `job_plan_hash` of the plan the owner looked at.",
+        "properties": {
+          "confirm_text": {
+            "description": "The package name, typed.",
+            "type": "string"
+          },
+          "host_ids": {
+            "description": "One to sixteen host ids, each once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "description": "`install` or `uninstall`.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The owner's password, asked for again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hash": {
+            "description": "The `job_plan_hash` of the plan the owner confirmed.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The package version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "version",
+          "host_ids",
+          "plan_hash"
+        ],
+        "type": "object"
+      },
       "DigestHostDto": {
         "description": "One host's part of the daily digest.",
         "properties": {
@@ -2174,6 +2222,107 @@ expression: spec
         ],
         "type": "object"
       },
+      "HostPackageDto": {
+        "description": "A package installed on a host, as the agent last reported it.",
+        "properties": {
+          "archive_sha256": {
+            "description": "SHA-256 of the installed archive.",
+            "type": "string"
+          },
+          "installed_at": {
+            "description": "When the agent installed it.",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The key that signed it.",
+            "type": "string"
+          },
+          "key_state": {
+            "description": "`trusted`, `unknown` or `revoked`: how the agent treats the signer now.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "observed_at": {
+            "description": "When the hub saw this.",
+            "type": "string"
+          },
+          "observed_by": {
+            "description": "`job` or `refresh`.",
+            "type": "string"
+          },
+          "privilege_boundary": {
+            "description": "`in_effect` when the agent runs unprivileged, `not_in_effect` when it runs as root.",
+            "type": "string"
+          },
+          "skills": {
+            "description": "The names of its skills.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "`active`, `disabled_untrusted_key` or `missing_files`.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The installed version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "key_id",
+          "archive_sha256",
+          "installed_at",
+          "status",
+          "key_state",
+          "skills",
+          "privilege_boundary",
+          "observed_at",
+          "observed_by"
+        ],
+        "type": "object"
+      },
+      "HostPackagesDto": {
+        "description": "What a host reports installed.",
+        "properties": {
+          "entries": {
+            "description": "The installed packages.",
+            "items": {
+              "$ref": "#/components/schemas/HostPackageDto"
+            },
+            "type": "array"
+          },
+          "host_id": {
+            "description": "The host's id.",
+            "type": "string"
+          },
+          "install_allowed": {
+            "description": "Whether the host's owner allows installs, when the hub knows. Absent until a refresh\nhas told it.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "description": "When the hub last saw this inventory; absent when it never has.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "host_id",
+          "entries"
+        ],
+        "type": "object"
+      },
       "HostRefDto": {
         "description": "A host as a person knows it.",
         "properties": {
@@ -2542,6 +2691,220 @@ expression: spec
         ],
         "type": "object"
       },
+      "InstallJobDto": {
+        "description": "One install or uninstall job.",
+        "properties": {
+          "archive_sha256": {
+            "description": "The archive's digest, for an install.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "When it was created.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The job's id.",
+            "type": "string"
+          },
+          "job_plan_hash": {
+            "description": "What the owner's confirmation bound.",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The signing key, for an install.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`install` or `uninstall`.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "requested_by": {
+            "description": "The id of the account that approved it.",
+            "type": "string"
+          },
+          "status": {
+            "description": "`running`, `succeeded`, `failed` or `partial`, worked out from each host's latest\nattempt when the job is read.",
+            "type": "string"
+          },
+          "targets": {
+            "description": "Every attempt on every host, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/InstallTargetDto"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "The package version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "version",
+          "requested_by",
+          "created_at",
+          "status",
+          "job_plan_hash",
+          "targets"
+        ],
+        "type": "object"
+      },
+      "InstallPlanDto": {
+        "description": "What a job would do.",
+        "properties": {
+          "archive_sha256": {
+            "description": "The archive's digest, for an install.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_plan_hash": {
+            "description": "What the owner's confirmation binds.",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The signing key, for an install.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`install` or `uninstall`.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "signer_label": {
+            "description": "The label of the signing key in the hub's owner keys.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targets": {
+            "description": "One entry per host.",
+            "items": {
+              "$ref": "#/components/schemas/PlanTargetDto"
+            },
+            "type": "array"
+          },
+          "version": {
+            "description": "The package version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "version",
+          "job_plan_hash",
+          "targets"
+        ],
+        "type": "object"
+      },
+      "InstallTargetDto": {
+        "description": "One attempt of a job on one host.",
+        "properties": {
+          "attempt": {
+            "description": "Which attempt this is; a retry is the next one.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "When the owner's approval runs out.",
+            "type": "string"
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TargetFailureDto",
+                "description": "Why it did not succeed, when it did not."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "description": "When it reached its final status.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host_id": {
+            "description": "The host's id.",
+            "type": "string"
+          },
+          "host_name": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The target's id.",
+            "type": "string"
+          },
+          "outputs_confirmed": {
+            "description": "True when the agent's answer was read and matched; false when the result is from the\nagent's journal after a restart.",
+            "type": "boolean"
+          },
+          "plan_hash": {
+            "description": "What approval of this host's work binds.",
+            "type": "string"
+          },
+          "privilege_boundary": {
+            "description": "`in_effect` or `not_in_effect`, when the agent has reported it for this package.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queued_at": {
+            "description": "When it was queued.",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "When the agent was handed the work.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`queued`, `transferring`, `dispatched`, `succeeded`, `failed`, `not_run`,\n`outcome_unknown` or `cancelled`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "host_id",
+          "host_name",
+          "attempt",
+          "plan_hash",
+          "status",
+          "outputs_confirmed",
+          "queued_at",
+          "expires_at"
+        ],
+        "type": "object"
+      },
       "InviteDto": {
         "description": "An enrollment invite. Shown once; the token is not stored.",
         "properties": {
@@ -2595,6 +2958,29 @@ expression: spec
           "path",
           "message",
           "severity"
+        ],
+        "type": "object"
+      },
+      "JobPageDto": {
+        "description": "A page of jobs, newest first.",
+        "properties": {
+          "items": {
+            "description": "The jobs.",
+            "items": {
+              "$ref": "#/components/schemas/InstallJobDto"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "description": "Pass as `cursor` for the next page; absent on the last.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items"
         ],
         "type": "object"
       },
@@ -3536,6 +3922,223 @@ expression: spec
         ],
         "type": "object"
       },
+      "OwnerKeyDto": {
+        "description": "An owner key the hub accepts signatures from. The key itself is never returned.",
+        "properties": {
+          "id": {
+            "description": "The key id: 16 lowercase hex characters.",
+            "type": "string"
+          },
+          "label": {
+            "description": "The owner's note about the key.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "PackageDetailDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PackageDto",
+            "description": "The package."
+          },
+          {
+            "properties": {
+              "file_status": {
+                "description": "`ready`, or `missing` when the archive file is not in the store and the package must\nbe imported again before it can be installed.",
+                "type": "string"
+              },
+              "hosts": {
+                "description": "The hosts known to have this version.",
+                "items": {
+                  "$ref": "#/components/schemas/PackageHostDto"
+                },
+                "type": "array"
+              },
+              "signature_toml": {
+                "description": "The signature file's text, as imported.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "signature_toml",
+              "hosts",
+              "file_status"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "One imported package with the hosts that have it."
+      },
+      "PackageDto": {
+        "description": "One imported package.",
+        "properties": {
+          "already_imported": {
+            "description": "True when an import found this exact archive already imported and changed nothing.",
+            "type": "boolean"
+          },
+          "archive_sha256": {
+            "description": "SHA-256 of the archive: 64 lowercase hex characters.",
+            "type": "string"
+          },
+          "archive_size": {
+            "description": "The archive's size in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "imported_at": {
+            "description": "When it was imported.",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The key that signed it: 16 lowercase hex characters.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "signer_label": {
+            "description": "The label of the signing key in the hub's owner keys, if it has one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Its version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "archive_sha256",
+          "key_id",
+          "archive_size",
+          "imported_at",
+          "already_imported"
+        ],
+        "type": "object"
+      },
+      "PackageHostDto": {
+        "description": "A host's copy of a package, as the hub last saw it.",
+        "properties": {
+          "host_id": {
+            "description": "The host's id.",
+            "type": "string"
+          },
+          "host_name": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "observed_at": {
+            "description": "When the hub saw it.",
+            "type": "string"
+          },
+          "status": {
+            "description": "`active`, `disabled_untrusted_key` or `missing_files`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "host_id",
+          "host_name",
+          "status",
+          "observed_at"
+        ],
+        "type": "object"
+      },
+      "PackageImportForm": {
+        "description": "The form an import posts. Documents the request; the handler reads it field by field.",
+        "properties": {
+          "archive": {
+            "description": "The `<name>-<version>.tar.zst` archive.",
+            "format": "binary",
+            "type": "string"
+          },
+          "signature": {
+            "description": "The detached `.sig.toml` signature file.",
+            "format": "binary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "archive",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "PackagesStatusDto": {
+        "description": "What the hub holds, how it is limited and which keys it trusts.",
+        "properties": {
+          "approval_window_secs": {
+            "description": "How long an approval to install stays valid.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "artifact_count": {
+            "description": "How many packages are imported.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "Whether packages can be imported and installed.",
+            "type": "boolean"
+          },
+          "max_artifact_bytes": {
+            "description": "The largest archive accepted, in bytes.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_store_bytes": {
+            "description": "The most bytes of archives the hub keeps.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "owner_keys": {
+            "description": "The keys whose signatures the hub accepts.",
+            "items": {
+              "$ref": "#/components/schemas/OwnerKeyDto"
+            },
+            "type": "array"
+          },
+          "revoked": {
+            "description": "Key ids that are never accepted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "used_store_bytes": {
+            "description": "Bytes of archives the hub holds now.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "max_artifact_bytes",
+          "max_store_bytes",
+          "used_store_bytes",
+          "artifact_count",
+          "owner_keys",
+          "revoked",
+          "approval_window_secs"
+        ],
+        "type": "object"
+      },
       "ParamDto": {
         "description": "One declared skill parameter.",
         "properties": {
@@ -3704,6 +4307,97 @@ expression: spec
           "v2"
         ],
         "type": "string"
+      },
+      "PlanRequestDto": {
+        "additionalProperties": false,
+        "description": "Plan a job: what it would do on each host, without doing anything.",
+        "properties": {
+          "host_ids": {
+            "description": "One to sixteen host ids, each once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "description": "`install` or `uninstall`.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The package name.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The package version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "version",
+          "host_ids"
+        ],
+        "type": "object"
+      },
+      "PlanTargetDto": {
+        "description": "What would happen on one host.",
+        "properties": {
+          "availability": {
+            "description": "The state of the capability on this host, such as `available` or `host_absent`.",
+            "type": "string"
+          },
+          "availability_reason": {
+            "description": "The reason code of a refused state, when there is one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "availability_text": {
+            "description": "The sentence that explains the state.",
+            "type": "string"
+          },
+          "host_id": {
+            "description": "The host's id.",
+            "type": "string"
+          },
+          "host_name": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "installed": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostPackageDto",
+                "description": "What the hub last saw of this package on the host."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan_hash": {
+            "description": "What approval of this host's work binds: 64 lowercase hex characters.",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Things the owner should know before approving.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "host_id",
+          "host_name",
+          "plan_hash",
+          "availability",
+          "availability_text",
+          "warnings"
+        ],
+        "type": "object"
       },
       "PolicyCapabilityDto": {
         "description": "The capability dimension of a rule.",
@@ -4565,6 +5259,31 @@ expression: spec
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "RetryRequestDto": {
+        "additionalProperties": false,
+        "description": "Run one host's target again.",
+        "properties": {
+          "confirm_text": {
+            "description": "The package name, typed.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The owner's password, asked for again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plan_hash": {
+            "description": "The host's `plan_hash` from the plan the owner confirmed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_hash"
+        ],
         "type": "object"
       },
       "RevokeDto": {
@@ -5842,6 +6561,24 @@ expression: spec
           "actor",
           "created_at",
           "value"
+        ],
+        "type": "object"
+      },
+      "TargetFailureDto": {
+        "description": "Why a host's target did not succeed.",
+        "properties": {
+          "code": {
+            "description": "A stable code such as `transfer_failed` or `signature_invalid`.",
+            "type": "string"
+          },
+          "message": {
+            "description": "What went wrong, in a sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -8379,6 +9116,120 @@ expression: spec
         "summary": "The recent log lines host `name`'s agent keeps, scrubbed again here so the page is\nsafe even if the agent was not. An agent too old to send them is refused with a\nmessage telling the person to update it.",
         "tags": [
           "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/packages": {
+      "get": {
+        "operationId": "list_host_packages",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostPackagesDto"
+                }
+              }
+            },
+            "description": "The host's packages"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "The packages the hub last saw installed on host `name`.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/packages/refresh": {
+      "post": {
+        "operationId": "refresh_host_packages",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostPackagesDto"
+                }
+              }
+            },
+            "description": "The host's packages as the agent reported them"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, or the agent is not connected or did not answer"
+          }
+        },
+        "summary": "Asks host `name`'s agent which packages it has and replaces what the hub holds with the\nanswer. Needs the agent connected.",
+        "tags": [
+          "packages"
         ]
       }
     },
@@ -12141,6 +12992,774 @@ expression: spec
         ]
       }
     },
+    "/api/v1/packages": {
+      "get": {
+        "operationId": "list_packages",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PackageDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The imported packages"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Every imported package.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/import": {
+      "post": {
+        "operationId": "import_package",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageImportForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageDto"
+                }
+              }
+            },
+            "description": "The same archive was already imported; nothing changed"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageDto"
+                }
+              }
+            },
+            "description": "Imported"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not exactly the two files `archive` and `signature`"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, the store is full, or the name and version belong to another archive"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The archive is larger than the hub accepts"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The signature file, the signature, the key or the archive is not acceptable"
+          }
+        },
+        "summary": "Imports a signed package: the archive and its detached signature file as one multipart\nform with the fields `archive` and `signature`. The hub checks the signature file, the\narchive's digest and the signing key, then stores the archive under its digest. It never\nopens the archive. No password is asked for: importing installs nothing.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/jobs": {
+      "get": {
+        "operationId": "list_package_jobs",
+        "parameters": [
+          {
+            "description": "Only jobs with a target on this host.",
+            "in": "query",
+            "name": "host_id",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Only jobs for this package.",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "`active` for jobs with an unfinished target, `finished` for the others.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "Page size, 1 to 200.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          {
+            "description": "The `next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobPageDto"
+                }
+              }
+            },
+            "description": "A page of jobs"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An unreadable filter"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Install jobs, newest first.",
+        "tags": [
+          "packages"
+        ]
+      },
+      "post": {
+        "operationId": "create_package_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallJobDto"
+                }
+              }
+            },
+            "description": "Created; the work runs in the background"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not one to sixteen distinct hosts, or an unreadable name or hash"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The password is missing or wrong, or the typed name is not the package's"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such package or host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, the plan changed, or a host already has a job in progress"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Creates an install or uninstall job with one target per host. Asks for the password\nagain and for the package name typed out, and refuses a plan that changed since the owner\nlooked at it. A job is approved here and nowhere else.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/jobs/plan": {
+      "post": {
+        "operationId": "plan_package_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallPlanDto"
+                }
+              }
+            },
+            "description": "What the job would do"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not one to sixteen distinct hosts, or an unreadable name"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such package or host"
+          }
+        },
+        "summary": "What a job would do on each host. Reads only; nothing is created.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/jobs/{id}": {
+      "get": {
+        "operationId": "get_package_job",
+        "parameters": [
+          {
+            "description": "Job id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallJobDto"
+                }
+              }
+            },
+            "description": "The job"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such job"
+          }
+        },
+        "summary": "One job with every attempt on every host.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/jobs/{id}/targets/{host_id}/cancel": {
+      "post": {
+        "operationId": "cancel_package_target",
+        "parameters": [
+          {
+            "description": "Job id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Host id",
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallJobDto"
+                }
+              }
+            },
+            "description": "Cancelled"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such job or target"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Already started; it cannot be cancelled"
+          }
+        },
+        "summary": "Cancels a host's target that has not started. Once it has started it cannot be cancelled.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/jobs/{id}/targets/{host_id}/retry": {
+      "post": {
+        "operationId": "retry_package_target",
+        "parameters": [
+          {
+            "description": "Job id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Host id",
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstallJobDto"
+                }
+              }
+            },
+            "description": "A new attempt was queued"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An unreadable hash"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The password is missing or wrong, or the typed name is not the package's"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such job or target"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, the plan changed, the latest attempt cannot be retried, or the host is busy"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Runs one host's target again as a new attempt, after a failure, a refusal or an unknown\noutcome. Asks for the password and the typed package name like a new job.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/status": {
+      "get": {
+        "operationId": "packages_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackagesStatusDto"
+                }
+              }
+            },
+            "description": "The package store's status"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "What the hub holds, how it is limited and which keys it trusts.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/packages/{name}/{version}": {
+      "delete": {
+        "operationId": "delete_package",
+        "parameters": [
+          {
+            "description": "Package name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Package version",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such package"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, or a running install job uses it"
+          }
+        },
+        "summary": "Removes an imported package from the hub. Copies already installed on hosts stay.",
+        "tags": [
+          "packages"
+        ]
+      },
+      "get": {
+        "operationId": "get_package",
+        "parameters": [
+          {
+            "description": "Package name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Package version",
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageDetailDto"
+                }
+              }
+            },
+            "description": "The package"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such package"
+          }
+        },
+        "summary": "One imported package with its signature file, the hosts known to have it and whether its\narchive file is in the store.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
     "/api/v1/policy": {
       "get": {
         "operationId": "policy_overview",
@@ -13533,6 +15152,10 @@ expression: spec
     {
       "description": "Host and global notes",
       "name": "notes"
+    },
+    {
+      "description": "Signed packages: import, install jobs and what hosts report",
+      "name": "packages"
     },
     {
       "description": "The signed-in person's own preferences",

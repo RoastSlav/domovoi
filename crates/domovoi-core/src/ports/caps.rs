@@ -20,6 +20,9 @@ use super::agent_link::{
 };
 use crate::action::JournalEpoch;
 use crate::id::{ActionId, AgentSessionId, HostId};
+use crate::install::{
+    CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
+};
 use crate::signal::{CheckKey, TargetKey};
 use crate::skill::SkillSummary;
 use crate::triage::ReadToolCall;
@@ -128,6 +131,44 @@ pub trait CheckRerun: Send + Sync {
     ) -> Result<CheckRecheck, LinkError>;
 }
 
+/// Relaying package files to a host and running its package capabilities.
+///
+/// This is the only object that can put bytes on an agent or start `agent.package.*`.
+/// `dispatch_package` failing is proof nothing was handed over; an error from
+/// `package_result` after the hand-off is never proof of either outcome.
+#[async_trait]
+pub trait PackageRelay: Send + Sync {
+    /// Sends one frame of a transfer to `host`'s live session, which must still be
+    /// `expected_session`. Only an `End` frame is answered, with the agent's verdict.
+    async fn relay_transfer(
+        &self,
+        host: HostId,
+        frame: TransferFrame,
+        expected_session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError>;
+
+    /// Hands one package request to `host`'s live session and returns once the frame is in
+    /// that session's outgoing queue.
+    async fn dispatch_package(
+        &self,
+        host: HostId,
+        req: PackageDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError>;
+
+    /// Waits for the terminal answer to a request handed over by
+    /// [`PackageRelay::dispatch_package`].
+    async fn package_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError>;
+}
+
 /// The capabilities the action services need, as separate objects.
 #[derive(Clone)]
 pub struct ActionCaps {
@@ -152,4 +193,17 @@ pub struct EvidenceCaps {
     pub observer: Arc<dyn HostObservation>,
     /// The one capability that can see a host's tool output.
     pub read: Arc<dyn HostRead>,
+}
+
+/// The capabilities package installation needs: ask, read the session, ask the journal, relay.
+#[derive(Clone)]
+pub struct PackageCaps {
+    /// Asking whether a host's agent is reachable.
+    pub probe: Arc<dyn AvailabilityProbe>,
+    /// Reading announced session facts, never a tool's output.
+    pub observer: Arc<dyn HostObservation>,
+    /// Reading the journal epoch and asking about executions.
+    pub journal: Arc<dyn JournalStatus>,
+    /// Relaying files and running the package capabilities.
+    pub relay: Arc<dyn PackageRelay>,
 }

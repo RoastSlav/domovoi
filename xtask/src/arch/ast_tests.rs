@@ -17,6 +17,8 @@ fn has(violations: &[Violation], rule: &str) -> bool {
 
 const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
 const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized)\n}\n";
+const PKG_WORKER: &str = "fn run(t: Target) -> R {\n    let authorized = AuthorizedPackageTarget::of(t, a)?;\n    crate::packages::execute::execute_package(authorized)\n}\n";
+const PKG_WORKER_PATH: &str = "crates/domovoi-engine/src/packages/worker.rs";
 const OP_WRITER: &str =
     "fn write(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n";
 
@@ -26,6 +28,7 @@ fn engine_sites() -> Vec<(String, String)> {
         (OP_EXECUTE_PATH, OP_EXECUTE),
         (OP_DISPATCH_PATH, OP_DISPATCH),
         (OP_WRITER_PATH, OP_WRITER),
+        (PKG_WORKER_PATH, PKG_WORKER),
     ])
 }
 
@@ -34,7 +37,7 @@ const OP_DISPATCH_PATH: &str = "crates/domovoi-engine/src/operations/effects/dis
 const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs";
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n}\n";
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n}\n";
 
 fn hub_sites() -> Vec<(String, String)> {
     files(&[
@@ -63,6 +66,34 @@ fn engine_with(rel: &str, text: &str) -> Vec<(String, String)> {
 fn the_card_sites_pass_in_their_exact_counts() {
     assert!(exec_violations(&engine_sites()).is_empty());
     assert!(exec_violations(&hub_sites()).is_empty());
+}
+
+#[test]
+fn a_second_package_link_call_in_a_card_site_is_refused() {
+    for op in ["send_transfer", "start_capability", "capability_result"] {
+        let mut hub = hub_sites();
+        hub[0].1 = format!(
+            "{CAPS}fn again() {{ self.link.{op}(a, b, c); }}
+"
+        );
+        let violations = exec_violations(&hub);
+        assert!(has(&violations, "EXEC-2"), "{op}: {violations:#?}");
+    }
+}
+
+#[test]
+fn a_package_link_call_outside_the_runtime_capability_is_refused() {
+    for op in ["send_transfer", "start_capability", "capability_result"] {
+        let text = format!(
+            "fn f() {{ deps.link.{op}(a, b, c); }}
+"
+        );
+        let violations = exec_violations(&files(&[(
+            "crates/domovoi-engine/src/packages/other.rs",
+            &text,
+        )]));
+        assert!(has(&violations, "EXEC-2"), "{op}: {violations:#?}");
+    }
 }
 
 #[test]
@@ -636,6 +667,43 @@ fn a_second_execute_step_call_is_refused() {
             "{violations:#?}"
         );
     }
+}
+
+#[test]
+fn a_second_package_constructor_or_relay_call_is_refused() {
+    for (again, name) in [
+        (
+            "fn again(t: Target) { let _ = AuthorizedPackageTarget::of(t, a); }\n",
+            "AuthorizedPackageTarget::of",
+        ),
+        (
+            "fn again(a: Target) { execute::execute_package(a); }\n",
+            "execute::execute_package",
+        ),
+    ] {
+        let in_site = format!("{PKG_WORKER}{again}");
+        for violations in [
+            exec_violations(&engine_with_site(PKG_WORKER_PATH, &in_site)),
+            exec_violations(&engine_with(OTHER_PATH, again)),
+        ] {
+            assert!(
+                violations
+                    .iter()
+                    .any(|v| v.rule == "EXEC-2" && v.message.contains(name)),
+                "{name}: {violations:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_package_worker_missing_its_sites_is_refused() {
+    let tree: Vec<(String, String)> = engine_sites()
+        .into_iter()
+        .filter(|(path, _)| path != PKG_WORKER_PATH)
+        .collect();
+    let violations = exec_violations(&tree);
+    assert!(has(&violations, "EXEC-2"), "{violations:#?}");
 }
 
 #[test]

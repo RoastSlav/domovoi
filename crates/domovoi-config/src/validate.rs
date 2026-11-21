@@ -136,6 +136,7 @@ impl Validate for HubConfig {
             }
         }
         orchestration_rules(&self.orchestration, issues);
+        self.packages.validate(issues);
     }
 }
 

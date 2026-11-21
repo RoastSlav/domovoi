@@ -130,6 +130,19 @@ The agent advertises these capabilities when `[packages]` is set in its config. 
 
 `artifact_transfer` and `signature_transfer` refer to the archive and signature transfers sent before the call.
 
+### How the hub uses these frames
+
+For one install, on one host, the hub:
+
+1. Sends the archive: `transfer_begin` with kind `package_artifact`, then `transfer_chunk` frames of at most 64 KiB each (the last one may be shorter), then `transfer_end`. It waits for that transfer's `transfer_result` before going on.
+2. Sends the signature file the same way with kind `package_manifest`, under a new transfer id.
+3. Sends `run_capability` for `agent.package.install` (or `agent.package.uninstall`, which has no transfers), naming the two transfer ids and the execution id of this attempt.
+4. Waits for the capability result.
+
+Each step has a deadline. A transfer's deadline is 60 s plus its size at 256 KiB/s, capped at 15 minutes. The install call has 300 s plus 30 s of slack, uninstall 60 s, and list 30 s. A transfer that gets no `transfer_result` by its deadline is treated as not stored.
+
+Each transfer id is fresh for every attempt, and each transfer gets exactly one `transfer_result`. If the connection changes during a transfer, the hub stops and does not send the install call. If the hub has sent `run_capability` and then loses the answer, it does not resend it. It asks the agent's journal instead.
+
 ## Examples
 
 Each example is a complete frame with fixed ids and times.

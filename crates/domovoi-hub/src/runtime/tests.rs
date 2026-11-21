@@ -2,6 +2,7 @@ mod delivery_state;
 mod harness;
 mod legacy_retirement;
 mod orchestration;
+mod packages;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

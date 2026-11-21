@@ -39,9 +39,11 @@
 - [Hardening](guide/hardening.md)
 - [Retention](guide/retention.md)
 - [Detail level](guide/display.md)
+- [Packages](guide/packages.md)
 
 # Reference
 
+- [Hub](reference/hub.md)
 - [Configuration](reference/configuration.md)
 - [Backups](reference/backup.md)
 - [Command line](reference/cli.md)

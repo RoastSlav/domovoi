@@ -209,6 +209,9 @@ pub const RAW_OPS: &[&str] = &[
     "run_capability",
     "hand_off",
     "await_handoff_result",
+    "send_transfer",
+    "start_capability",
+    "capability_result",
 ];
 
 /// Boundary paths, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one authorizing
@@ -218,6 +221,8 @@ pub const RAW_OPS: &[&str] = &[
 pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedStep::of",
     "execute::execute_step",
+    "AuthorizedPackageTarget::of",
+    "execute::execute_package",
     "OperationCommand::Dispatch",
     "Caller::web",
     "Caller::chat",
@@ -339,6 +344,33 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     },
     BoundaryCard {
         id: "EXEC-2",
+        op: BoundaryOp::Call("send_transfer"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package file reaches an agent only through `PackageRelay::relay_transfer`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `send_transfer` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("start_capability"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package capability is started only through `PackageRelay::dispatch_package`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `start_capability` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("capability_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a package capability's answer is awaited only through `PackageRelay::package_result`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `capability_result` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
         op: BoundaryOp::Call("hand_off"),
         sites: &[BoundarySite {
             file: "crates/domovoi-engine/src/operations/execute.rs",
@@ -372,6 +404,24 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 1,
         }],
         message: "`execute::execute_step` is the operation service's one dispatch and is called once, from effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedPackageTarget::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/packages/worker.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedPackageTarget::of` is the one authorizing constructor of the install service and runs once per target, in packages/worker.rs (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute::execute_package"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/packages/worker.rs",
+            count: 1,
+        }],
+        message: "`execute::execute_package` is the install service's one relay and is called once, from packages/worker.rs (ADR 0029)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -458,7 +508,8 @@ pub const ZONES: &[Zone] = &[
 pub const SERVICE_FORBIDDEN_MODULES: &[&str] = &["runtime", "router"];
 
 /// Command handles transports may not name: commands go through a service (MOD-4).
-pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] = &["ActionHandle", "OperationHandle"];
+pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] =
+    &["ActionHandle", "OperationHandle", "PackageHandle"];
 
 /// Top-level hub modules that are not a zone. A module neither here nor a zone is MOD-3.
 pub const UNZONED_MODULES: &[&str] = &[
@@ -469,6 +520,7 @@ pub const UNZONED_MODULES: &[&str] = &[
     "csp",
     "digest",
     "middleware",
+    "packages",
     "profile",
     "router",
     "runtime",
@@ -504,6 +556,8 @@ pub const LINK_NAMES_ALLOWED_FILES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
+    "crates/domovoi-hub/src/agent_server/link_logs.rs",
+    "crates/domovoi-hub/src/agent_server/link_package.rs",
     "crates/domovoi-hub/src/agent_server/mod.rs",
     "crates/domovoi-hub/src/runtime/caps.rs",
     "crates/domovoi-hub/src/runtime/mod.rs",

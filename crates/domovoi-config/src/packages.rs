@@ -25,7 +25,7 @@ pub struct PackagesSection {
     pub limits: PackageLimits,
 }
 
-/// One `[[packages.trusted_keys]]` entry.
+/// One key entry: `[[packages.trusted_keys]]` in `agent.toml`, `[[packages.owner_keys]]` in `hub.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TrustedKey {

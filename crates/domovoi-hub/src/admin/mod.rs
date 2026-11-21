@@ -6,6 +6,7 @@
 //! running, the same actions are in the web UI.
 
 mod notify;
+mod package;
 
 use std::sync::Arc;
 
@@ -57,6 +58,9 @@ pub enum AdminError {
     /// The backup could not be installed; the previous database is where it was.
     #[error(transparent)]
     Restore(#[from] RestoreError),
+    /// A package import was refused; its code is [`ImportError::code`](crate::packages::ImportError::code).
+    #[error(transparent)]
+    Package(#[from] crate::packages::ImportError),
 }
 
 impl From<LockError> for AdminError {

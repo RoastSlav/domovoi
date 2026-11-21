@@ -612,3 +612,43 @@ async fn declared_retention_keys_are_accepted_but_applied_to_nothing() {
     assert_eq!(after["values"]["retention"]["operation_journal_days"], 9);
     assert_eq!(after["fields"]["retention.operation_journal_days"], "ui");
 }
+
+#[tokio::test]
+async fn packages_enabled_change_requires_step_up() {
+    let a = api().await;
+    let login = a.admin().await;
+    let change = json!({ "packages": { "enabled": true, "approval_window": "5m" } });
+    let missing = patch(&a, &login, 0, change.clone(), None).await;
+    assert_eq!(missing.status, StatusCode::FORBIDDEN, "{}", missing.text);
+    assert_eq!(SettingsRepo::get(&*a.store, "config").await.unwrap(), None);
+
+    let ok = patch(&a, &login, 0, change, Some(PASSWORD)).await;
+    assert_eq!(ok.status, StatusCode::OK, "{}", ok.text);
+    let after = editable(&a, &login).await;
+    assert_eq!(after["values"]["packages"]["enabled"], true);
+    assert_eq!(after["fields"]["packages.enabled"], "ui");
+}
+
+#[tokio::test]
+async fn packages_keys_are_not_web_writable() {
+    let a = api().await;
+    let login = a.admin().await;
+    let key = json!({
+        "id": "a1b2c3d4e5f60718",
+        "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    });
+    for change in [
+        json!({ "packages": { "owner_keys": [key] } }),
+        json!({ "packages": { "revoked": ["a1b2c3d4e5f60718"] } }),
+    ] {
+        // Even with the password: the keys are read from hub.toml only.
+        let reply = patch(&a, &login, 0, change, Some(PASSWORD)).await;
+        assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.text);
+        let message = reply.body["message"].as_str().unwrap();
+        assert!(
+            message.contains("is set by file") && message.contains("packages."),
+            "{message}"
+        );
+    }
+    assert_eq!(SettingsRepo::get(&*a.store, "config").await.unwrap(), None);
+}

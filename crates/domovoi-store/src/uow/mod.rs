@@ -20,7 +20,7 @@ use crate::audit_chain::insert_audit;
 use crate::db::Store;
 
 /// Maps a store failure onto the unit-of-work error.
-fn map_store(err: StoreError) -> CommitError {
+pub(crate) fn map_store(err: StoreError) -> CommitError {
     match err {
         StoreError::Conflict(message) => CommitError::Constraint(message),
         StoreError::NotFound => CommitError::Constraint("the record does not exist".to_owned()),

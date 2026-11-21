@@ -11,8 +11,9 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, SkillSummary,
-    TargetKey,
+    ActionId, AgentId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch,
+    PackageDispatch, PackageOutputs, ReadToolCall, SkillSummary, TargetKey, TransferAnswer,
+    TransferFrame,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use jiff::Timestamp;
@@ -22,12 +23,14 @@ mod any_caps;
 mod caps;
 mod catalog;
 mod holds;
+mod package_link;
 mod recorders;
 mod request;
 mod script;
 
 pub use any_caps::{action_caps_of, evidence_caps_of, observer_of_any};
-pub use caps::{action_caps, evidence_caps, observer_of};
+pub use caps::{action_caps, evidence_caps, observer_of, package_caps};
+pub use package_link::{CapabilityHandler, CapabilityHook, PackageEvent};
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
 pub use request::LinkRequest;
 
@@ -88,6 +91,8 @@ pub struct FakeAgentLink {
     avail_gates: Mutex<BTreeMap<HostId, AvailabilityHold>>,
     /// Skill requests already handed over, by request id, waiting for `skill_result`.
     sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
+    /// Scripted transfers and package capabilities, and the ordered record of both.
+    package: package_link::PackageState,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
     snapshot_calls: std::sync::atomic::AtomicUsize,
@@ -117,6 +122,7 @@ impl FakeAgentLink {
             status_gates: Mutex::new(BTreeMap::new()),
             avail_gates: Mutex::new(BTreeMap::new()),
             sent_skills: Mutex::new(BTreeMap::new()),
+            package: package_link::PackageState::default(),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
             snapshot_calls: std::sync::atomic::AtomicUsize::new(0),

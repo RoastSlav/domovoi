@@ -155,6 +155,7 @@ fn summarize(tx: &Transaction) -> TxSummary {
             }),
             StateWrite::Knowledge(write) => writes.push(labels::knowledge(write)),
             StateWrite::Conversation(_) => writes.push("conversation".to_owned()),
+            StateWrite::Install(_) => writes.push("install".to_owned()),
             StateWrite::Policy(write) => writes.push(
                 match write {
                     PolicyWrite::SaveDraft { .. } => "policy:save_draft",

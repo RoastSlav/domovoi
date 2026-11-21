@@ -409,7 +409,7 @@ expression: "AgentConfig::json_schema()"
       ]
     },
     "TrustedKey": {
-      "description": "One `[[packages.trusted_keys]]` entry.",
+      "description": "One key entry: `[[packages.trusted_keys]]` in `agent.toml`, `[[packages.owner_keys]]` in `hub.toml`.",
       "type": "object",
       "properties": {
         "id": {

@@ -14,6 +14,8 @@ mod memory;
 #[cfg(test)]
 mod operations;
 #[cfg(test)]
+mod packages;
+#[cfg(test)]
 mod recorder;
 #[cfg(test)]
 mod scenarios;

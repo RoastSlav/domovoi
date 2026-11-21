@@ -105,6 +105,10 @@ const OP_EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, 
 /// dispatch of the operation service.
 const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\n";
 
+/// The fixture's `packages/worker.rs`: the one authorizing constructor and the one relay call
+/// of the install service.
+const PKG_WORKER: &str = "let authorized = AuthorizedPackageTarget::of(target, approval)?;\ncrate::packages::execute::execute_package(shared, authorized, job, artifact, slot).await?;\n";
+
 /// The fixture's `operations/writer/mod.rs`: the one match on the operation dispatch command.
 const OP_WRITER: &str = "match command {\n    OperationCommand::Dispatch { held, .. } => {}\n}\n";
 
@@ -149,6 +153,7 @@ fn boundary_tree() -> Vec<(String, String)> {
             OP_DISPATCH.to_owned(),
         ),
         (crate_path("operations/writer/mod.rs"), OP_WRITER.to_owned()),
+        (crate_path("packages/worker.rs"), PKG_WORKER.to_owned()),
     ]
 }
 
@@ -1925,4 +1930,239 @@ fn summary_revisions_have_one_writer() {
         sql.is_empty(),
         "summary rows are written outside the store: {sql:#?}"
     );
+}
+
+/// The production files of the engine whose code lines name any of `words` or hold any of
+/// `paths`, outside the install service's own directory.
+fn engine_outside_packages(words: &[&str], paths: &[&str]) -> Vec<String> {
+    let files: Vec<_> = production_sources()
+        .into_iter()
+        .filter(|(rel, _)| !rel.starts_with("crates/domovoi-engine/src/packages/"))
+        .collect();
+    forbidden_in(&files, words, paths)
+}
+
+/// The install service reaches an agent through one file: `packages/execute.rs` is the only
+/// production file of the engine that names the relay capability or calls one of its three
+/// methods, so a second path to an agent's package capabilities needs an edit here and in the
+/// architecture checker, with an ADR.
+#[test]
+fn single_package_relay() {
+    let files = production_sources();
+    let offenders: Vec<String> = forbidden_in(
+        &files
+            .iter()
+            .filter(|(rel, _)| rel != "crates/domovoi-engine/src/packages/execute.rs")
+            .cloned()
+            .collect::<Vec<_>>(),
+        &[
+            "PackageRelay",
+            "relay_transfer",
+            "dispatch_package",
+            "package_result",
+        ],
+        &[],
+    );
+    assert!(
+        offenders.is_empty(),
+        "a file other than packages/execute.rs reaches the package relay: {offenders:#?}",
+    );
+    let execute = files
+        .iter()
+        .find(|(rel, _)| rel == "crates/domovoi-engine/src/packages/execute.rs")
+        .map(|(_, text)| text.as_str())
+        .unwrap_or_default();
+    for word in [
+        "PackageRelay",
+        "relay_transfer",
+        "dispatch_package",
+        "package_result",
+    ] {
+        assert!(
+            names(execute, word),
+            "packages/execute.rs no longer uses {word}"
+        );
+    }
+}
+
+/// A package request is built from a target that carries a stored human approval and from
+/// nothing else: the install service never names an authorization constructor, a policy
+/// permit or a way to build an approval, and its one constructor of the value that can be
+/// relayed takes the approval as an argument.
+#[test]
+fn package_requests_need_human_authorization() {
+    let files: Vec<_> = crate_sources("domovoi-engine")
+        .into_iter()
+        .filter(|(rel, _)| {
+            rel.starts_with("crates/domovoi-engine/src/packages/") && !rel.contains("/tests/")
+        })
+        .collect();
+    assert!(
+        files.len() >= 8,
+        "the scan found only {} package sources",
+        files.len()
+    );
+    let offenders = forbidden_in(
+        &files,
+        &["PolicyPermit", "PolicyPermitParts", "Principal"],
+        &[
+            "Authorization::",
+            "HumanApproval::new",
+            "HumanApproval::restore",
+            "ApprovalChannel::Web",
+            "ApprovalChannel::Chat",
+        ],
+    );
+    assert!(
+        offenders.is_empty(),
+        "the install service builds or reads an authorization it must only receive: {offenders:#?}",
+    );
+    let execute = files
+        .iter()
+        .find(|(rel, _)| rel.ends_with("/packages/execute.rs"))
+        .map(|(_, text)| text.as_str())
+        .unwrap_or_default();
+    assert!(
+        execute.contains("approval: Option<HumanApproval>"),
+        "the one constructor of AuthorizedPackageTarget no longer takes the approval it needs",
+    );
+}
+
+/// The hub cannot add, replace or remove a key an agent trusts. The engine's half: nothing in
+/// the engine names a trusted-key type or a key-changing request, and the only capability
+/// call it builds is the closed `PackageCall`, which has no key field.
+#[test]
+fn hub_cannot_add_trusted_key() {
+    let offenders = forbidden_in(
+        &production_sources(),
+        &[
+            "TrustedKey",
+            "trusted_keys",
+            "owner_keys",
+            "add_key",
+            "AddKey",
+            "revoke_key",
+        ],
+        &[],
+    );
+    assert!(
+        offenders.is_empty(),
+        "the engine reaches a key list: {offenders:#?}",
+    );
+    let core = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../domovoi-core/src/install/call.rs"),
+    )
+    .unwrap_or_default();
+    let variants: Vec<&str> = core
+        .lines()
+        .skip_while(|line| !line.starts_with("pub enum PackageCall"))
+        .take_while(|line| !line.starts_with('}'))
+        .collect();
+    assert!(!variants.is_empty(), "PackageCall was not found");
+    assert!(
+        variants
+            .iter()
+            .all(|line| !line.to_lowercase().contains("key")),
+        "PackageCall has a key field: {variants:#?}",
+    );
+    let building = engine_outside_packages(&["PackageCall", "PackageDispatch"], &[]);
+    assert!(
+        building.is_empty(),
+        "only the install service builds a package call: {building:#?}",
+    );
+}
+
+/// The hub and the engine never open an archive: none of the three crates that could hold the
+/// code depends on a decompressor or an archive reader, and no engine source names one.
+#[test]
+fn packages_never_open_archives() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for krate in ["domovoi-hub", "domovoi-engine", "domovoi-core"] {
+        let manifest =
+            std::fs::read_to_string(root.join(krate).join("Cargo.toml")).unwrap_or_default();
+        assert!(
+            manifest.contains("[package]"),
+            "{krate}: the manifest was not read"
+        );
+        for name in ["ruzstd", "zstd", "tar", "flate2", "zip", "xz2"] {
+            let declared = manifest.lines().any(|line| {
+                let key = line.split(['=', '.']).next().unwrap_or_default().trim();
+                key == name
+            });
+            assert!(!declared, "{krate} depends on {name}, which opens archives");
+        }
+    }
+    let offenders = forbidden_in(
+        &production_sources(),
+        &["ruzstd", "zstd", "tar", "flate2"],
+        &["tar::", "zstd::", "ruzstd::", "flate2::"],
+    );
+    assert!(
+        offenders.is_empty(),
+        "the engine opens an archive: {offenders:#?}"
+    );
+}
+
+/// No job comes from the model or from chat. The model's tool set is the closed meta-tool
+/// enum, chat commands and buttons never reach the install service, and no engine code outside
+/// the service names its handle, requests or writes.
+#[test]
+fn jobs_never_come_from_the_model_or_chat() {
+    let words = [
+        "PackageHandle",
+        "InstallService",
+        "PackageCaps",
+        "JobRequest",
+        "PlanRequest",
+        "InstallWrite",
+        "InstallRepo",
+        "PackageCall",
+        "create_job",
+        "retry_target",
+        "cancel_target",
+        "refresh_inventory",
+    ];
+    let engine = engine_outside_packages(&words, &["packages::"]);
+    assert!(
+        engine.is_empty(),
+        "engine code outside packages/ reaches the install service: {engine:#?}"
+    );
+
+    let chat: Vec<_> = crate_sources("domovoi-hub")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-hub/src/auth/interactions/"))
+        .collect();
+    assert!(
+        chat.len() >= 3,
+        "the scan found only {} chat sources",
+        chat.len()
+    );
+    let reached = forbidden_in(&chat, &words, &["packages::"]);
+    assert!(
+        reached.is_empty(),
+        "chat reaches the install service: {reached:#?}"
+    );
+
+    let meta: Vec<_> = crate_sources("domovoi-core")
+        .into_iter()
+        .filter(|(rel, _)| {
+            rel.starts_with("crates/domovoi-core/src/meta/") && !rel.ends_with("/tests.rs")
+        })
+        .collect();
+    assert!(!meta.is_empty(), "the meta-tool sources were not read");
+    let named = forbidden_in(
+        &meta,
+        &["PackageCall", "PackageHandle", "InstallJob", "InstallKind"],
+        &["install::", "package::"],
+    );
+    assert!(
+        named.is_empty(),
+        "the meta-tool catalogue reaches packages: {named:#?}"
+    );
+    for (rel, text) in &meta {
+        for word in ["package", "install"] {
+            assert!(!text.to_lowercase().contains(word), "{rel} mentions {word}");
+        }
+    }
 }

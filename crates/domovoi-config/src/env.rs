@@ -11,7 +11,7 @@ pub const OVERRIDE_PREFIX: &str = "DOMOVOI_";
 
 /// The top-level tables of `hub.toml`, plus dotted keys of a table both files share (such
 /// as `policy.shadow`), so the other role's variables for those keys are skipped.
-pub const HUB_SECTIONS: [&str; 17] = [
+pub const HUB_SECTIONS: [&str; 23] = [
     "hub",
     "web",
     "agent_server",
@@ -29,13 +29,27 @@ pub const HUB_SECTIONS: [&str; 17] = [
     "secrets",
     "orchestration",
     "policy.shadow",
+    "packages.enabled",
+    "packages.max_artifact_bytes",
+    "packages.max_store_bytes",
+    "packages.max_artifacts",
+    "packages.approval_window",
+    "packages.job_history_days",
 ];
 
 /// The top-level tables of `agent.toml`, plus dotted keys of a table both files share (such
 /// as `policy.allow_risk`), so the other role's variables for those keys are skipped.
-pub const AGENT_SECTIONS: [&str; 6] = [
+pub const AGENT_SECTIONS: [&str; 14] = [
     "agent",
     "policy.allow_risk",
+    "packages.allow_install",
+    "packages.limits.compressed_bytes",
+    "packages.limits.uncompressed_bytes",
+    "packages.limits.file_bytes",
+    "packages.limits.entries",
+    "packages.limits.path_depth",
+    "packages.limits.path_bytes",
+    "packages.limits.extraction_time",
     "docker",
     "checks",
     "containers",

@@ -366,6 +366,12 @@ fn spawn_daily(
                     if let Err(err) = runtime.store.purge(now, &policy).await {
                         tracing::warn!(%err, "retention purge failed");
                     }
+                    let keep = SignedDuration::from_hours(
+                        i64::from(runtime.config.packages.job_history_days) * 24,
+                    );
+                    if let Err(err) = runtime.store.purge_install_jobs(now, keep).await {
+                        tracing::warn!(%err, "install job retention purge failed");
+                    }
                 }
                 DailyJob::Backup => {
                     let dir = runtime

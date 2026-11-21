@@ -2,7 +2,9 @@
 //! them and refuses to start on a key that does not match its id.
 
 use crate::issue::ConfigIssue;
-use crate::packages::PackagesSection;
+use std::collections::BTreeSet;
+
+use crate::packages::{PackagesSection, TrustedKey};
 
 fn is_key_id(text: &str) -> bool {
     text.len() == 16 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -24,11 +26,16 @@ fn out_of_range(issues: &mut Vec<ConfigIssue>, field: &str, range: &str) {
     ));
 }
 
-/// Pushes every problem in `packages` onto `issues`.
-pub(crate) fn package_rules(packages: &PackagesSection, issues: &mut Vec<ConfigIssue>) {
-    let mut seen = std::collections::BTreeSet::new();
-    for (index, key) in packages.trusted_keys.iter().enumerate() {
-        let path = format!("packages.trusted_keys[{index}]");
+/// Shape rules for a list of keys under `prefix` (`packages.trusted_keys`,
+/// `packages.owner_keys`). Returns the valid, unique ids seen.
+pub(crate) fn key_list_rules<'a>(
+    prefix: &str,
+    keys: &'a [TrustedKey],
+    issues: &mut Vec<ConfigIssue>,
+) -> BTreeSet<&'a str> {
+    let mut seen = BTreeSet::new();
+    for (index, key) in keys.iter().enumerate() {
+        let path = format!("{prefix}[{index}]");
         if !is_key_id(&key.id) {
             issues.push(ConfigIssue::error(
                 format!("{path}.id"),
@@ -37,7 +44,7 @@ pub(crate) fn package_rules(packages: &PackagesSection, issues: &mut Vec<ConfigI
         } else if !seen.insert(key.id.as_str()) {
             issues.push(ConfigIssue::error(
                 format!("{path}.id"),
-                "is listed twice; each trusted key id must be unique",
+                "is listed twice; each key id must be unique",
             ));
         }
         if !is_base64_key(&key.public_key) {
@@ -55,19 +62,35 @@ pub(crate) fn package_rules(packages: &PackagesSection, issues: &mut Vec<ConfigI
             ));
         }
     }
-    for (index, id) in packages.revoked.iter().enumerate() {
+    seen
+}
+
+/// Shape rules for a revocation list under `path`; warns for ids also in `keys`.
+pub(crate) fn revoked_rules(
+    path: &str,
+    revoked: &[String],
+    keys: &BTreeSet<&str>,
+    issues: &mut Vec<ConfigIssue>,
+) {
+    for (index, id) in revoked.iter().enumerate() {
         if !is_key_id(id) {
             issues.push(ConfigIssue::error(
-                format!("packages.revoked[{index}]"),
+                format!("{path}[{index}]"),
                 "must be 16 lowercase hex characters",
             ));
-        } else if seen.contains(id.as_str()) {
+        } else if keys.contains(id.as_str()) {
             issues.push(ConfigIssue::warning(
-                format!("packages.revoked[{index}]"),
+                format!("{path}[{index}]"),
                 "is also a trusted key; revoked wins and its packages will not verify",
             ));
         }
     }
+}
+
+/// Pushes every problem in `packages` onto `issues`.
+pub(crate) fn package_rules(packages: &PackagesSection, issues: &mut Vec<ConfigIssue>) {
+    let seen = key_list_rules("packages.trusted_keys", &packages.trusted_keys, issues);
+    revoked_rules("packages.revoked", &packages.revoked, &seen, issues);
     if packages.allow_install && packages.trusted_keys.is_empty() {
         issues.push(ConfigIssue::warning(
             "packages.allow_install",

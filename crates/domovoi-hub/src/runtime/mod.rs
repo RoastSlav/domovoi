@@ -11,6 +11,7 @@ mod knowledge;
 mod local;
 mod lock;
 mod orchestration;
+mod packages;
 pub mod policy;
 mod schedulers;
 mod serve;
@@ -95,6 +96,8 @@ pub struct HubRuntime {
     pub(crate) triage_task: Option<JoinHandle<()>>,
     /// The operation service, present only while `[orchestration] enabled` is set.
     pub(crate) operations_task: Option<JoinHandle<()>>,
+    /// The install service's task.
+    pub(crate) packages_task: JoinHandle<()>,
     pub(crate) profile_task: JoinHandle<()>,
     pub(crate) knowledge_task: JoinHandle<()>,
     /// The Operator conversation writer; it also runs the background answer turns.
@@ -139,6 +142,7 @@ impl HubRuntime {
             store,
             settings,
         } = opened;
+        crate::packages::keys::PackageKeys::from_config(&config.packages)?;
         let mut secrets = Vec::new();
         config.secrets_mut(&mut |_, secret| secrets.push(secret.value().clone()));
         let redactor = Arc::new(PatternRedactor::new(secrets));
@@ -210,6 +214,7 @@ impl HubRuntime {
         // the capabilities it needs, never the link itself (ADR 0023).
         let evidence = Evidence::new(evidence_caps(link.clone()), clock.clone(), registry.clone());
         let catalog = HostCatalog::new(observer_of(link.clone()));
+        let package_caps = caps::package_caps(link.clone());
         let caps_bundle = action_caps(link);
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
@@ -242,9 +247,18 @@ impl HubRuntime {
                 Some((handle, task)) => (Some(handle), Some(task)),
                 None => (None, None),
             };
-        if let Some(handle) = &operations {
-            server.set_reconciler(Arc::new(handle.clone()));
-        }
+        let packages = packages::build(packages::PackageBuild {
+            config: &config,
+            store: &store,
+            caps: package_caps,
+            registry: &registry,
+            evidence: &evidence,
+            triage: triage.0.as_ref(),
+            clock: &clock,
+            shutdown: &worker_shutdown,
+        })
+        .await?;
+        server.set_reconciler(packages::reconciler(operations.as_ref(), &packages.handle));
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
         let identity = WebIdentity {
@@ -325,6 +339,14 @@ impl HubRuntime {
             ),
             conversations,
             settings: store.clone(),
+            packages: crate::services::PackageCommands::new(crate::services::PackageDeps {
+                handle: packages.handle.clone(),
+                importer: packages.importer.clone(),
+                installs: store.clone(),
+                hosts: store.clone(),
+                auth: auth.clone(),
+                clock: clock.clone(),
+            }),
         });
         let api = ApiState::new(
             ApiDeps {
@@ -429,6 +451,7 @@ impl HubRuntime {
             triage_task: triage.1,
             conversation_task,
             operations_task,
+            packages_task: packages.task,
             profile_task,
             knowledge_task,
             policy_task: policy.task,

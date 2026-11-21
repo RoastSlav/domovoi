@@ -61,6 +61,10 @@ mod operations_steps;
 #[cfg(test)]
 mod ops_harness;
 #[cfg(test)]
+mod packages;
+#[cfg(test)]
+mod packages_import;
+#[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
 mod policy_api;

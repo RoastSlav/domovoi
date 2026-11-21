@@ -9,12 +9,13 @@ use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{ActionAnswers, AgentSnapshot, HostAvailability, SkillDispatch};
 use domovoi_core::ports::{
     ActionCaps, AvailabilityProbe, CheckRecheck, CheckRerun, EvidenceCaps, HandoffRunner,
-    HostObservation, HostRead, JournalStatus, LinkError, Presence, SkillHandoff, SkillOutput,
-    ToolOutput,
+    HostObservation, HostRead, JournalStatus, LinkError, PackageCaps, PackageRelay, Presence,
+    SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::triage::ReadToolCall;
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, SkillSummary, TargetKey,
+    ActionId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch, PackageDispatch,
+    PackageOutputs, SkillSummary, TargetKey, TransferAnswer, TransferFrame,
 };
 use jiff::Timestamp;
 
@@ -41,6 +42,10 @@ struct JournalOf {
 }
 
 struct RerunOf {
+    link: Arc<FakeAgentLink>,
+}
+
+struct RelayOf {
     link: Arc<FakeAgentLink>,
 }
 
@@ -131,6 +136,53 @@ impl CheckRerun for RerunOf {
         deadline: Timestamp,
     ) -> Result<CheckRecheck, LinkError> {
         self.link.run_check(host, check, target, deadline).await
+    }
+}
+
+#[async_trait]
+impl PackageRelay for RelayOf {
+    async fn relay_transfer(
+        &self,
+        host: HostId,
+        frame: TransferFrame,
+        expected_session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError> {
+        self.link
+            .send_transfer(host, frame, expected_session, deadline)
+            .await
+    }
+
+    async fn dispatch_package(
+        &self,
+        host: HostId,
+        req: PackageDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.link
+            .start_capability(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn package_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError> {
+        self.link.capability_result(host, handoff, deadline).await
+    }
+}
+
+/// The capabilities package installation needs, all over one scripted fake.
+pub fn package_caps(link: Arc<FakeAgentLink>) -> PackageCaps {
+    PackageCaps {
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link: link.clone() }),
+        relay: Arc::new(RelayOf { link }),
     }
 }
 

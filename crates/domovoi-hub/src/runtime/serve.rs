@@ -31,6 +31,7 @@ pub(super) async fn run(
         triage_task,
         conversation_task,
         operations_task,
+        packages_task,
         profile_task,
         knowledge_task,
         policy_task,
@@ -120,6 +121,10 @@ pub(super) async fn run(
         clean &= finish(&mut task, &clock, total).await;
     }
     if let Some(mut task) = policy_task {
+        clean &= finish(&mut task, &clock, total).await;
+    }
+    {
+        let mut task = packages_task;
         clean &= finish(&mut task, &clock, total).await;
     }
 

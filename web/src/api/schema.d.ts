@@ -452,6 +452,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The packages the hub last saw installed on host `name`. */
+        get: operations["list_host_packages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/packages/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asks host `name`'s agent which packages it has and replaces what the hub holds with the
+         *     answer. Needs the agent connected.
+         */
+        post: operations["refresh_host_packages"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/profile": {
         parameters: {
             query?: never;
@@ -1268,6 +1305,176 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every imported package. */
+        get: operations["list_packages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Imports a signed package: the archive and its detached signature file as one multipart
+         *     form with the fields `archive` and `signature`. The hub checks the signature file, the
+         *     archive's digest and the signing key, then stores the archive under its digest. It never
+         *     opens the archive. No password is asked for: importing installs nothing.
+         */
+        post: operations["import_package"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Install jobs, newest first. */
+        get: operations["list_package_jobs"];
+        put?: never;
+        /**
+         * Creates an install or uninstall job with one target per host. Asks for the password
+         *     again and for the package name typed out, and refuses a plan that changed since the owner
+         *     looked at it. A job is approved here and nowhere else.
+         */
+        post: operations["create_package_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/jobs/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What a job would do on each host. Reads only; nothing is created. */
+        post: operations["plan_package_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One job with every attempt on every host. */
+        get: operations["get_package_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/jobs/{id}/targets/{host_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancels a host's target that has not started. Once it has started it cannot be cancelled. */
+        post: operations["cancel_package_target"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/jobs/{id}/targets/{host_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Runs one host's target again as a new attempt, after a failure, a refusal or an unknown
+         *     outcome. Asks for the password and the typed package name like a new job.
+         */
+        post: operations["retry_package_target"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the hub holds, how it is limited and which keys it trusts. */
+        get: operations["packages_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{name}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One imported package with its signature file, the hosts known to have it and whether its
+         *     archive file is in the store.
+         */
+        get: operations["get_package"];
+        put?: never;
+        post?: never;
+        /** Removes an imported package from the hub. Copies already installed on hosts stay. */
+        delete: operations["delete_package"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2112,6 +2319,23 @@ export interface components {
             operation_id?: string | null;
             scope?: components["schemas"]["ScopeRequest"] | null;
         };
+        /** @description Create a job. The plan hash is the `job_plan_hash` of the plan the owner looked at. */
+        CreateJobRequestDto: {
+            /** @description The package name, typed. */
+            confirm_text?: string;
+            /** @description One to sixteen host ids, each once. */
+            host_ids: string[];
+            /** @description `install` or `uninstall`. */
+            kind: string;
+            /** @description The package name. */
+            name: string;
+            /** @description The owner's password, asked for again. */
+            password?: string | null;
+            /** @description The `job_plan_hash` of the plan the owner confirmed. */
+            plan_hash: string;
+            /** @description The package version. */
+            version: string;
+        };
         /** @description One host's part of the daily digest. */
         DigestHostDto: {
             /** @description The host's name. */
@@ -2553,6 +2777,45 @@ export interface components {
             /** @description The agent's version, while connected. */
             version?: string | null;
         };
+        /** @description A package installed on a host, as the agent last reported it. */
+        HostPackageDto: {
+            /** @description SHA-256 of the installed archive. */
+            archive_sha256: string;
+            /** @description When the agent installed it. */
+            installed_at: string;
+            /** @description The key that signed it. */
+            key_id: string;
+            /** @description `trusted`, `unknown` or `revoked`: how the agent treats the signer now. */
+            key_state: string;
+            /** @description The package name. */
+            name: string;
+            /** @description When the hub saw this. */
+            observed_at: string;
+            /** @description `job` or `refresh`. */
+            observed_by: string;
+            /** @description `in_effect` when the agent runs unprivileged, `not_in_effect` when it runs as root. */
+            privilege_boundary: string;
+            /** @description The names of its skills. */
+            skills: string[];
+            /** @description `active`, `disabled_untrusted_key` or `missing_files`. */
+            status: string;
+            /** @description The installed version. */
+            version: string;
+        };
+        /** @description What a host reports installed. */
+        HostPackagesDto: {
+            /** @description The installed packages. */
+            entries: components["schemas"]["HostPackageDto"][];
+            /** @description The host's id. */
+            host_id: string;
+            /**
+             * @description Whether the host's owner allows installs, when the hub knows. Absent until a refresh
+             *     has told it.
+             */
+            install_allowed?: boolean | null;
+            /** @description When the hub last saw this inventory; absent when it never has. */
+            observed_at?: string | null;
+        };
         /** @description A host as a person knows it. */
         HostRefDto: {
             /** @description Host id. */
@@ -2694,6 +2957,90 @@ export interface components {
             /** @description Triage's verdict, if any: `ACTION_NEEDED`, `MONITOR`, `EXPECTED` or `FIXED`. */
             verdict?: string | null;
         };
+        /** @description One install or uninstall job. */
+        InstallJobDto: {
+            /** @description The archive's digest, for an install. */
+            archive_sha256?: string | null;
+            /** @description When it was created. */
+            created_at: string;
+            /** @description The job's id. */
+            id: string;
+            /** @description What the owner's confirmation bound. */
+            job_plan_hash: string;
+            /** @description The signing key, for an install. */
+            key_id?: string | null;
+            /** @description `install` or `uninstall`. */
+            kind: string;
+            /** @description The package name. */
+            name: string;
+            /** @description The id of the account that approved it. */
+            requested_by: string;
+            /**
+             * @description `running`, `succeeded`, `failed` or `partial`, worked out from each host's latest
+             *     attempt when the job is read.
+             */
+            status: string;
+            /** @description Every attempt on every host, oldest first. */
+            targets: components["schemas"]["InstallTargetDto"][];
+            /** @description The package version. */
+            version: string;
+        };
+        /** @description What a job would do. */
+        InstallPlanDto: {
+            /** @description The archive's digest, for an install. */
+            archive_sha256?: string | null;
+            /** @description What the owner's confirmation binds. */
+            job_plan_hash: string;
+            /** @description The signing key, for an install. */
+            key_id?: string | null;
+            /** @description `install` or `uninstall`. */
+            kind: string;
+            /** @description The package name. */
+            name: string;
+            /** @description The label of the signing key in the hub's owner keys. */
+            signer_label?: string | null;
+            /** @description One entry per host. */
+            targets: components["schemas"]["PlanTargetDto"][];
+            /** @description The package version. */
+            version: string;
+        };
+        /** @description One attempt of a job on one host. */
+        InstallTargetDto: {
+            /**
+             * Format: int32
+             * @description Which attempt this is; a retry is the next one.
+             */
+            attempt: number;
+            /** @description When the owner's approval runs out. */
+            expires_at: string;
+            failure?: components["schemas"]["TargetFailureDto"] | null;
+            /** @description When it reached its final status. */
+            finished_at?: string | null;
+            /** @description The host's id. */
+            host_id: string;
+            /** @description The host's name. */
+            host_name: string;
+            /** @description The target's id. */
+            id: string;
+            /**
+             * @description True when the agent's answer was read and matched; false when the result is from the
+             *     agent's journal after a restart.
+             */
+            outputs_confirmed: boolean;
+            /** @description What approval of this host's work binds. */
+            plan_hash: string;
+            /** @description `in_effect` or `not_in_effect`, when the agent has reported it for this package. */
+            privilege_boundary?: string | null;
+            /** @description When it was queued. */
+            queued_at: string;
+            /** @description When the agent was handed the work. */
+            started_at?: string | null;
+            /**
+             * @description `queued`, `transferring`, `dispatched`, `succeeded`, `failed`, `not_run`,
+             *     `outcome_unknown` or `cancelled`.
+             */
+            status: string;
+        };
         /** @description An enrollment invite. Shown once; the token is not stored. */
         InviteDto: {
             /** @description The command to run on the host. */
@@ -2715,6 +3062,13 @@ export interface components {
             path: string;
             /** @description `error` or `warning`. */
             severity: string;
+        };
+        /** @description A page of jobs, newest first. */
+        JobPageDto: {
+            /** @description The jobs. */
+            items: components["schemas"]["InstallJobDto"][];
+            /** @description Pass as `cursor` for the next page; absent on the last. */
+            next_cursor?: string | null;
         };
         /** @description An action on one fact, at the version the client read. */
         KnowledgeFactAction: {
@@ -3093,6 +3447,105 @@ export interface components {
              */
             incidents_open: number;
         };
+        /** @description An owner key the hub accepts signatures from. The key itself is never returned. */
+        OwnerKeyDto: {
+            /** @description The key id: 16 lowercase hex characters. */
+            id: string;
+            /** @description The owner's note about the key. */
+            label?: string | null;
+        };
+        /** @description One imported package with the hosts that have it. */
+        PackageDetailDto: components["schemas"]["PackageDto"] & {
+            /**
+             * @description `ready`, or `missing` when the archive file is not in the store and the package must
+             *     be imported again before it can be installed.
+             */
+            file_status: string;
+            /** @description The hosts known to have this version. */
+            hosts: components["schemas"]["PackageHostDto"][];
+            /** @description The signature file's text, as imported. */
+            signature_toml: string;
+        };
+        /** @description One imported package. */
+        PackageDto: {
+            /** @description True when an import found this exact archive already imported and changed nothing. */
+            already_imported: boolean;
+            /** @description SHA-256 of the archive: 64 lowercase hex characters. */
+            archive_sha256: string;
+            /**
+             * Format: int64
+             * @description The archive's size in bytes.
+             */
+            archive_size: number;
+            /** @description When it was imported. */
+            imported_at: string;
+            /** @description The key that signed it: 16 lowercase hex characters. */
+            key_id: string;
+            /** @description The package name. */
+            name: string;
+            /** @description The label of the signing key in the hub's owner keys, if it has one. */
+            signer_label?: string | null;
+            /** @description Its version. */
+            version: string;
+        };
+        /** @description A host's copy of a package, as the hub last saw it. */
+        PackageHostDto: {
+            /** @description The host's id. */
+            host_id: string;
+            /** @description The host's name. */
+            host_name: string;
+            /** @description When the hub saw it. */
+            observed_at: string;
+            /** @description `active`, `disabled_untrusted_key` or `missing_files`. */
+            status: string;
+        };
+        /** @description The form an import posts. Documents the request; the handler reads it field by field. */
+        PackageImportForm: {
+            /**
+             * Format: binary
+             * @description The `<name>-<version>.tar.zst` archive.
+             */
+            archive: string;
+            /**
+             * Format: binary
+             * @description The detached `.sig.toml` signature file.
+             */
+            signature: string;
+        };
+        /** @description What the hub holds, how it is limited and which keys it trusts. */
+        PackagesStatusDto: {
+            /**
+             * Format: int64
+             * @description How long an approval to install stays valid.
+             */
+            approval_window_secs: number;
+            /**
+             * Format: int64
+             * @description How many packages are imported.
+             */
+            artifact_count: number;
+            /** @description Whether packages can be imported and installed. */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description The largest archive accepted, in bytes.
+             */
+            max_artifact_bytes: number;
+            /**
+             * Format: int64
+             * @description The most bytes of archives the hub keeps.
+             */
+            max_store_bytes: number;
+            /** @description The keys whose signatures the hub accepts. */
+            owner_keys: components["schemas"]["OwnerKeyDto"][];
+            /** @description Key ids that are never accepted. */
+            revoked: string[];
+            /**
+             * Format: int64
+             * @description Bytes of archives the hub holds now.
+             */
+            used_store_bytes: number;
+        };
         /** @description One declared skill parameter. */
         ParamDto: {
             /** @description What it means. */
@@ -3155,6 +3608,35 @@ export interface components {
          * @enum {string}
          */
         PlanBinding: "v1" | "v2";
+        /** @description Plan a job: what it would do on each host, without doing anything. */
+        PlanRequestDto: {
+            /** @description One to sixteen host ids, each once. */
+            host_ids: string[];
+            /** @description `install` or `uninstall`. */
+            kind: string;
+            /** @description The package name. */
+            name: string;
+            /** @description The package version. */
+            version: string;
+        };
+        /** @description What would happen on one host. */
+        PlanTargetDto: {
+            /** @description The state of the capability on this host, such as `available` or `host_absent`. */
+            availability: string;
+            /** @description The reason code of a refused state, when there is one. */
+            availability_reason?: string | null;
+            /** @description The sentence that explains the state. */
+            availability_text: string;
+            /** @description The host's id. */
+            host_id: string;
+            /** @description The host's name. */
+            host_name: string;
+            installed?: components["schemas"]["HostPackageDto"] | null;
+            /** @description What approval of this host's work binds: 64 lowercase hex characters. */
+            plan_hash: string;
+            /** @description Things the owner should know before approving. */
+            warnings: string[];
+        };
         /** @description The capability dimension of a rule. */
         PolicyCapabilityDto: {
             /** @enum {string} */
@@ -3464,6 +3946,15 @@ export interface components {
         ResumeOperationRequest: {
             /** @description Limits to raise first, at most 7, each kind once. A spent limit must be raised. */
             extend?: components["schemas"]["BudgetExtensionDto"][];
+        };
+        /** @description Run one host's target again. */
+        RetryRequestDto: {
+            /** @description The package name, typed. */
+            confirm_text?: string;
+            /** @description The owner's password, asked for again. */
+            password?: string | null;
+            /** @description The host's `plan_hash` from the plan the owner confirmed. */
+            plan_hash: string;
         };
         /** @description Whether an agent was revoked. */
         RevokeDto: {
@@ -3957,6 +4448,13 @@ export interface components {
             source: string;
             /** @description The value of this revision. */
             value: unknown;
+        };
+        /** @description Why a host's target did not succeed. */
+        TargetFailureDto: {
+            /** @description A stable code such as `transfer_failed` or `signature_invalid`. */
+            code: string;
+            /** @description What went wrong, in a sentence. */
+            message: string;
         };
         /** @description The target dimension of a rule. */
         TargetsDto: {
@@ -5608,6 +6106,97 @@ export interface operations {
                 };
             };
             /** @description The agent is not connected, did not answer, or is too old to send logs */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_host_packages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The host's packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostPackagesDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    refresh_host_packages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The host's packages as the agent reported them */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HostPackagesDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, or the agent is not connected or did not answer */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8458,6 +9047,589 @@ export interface operations {
             };
             /** @description No such host */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_packages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The imported packages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageDto"][];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    import_package: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["PackageImportForm"];
+            };
+        };
+        responses: {
+            /** @description The same archive was already imported; nothing changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageDto"];
+                };
+            };
+            /** @description Imported */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageDto"];
+                };
+            };
+            /** @description Not exactly the two files `archive` and `signature` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, the store is full, or the name and version belong to another archive */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The archive is larger than the hub accepts */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The signature file, the signature, the key or the archive is not acceptable */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_package_jobs: {
+        parameters: {
+            query?: {
+                /** @description Only jobs with a target on this host. */
+                host_id?: string | null;
+                /** @description Only jobs for this package. */
+                name?: string | null;
+                /** @description `active` for jobs with an unfinished target, `finished` for the others. */
+                status?: string | null;
+                /** @description Page size, 1 to 200. */
+                limit?: number | null;
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of jobs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobPageDto"];
+                };
+            };
+            /** @description An unreadable filter */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_package_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateJobRequestDto"];
+            };
+        };
+        responses: {
+            /** @description Created; the work runs in the background */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallJobDto"];
+                };
+            };
+            /** @description Not one to sixteen distinct hosts, or an unreadable name or hash */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The password is missing or wrong, or the typed name is not the package's */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such package or host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, the plan changed, or a host already has a job in progress */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    plan_package_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanRequestDto"];
+            };
+        };
+        responses: {
+            /** @description What the job would do */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallPlanDto"];
+                };
+            };
+            /** @description Not one to sixteen distinct hosts, or an unreadable name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such package or host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_package_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallJobDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such job */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    cancel_package_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: string;
+                /** @description Host id */
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallJobDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such job or target */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Already started; it cannot be cancelled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    retry_package_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Job id */
+                id: string;
+                /** @description Host id */
+                host_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryRequestDto"];
+            };
+        };
+        responses: {
+            /** @description A new attempt was queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallJobDto"];
+                };
+            };
+            /** @description An unreadable hash */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The password is missing or wrong, or the typed name is not the package's */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such job or target */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, the plan changed, the latest attempt cannot be retried, or the host is busy */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    packages_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The package store's status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackagesStatusDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_package: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Package name */
+                name: string;
+                /** @description Package version */
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The package */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageDetailDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such package */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    delete_package: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Package name */
+                name: string;
+                /** @description Package version */
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such package */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, or a running install job uses it */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -28,6 +28,8 @@ mod durability;
 #[cfg(test)]
 mod experience;
 #[cfg(test)]
+mod install;
+#[cfg(test)]
 mod journal_feed;
 #[cfg(test)]
 mod knowledge;

@@ -8,6 +8,7 @@ mod conversations;
 mod conversations_rows;
 mod hosts;
 mod incidents;
+mod install;
 mod knowledge;
 mod notes;
 mod notify;

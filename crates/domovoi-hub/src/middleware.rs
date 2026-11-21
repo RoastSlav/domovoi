@@ -25,6 +25,12 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// producing output.
 pub const MODEL_REQUEST_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
+/// How long a package upload may take: a large archive over a slow link.
+pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// The path of the package upload, which has [`UPLOAD_TIMEOUT`].
+pub const PACKAGE_UPLOAD_PATH: &str = "/api/v1/packages/import";
+
 /// The path exempt from the timeout.
 pub const EVENTS_PATH: &str = "/api/v1/events";
 
@@ -66,6 +72,8 @@ pub async fn timeout(req: Request, next: Next) -> Response {
     }
     let limit = if is_model_request(req.uri().path()) {
         MODEL_REQUEST_TIMEOUT
+    } else if req.uri().path() == PACKAGE_UPLOAD_PATH {
+        UPLOAD_TIMEOUT
     } else {
         REQUEST_TIMEOUT
     };

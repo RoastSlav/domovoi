@@ -23,6 +23,7 @@ pub mod history;
 pub mod host;
 pub mod id;
 pub mod incident;
+pub mod install;
 pub mod interaction;
 pub mod knowledge;
 pub mod meta;
@@ -44,8 +45,9 @@ pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalEvidenceError,
     ApprovalPlan, ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval, ImplHash,
-    JournalEpoch, PermitError, PlanBinding, PlanContract, PlanError, PlanFamily, PlanHash,
-    PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction, StoredActionError,
+    JournalEpoch, PackagePlan, PermitError, PlanBinding, PlanContract, PlanError, PlanFamily,
+    PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction,
+    StoredActionError, job_plan_hash,
 };
 pub use actor::{
     Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_KNOWLEDGE,
@@ -69,11 +71,18 @@ pub use host::{
 };
 pub use id::{
     AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, ConversationId, EffectId, EntityId,
-    ExecutionId, FactRecordId, HostId, IncidentId, MessageId, NoteId, OperationId, PolicyVersionId,
-    RelationId, RequestId, SignalId, StepId, TurnId, UserId,
+    ExecutionId, FactRecordId, HostId, IncidentId, InstallJobId, InstallTargetId, MessageId,
+    NoteId, OperationId, PackageArtifactId, PolicyVersionId, RelationId, RequestId, SignalId,
+    StepId, TurnId, UserId,
 };
 pub use incident::{
     Incident, IncidentChange, IncidentEvent, IncidentGroup, IncidentPolicy, IncidentStatus, apply,
+};
+pub use install::{
+    ArtifactGuard, ArtifactSource, CapabilityHandoff, HostPackage, InstallJob, InstallKind,
+    InstallTarget, ObservedBy, PackageArtifact, PackageCall, PackageDispatch, PackageOutputs,
+    StoredAuthorization, TargetFailure, TargetGuard, TargetStatus, TransferAnswer, TransferFrame,
+    TransferKind,
 };
 pub use interaction::{Interaction, InteractionKind, InteractionReply};
 pub use meta::{MetaTool, ToolSet};

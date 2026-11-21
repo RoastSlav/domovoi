@@ -16,7 +16,8 @@ use crate::{middleware, spa};
 /// The full HTTP surface: `/api/v1`, `/healthz`, `/metrics`, with `ingest`
 /// `/hooks/{name}`, and the web UI for every other path. The CSRF guard covers the API; webhooks authenticate themselves.
 pub fn router(api: ApiState, ingest: Option<IngestState>) -> Router {
-    let (routes, _) = api::routes().split_for_parts();
+    let limit = api::packages::upload_limit(api.deps().config.packages.max_artifact_bytes);
+    let (routes, _) = api::routes_with(limit).split_for_parts();
     let routes = routes
         .layer(axum::middleware::from_fn_with_state(
             api.auth().clone(),

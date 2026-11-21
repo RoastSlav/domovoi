@@ -201,6 +201,9 @@ pub struct Api {
     /// The management-path coverage the knowledge service asks; unavailable until a test
     /// calls `cover`.
     pub coverage: Arc<domovoi_testkit::FakeCoverage>,
+    /// The capability registry the install service reads: every package contract is available
+    /// until a test says otherwise.
+    pub package_registry: Arc<domovoi_testkit::FakeCapabilityRegistry>,
 }
 
 /// The variable that locks `triage.concurrency` in the settings tests.
@@ -313,6 +316,49 @@ async fn build(
     triage_settings: TriageSettings,
     orchestration: bool,
 ) -> Api {
+    assemble(
+        triage,
+        notifier,
+        profiles,
+        logs,
+        triage_settings,
+        orchestration,
+        false,
+    )
+    .await
+}
+
+/// The seed of the key the harness trusts for package imports when built with packages on.
+pub const PACKAGE_OWNER_SEED: u8 = 7;
+
+/// The key the harness trusts for package imports when built with packages on.
+pub fn package_owner_key() -> ed25519_dalek::SigningKey {
+    ed25519_dalek::SigningKey::from_bytes(&[PACKAGE_OWNER_SEED; 32])
+}
+
+/// [`api`] with `[packages] enabled` and [`package_owner_key`] as the one owner key.
+pub async fn api_with_packages() -> Api {
+    assemble(
+        false,
+        None,
+        true,
+        true,
+        TriageSettings::default(),
+        false,
+        true,
+    )
+    .await
+}
+
+async fn assemble(
+    triage: bool,
+    notifier: Option<Arc<dyn Notifier>>,
+    profiles: bool,
+    logs: bool,
+    triage_settings: TriageSettings,
+    orchestration: bool,
+    packages: bool,
+) -> Api {
     // The binary installs the process-wide provider; connection tests build HTTP clients.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let dir = tempfile::tempdir().unwrap();
@@ -401,6 +447,16 @@ async fn build(
     });
     let mut config = config();
     config.orchestration.enabled = orchestration;
+    config.packages.enabled = packages;
+    if packages {
+        config.packages.max_artifact_bytes = 64 * 1024;
+        let public = package_owner_key().verifying_key().to_bytes();
+        config.packages.owner_keys = vec![domovoi_config::TrustedKey {
+            id: domovoi_core::package::KeyId::of_public_key(&public).to_string(),
+            public_key: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, public),
+            label: Some("Owner".to_owned()),
+        }];
+    }
     let operations = if orchestration {
         Some(
             crate::ops_harness::spawn(&store, &link, &clock, &shutdown, &nas, triage.clone()).await,
@@ -515,6 +571,34 @@ async fn build(
         )
         .await
         .unwrap();
+    let package_registry = Arc::new(domovoi_testkit::FakeCapabilityRegistry::new(Arc::new(
+        ContractIndex::new(domovoi_core::capability::known_contracts()).unwrap(),
+    )));
+    let package_files = domovoi_hub::packages::PackageStore::open(dir.path())
+        .await
+        .unwrap();
+    let package_importer = Arc::new(domovoi_hub::packages::PackageImporter::new(
+        config.packages.clone(),
+        Arc::new(domovoi_hub::packages::PackageKeys::from_config(&config.packages).unwrap()),
+        package_files.clone(),
+        store.clone(),
+        store.clone(),
+        clock.clone(),
+    ));
+    let (package_handle, _package_task) = domovoi_engine::packages::InstallService::spawn(
+        domovoi_engine::packages::PackageDeps {
+            installs: store.clone(),
+            uow: store.clone(),
+            hosts: store.clone(),
+            resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+            registry: package_registry.clone(),
+            caps: domovoi_hub::runtime::caps::package_caps(link.clone()),
+            files: Arc::new(package_files),
+            clock: clock.clone(),
+            shutdown: shutdown.clone(),
+        },
+        domovoi_engine::packages::PackageSettings::default(),
+    );
     let services = Services::new(ServicesDeps {
         manager: manager.clone(),
         triage: triage.clone(),
@@ -537,6 +621,14 @@ async fn build(
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
         settings: store.clone(),
+        packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
+            handle: package_handle,
+            importer: package_importer,
+            installs: store.clone(),
+            hosts: store.clone(),
+            auth: auth.clone(),
+            clock: clock.clone(),
+        }),
     });
     let deps = ApiDeps {
         incidents: store.clone(),
@@ -592,6 +684,7 @@ async fn build(
         manager_task,
         policy_env,
         coverage,
+        package_registry,
     }
 }
 
