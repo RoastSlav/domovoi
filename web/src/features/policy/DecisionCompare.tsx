@@ -42,9 +42,26 @@ function Pair({ replayed, zone }: { replayed: Replayed; zone: string | undefined
   );
 }
 
+function Recorded({ replayed, zone }: { replayed: Replayed; zone: string | undefined }) {
+  return (
+    <Stack gap={3}>
+      <Text block muted>
+        This decision could not be replayed, so there is no simulated result to compare. The
+        recorded decision is shown as it was made.
+      </Text>
+      <DecisionExplanation
+        title="Recorded"
+        decision={decisionOf(replayed.baseline)}
+        zone={zone}
+        emptyText="No rule matched."
+      />
+    </Stack>
+  );
+}
+
 /**
  * One simulated step with what was recorded beside what the rules would say, for each side
- * the simulation covered. A decision that could not be replayed says so instead.
+ * the simulation covered. A decision that could not be replayed shows what was recorded and says why there is no comparison.
  * @param item The step from the simulation.
  * @param sides The sides to show.
  * @param zone The hub's time zone, for time windows.
@@ -64,10 +81,19 @@ export function DecisionCompare({
         const replayed = item[side];
         return (
           <Section key={side} title={sideTitle(side)}>
-            {!replayed || replayed.comparison === "not_replayable" ? (
+            {!replayed ? (
               <Text block muted>
-                This decision cannot be replayed, so there is nothing to compare.
+                This side was not simulated, so there is nothing to compare.
               </Text>
+            ) : replayed.comparison === "not_replayable" ? (
+              replayed.baseline ? (
+                <Recorded replayed={replayed} zone={zone} />
+              ) : (
+                <Text block muted>
+                  This decision could not be replayed, so there is no simulated result to compare,
+                  and no decision was recorded for it.
+                </Text>
+              )
             ) : (
               <Pair replayed={replayed} zone={zone} />
             )}

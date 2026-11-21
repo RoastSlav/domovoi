@@ -74,8 +74,13 @@ function capabilityValue(cap: PolicyRule["capability"]): string {
  */
 export function fromDto(rule: PolicyRule): RuleForm {
   const { capability, targets } = rule;
-  const known = ["deny", "require_approval", "allow"].includes(rule.outcome);
+  const known =
+    ["deny", "require_approval", "allow"].includes(rule.outcome) &&
+    ["all", "host"].includes(rule.host.kind) &&
+    ["any", "effect", "category", "contract"].includes(capability.kind) &&
+    ["any", "exact"].includes(targets.kind);
   return {
+    unsupported: known ? null : rule,
     id: rule.id,
     enabled: rule.enabled,
     shadow: rule.shadow,
@@ -132,6 +137,7 @@ export function toDto(
   form: RuleForm,
   otherIds: readonly string[] = [],
 ): { ok: true; rule: PolicyRule } | { ok: false; problems: Problems } {
+  if (form.unsupported) return { ok: true, rule: form.unsupported };
   const problems = validateRule(form, otherIds);
   if (!isValid(problems)) return { ok: false, problems };
   const host = form.hostId.trim();
@@ -180,6 +186,7 @@ export function newRule(existingIds: readonly string[]): RuleForm {
     targetNames: "",
     conditions: [],
     note: "",
+    unsupported: null,
   };
 }
 
@@ -189,11 +196,14 @@ export function newRule(existingIds: readonly string[]): RuleForm {
  * @param existingIds The ids already in the draft.
  */
 export function duplicateOf(rule: PolicyRule, existingIds: readonly string[]): RuleForm {
+  const id = uniqueId(`${rule.id}-copy`, existingIds);
+  const form = fromDto(rule);
   return {
-    ...fromDto(rule),
-    id: uniqueId(`${rule.id}-copy`, existingIds),
+    ...form,
+    id,
     locked: false,
     shadow: true,
+    unsupported: form.unsupported && { ...form.unsupported, id, locked: false, shadow: true },
   };
 }
 

@@ -220,6 +220,7 @@ describe("policy gates", () => {
       "decision.exception",
       "decision.why",
       "decision.limits",
+      "decision.incomplete",
       "decision.gaps",
       "simulator.state",
       "simulator.basis",

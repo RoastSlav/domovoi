@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DECISION_EXCEPTION, DECISION_LIMITS, DECISION_LOCKED } from "../../test/policyFixtures";
 import { decisionOf, gapsOf, parseDuration } from "./decisionModel";
 
 const doc = {
@@ -117,5 +118,37 @@ describe("decision model", () => {
     expect(parseDuration("soon")).toBeNull();
     expect(parseDuration("10")).toBeNull();
     expect(parseDuration("-5m")).toBeNull();
+  });
+
+  it("decision_of_marks_a_decision_incomplete_when_it_drops_something", () => {
+    const view = decisionOf({
+      outcome: { kind: "allow" },
+      matched: ["a", 7],
+      facts_used: ["not an object"],
+      from_a_newer_hub: true,
+      warnings: [{ kind: "from_the_future" }],
+    });
+    if (view?.kind !== "decision") throw new Error("expected a decision");
+    expect(view.doc.incomplete).toBe(true);
+    expect(view.doc.matched).toEqual(["a"]);
+    expect(view.doc.unreadable).toEqual(
+      expect.arrayContaining([
+        "a matched rule entry",
+        "a fact entry",
+        'the field "from_a_newer_hub"',
+        "a warning this page does not know",
+      ]),
+    );
+  });
+
+  it("decision_of_is_complete_for_the_fixtures", () => {
+    for (const fixture of [DECISION_LOCKED, DECISION_EXCEPTION, DECISION_LIMITS]) {
+      for (const side of [fixture.enforced, fixture.shadow]) {
+        const view = decisionOf(side);
+        if (view?.kind !== "decision") continue;
+        expect(view.doc.unreadable).toEqual([]);
+        expect(view.doc.incomplete).toBe(false);
+      }
+    }
   });
 });

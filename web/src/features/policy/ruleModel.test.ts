@@ -27,6 +27,25 @@ const problems = (patch: Partial<RuleForm>, others: string[] = []) =>
   validateRule(form(patch), others);
 
 describe("rule model", () => {
+  it("an_unknown_outcome_is_kept_untouched_through_a_round_trip", () => {
+    const rule = { ...full, outcome: "from_the_future" };
+    const form = fromDto(rule);
+    expect(form.unsupported).toEqual(rule);
+    expect(toDto(form)).toEqual({ ok: true, rule });
+  });
+
+  it("an_unknown_capability_or_target_kind_is_kept_untouched", () => {
+    const capability = { ...full, capability: { kind: "regex", pattern: "x" } } as never;
+    const targets = { ...full, targets: { kind: "glob", pattern: "a*" } } as never;
+    const host = { ...full, host: { kind: "group", name: "g" } } as never;
+    for (const rule of [capability, targets, host] as PolicyRule[]) {
+      expect(toDto(fromDto(rule))).toEqual({ ok: true, rule });
+    }
+    expect(duplicateOf(capability, []).unsupported).toMatchObject({
+      id: "no-restart-at-night-copy",
+    });
+  });
+
   it("rule_to_dto_produces_the_documented_json", () => {
     const result = toDto(fromDto(full));
     expect(result).toEqual({ ok: true, rule: full });

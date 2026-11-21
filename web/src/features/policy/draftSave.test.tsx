@@ -190,3 +190,28 @@ test("a_save_result_keeps_the_page_in_step_with_the_response", async () => {
   expect(await screen.findByText("Revision 9")).toBeVisible();
   expect(screen.queryByText("Unsaved changes")).toBeNull();
 });
+
+test("saving_a_locked_change_submits_exactly_the_rules_that_were_reviewed", async () => {
+  const user = userEvent.setup();
+  const dialog = await openLockedDialog(user);
+  const reviewed = made(PREVIEW)[0]?.init.body as { rules: PolicyRule[] };
+  expect(reviewed.rules.find((rule) => rule.id === "ask-containers")?.note).toBe("Ask first");
+
+  await enterPassword(user, dialog, "correct horse");
+  await screen.findByText(/Draft saved/);
+  const body = made(SAVE)[0]?.init.body as SaveBody;
+  expect(body.rules).toEqual(reviewed.rules);
+  expect(body.base_revision).toBe(4);
+  expect(body.preview_hash).toBe(PREVIEW_BLOCKING.preview_hash);
+});
+
+test("a_bad_request_without_rule_issues_keeps_the_dialog_open_with_a_message", async () => {
+  const user = userEvent.setup();
+  const dialog = await openLockedDialog(user);
+  route(SAVE, () => failure(400, "invalid", "the request was malformed"));
+  await enterPassword(user, dialog, "correct horse");
+  await waitFor(() => expect(made(SAVE)).toHaveLength(1));
+  const open = await screen.findByRole("dialog", { name: "Change a locked rule" });
+  expect(within(open).getByRole("alert")).toBeVisible();
+  expect(screen.queryByText("The hub did not accept these rules")).toBeNull();
+});

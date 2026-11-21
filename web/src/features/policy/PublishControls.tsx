@@ -27,6 +27,17 @@ export interface PublishControlsProps {
   revision: number;
 }
 
+/** What the person was shown when they chose Publish; this is what gets submitted. */
+interface PublishAttempt {
+  blocking: string[];
+  conflicts: number;
+  lockChanges: number;
+  lockedCount: number;
+  previewHash: string;
+  revision: number;
+  ruleCount: number;
+}
+
 /**
  * The Publish button and the password step behind it. Nothing is sent until the password is
  * confirmed; the password lives only in the dialog.
@@ -36,7 +47,7 @@ export function PublishControls(props: PublishControlsProps) {
   const { number, disabledReason } = props;
   const navigate = useNavigate();
   const client = useQueryClient();
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState<PublishAttempt>();
   const [passwordError, setPasswordError] = useState<string | undefined>(undefined);
   const [stale, setStale] = useState(false);
   const publish = useActionFeedback(usePublishDraft(), {
@@ -45,21 +56,28 @@ export function PublishControls(props: PublishControlsProps) {
     errorDisplay: "inline",
   });
 
+  // A review that changed since the click is not what the person read; close the dialog.
+  if (asking && (asking.previewHash !== props.previewHash || asking.revision !== props.revision)) {
+    setAsking(undefined);
+    setStale(false);
+    setPasswordError(undefined);
+  }
+
   const close = () => {
-    setAsking(false);
+    setAsking(undefined);
     setStale(false);
     setPasswordError(undefined);
     publish.reset();
   };
 
-  const confirm = (password: string) => {
+  const confirm = (attempt: PublishAttempt, password: string) => {
     setPasswordError(undefined);
     setStale(false);
     publish.mutate(
       {
-        revision: props.revision,
-        previewHash: props.previewHash,
-        acknowledged: [...props.blocking].sort(),
+        revision: attempt.revision,
+        previewHash: attempt.previewHash,
+        acknowledged: attempt.blocking,
         password,
       },
       {
@@ -79,7 +97,21 @@ export function PublishControls(props: PublishControlsProps) {
   const inline = failure && passwordError === undefined;
   return (
     <>
-      <Button variant="primary" disabledReason={disabledReason} onClick={() => setAsking(true)}>
+      <Button
+        variant="primary"
+        disabledReason={disabledReason}
+        onClick={() =>
+          setAsking({
+            blocking: [...props.blocking].sort(),
+            conflicts: props.conflicts,
+            lockChanges: props.lockChanges,
+            lockedCount: props.lockedCount,
+            previewHash: props.previewHash,
+            revision: props.revision,
+            ruleCount: props.ruleCount,
+          })
+        }
+      >
         {`Publish version ${number}`}
       </Button>
       {asking && (
@@ -89,12 +121,12 @@ export function PublishControls(props: PublishControlsProps) {
           confirmLabel={`Publish version ${number}`}
           busy={publish.isPending}
           error={passwordError}
-          onConfirm={confirm}
+          onConfirm={(password) => confirm(asking, password)}
           onCancel={close}
         >
           <Stack gap={3}>
             <p>
-              {`${props.ruleCount} rules, ${props.lockedCount} locked, ${props.conflicts} conflicts acknowledged, ${props.lockChanges} locked-rule changes.`}
+              {`${asking.ruleCount} rules, ${asking.lockedCount} locked, ${asking.conflicts} conflicts acknowledged, ${asking.lockChanges} locked-rule changes.`}
             </p>
             {inline && (
               <InlineMessage

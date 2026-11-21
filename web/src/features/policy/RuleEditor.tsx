@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Field,
+  InlineMessage,
   SegmentedControl,
   Stack,
   Switch,
@@ -79,6 +80,30 @@ export function RuleEditor({
         ...(built.rule.conditions ?? []).map((c) => `${conditionText(c, zone)}.`),
       ].join(" ")
     : "Fix the fields marked above to see what this rule says.";
+
+  if (form.unsupported) {
+    return (
+      <Card label="Rule">
+        <Stack gap={4}>
+          <InlineMessage tone="warning" title="This rule uses something this page does not know">
+            It is kept as it is. Edit it with a newer version of the interface.
+          </InlineMessage>
+          <Text strong mono block>
+            {form.unsupported.id}
+          </Text>
+          <Text mono block>
+            {JSON.stringify(form.unsupported, null, 2)}
+          </Text>
+          <div className={styles.editorActions}>
+            <Button variant="primary" disabledReason="This page cannot change this rule.">
+              Apply to draft
+            </Button>
+            <Button onClick={onClose}>Cancel</Button>
+          </div>
+        </Stack>
+      </Card>
+    );
+  }
 
   return (
     <Card label="Rule">

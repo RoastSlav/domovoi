@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useHostNames } from "../../api/hooks/hosts";
+import type { SimulateInput } from "../../api/hooks/policyCommands";
 import type { PolicySimulation, SimulationItem } from "../../api/types";
 import {
   Card,
@@ -30,13 +31,13 @@ const RECORDED_WORDS =
 const NO_RECORDING =
   "Decisions are not being recorded. Set shadow to true under [policy] in hub.toml and restart the hub.";
 
-/** What a finished run was asked, kept so the page keeps saying it as the form changes. */
-export interface RunBasis {
-  inputs: "recorded" | "current";
-  selection: "enforced" | "shadow" | "both";
+function ranWords(request: SimulateInput): string {
+  const rules = request.rules.source === "draft" ? "the draft" : `version ${request.rules.number}`;
+  const sides = sidesOf(request.selection).map(sideTitle).join(" and ");
+  return `Ran ${rules} against ${sides}.`;
 }
 
-function Basis({ data, basis }: { basis: RunBasis; data: PolicySimulation }) {
+function Basis({ data, request }: { data: PolicySimulation; request: SimulateInput }) {
   return (
     <Visible category="P0" id="simulator.basis">
       <Card label="What was simulated">
@@ -44,7 +45,8 @@ function Basis({ data, basis }: { basis: RunBasis; data: PolicySimulation }) {
           <Text block strong>
             {data.label}
           </Text>
-          <Text block>{basis.inputs === "current" ? CURRENT_WORDS : RECORDED_WORDS}</Text>
+          <Text block>{ranWords(request)}</Text>
+          <Text block>{request.inputs === "current" ? CURRENT_WORDS : RECORDED_WORDS}</Text>
           <PolicyNotes notes={data.notes} />
           <Text block muted>
             {`${data.summary.not_replayable} could not be replayed`}{" "}
@@ -82,27 +84,27 @@ function SideCell({ item, side }: { item: SimulationItem; side: Side }) {
  * What a simulation found: how it was run, the counts, a table of steps with the recorded and
  * simulated outcome side by side, and the explanation of the selected step.
  * @param data The hub's answer.
- * @param basis What the run was asked.
+ * @param request What the run was asked, as sent; the page describes the run from it.
  * @param item The execution id of the selected step.
  * @param onItem Selects a step.
  * @param recording Whether the hub records decisions at all.
  */
 export function SimulatorResults({
   data,
-  basis,
+  request,
   item,
   onItem,
   recording,
 }: {
-  basis: RunBasis;
   data: PolicySimulation;
   item: string | null;
   onItem: (execution: string) => void;
   recording: boolean;
+  request: SimulateInput;
 }) {
   const hostNames = useHostNames();
   const zone = useTimeWindowZone();
-  const sides = useMemo(() => sidesOf(basis.selection), [basis.selection]);
+  const sides = useMemo(() => sidesOf(request.selection), [request.selection]);
   const columns = useMemo<Column<SimulationItem>[]>(
     () => [
       {
@@ -131,7 +133,7 @@ export function SimulatorResults({
   const chosen = data.items.find((r) => r.execution_id === item);
   return (
     <Stack gap={5}>
-      <Basis data={data} basis={basis} />
+      <Basis data={data} request={request} />
       {data.summary.newly_allowed > 0 && (
         <Visible category="P0" id="simulator.widening">
           <InlineMessage tone="warning">

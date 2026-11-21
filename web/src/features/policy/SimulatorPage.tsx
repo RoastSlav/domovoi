@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useSelectedHost } from "../../app/HostContext";
 import { useHosts } from "../../api/hooks/hosts";
@@ -9,6 +9,7 @@ import {
   Button,
   Cluster,
   EmptyState,
+  InlineMessage,
   LinkButton,
   LoadError,
   PageHeader,
@@ -20,11 +21,23 @@ import {
   useActionFeedback,
 } from "../../components";
 import { SimulatorForm, INITIAL_FILTERS, type FilterValues } from "./SimulatorForm";
-import { SimulatorResults, type RunBasis } from "./SimulatorResults";
+import { SimulatorResults } from "./SimulatorResults";
 import { parseSimulatorParams, withSimulatorParams, type SimulatorState } from "./simulatorState";
 
 const HAS_RULES = /^(draft|version-\d+)$/;
 const dayStart = (date: string): string => `${date}T00:00:00Z`;
+
+/**
+ * The exclusive upper bound that makes a selected To date inclusive: the next UTC day at
+ * midnight, since the hub keeps decisions evaluated before `until`.
+ */
+export function untilOf(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(y ?? 0, (m ?? 1) - 1, (d ?? 1) + 1));
+  return Number.isNaN(next.getTime())
+    ? dayStart(date)
+    : `${next.toISOString().slice(0, 10)}T00:00:00Z`;
+}
 
 function buildFilter(values: FilterValues, host: string | undefined): SimulateInput["filter"] {
   const filter: SimulateInput["filter"] = {};
@@ -32,7 +45,7 @@ function buildFilter(values: FilterValues, host: string | undefined): SimulateIn
   if (values.contract.trim()) filter.contract = values.contract.trim();
   if (values.status) filter.status = values.status;
   if (values.since) filter.since = dayStart(values.since);
-  if (values.until) filter.until = dayStart(values.until);
+  if (values.until) filter.until = untilOf(values.until);
   return filter;
 }
 
@@ -53,7 +66,10 @@ export function SimulatorPage() {
   const [selectedHost] = useSelectedHost();
   const [params, setParams] = useSearchParams();
   const [values, setValues] = useState<FilterValues>(INITIAL_FILTERS);
-  const [result, setResult] = useState<{ basis: RunBasis; data: PolicySimulation } | null>(null);
+  const [result, setResult] = useState<{ request: SimulateInput; data: PolicySimulation } | null>(
+    null,
+  );
+  const latest = useRef(0);
   const simulate = useActionFeedback(useSimulate(), {
     success: () => null,
     error: "run the simulation",
@@ -86,20 +102,27 @@ export function SimulatorPage() {
   const pages = versions.data?.pages ?? [];
   const hostId = values.host ?? (hosts.data ?? []).find((h) => h.name === selectedHost)?.id;
 
+  const request: SimulateInput | null =
+    rules === null
+      ? null
+      : {
+          rules,
+          selection: state.selection,
+          inputs: state.inputs,
+          filter: buildFilter(values, hostId),
+          execution_ids: state.execution ? [state.execution] : [],
+          limit: clampLimit(values.limit),
+        };
+  const stale = result !== null && JSON.stringify(result.request) !== JSON.stringify(request);
+
   const run = () => {
-    if (rules === null) return;
-    const basis: RunBasis = { inputs: state.inputs, selection: state.selection };
-    simulate.mutate(
-      {
-        rules,
-        selection: state.selection,
-        inputs: state.inputs,
-        filter: buildFilter(values, hostId),
-        execution_ids: state.execution ? [state.execution] : [],
-        limit: clampLimit(values.limit),
+    if (request === null) return;
+    const id = ++latest.current;
+    simulate.mutate(request, {
+      onSuccess: (sim) => {
+        if (id === latest.current) setResult({ request, data: sim });
       },
-      { onSuccess: (sim) => setResult({ basis, data: sim }) },
-    );
+    });
   };
 
   const header = <PageHeader title="Policy simulator" />;
@@ -149,10 +172,18 @@ export function SimulatorPage() {
             ) : undefined
           }
         />
+        {result && stale && (
+          <Visible category="P0" id="simulator.basis">
+            <InlineMessage tone="warning">
+              These results are from an earlier run. Run the simulation again to see the current
+              settings.
+            </InlineMessage>
+          </Visible>
+        )}
         {result && (
           <SimulatorResults
             data={result.data}
-            basis={result.basis}
+            request={result.request}
             item={state.item}
             onItem={(item) => onState({ item })}
             recording={data.shadow_enabled}

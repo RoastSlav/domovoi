@@ -1,10 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Host, PolicyOverview, PolicySimulation } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { OVERVIEW_ACTIVE, OVERVIEW_FRESH, SIMULATE_BOTH } from "../../test/policyFixtures";
 import { renderAt } from "../../test/render";
-import { SimulatorPage } from "./SimulatorPage";
+import { SimulatorPage, untilOf } from "./SimulatorPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -145,9 +145,9 @@ test("selecting_a_result_that_cannot_be_replayed_says_so", async () => {
   const id = SIMULATE_BOTH.items[2]?.execution_id;
   show(`/policy/simulator?item=${id}`);
   await run();
-  expect((await screen.findAllByText(/This decision cannot be replayed/)).length).toBeGreaterThan(
-    0,
-  );
+  expect(
+    (await screen.findAllByText(/could not be replayed, so there is no simulated/)).length,
+  ).toBeGreaterThan(0);
 });
 
 test("simulator_can_be_started_for_one_step_from_the_decision_page", async () => {
@@ -194,4 +194,62 @@ test("simulator_failures_are_inline_in_the_hubs_words", async () => {
   expect(
     screen.queryByText("1 decisions would become Allow automatically"),
   ).not.toBeInTheDocument();
+});
+
+test("a_decision_that_could_not_be_replayed_still_shows_what_was_recorded", async () => {
+  const id = SIMULATE_BOTH.items[3]?.execution_id;
+  show(`/policy/simulator?item=${id}`);
+  await run();
+  expect(
+    (await screen.findAllByText(/so there is no simulated result to compare\. The recorded/))
+      .length,
+  ).toBeGreaterThan(0);
+  expect(screen.getAllByRole("group", { name: "Recorded" }).length).toBeGreaterThan(0);
+  expect(screen.queryByRole("group", { name: "Simulated" })).not.toBeInTheDocument();
+});
+
+test("results_are_marked_as_earlier_when_the_settings_change_after_a_run", async () => {
+  show();
+  await run();
+  await screen.findByText("draft revision 4");
+  const warning = /These results are from an earlier run\. Run the simulation again/;
+  expect(screen.queryByText(warning)).not.toBeInTheDocument();
+  await userEvent.type(screen.getByRole("textbox", { name: "Capability contains" }), "plex");
+  expect(screen.getByText(warning)).toBeInTheDocument();
+  expect(screen.getByText("draft revision 4")).toBeInTheDocument();
+  await userEvent.clear(screen.getByRole("textbox", { name: "Capability contains" }));
+  expect(screen.queryByText(warning)).not.toBeInTheDocument();
+});
+
+test("a_slower_older_run_does_not_replace_a_newer_result", async () => {
+  show();
+  let release: (() => void) | undefined;
+  const slow = new Promise<void>((resolve) => (release = resolve));
+  let n = 0;
+  route(SIMULATE, async () => {
+    n += 1;
+    if (n === 1) {
+      await slow;
+      return { ...SIMULATE_BOTH, label: "older run" };
+    }
+    return { ...SIMULATE_BOTH, label: "newer run" };
+  });
+  await run();
+  fireEvent.submit(
+    screen.getByRole("button", { name: "Run simulation" }).closest("form") as HTMLFormElement,
+  );
+  await screen.findByText("newer run");
+  release?.();
+  await waitFor(() => expect(posts()).toHaveLength(2));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(screen.getByText("newer run")).toBeInTheDocument();
+  expect(screen.queryByText("older run")).not.toBeInTheDocument();
+});
+
+test("the_to_date_includes_the_whole_selected_day", () => {
+  expect(untilOf("2026-03-14")).toBe("2026-03-15T00:00:00Z");
+  expect(untilOf("2026-01-31")).toBe("2026-02-01T00:00:00Z");
+  expect(untilOf("2026-12-31")).toBe("2027-01-01T00:00:00Z");
+  expect(untilOf("2028-02-28")).toBe("2028-02-29T00:00:00Z");
+  expect(untilOf("2028-02-29")).toBe("2028-03-01T00:00:00Z");
 });

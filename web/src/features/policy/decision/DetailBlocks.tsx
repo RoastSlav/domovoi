@@ -1,4 +1,12 @@
-import { Cluster, KeyValueList, Stack, StatusPill, Tag, Text } from "../../../components";
+import {
+  Cluster,
+  InlineMessage,
+  KeyValueList,
+  Stack,
+  StatusPill,
+  Tag,
+  Text,
+} from "../../../components";
 import { factStatusMeta } from "../../../design/tone";
 import type { DecisionDoc } from "../decisionModel";
 
@@ -33,6 +41,31 @@ export function FactsBlock({ doc }: { doc: DecisionDoc }) {
       <Text block muted>
         Only whether each fact was known is recorded, never its value.
       </Text>
+    </Stack>
+  );
+}
+
+/** A warning when the page could not read part of the decision, so it is not taken as complete. */
+export function IncompleteBlock({ doc }: { doc: DecisionDoc }) {
+  if (!doc.incomplete) return null;
+  return (
+    <InlineMessage tone="warning" title="Part of this explanation could not be read">
+      This page does not know everything the hub recorded here, so do not treat the explanation as
+      complete.
+    </InlineMessage>
+  );
+}
+
+/** The short labels of what the page could not read, for people checking the record. */
+export function UnreadableBlock({ doc }: { doc: DecisionDoc }) {
+  if (doc.unreadable.length === 0) return null;
+  return (
+    <Stack gap={1}>
+      {doc.unreadable.map((label) => (
+        <Text key={label} mono>
+          {label}
+        </Text>
+      ))}
     </Stack>
   );
 }

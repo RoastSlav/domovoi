@@ -12,6 +12,13 @@ import { stepUpError } from "../../design/messages";
 import { LockedChangeDialog } from "./LockedChangeDialog";
 import type { RuleIssue } from "./ruleIssues";
 
+/** What a review covered: the save must submit exactly this, whatever the page does meanwhile. */
+interface SaveAttempt {
+  baseRevision: number;
+  preview: PolicyPreview;
+  rules: PolicyRule[];
+}
+
 function issuesOf(failure: unknown): RuleIssue[] {
   return failure instanceof ApiFailure ? failure.issues : [];
 }
@@ -48,7 +55,7 @@ export function useSaveDraftFlow({
   saving: boolean;
 } {
   const [issues, setIssues] = useState<RuleIssue[]>([]);
-  const [asking, setAsking] = useState<PolicyPreview>();
+  const [asking, setAsking] = useState<SaveAttempt>();
   const [passwordError, setPasswordError] = useState<string>();
   const [conflict, setConflict] = useState(false);
   const save = useSaveDraft();
@@ -67,6 +74,12 @@ export function useSaveDraftFlow({
   });
   const request = { baseRevision: saved.revision, rules: working };
 
+  // A review of other rules or of another revision is no longer what would be saved.
+  if (asking && (asking.rules !== working || asking.baseRevision !== saved.revision)) {
+    setAsking(undefined);
+    setPasswordError(undefined);
+  }
+
   const onSave = () => {
     setIssues([]);
     setPasswordError(undefined);
@@ -76,7 +89,7 @@ export function useSaveDraftFlow({
       onError: (failure) => setIssues(issuesOf(failure)),
       onSuccess: (preview) => {
         if (preview.locked_changes.length > 0) {
-          setAsking(preview);
+          setAsking({ ...request, preview });
           return;
         }
         plain.mutate(request, {
@@ -87,10 +100,15 @@ export function useSaveDraftFlow({
     });
   };
 
-  const confirm = (preview: PolicyPreview, password: string) => {
+  const confirm = (attempt: SaveAttempt, password: string) => {
     setPasswordError(undefined);
     locked.mutate(
-      { ...request, password, previewHash: preview.preview_hash },
+      {
+        baseRevision: attempt.baseRevision,
+        rules: attempt.rules,
+        password,
+        previewHash: attempt.preview.preview_hash,
+      },
       {
         onSuccess: (result) => {
           setAsking(undefined);
@@ -100,9 +118,13 @@ export function useSaveDraftFlow({
           const stepUp = stepUpError(failure);
           setPasswordError(stepUp);
           setConflict(failure instanceof ApiFailure && failure.status === 409);
+          const found = issuesOf(failure);
           if (stepUp === undefined && failure instanceof ApiFailure && failure.status === 400) {
-            setAsking(undefined);
-            setIssues(issuesOf(failure));
+            // Without rule issues there is nothing for the banner to say; the dialog explains.
+            if (found.length > 0) {
+              setAsking(undefined);
+              setIssues(found);
+            }
           }
         },
       },
@@ -117,7 +139,7 @@ export function useSaveDraftFlow({
 
   const dialog = asking ? (
     <LockedChangeDialog
-      preview={asking}
+      preview={asking.preview}
       busy={locked.isPending}
       passwordError={passwordError}
       problem={passwordError ? undefined : locked.error}

@@ -2,7 +2,7 @@ import { InlineMessage, Stack, Text, Visible } from "../../../components";
 import { decisionErrorMeta } from "../../../design/tone";
 import type { DecisionView } from "../decisionModel";
 import { ConstraintsBlock } from "./ConstraintsBlock";
-import { FactsBlock, MatchedBlock } from "./DetailBlocks";
+import { FactsBlock, IncompleteBlock, MatchedBlock, UnreadableBlock } from "./DetailBlocks";
 import { LimitsBlock } from "./LimitsBlock";
 import { ExceptionBlock, LockedBlock } from "./LockedBlock";
 import { OutcomeBlock } from "./OutcomeBlock";
@@ -59,6 +59,9 @@ export function DecisionExplanation({
         <Visible category="P0" id="decision.limits">
           <LimitsBlock doc={doc} />
         </Visible>
+        <Visible category="P0" id="decision.incomplete">
+          <IncompleteBlock doc={doc} />
+        </Visible>
         <Visible category="P1" id="decision.matched">
           {doc.matched.length === 0 && emptyText ? (
             <Text block muted>
@@ -73,6 +76,14 @@ export function DecisionExplanation({
         </Visible>
         <Visible category="P2" id="decision.facts" label="Facts consulted" count={doc.facts.length}>
           <FactsBlock doc={doc} />
+        </Visible>
+        <Visible
+          category="P2"
+          id="decision.unreadable"
+          label="Unread details"
+          count={doc.unreadable.length}
+        >
+          <UnreadableBlock doc={doc} />
         </Visible>
       </Stack>
     </div>

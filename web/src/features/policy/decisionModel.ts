@@ -36,6 +36,10 @@ export interface DecisionDoc {
   typedConfirmation: boolean;
   warnings: WarningView[];
   ceilingHash: string | null;
+  /** Short labels of what this page could not read; empty when it read everything. */
+  unreadable: string[];
+  /** True when something was dropped or kept only as unknown, so the explanation may be partial. */
+  incomplete: boolean;
 }
 
 /** What a stored decision says: a document or the code of an evaluation error. */
@@ -47,7 +51,29 @@ const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-const strings = (v: unknown): string[] => list(v).filter((x): x is string => typeof x === "string");
+
+/** Collects what the reader could not interpret, by short label. */
+type Lost = Set<string>;
+
+const KNOWN_KEYS = new Set(
+  "outcome reason matched winners locked overridden would_have_been constraints hard_limits_applied facts_used typed_confirmation warnings policy_version ceiling_hash".split(
+    " ",
+  ),
+);
+
+/** The entries of an array field, noting in `lost` a field that is not an array. */
+function items(v: unknown, what: string, lost: Lost): unknown[] {
+  if (v !== undefined && v !== null && !Array.isArray(v)) lost.add(`${what} (not a list)`);
+  return list(v);
+}
+
+/** The text entries of an array field, noting in `lost` any entry that is not text. */
+function strings(v: unknown, what: string, lost: Lost): string[] {
+  const all = items(v, what, lost);
+  const kept = all.filter((x): x is string => typeof x === "string");
+  if (kept.length < all.length) lost.add(what);
+  return kept;
+}
 
 function rawText(v: unknown): string {
   try {
@@ -94,7 +120,13 @@ function ttl(c: Obj): ConditionView {
   return { kind: "unknown", raw: rawText(c) };
 }
 
-function conditionOf(raw: unknown): ConditionView {
+function conditionOf(raw: unknown, lost: Lost): ConditionView {
+  const view = conditionRead(raw);
+  if (view.kind === "unknown") lost.add("a condition this page does not know");
+  return view;
+}
+
+function conditionRead(raw: unknown): ConditionView {
   if (!isObj(raw)) return { kind: "unknown", raw: rawText(raw) };
   const unknown: ConditionView = { kind: "unknown", raw: rawText(raw) };
   switch (raw.kind) {
@@ -125,7 +157,13 @@ function conditionOf(raw: unknown): ConditionView {
   }
 }
 
-function warningOf(raw: unknown): WarningView {
+function warningOf(raw: unknown, lost: Lost): WarningView {
+  const view = warningRead(raw, lost);
+  if (view.kind === "unknown") lost.add("a warning this page does not know");
+  return view;
+}
+
+function warningRead(raw: unknown, lost: Lost): WarningView {
   if (isObj(raw)) {
     if (raw.kind === "dangerous_exception")
       return {
@@ -135,41 +173,56 @@ function warningOf(raw: unknown): WarningView {
       };
     if (raw.kind === "safety_set_unverified") return { kind: "safety_set_unverified" };
     if (raw.kind === "management_paths_unprotected")
-      return { kind: "management_paths_unprotected", paths: strings(raw.paths) };
+      return {
+        kind: "management_paths_unprotected",
+        paths: strings(raw.paths, "a warning path", lost),
+      };
   }
   return { kind: "unknown", raw: rawText(raw) };
 }
 
-function docOf(raw: Obj, depth: number): DecisionDoc {
+function docOf(raw: Obj, depth: number, lost: Lost): DecisionDoc {
+  for (const key of Object.keys(raw)) if (!KNOWN_KEYS.has(key)) lost.add(`the field "${key}"`);
   const outcome = isObj(raw.outcome) ? raw.outcome : {};
   const constraints = isObj(raw.constraints) ? raw.constraints : {};
   const would =
-    depth < 4 && isObj(raw.would_have_been) ? docOf(raw.would_have_been, depth + 1) : null;
-  return {
+    depth < 4 && isObj(raw.would_have_been) ? docOf(raw.would_have_been, depth + 1, lost) : null;
+  const doc: DecisionDoc = {
     outcome: str(outcome.kind) ?? str(raw.outcome) ?? "unknown",
     unavailableReason: str(outcome.reason),
     reason: str(raw.reason) ?? "",
-    matched: strings(raw.matched),
-    winners: strings(raw.winners),
-    locked: strings(raw.locked),
-    overridden: list(raw.overridden).flatMap((o) =>
-      isObj(o) ? [{ broader: str(o.broader) ?? "", by: str(o.by) ?? "" }] : [],
-    ),
+    matched: strings(raw.matched, "a matched rule entry", lost),
+    winners: strings(raw.winners, "a winning rule entry", lost),
+    locked: strings(raw.locked, "a locked rule entry", lost),
+    overridden: items(raw.overridden, "an overridden rule entry", lost).flatMap((o) => {
+      if (isObj(o)) return [{ broader: str(o.broader) ?? "", by: str(o.by) ?? "" }];
+      lost.add("an overridden rule entry");
+      return [];
+    }),
     wouldHaveBeen: would,
     constraints: {
       maxPerHour: num(constraints.max_per_hour),
       maxTtlSeconds: num(constraints.max_ttl_secs),
-      targets: Array.isArray(constraints.targets) ? strings(constraints.targets) : null,
-      conditions: list(constraints.conditions).map(conditionOf),
+      targets: Array.isArray(constraints.targets)
+        ? strings(constraints.targets, "a target entry", lost)
+        : null,
+      conditions: items(constraints.conditions, "the conditions", lost).map((c) =>
+        conditionOf(c, lost),
+      ),
     },
-    limits: strings(raw.hard_limits_applied),
-    facts: list(raw.facts_used).flatMap((f) =>
-      isObj(f) ? [{ fact: str(f.fact) ?? "", status: str(f.status) ?? "unknown" }] : [],
-    ),
+    limits: strings(raw.hard_limits_applied, "a hard limit entry", lost),
+    facts: items(raw.facts_used, "a fact entry", lost).flatMap((f) => {
+      if (isObj(f)) return [{ fact: str(f.fact) ?? "", status: str(f.status) ?? "unknown" }];
+      lost.add("a fact entry");
+      return [];
+    }),
     typedConfirmation: raw.typed_confirmation === "typed",
-    warnings: list(raw.warnings).map(warningOf),
+    warnings: items(raw.warnings, "the warnings", lost).map((w) => warningOf(w, lost)),
     ceilingHash: str(raw.ceiling_hash),
+    unreadable: [],
+    incomplete: false,
   };
+  return doc;
 }
 
 /**
@@ -181,7 +234,10 @@ export function decisionOf(raw: unknown): DecisionView | null {
   if (raw === null || raw === undefined) return null;
   if (!isObj(raw)) return { kind: "error", code: "unreadable" };
   if (typeof raw.error === "string") return { kind: "error", code: raw.error };
-  return { kind: "decision", doc: docOf(raw, 0) };
+  const lost: Lost = new Set();
+  const doc = docOf(raw, 0, lost);
+  const unreadable = [...lost];
+  return { kind: "decision", doc: { ...doc, unreadable, incomplete: unreadable.length > 0 } };
 }
 
 /**

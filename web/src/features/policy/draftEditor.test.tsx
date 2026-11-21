@@ -12,6 +12,7 @@ import {
   setup,
 } from "../../test/draftPage";
 import {
+  DRAFT_4,
   OVERVIEW_ACTIVE,
   OVERVIEW_BERLIN,
   PREVIEW_BLOCKING,
@@ -106,6 +107,31 @@ test("removing_and_duplicating_rules_work_and_a_locked_removal_warns_about_the_p
   await user.click(within(dialog).getByRole("button", { name: "Remove rule" }));
   expect(screen.queryByText("no-prune")).toBeNull();
   expect(screen.getByText("3 unsaved changes")).toBeVisible();
+});
+
+test("a_rule_with_an_unknown_outcome_opens_read_only_and_cannot_be_applied", async () => {
+  const user = userEvent.setup();
+  const rules = DRAFT_4.rules as unknown[];
+  rules.push({ ...DRAFT_4.rules[0], id: "from-newer", outcome: "from_the_future" });
+  try {
+    setup();
+    await editRule(user, "from-newer");
+    expect(
+      await screen.findByText("This rule uses something this page does not know"),
+    ).toBeVisible();
+    expect(screen.getByText(/It is kept as it is/)).toBeVisible();
+    expect(screen.queryByRole("radio", { name: "Deny" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Note" })).toBeNull();
+    const apply = screen.getByRole("button", { name: "Apply to draft" });
+    expect(apply).toHaveAttribute("aria-disabled", "true");
+    await user.click(apply);
+    expect(screen.queryByText("Unsaved changes")).toBeNull();
+    expect(
+      within(screen.getByRole("table", { name: "Rules" })).getByText("from-newer"),
+    ).toBeVisible();
+  } finally {
+    rules.pop();
+  }
 });
 
 test("an_unknown_rule_in_the_address_is_dropped", async () => {

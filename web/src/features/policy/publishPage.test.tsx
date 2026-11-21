@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PolicyPreview } from "../../api/types";
 import { retryAfterText, WRONG_PASSWORD_TEXT } from "../../design/messages";
@@ -36,7 +36,7 @@ function open(preview: PolicyPreview) {
   route(OVERVIEW, () => OVERVIEW_ACTIVE);
   route(DRAFT, () => DRAFT_4);
   route(PREVIEW, () => preview);
-  renderAt(URL, URL, <PublishPage />);
+  return renderAt(URL, URL, <PublishPage />);
 }
 
 function publishButton(name = "Publish version 4") {
@@ -197,7 +197,7 @@ test("a_changed_review_prunes_ticks_that_no_longer_apply", async () => {
   route(PREVIEW, () => next);
   route(PUBLISH, () => failure(409, "conflict", "The review is out of date."));
   await confirmPublish(user);
-  await user.click(await screen.findByRole("button", { name: "Review it again" }));
+  // The refetched review differs, so the confirmation closes on its own.
   expect(await screen.findByText("new-a and new-b: equal scope conflict.")).toBeInTheDocument();
   const boxes = screen.getAllByRole("checkbox");
   expect(boxes).toHaveLength(2);
@@ -247,4 +247,17 @@ test("no_draft_to_publish_is_an_empty_state_with_a_link", async () => {
     "/policy/draft",
   );
   expect(calls.some((call) => call.route === PREVIEW)).toBe(false);
+});
+
+test("a_changed_review_closes_the_publish_confirmation", async () => {
+  const user = userEvent.setup();
+  route(PUBLISH, () => ({}));
+  const { client } = open(PREVIEW_CLEAN);
+  await user.click(await publishButton());
+  expect(await screen.findByRole("dialog")).toBeVisible();
+
+  route(PREVIEW, () => ({ ...PREVIEW_CLEAN, preview_hash: "changed-hash" }));
+  await act(() => client.invalidateQueries({ queryKey: ["policy"] }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(published()).toHaveLength(0);
 });

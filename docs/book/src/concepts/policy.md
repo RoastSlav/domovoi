@@ -110,6 +110,7 @@ Open a row in **Decisions** to see one recorded decision. It shows:
 - **Why it won**: the reason in plain words (for example, "Most specific rule" or "A locked rule applies"), the rules that won, and any broader rule they overrode. A locked Deny is marked as locked, and the page says what the rules alone would have decided.
 - **Hard limits**: the limits that applied after the rules, in their own card. They are not rules and cannot be edited on this page. When the answer with the limits differs from the answer with the rules alone, both are shown.
 - **Missing inputs**: any input the decision could not read is listed as a gap. The result then uses the safe reading of that input, so it can be stricter than the real answer. Read it as "at least this strict".
+- **Part of this explanation could not be read**: if the hub recorded something this page does not know, a warning says so and **Unread details** lists what was skipped. Do not treat that explanation as complete.
 - **Not enforced**: every answer on this page carries this mark. It is recorded, not applied.
 
 **Simulate this step** opens the simulator for the same step.
@@ -123,10 +124,10 @@ The simulator re-runs decisions against rules you pick. It records nothing and e
 3. Choose the inputs: **Recorded** or **Current**.
 4. Narrow the decisions by host, capability, status or date, and set how many to show (up to 500).
 
-Nothing is sent until you choose **Run simulation**. With **Recorded** inputs, each decision is re-run with the host state, facts and ceiling that were recorded when it was made, and any gap is shown. With **Current** inputs, each step is re-run with today's clock and host state. That is a what-if, not a record of what happened, so use recorded inputs when you want to explain a past decision.
+Nothing is sent until you choose **Run simulation**. With **Recorded** inputs, a decision is re-run with the host state, facts and ceiling that were recorded when it was made, wherever that information was recorded, and any gap is shown. Some decisions cannot be replayed: records that were skipped or could not be evaluated, and records whose inputs are missing. A degraded record keeps the limits it had when it was made, so a replay of it is only as complete as the original. With **Current** inputs, each step is re-run with today's clock and host state. That is a what-if, not a record of what happened, so use recorded inputs when you want to explain a past decision.
 
-Each result is marked **Same**, **Changed** or **Cannot replay**. A decision that was skipped or could not be evaluated cannot be replayed.
+Each result is marked **Same**, **Changed** or **Cannot replay**.
 
 ### Time zones
 
-Every time window on a rule, such as "Start" and "End" for a time of day, shows its time zone beside it, for example "Start (UTC)". Times are read in the time zone the hub reports; UTC is used unless the hub reports another one. A window that ends before it starts runs overnight. If the hub does not report a zone, the time fields are locked and say so.
+The hub evaluates time windows in UTC today. Every time window on a rule, such as "Start" and "End" for a time of day, shows its time zone beside it, for example "Start (UTC)". The pages read the zone from the policy overview and label it, so they follow the hub if that ever changes. A window that ends before it starts runs overnight. If the hub does not report a zone, the time fields are read-only and say so.

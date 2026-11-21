@@ -1,3 +1,5 @@
+import type { PolicyRule } from "../../api/types";
+
 /** The outcome a rule form can choose. */
 export type FormOutcome = "deny" | "require_approval" | "allow";
 
@@ -27,6 +29,11 @@ export interface RuleForm {
   targetNames: string;
   conditions: ConditionForm[];
   note: string;
+  /**
+   * The stored rule as it came, when it uses an outcome, host, capability or target kind this
+   * page does not know. It is shown read-only and saved back exactly as it is.
+   */
+  unsupported: PolicyRule | null;
 }
 
 /** Field hints for a rule form; absent keys are fine. */
