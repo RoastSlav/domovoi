@@ -221,6 +221,8 @@ pub const RAW_OPS: &[&str] = &[
 pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedStep::of",
     "execute::execute_step",
+    "AuthorizedPackageTarget::of",
+    "execute::execute_package",
     "OperationCommand::Dispatch",
     "Caller::web",
     "Caller::chat",
@@ -402,6 +404,24 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 1,
         }],
         message: "`execute::execute_step` is the operation service's one dispatch and is called once, from effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedPackageTarget::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/packages/worker.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedPackageTarget::of` is the one authorizing constructor of the install service and runs once per target, in packages/worker.rs (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute::execute_package"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/packages/worker.rs",
+            count: 1,
+        }],
+        message: "`execute::execute_package` is the install service's one relay and is called once, from packages/worker.rs (ADR 0029)",
     },
     BoundaryCard {
         id: "EXEC-2",

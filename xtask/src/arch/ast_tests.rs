@@ -17,6 +17,8 @@ fn has(violations: &[Violation], rule: &str) -> bool {
 
 const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
 const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized)\n}\n";
+const PKG_WORKER: &str = "fn run(t: Target) -> R {\n    let authorized = AuthorizedPackageTarget::of(t, a)?;\n    crate::packages::execute::execute_package(authorized)\n}\n";
+const PKG_WORKER_PATH: &str = "crates/domovoi-engine/src/packages/worker.rs";
 const OP_WRITER: &str =
     "fn write(c: OperationCommand) { match c { OperationCommand::Dispatch { .. } => {} } }\n";
 
@@ -26,6 +28,7 @@ fn engine_sites() -> Vec<(String, String)> {
         (OP_EXECUTE_PATH, OP_EXECUTE),
         (OP_DISPATCH_PATH, OP_DISPATCH),
         (OP_WRITER_PATH, OP_WRITER),
+        (PKG_WORKER_PATH, PKG_WORKER),
     ])
 }
 
@@ -664,6 +667,43 @@ fn a_second_execute_step_call_is_refused() {
             "{violations:#?}"
         );
     }
+}
+
+#[test]
+fn a_second_package_constructor_or_relay_call_is_refused() {
+    for (again, name) in [
+        (
+            "fn again(t: Target) { let _ = AuthorizedPackageTarget::of(t, a); }\n",
+            "AuthorizedPackageTarget::of",
+        ),
+        (
+            "fn again(a: Target) { execute::execute_package(a); }\n",
+            "execute::execute_package",
+        ),
+    ] {
+        let in_site = format!("{PKG_WORKER}{again}");
+        for violations in [
+            exec_violations(&engine_with_site(PKG_WORKER_PATH, &in_site)),
+            exec_violations(&engine_with(OTHER_PATH, again)),
+        ] {
+            assert!(
+                violations
+                    .iter()
+                    .any(|v| v.rule == "EXEC-2" && v.message.contains(name)),
+                "{name}: {violations:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_package_worker_missing_its_sites_is_refused() {
+    let tree: Vec<(String, String)> = engine_sites()
+        .into_iter()
+        .filter(|(path, _)| path != PKG_WORKER_PATH)
+        .collect();
+    let violations = exec_violations(&tree);
+    assert!(has(&violations, "EXEC-2"), "{violations:#?}");
 }
 
 #[test]
