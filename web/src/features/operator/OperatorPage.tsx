@@ -17,17 +17,21 @@ function Detail({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   const detail = useConversation(id);
   usePageName(detail.data?.title || (detail.data ? "New conversation" : undefined));
   return (
-    <Stack gap={3}>
-      {detail.data && (
-        <DeleteConversation
-          id={id}
-          title={detail.data.title}
-          pending={detail.data.turn_in_progress != null}
-          onDeleted={onDeleted}
-        />
-      )}
-      <OperatorConversation key={id} id={id} />
-    </Stack>
+    <OperatorConversation
+      key={id}
+      id={id}
+      fill
+      actions={
+        detail.data && (
+          <DeleteConversation
+            id={id}
+            title={detail.data.title}
+            pending={detail.data.turn_in_progress != null}
+            onDeleted={onDeleted}
+          />
+        )
+      }
+    />
   );
 }
 
@@ -48,7 +52,7 @@ export function OperatorPage() {
     writeActive(next);
     void navigate(`/operator/${next}`);
   };
-  const showList = wide || id === undefined;
+  const showList = id === undefined;
   const showRight = wide || id !== undefined || creating;
 
   return (
@@ -68,23 +72,29 @@ export function OperatorPage() {
           </Button>
         }
       />
-      <AllHostsNote>Conversations are listed for every host.</AllHostsNote>
-      <div className={styles.workspace} data-narrow={!wide}>
-        {showList && <ConversationList onNew={() => setCreating(true)} />}
-        {showRight && (
-          <div>
-            {id !== undefined ? (
-              <>
-                {!wide && <Link to="/operator">Back to conversations</Link>}
-                <Detail id={id} onDeleted={() => void navigate("/operator")} />
-              </>
-            ) : (
-              (wide || creating) && (
-                <NewConversation operation={operation} initialHost={host} onCreated={open} />
-              )
-            )}
-          </div>
-        )}
+      {id === undefined && <AllHostsNote>Conversations are listed for every host.</AllHostsNote>}
+      <div className={styles.workspaceHost}>
+        <div className={styles.workspace} data-narrow={!wide || id !== undefined}>
+          {showList && (
+            <div className={wide ? styles.rail : undefined}>
+              <ConversationList compact={wide} onNew={() => setCreating(true)} />
+            </div>
+          )}
+          {showRight && (
+            <div>
+              {id !== undefined ? (
+                <Stack gap={3}>
+                  <Link to="/operator">Back to conversations</Link>
+                  <Detail id={id} onDeleted={() => void navigate("/operator")} />
+                </Stack>
+              ) : (
+                (wide || creating) && (
+                  <NewConversation operation={operation} initialHost={host} onCreated={open} />
+                )
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </Stack>
   );

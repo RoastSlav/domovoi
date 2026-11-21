@@ -12,6 +12,11 @@ export interface OperatorThreadProps {
   disabledReason?: string | undefined;
   /** The draft in the composer. */
   draft: string;
+  /**
+   * Gives the thread the height of a workspace: the composer rests at the bottom and stays
+   * in view while the transcript grows. The panel leaves it off and keeps its natural height.
+   */
+  fill?: boolean | undefined;
   /** The line under the composer saying what the Operator can and cannot do. */
   hint: ReactNode;
   /** The composer's label. */
@@ -46,7 +51,7 @@ export function OperatorThread(props: OperatorThreadProps) {
   }, [newest]);
 
   return (
-    <div className={styles.chat}>
+    <div className={styles.chat} data-fill={props.fill ? "" : undefined}>
       <OperatorTurns turns={turns} live={live} onRetry={props.onRetry} onStop={props.onStop} />
       <div ref={end} />
       {props.offReason ? (

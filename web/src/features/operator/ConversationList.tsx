@@ -25,7 +25,10 @@ export function ConversationList({
   host,
   operation,
   onNew,
+  compact = false,
 }: {
+  /** Beside the new-conversation form the empty list is one quiet line, not a second call to action. */
+  compact?: boolean;
   host?: string | undefined;
   onNew: () => void;
   operation?: string | undefined;
@@ -38,13 +41,17 @@ export function ConversationList({
       loading={<Skeleton shape="rows" count={4} />}
       isEmpty={(page) => page.items.length === 0}
       empty={
-        <EmptyState
-          icon="chat"
-          title="No conversations yet"
-          action={<Button onClick={onNew}>Start a conversation</Button>}
-        >
-          <p>Ask the Operator about a host or about every host. It only reads.</p>
-        </EmptyState>
+        compact ? (
+          <p className={styles.railEmpty}>No conversations yet</p>
+        ) : (
+          <EmptyState
+            icon="chat"
+            title="No conversations yet"
+            action={<Button onClick={onNew}>Start a conversation</Button>}
+          >
+            <p>Ask the Operator about a host or about every host. It only reads.</p>
+          </EmptyState>
+        )
       }
     >
       {(page) => (
