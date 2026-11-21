@@ -33,8 +33,7 @@ beforeEach(resetApi);
 
 test("simulator_defaults_to_the_draft_both_selections_and_recorded_inputs_and_runs_on_click", async () => {
   show();
-  const rules = await screen.findByRole("combobox", { name: "Rules" });
-  expect(rules).toHaveValue("draft");
+  expect(await screen.findByRole("radio", { name: /Draft, revision/ })).toBeChecked();
   expect(screen.getByRole("radio", { name: "Both" })).toBeChecked();
   expect(screen.getByRole("radio", { name: "Recorded" })).toBeChecked();
   expect(screen.getByRole("spinbutton", { name: /Most results/ })).toHaveValue(200);
@@ -171,10 +170,9 @@ test("simulator_without_a_draft_or_version_says_nothing_to_simulate_and_disables
 
 test("simulator_disables_the_draft_option_when_only_a_version_exists", async () => {
   show("/policy/simulator", { ...OVERVIEW_ACTIVE, draft: null });
-  const rules = await screen.findByRole("combobox", { name: "Rules" });
-  expect(rules).toHaveValue("version-3");
-  expect(within(rules).getByRole("option", { name: /Draft/ })).toBeDisabled();
-  expect(within(rules).getByRole("option", { name: "Version 3 (active)" })).toBeInTheDocument();
+  expect(await screen.findByRole("radio", { name: "Active version 3" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: /Draft/ })).toBeDisabled();
+  expect(screen.queryByRole("combobox", { name: /Older version/ })).not.toBeInTheDocument();
 });
 
 test("simulator_failures_are_inline_in_the_hubs_words", async () => {
@@ -214,10 +212,10 @@ test("results_are_marked_as_earlier_when_the_settings_change_after_a_run", async
   await screen.findByText("draft revision 4");
   const warning = /These results are from an earlier run\. Run the simulation again/;
   expect(screen.queryByText(warning)).not.toBeInTheDocument();
-  await userEvent.type(screen.getByRole("textbox", { name: "Capability contains" }), "plex");
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Status/ }), "");
   expect(screen.getByText(warning)).toBeInTheDocument();
   expect(screen.getByText("draft revision 4")).toBeInTheDocument();
-  await userEvent.clear(screen.getByRole("textbox", { name: "Capability contains" }));
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Status/ }), "evaluated");
   expect(screen.queryByText(warning)).not.toBeInTheDocument();
 });
 
@@ -244,6 +242,49 @@ test("a_slower_older_run_does_not_replace_a_newer_result", async () => {
   await new Promise((r) => setTimeout(r, 20));
   expect(screen.getByText("newer run")).toBeInTheDocument();
   expect(screen.queryByText("older run")).not.toBeInTheDocument();
+});
+
+test("the_filters_are_labelled_optional_and_counted_when_set", async () => {
+  show();
+  expect(await screen.findByRole("heading", { name: "What to test" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Optional: narrow it down" })).toBeInTheDocument();
+  expect(screen.getByText("Test these rules").parentElement).toHaveTextContent("(required)");
+  for (const name of [/^Status/, /^Action \(optional\)/, /^From \(UTC\) \(optional\)/]) {
+    expect(screen.getByLabelText(name)).toBeInTheDocument();
+  }
+  expect(screen.getByText("Most results (optional)")).toBeInTheDocument();
+  expect(screen.queryByText(/filters? set/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("From (UTC) (optional)"), {
+    target: { value: "2026-03-01" },
+  });
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: /^Status/ }), "");
+  expect(screen.getByText("2 filters set")).toBeInTheDocument();
+  await run();
+  expect(posts()[0]?.init.body).toMatchObject({ filter: { since: "2026-03-01T00:00:00Z" } });
+});
+
+test("few_hosts_are_choices_and_the_chosen_host_is_sent", async () => {
+  show();
+  await userEvent.click(await screen.findByRole("radio", { name: "nas" }));
+  await run();
+  expect(posts()[0]?.init.body).toMatchObject({ filter: { host: HOST_ID } });
+});
+
+test("the_against_choice_sends_the_same_selection_as_before", async () => {
+  show("/policy/simulator?selection=shadow");
+  expect(await screen.findByRole("radio", { name: "The shadow rules" })).toBeChecked();
+  await userEvent.click(screen.getByRole("radio", { name: "The active policy" }));
+  expect(screen.getByTestId("location")).toHaveTextContent("selection=enforced");
+  await run();
+  expect(posts()[0]?.init.body).toMatchObject({ selection: "enforced" });
+});
+
+test("the_form_has_no_overlapping_controls_structure", async () => {
+  show();
+  await screen.findByRole("radio", { name: "Both" });
+  expect(screen.queryByRole("combobox", { name: "Against" })).not.toBeInTheDocument();
+  expect(screen.getByRole("group", { name: /^Against/ })).toBeInTheDocument();
+  expect(screen.getByRole("group", { name: "Using" })).toBeInTheDocument();
 });
 
 test("the_to_date_includes_the_whole_selected_day", () => {

@@ -1,0 +1,107 @@
+/* The simulator form sizes itself by the room it is given, not by the window, so it stays
+   readable next to the navigation. */
+.form {
+  container-type: inline-size;
+}
+
+.group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.group > * {
+  min-width: 0;
+}
+
+.run {
+  display: flex;
+}
+
+/* Choice cards: every choice visible, wrapping instead of overflowing. */
+.choices {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0;
+  margin-bottom: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.cue {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-regular, 400);
+}
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.card {
+  display: flex;
+  flex: 1 1 11rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  max-width: 16rem;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.card[data-checked] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+}
+
+.card[data-disabled] {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+}
+
+.card:has(:focus-visible) {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cardLabel {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+/* Optional filters: the two wide choices take a row each, the four small ones share a row. */
+.optional {
+  align-items: start;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+@container (min-width: 30rem) {
+  .optional {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 46rem) {
+  .optional {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

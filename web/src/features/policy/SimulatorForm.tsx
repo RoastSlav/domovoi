@@ -1,46 +1,23 @@
 import type { ReactNode } from "react";
-import { useHosts } from "../../api/hooks/hosts";
 import type { PolicyOverview, PolicyVersionSummary } from "../../api/types";
 import {
   Button,
   Field,
-  Grid,
   InlineMessage,
-  NumberInput,
   SegmentedControl,
+  Section,
   Select,
   Stack,
-  TextInput,
   Visible,
 } from "../../components";
 import type { DescribedError } from "../../design/messages";
-import { shadowStatusMeta } from "../../design/tone";
+import { SimulatorChoices, type SimulatorChoice } from "./SimulatorChoices";
+import { SimulatorFilters, type FilterValues } from "./SimulatorFilters";
 import { SIMULATION_CURRENT, SIMULATION_RECORDED } from "./policyText";
+import styles from "./simulator.module.css";
 import type { SimulatorRules, SimulatorState } from "./simulatorState";
 
-/** The filters and size of a simulation, as the form holds them before Run. */
-export interface FilterValues {
-  /** A host id; null follows the selected host. */
-  host: string | null;
-  contract: string;
-  status: string;
-  /** A date as `YYYY-MM-DD`, or empty. */
-  since: string;
-  until: string;
-  limit: string;
-}
-
-/** What the form starts with: recorded decisions, up to 200, any host the selector names. */
-export const INITIAL_FILTERS: FilterValues = {
-  host: null,
-  contract: "",
-  status: "evaluated",
-  since: "",
-  until: "",
-  limit: "200",
-};
-
-const STATUSES = ["evaluated", "unevaluable", "skipped"];
+export { INITIAL_FILTERS, type FilterValues } from "./SimulatorFilters";
 
 const rulesValue = (r: SimulatorRules | null): string =>
   r === null ? "" : r.source === "draft" ? "draft" : `version-${r.number}`;
@@ -61,100 +38,57 @@ function RulesField({
   versions: readonly PolicyVersionSummary[];
 }) {
   const current = value?.source === "version" ? value.number : undefined;
-  const numbers = versions.map((v) => v.number);
-  if (current !== undefined && !numbers.includes(current)) numbers.push(current);
+  const older = versions.map((v) => v.number).filter((n) => n !== active);
+  if (current !== undefined && current !== active && !older.includes(current)) older.push(current);
   const change = (text: string) =>
     onChange(
       text === "draft"
         ? { source: "draft" }
         : { source: "version", number: Number(text.replace("version-", "")) },
     );
+  const choices: SimulatorChoice[] = [
+    {
+      value: "draft",
+      label: draft ? `Draft, revision ${draft.revision}` : "Draft (none to simulate)",
+      disabled: !draft,
+      ...(draft ? {} : { hint: "There is no draft yet." }),
+    },
+  ];
+  if (active !== undefined)
+    choices.push({ value: `version-${active}`, label: `Active version ${active}` });
+  const chosen = value === null ? "" : rulesValue(value);
   return (
-    <Field
-      label="Rules"
-      hint={more ? "Older versions are not listed." : "The rules to run the decisions through."}
-    >
-      <Select value={rulesValue(value)} onChange={(e) => change(e.target.value)}>
-        {value === null && <option value="">Choose rules</option>}
-        <option value="draft" disabled={!draft}>
-          {draft ? `Draft, revision ${draft.revision}` : "Draft (none to simulate)"}
-        </option>
-        {numbers.map((n) => (
-          <option key={n} value={`version-${n}`}>
-            {`Version ${n}${n === active ? " (active)" : ""}`}
-          </option>
-        ))}
-      </Select>
-    </Field>
+    <Stack gap={3}>
+      <SimulatorChoices
+        legend="Test these rules"
+        required
+        choices={choices}
+        value={chosen}
+        onChange={change}
+        hint={more ? "Older versions are not listed." : "The rules to run the decisions through."}
+      />
+      {older.length > 0 && (
+        <Field label="Older version (optional)">
+          <Select
+            value={current !== undefined && older.includes(current) ? `version-${current}` : ""}
+            onChange={(e) => e.target.value !== "" && change(e.target.value)}
+          >
+            <option value="">Choose an older version</option>
+            {older.map((n) => (
+              <option key={n} value={`version-${n}`}>{`Version ${n}`}</option>
+            ))}
+          </Select>
+        </Field>
+      )}
+    </Stack>
   );
 }
 
-function Filters({
-  values,
-  onChange,
-}: {
-  onChange: (patch: Partial<FilterValues>) => void;
-  values: FilterValues;
-}) {
-  const hosts = useHosts().data ?? [];
-  return (
-    <Grid min="xs" gap={4}>
-      <Field label="Host">
-        <Select value={values.host ?? ""} onChange={(e) => onChange({ host: e.target.value })}>
-          <option value="">All hosts</option>
-          {hosts.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.name}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Capability contains">
-        <TextInput
-          mono
-          value={values.contract}
-          onChange={(e) => onChange({ contract: e.target.value })}
-        />
-      </Field>
-      <Field label="Status">
-        <Select value={values.status} onChange={(e) => onChange({ status: e.target.value })}>
-          <option value="">Any status</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {shadowStatusMeta(s).label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="From (UTC)">
-        <TextInput
-          type="date"
-          value={values.since}
-          onChange={(e) => onChange({ since: e.target.value })}
-        />
-      </Field>
-      <Field label="To (UTC)">
-        <TextInput
-          type="date"
-          value={values.until}
-          onChange={(e) => onChange({ until: e.target.value })}
-        />
-      </Field>
-      <Field label="Most results" hint="Between 1 and 500.">
-        <NumberInput
-          min={1}
-          max={500}
-          value={values.limit}
-          onChange={(e) => onChange({ limit: e.target.value })}
-        />
-      </Field>
-    </Grid>
-  );
-}
+const SELECTIONS: SimulatorState["selection"][] = ["enforced", "shadow", "both"];
 
 /**
- * The simulator's settings: which rules, which side of the recorded decisions, which inputs,
- * and which decisions to take. Nothing is sent until Run simulation.
+ * The simulator's settings: which rules, what to compare them with, which inputs, and, behind
+ * a toggle, which decisions to take. Nothing is sent until Run simulation.
  * @param state Rules, selection and inputs as the address holds them.
  * @param onState Changes the address.
  * @param values The filters, held by the page.
@@ -192,6 +126,7 @@ export function SimulatorForm({
   return (
     <Visible category="P1" id="simulator.form">
       <form
+        className={styles.form}
         onSubmit={(event) => {
           event.preventDefault();
           if (rules !== null) onRun();
@@ -200,49 +135,55 @@ export function SimulatorForm({
       >
         <Stack gap={4}>
           {step}
-          <Grid min="sm" gap={4}>
-            <RulesField
-              value={rules}
-              draft={overview.draft}
-              versions={versions}
-              more={moreVersions}
-              active={overview.active?.number}
-              onChange={(next) => onState({ rules: next })}
-            />
-            <Field label="Which rules">
-              <SegmentedControl
-                label="Which rules"
+          <Section title="What to test">
+            <div className={styles.group}>
+              <RulesField
+                value={rules}
+                draft={overview.draft}
+                versions={versions}
+                more={moreVersions}
+                active={overview.active?.number}
+                onChange={(next) => onState({ rules: next })}
+              />
+              <SimulatorChoices
+                legend="Against"
+                required
                 value={state.selection}
-                onChange={(selection) => onState({ selection })}
-                options={[
-                  { value: "enforced", label: "Active policy" },
-                  { value: "shadow", label: "Shadow rules" },
+                onChange={(text) => {
+                  const selection = SELECTIONS.find((o) => o === text);
+                  if (selection) onState({ selection });
+                }}
+                hint="Which recorded decisions to compare with."
+                choices={[
+                  { value: "enforced", label: "The active policy" },
+                  { value: "shadow", label: "The shadow rules" },
                   { value: "both", label: "Both" },
                 ]}
               />
-            </Field>
-            <Field
-              label="Inputs"
-              hint={state.inputs === "current" ? SIMULATION_CURRENT : SIMULATION_RECORDED}
-            >
-              <SegmentedControl
-                label="Inputs"
-                value={state.inputs}
-                onChange={(inputs) => onState({ inputs })}
-                options={[
-                  { value: "recorded", label: "Recorded" },
-                  { value: "current", label: "Current" },
-                ]}
-              />
-            </Field>
-          </Grid>
-          <Filters values={values} onChange={onValues} />
+              <Field
+                label="Using"
+                required
+                hint={state.inputs === "current" ? SIMULATION_CURRENT : SIMULATION_RECORDED}
+              >
+                <SegmentedControl
+                  label="Using"
+                  value={state.inputs}
+                  onChange={(inputs) => onState({ inputs })}
+                  options={[
+                    { value: "recorded", label: "Recorded" },
+                    { value: "current", label: "Current" },
+                  ]}
+                />
+              </Field>
+            </div>
+          </Section>
+          <SimulatorFilters values={values} onChange={onValues} />
           {error && (
             <InlineMessage tone="danger" title={error.title}>
               {error.detail}
             </InlineMessage>
           )}
-          <div>
+          <div className={styles.run}>
             <Button variant="primary" type="submit" loading={pending}>
               Run simulation
             </Button>
