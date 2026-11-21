@@ -22,6 +22,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LoaderCircle,
+  Lock,
   LogOut,
   Menu,
   MessageSquare,
@@ -80,6 +81,7 @@ const ICONS = {
   mute: BellOff,
   offline: WifiOff,
   shield: ShieldAlert,
+  lock: Lock,
   // Actions
   copy: Copy,
   external: ExternalLink,

@@ -19,6 +19,7 @@ import {
   STEP_OUTCOMES,
 } from "./operationVocab";
 import { TURN_STATUSES } from "./operatorVocab";
+import { POLICY_VOCABULARIES } from "./policyMeta";
 import { INCIDENT_GROUPS, INCIDENT_STATUSES, SEVERITIES, VERDICTS } from "./respondVocab";
 import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from "./status";
 
@@ -30,6 +31,22 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
+export {
+  comparisonMeta,
+  decisionErrorMeta,
+  decisionReasonMeta,
+  effectClassMeta,
+  factStatusMeta,
+  findingKindMeta,
+  gapInputMeta,
+  gapReasonMeta,
+  hardLimitMeta,
+  lockChangeMeta,
+  policyOutcomeMeta,
+  ruleMarkMeta,
+  shadowReasonMeta,
+  shadowStatusMeta,
+} from "./policyMeta";
 export type { TurnStatus } from "./operatorVocab";
 export type {
   EdgeKind,
@@ -263,4 +280,5 @@ export const VOCABULARIES: {
   { name: "Step kind", meta: stepKindMeta, values: Object.keys(STEP_KINDS) },
   { name: "Edge kind", meta: edgeKindMeta, values: Object.keys(EDGE_KINDS) },
   { name: "Turn status", meta: turnStatusMeta, values: Object.keys(TURN_STATUSES) },
+  ...POLICY_VOCABULARIES,
 ];

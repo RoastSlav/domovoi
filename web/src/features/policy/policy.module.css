@@ -1,0 +1,68 @@
+.editorLayout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.editorLayout > * {
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .editorLayout {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+  }
+}
+
+.compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.compare > * {
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .compare {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.wrapCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.marks {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A fingerprint is one long word: let it break so it never widens the page. */
+.fingerprint {
+  overflow-wrap: anywhere;
+}
+
+/* The hub's notes read as one short list in one box, not a stack of identical boxes. */
+.notes {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}
+
+/* Editing one rule is its own screen: a single readable column, not a side panel. */
+.focusedEditor {
+  max-width: 44rem;
+}

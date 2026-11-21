@@ -40,12 +40,17 @@ export function useHostNames(): Map<string, string> {
 /** One host with its latest digest facts; refreshes as often as the host list, so its
  * connection state does not go stale. */
 export function useHost(name: string) {
-  return useQuery({
+  return useQuery(hostOptions(name));
+}
+
+/** The query that reads host `name` with its facts; shared by every reader of it. */
+export function hostOptions(name: string) {
+  return {
     queryKey: keys.host(name),
     queryFn: () =>
       call<HostDetail>(api.GET("/api/v1/hosts/{name}", { params: { path: { name } } })),
     refetchInterval: HOSTS_REFRESH_MS,
-  });
+  };
 }
 
 /** The skills host `name`'s agent reported; idle while `name` is empty. */

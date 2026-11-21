@@ -13,7 +13,12 @@ export const CAPABILITIES_REFRESH_MS = 30_000;
  * never an approval. Idle while `name` is empty.
  */
 export function useCapabilities(name: string) {
-  return useQuery({
+  return useQuery(capabilitiesOptions(name));
+}
+
+/** The query that reads host `name`'s capability inventory; shared by every reader of it. */
+export function capabilitiesOptions(name: string) {
+  return {
     queryKey: keys.capabilities(name),
     queryFn: () =>
       call<Capabilities>(
@@ -21,5 +26,5 @@ export function useCapabilities(name: string) {
       ),
     enabled: name !== "",
     refetchInterval: CAPABILITIES_REFRESH_MS,
-  });
+  };
 }

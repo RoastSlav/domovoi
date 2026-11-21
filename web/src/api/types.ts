@@ -207,3 +207,46 @@ export type SentMessage = Schemas["SendResponse"];
 export type ConversationScope = Schemas["ScopeDto"];
 /** What a new conversation is about. */
 export type ScopeChoice = Schemas["ScopeRequest"];
+
+/** The policy at a glance: active version, draft and the shadow recorder. */
+export type PolicyOverview = Schemas["PolicyOverviewDto"];
+/** One published policy version, without its rules. */
+export type PolicyVersionSummary = Schemas["VersionSummaryDto"];
+/** A published version with its rules and acknowledgements. */
+export type PolicyVersionDetail = Schemas["VersionDetailDto"];
+/** One page of published versions. */
+export type PolicyVersionPage = Schemas["VersionPageDto"];
+/** The stored draft rule set. */
+export type PolicyDraft = Schemas["DraftDetailDto"];
+/** The draft in the overview, without its rules. */
+export type PolicyDraftSummary = Schemas["DraftSummaryDto"];
+/** The answer to saving a draft. */
+export type PolicyDraftSaved = Schemas["DraftSavedDto"];
+/** One policy rule as the hub stores it. */
+export type PolicyRule = Schemas["RuleDto"];
+/** The review of a rule set: problems, findings, locked changes and a simulation. */
+export type PolicyPreview = Schemas["PreviewDto"];
+/** One conflict or note in a publication report. */
+export type PolicyFinding = Schemas["FindingDto"];
+/** One problem found in a rule set. */
+export type PolicyValidation = Schemas["ValidationDto"];
+/** A conflict somebody acknowledged when publishing. */
+export type PolicyAck = Schemas["AckDto"];
+/** The findings of a publication report. */
+export type PolicyReport = Schemas["PolicyReportDto"];
+/** A change to a locked rule. */
+export type LockChange = Schemas["LockChangeDto"];
+/** What a simulation found. */
+export type PolicySimulation = Schemas["SimulationDto"];
+/** One recorded step with its re-run decisions. */
+export type SimulationItem = Schemas["SimulationItemDto"];
+/** A re-run decision next to the recorded one. */
+export type Replayed = Schemas["ReplayedDto"];
+/** How a simulation changed the counts. */
+export type SimulationSummary = Schemas["SimulationSummaryDto"];
+/** One page of recorded decisions. */
+export type ShadowPage = Schemas["ShadowPageDto"];
+/** One recorded decision in a list. */
+export type ShadowRow = Schemas["ShadowSummaryRowDto"];
+/** One recorded decision with everything needed to replay it. */
+export type ShadowDetail = Schemas["ShadowDetailDto"];

@@ -1,0 +1,147 @@
+{
+  "revision": 4,
+  "based_on": 3,
+  "rules": [
+    {
+      "id": "no-destroy",
+      "enabled": true,
+      "locked": true,
+      "shadow": false,
+      "outcome": "deny",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "effect",
+        "effect": "destructive"
+      },
+      "conditions": [],
+      "note": "Never destroy anything automatically."
+    },
+    {
+      "id": "plex-restart",
+      "enabled": true,
+      "locked": false,
+      "shadow": false,
+      "outcome": "allow",
+      "host": {
+        "kind": "host",
+        "host_id": "0192a000-0000-7000-8000-000000000001"
+      },
+      "targets": {
+        "kind": "exact",
+        "names": ["plex"]
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.restart_plex"
+      },
+      "conditions": [
+        {
+          "kind": "max_rate",
+          "max_per_hour": 2
+        },
+        {
+          "kind": "time_window",
+          "start": "23:00",
+          "end": "05:00"
+        },
+        {
+          "kind": "requires_fact",
+          "fact": "plex.idle",
+          "expected": true
+        }
+      ]
+    },
+    {
+      "id": "ask-containers",
+      "enabled": true,
+      "locked": false,
+      "shadow": false,
+      "outcome": "require_approval",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "category",
+        "category": "container.lifecycle"
+      },
+      "conditions": []
+    },
+    {
+      "id": "shadow-prune-small",
+      "enabled": true,
+      "locked": false,
+      "shadow": true,
+      "outcome": "allow",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.restart_container"
+      },
+      "conditions": [
+        {
+          "kind": "arg_constraint",
+          "arg": "grace_secs",
+          "op": "int_at_most",
+          "value": 30
+        },
+        {
+          "kind": "max_ttl",
+          "max_ttl_secs": 600
+        }
+      ]
+    },
+    {
+      "id": "old-ask",
+      "enabled": false,
+      "locked": false,
+      "shadow": false,
+      "outcome": "require_approval",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "category",
+        "category": "service.lifecycle"
+      },
+      "conditions": []
+    },
+    {
+      "id": "no-prune",
+      "enabled": true,
+      "locked": true,
+      "shadow": false,
+      "outcome": "deny",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.prune_images"
+      },
+      "conditions": [],
+      "note": "Pruning images is never automatic."
+    }
+  ],
+  "rules_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "updated_at": "2026-11-20T11:00:00Z",
+  "updated_by": "admin"
+}

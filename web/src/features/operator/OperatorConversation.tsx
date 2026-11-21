@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useCancelTurn,
   useConversation,
@@ -24,7 +24,15 @@ import { hintFor } from "./scope";
 import { toTurns } from "./turns";
 import styles from "./operator.module.css";
 
-function Thread({ detail }: { detail: ConversationDetail }) {
+function Thread({
+  detail,
+  actions,
+  fill,
+}: {
+  actions?: ReactNode;
+  detail: ConversationDetail;
+  fill?: boolean | undefined;
+}) {
   const id = detail.id;
   const active = detail.turn_in_progress?.turn;
   const { live } = useConversationLive(id, active);
@@ -86,6 +94,7 @@ function Thread({ detail }: { detail: ConversationDetail }) {
             Operation
           </LinkButton>
         )}
+        {actions && <div className={styles.scopeActions}>{actions}</div>}
       </div>
       {offline && (
         <InlineMessage tone="warning" title={`${host?.name} is offline`}>
@@ -93,6 +102,7 @@ function Thread({ detail }: { detail: ConversationDetail }) {
         </InlineMessage>
       )}
       <OperatorThread
+        fill={fill}
         turns={turns}
         label="Ask the Operator"
         hint={hintFor(detail.scope)}
@@ -127,7 +137,17 @@ function Thread({ detail }: { detail: ConversationDetail }) {
  * One Operator conversation, loaded and live: the scope, the thread and the composer. The
  * panel and the workspace both show it. Key it by `id` so the draft follows the conversation.
  */
-export function OperatorConversation({ id }: { id: string }) {
+export function OperatorConversation({
+  id,
+  actions,
+  fill,
+}: {
+  /** Controls for the conversation itself, drawn at the right of the scope line. */
+  actions?: ReactNode;
+  /** Gives the thread the height of a workspace. */
+  fill?: boolean | undefined;
+  id: string;
+}) {
   const detail = useConversation(id);
   return (
     <QueryBoundary
@@ -135,7 +155,7 @@ export function OperatorConversation({ id }: { id: string }) {
       context="load the conversation"
       loading={<Skeleton shape="rows" count={3} />}
     >
-      {(data) => <Thread detail={data} />}
+      {(data) => <Thread detail={data} actions={actions} fill={fill} />}
     </QueryBoundary>
   );
 }

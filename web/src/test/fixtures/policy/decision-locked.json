@@ -1,0 +1,111 @@
+{
+  "execution_id": "0192a000-0000-7000-8000-00000000e001",
+  "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+  "host_id": "0192a000-0000-7000-8000-000000000001",
+  "contract": "skill.restart_plex",
+  "status": "evaluated",
+  "evaluated_at": "2026-11-20T10:01:00Z",
+  "degraded": false,
+  "policy_version": 3,
+  "enforced_outcome": "deny",
+  "shadow_outcome": "require_approval",
+  "reason": null,
+  "candidate": {
+    "contract": "skill.restart_plex",
+    "target": "plex",
+    "args": {
+      "grace_secs": 10
+    }
+  },
+  "enforced": {
+    "outcome": {
+      "kind": "deny"
+    },
+    "reason": "locked_deny",
+    "matched": ["no-destroy", "plex-restart"],
+    "winners": ["no-destroy"],
+    "locked": ["no-destroy"],
+    "overridden": [
+      {
+        "broader": "ask-containers",
+        "by": "no-destroy"
+      }
+    ],
+    "would_have_been": {
+      "outcome": {
+        "kind": "allow"
+      },
+      "reason": "single_winner",
+      "matched": ["plex-restart"],
+      "winners": ["plex-restart"],
+      "locked": [],
+      "overridden": [],
+      "would_have_been": null,
+      "constraints": {
+        "max_per_hour": null,
+        "max_ttl_secs": null,
+        "targets": null,
+        "conditions": []
+      },
+      "hard_limits_applied": [],
+      "facts_used": [],
+      "typed_confirmation": "none",
+      "warnings": [],
+      "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+      "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "constraints": {
+      "max_per_hour": null,
+      "max_ttl_secs": null,
+      "targets": null,
+      "conditions": []
+    },
+    "hard_limits_applied": [],
+    "facts_used": [],
+    "typed_confirmation": "none",
+    "warnings": [],
+    "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+    "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "shadow": {
+    "outcome": {
+      "kind": "require_approval"
+    },
+    "reason": "default",
+    "matched": [],
+    "winners": [],
+    "locked": [],
+    "overridden": [],
+    "would_have_been": null,
+    "constraints": {
+      "max_per_hour": null,
+      "max_ttl_secs": null,
+      "targets": null,
+      "conditions": []
+    },
+    "hard_limits_applied": [],
+    "facts_used": [],
+    "typed_confirmation": "none",
+    "warnings": [],
+    "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+    "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "inputs": {
+    "host": "nas",
+    "autonomy": "active"
+  },
+  "gaps": [
+    {
+      "input": "ceiling",
+      "reason": "not_produced_yet"
+    },
+    {
+      "input": "facts",
+      "reason": "host_not_connected"
+    },
+    {
+      "input": "autonomy",
+      "reason": "unresolvable"
+    }
+  ]
+}

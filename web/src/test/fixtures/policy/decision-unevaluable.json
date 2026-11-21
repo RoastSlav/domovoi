@@ -1,0 +1,24 @@
+{
+  "execution_id": "0192a000-0000-7000-8000-00000000e005",
+  "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+  "host_id": "0192a000-0000-7000-8000-000000000001",
+  "contract": "skill.unknown",
+  "status": "unevaluable",
+  "evaluated_at": "2026-11-20T10:05:00Z",
+  "degraded": false,
+  "policy_version": 3,
+  "enforced_outcome": null,
+  "shadow_outcome": null,
+  "reason": "contract_unknown",
+  "candidate": {
+    "contract": "skill.restart_plex",
+    "target": "plex",
+    "args": {
+      "grace_secs": 10
+    }
+  },
+  "enforced": null,
+  "shadow": null,
+  "inputs": null,
+  "gaps": []
+}

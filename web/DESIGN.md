@@ -125,6 +125,19 @@ One closed set; every status maps to exactly one tone in `tone.ts`.
 | `info`     | Neutral information        | Severity info, read skill, maintenance, notes                        |
 | `neutral`  | Intended, quiet, closed    | Expected, acknowledged or muted, denied or expired, anything unknown |
 
+**Policy outcomes** (`POLICY_OUTCOMES` in `design/policyVocab.ts`, read through `tone.ts`) use the
+tones above for what a person should do next, not for whether a rule is right:
+
+- `Allow automatically` is `success`: the step runs without asking, the outcome that needs no one.
+- `Ask for approval` is `pending`: a person decides, the same tone as every other wait for a person.
+- `Deny` is `neutral`: nothing runs and nothing is offered. A Deny is intended, so it is not a fault.
+- `Cannot decide` is `warning`: a safety input could not be confirmed, so the step stops and someone
+  should look. It is not a failed step.
+
+**Locked Deny** is the one rule mark with its own treatment: the `danger` tone, a lock icon and the
+words "Locked Deny", never colour alone. A locked rule is an absolute prohibition and changing it
+needs the password, so it reads as the strongest rule on the page.
+
 **Pills, not paint.** A status is a pill: `-bg` tint (a low-strength wash), `-fg` text, a 6 px
 dot in the tone's solid colour, then the label, with no heavy border. A row or card may carry
 a 2 px left stripe (`toneStripe`). Whole rows are never tinted, except the faint danger tint
@@ -257,6 +270,22 @@ In the tree view a step takes the most important category of itself and its desc
 folded parent never hides a more important child. Consecutive collapsed steps fold into one
 "N technical steps" toggle.
 
+### Worked example: a policy screen
+
+The policy screens are a safety screen, so every control a person needs to decide is P0. The
+ids below are the ones the Policy pages use.
+
+| Category | Policy elements (`id`)                                                                                                                                                                                                                                                                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | `policy.state`, `policy.mode`, `policy.shadow`, `policy.active`, `draft.validation`, `publish.validation`, `publish.findings` (the acknowledgement ticks), `publish.locks`, `publish.widening`, `publish.controls` (the Publish button and its password step), `decision.outcome`, `decision.locked`, `decision.why`, `decision.limits`, `decision.gaps`, `simulator.basis`, `simulator.widening` |
+| P1       | `draft.actions`, `draft.checks`, `publish.notes`, `publish.simulation` (the summary tiles), `simulator.summary`, `simulator.results`, `simulator.form`                                                                                                                                                                                                                                            |
+| P2       | Facts and inputs: `decision.facts`, `decision.inputs`                                                                                                                                                                                                                                                                                                                                             |
+| P3       | Fingerprints and identifiers: `policy.fingerprint`, `publish.metadata`, `draft.metadata`, `decision.metadata`                                                                                                                                                                                                                                                                                     |
+
+The acknowledgement ticks and the password step are P0 because they are the decision. Their
+simulation tiles are P1, because they are the main content. The facts and recorded inputs a decision
+used are P2 blocks, collapsed at Standard. The fingerprints are P3, placed inside a `DetailsScope`.
+
 ## Components
 
 All in `src/components/`, exported from `index.ts`; pages import from that barrel only. If a
@@ -310,7 +339,9 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
   accent and adds `--shadow-focus`.
 - **Overlays:** `Dialog` (overlay surface, radius 12, 16 px/600 header, buttons right-aligned
   in the footer, a scrim of `--color-overlay` with a `--scrim-blur` blur), `ConfirmDialog`
-  (names the object and the consequence; the button repeats the verb), `PasswordPrompt`,
+  (names the object and the consequence; the button repeats the verb), `PasswordPrompt` (`title`, `reason`, `confirmLabel`, `error`, `busy`, `onConfirm`, `onCancel`, and
+  `children` for what is being confirmed, such as a list of changes; the password lives only in the
+  dialog and is never stored or logged),
   `Menu` and `OptionPicker` (overlay surface, 4 px inner padding, 30 px items with radius 6,
   hover raised, the chosen option shows a check at the right, shortcut hints at the right in
   subtle mono; menus are radius 8, popovers 12; optional `icon`, `caption` and `valueMeta`
@@ -347,6 +378,12 @@ and never covers a field; switching section moves nothing. **Dialog form:** `Dia
 `Field`s, the error inside the dialog, a primary verb button and Cancel. **Auth pages:** a
 centred 360 px card on the page background, the logo tile above, a 20 px/600 title, fields
 and one full-width primary button.
+
+**Policy editor.** The rules table sits beside an in-page rule editor, opened by `?rule=` in the
+address so a rule can be linked. The page has one primary action at a time: Review and publish, or
+Save while there are unsaved changes, which then takes the primary role from it. Unsaved changes
+show the floating save bar at the bottom centre, as in Settings. The editor is never reachable only
+through a modal: the table and the Add rule link open it in place.
 
 ## Messaging
 
@@ -432,6 +469,18 @@ sets one page apart in Settings, Display. What needs the person (an approval, a 
 current state) is on screen at every level; the rest is one click away, behind a labelled
 toggle or a "+N details" button. The choice follows the person to every browser.
 
+**Change the policy.**
+
+- Start a draft from the active version. Edits stay in the draft until you publish, and the active
+  version never changes under you.
+- Saving a locked rule asks for the password first and shows what it would change. Nothing is stored
+  before the person confirms.
+- Check rules changes nothing. It shows the problems, the conflicts and the effect on recorded
+  decisions; saving and publishing are separate steps.
+- Review and publish: acknowledge each conflict, then publish with the password. A published version
+  is fixed.
+- Decisions are recorded for comparison and are not enforced. Every recorded answer says so.
+
 **Check one host.**
 
 - Anything scoped to one host shows that host in the selector, and leaving restores the earlier choice.
@@ -514,7 +563,7 @@ graph is its own lazy chunk inside the 120 kB chunk limit.
 updated" label, so a failed refetch no longer hides behind old data. "Live" will describe the
 event stream the page uses, not only incidents and actions.
 
-**New statuses** (operation, node including uncertain and planned, policy outcome, capability
+**New statuses** (operation, node including uncertain and planned, capability
 install, enable and authorize, knowledge state, and the step outcomes `Refused`, `NotRun`,
 `Unavailable` and `OutcomeUnknown`) follow the "Add a status" recipe, each with a label, tone,
 hint and icon. More are planned. The host state **`Incompatible`** (agent upgrade required:
@@ -540,50 +589,48 @@ containment; the helper's fail-closed reasons (`state_missing`, `state_corrupt`,
 containment step the helper refuses because its safety identity changed carries the reason
 `safety_changed`. The owner confirms only covered paths. The Capability
 Center gets an owner package import (upload of an owner-signed archive and its signature, RW-26)
-before the install wizard, which is built after the visibility infrastructure. The **locked rule** treatment (D-26) makes a locked Deny read differently from
-an ordinary Deny: a lock icon and the text "Locked Deny", never colour alone, in the policy
-editor, simulator, explanation and trace.
-
+before the install wizard, which is built after the visibility infrastructure.
 Playback of a completed operation is the last U2 deliverable (D-25); the timeline and the outline
 do not depend on it, and its motion follows the same visualization class and reduced-motion rule
 as the graph.
 
 ## Checks that will fail your PR
 
-| What                                                           | Command         | Fix                                                                    |
-| -------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| Raw colour or `--palette-*` outside `tokens.css`               | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                       |
-| The two dark theme blocks differ                               | `npm test`      | Make them identical                                                    |
-| A token pair below WCAG AA (text 4.5, UI 3)                    | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                           |
-| A status without label, tone, hint, icon                       | `npm test`      | Add it to its vocabulary in `src/design/`                              |
-| A hub error or failure without words                           | `npm test`      | Add it to `messages.ts`                                                |
-| "Oops", "Something went wrong", "Error:", "!" in text          | `npm test`      | Say what happened and what to do (`voice.test.ts`)                     |
-| An axe violation in whatever a page test leaves on screen      | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment             |
-| Inline JSX `style`                                             | `npm run lint`  | A CSS module with tokens; computed values need a disable comment       |
-| JSX `title=`                                                   | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                   |
-| A raw `<button>` in `src/features` or `src/app`                | `npm run lint`  | `Button` or `IconButton`                                               |
-| A verdict string literal (`"ACTION_NEEDED"`) in page code      | `npm run lint`  | `verdictMeta` and `StatusPill`                                         |
-| `disabled` on a control without `disabledReason`               | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint           |
-| `.mutate(` in a file with no `useActionFeedback`/`InlineError` | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top          |
-| A deep import of a kit file; `lucide-react` outside `Icon`     | `npm run lint`  | Import from the barrel; use `Icon`                                     |
-| `fetch` outside `src/api`                                      | `npm run lint`  | A hook in `src/api/hooks/`                                             |
-| A source file over 250 lines (no exemptions)                   | `npm run lint`  | Split by responsibility                                                |
-| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB    | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                 |
-| A P0 element missing or collapsed in a profile                 | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`) |
-| Visibility primitive in approval, banner or API code           | `npm test`      | Remove it: the profile never gates authority                           |
-| A broken operations page, slot, focus or contrast in a browser | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                |
+| What                                                                                                                                                  | Command         | Fix                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| Raw colour or `--palette-*` outside `tokens.css`                                                                                                      | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                       |
+| The two dark theme blocks differ                                                                                                                      | `npm test`      | Make them identical                                                    |
+| A token pair below WCAG AA (text 4.5, UI 3)                                                                                                           | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                           |
+| A status without label, tone, hint, icon                                                                                                              | `npm test`      | Add it to its vocabulary in `src/design/`                              |
+| A hub error or failure without words                                                                                                                  | `npm test`      | Add it to `messages.ts`                                                |
+| "Oops", "Something went wrong", "Error:", "!" in text                                                                                                 | `npm test`      | Say what happened and what to do (`voice.test.ts`)                     |
+| An axe violation in whatever a page test leaves on screen                                                                                             | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment             |
+| Inline JSX `style`                                                                                                                                    | `npm run lint`  | A CSS module with tokens; computed values need a disable comment       |
+| JSX `title=`                                                                                                                                          | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                   |
+| A raw `<button>` in `src/features` or `src/app`                                                                                                       | `npm run lint`  | `Button` or `IconButton`                                               |
+| A verdict string literal (`"ACTION_NEEDED"`) in page code                                                                                             | `npm run lint`  | `verdictMeta` and `StatusPill`                                         |
+| `disabled` on a control without `disabledReason`                                                                                                      | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint           |
+| `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top          |
+| A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                     |
+| `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                             |
+| A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                |
+| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                 |
+| A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`) |
+| Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                           |
+| An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`             |
+| A broken operations page, slot, focus or contrast in a browser                                                                                        | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 
 ## Performance budget
 
-<!-- budget:initial-js-gzip-kb 170 -->
+<!-- budget:initial-js-gzip-kb 176 -->
 
-| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                  |
-| ------------------------------ | ------------------------ | -------- | ---------------------- |
-| Initial JavaScript             | 179.0 kB, one chunk      | 154.8 kB | 170 kB (achieved +10%) |
-| Largest chunk                  | 179.0 kB                 | 110.7 kB | 120 kB                 |
-| Total CSS                      | 9.9 kB                   | 14.6 kB  | 30 kB                  |
+| Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                      |
+| ------------------------------ | ------------------------ | -------- | -------------------------------------------------------------------------- |
+| Initial JavaScript             | 179.0 kB, one chunk      | 173.9 kB | 176 kB (policy words and Policy navigation item are eager; pages are lazy) |
+| Largest chunk                  | 179.0 kB                 | 110.7 kB | 120 kB                                                                     |
+| Total CSS                      | 9.9 kB                   | 14.6 kB  | 30 kB                                                                      |
 
 The Inter font file (latin subset, about 48 kB) is not counted by `npm run size`. It loads
 from the hub's own origin, is cached across upgrades, and uses `font-display: swap`, so it
@@ -622,6 +669,10 @@ it and `/dev/design` shows it. (3) Render `<StatusPill meta={…Meta(value)} />`
 its stripe from the same meta. (4) A new timeline kind goes in `KINDS` in `timeline.ts`.
 (5) Filtering on it is the hub's job: add the filter to the endpoint, never filter loaded
 pages in the browser.
+
+The policy tables (`design/policyVocab.ts`, `policyLimits.ts`, `policyRecord.ts` and `policyMeta.ts`)
+are vocabularies too. Add a value there and read it through `tone.ts`; a feature never writes a
+policy label itself.
 
 **Show an action's result.** The worked examples are `useIncidentActions.ts` and
 `StepApproveControl.tsx`.

@@ -4,8 +4,22 @@
  */
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { dirname, extname, join, normalize } from "node:path";
+import { fileURLToPath } from "node:url";
 import * as data from "./data.mjs";
+
+const policyDir = join(dirname(fileURLToPath(import.meta.url)), "../../src/test/fixtures/policy");
+
+/** One policy fixture, read fresh so the smoke test and vitest share a single contract. */
+export function policyFixture(name) {
+    return JSON.parse(readFileSync(join(policyDir, `${name}.json`), "utf8"));
+}
+
+/** Decision details by execution id; every other step has none recorded. */
+const DECISIONS = {
+    "0192a000-0000-7000-8000-00000000e001": "decision-locked",
+    "0192a000-0000-7000-8000-00000000e003": "decision-limits",
+};
 
 const TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -107,6 +121,40 @@ export async function startServer(dist) {
         request.on("close", () => streams.delete(response));
     }
 
+    /** The policy endpoints, answered from the shared fixtures; undefined when not one of them. */
+    function policyRoute(method, pathname) {
+        const known = {
+            "GET /api/v1/policy": () => policyFixture("overview-active"),
+            "GET /api/v1/policy/versions": () => ({
+                items: [policyFixture("version-3").summary],
+                next_cursor: null,
+            }),
+            "GET /api/v1/policy/draft": () => policyFixture("draft-4"),
+            "GET /api/v1/policy/shadow": () => policyFixture("shadow-page"),
+            "POST /api/v1/policy/preview": () => policyFixture("preview-blocking"),
+            "POST /api/v1/policy/draft/publish": () => ({
+                ...policyFixture("version-3").summary,
+                number: 4,
+            }),
+            "POST /api/v1/policy/simulate": () => policyFixture("simulate-both"),
+        };
+        const exact = known[`${method} ${pathname}`];
+        if (exact) {
+            return exact;
+        }
+        const version = pathname.match(/^\/api\/v1\/policy\/versions\/(\d+)$/);
+        if (method === "GET" && version) {
+            const detail = policyFixture("version-3");
+            detail.summary.number = Number(version[1]);
+            return () => detail;
+        }
+        const decision = pathname.match(/^\/api\/v1\/policy\/shadow\/([^/]+)$/);
+        if (method === "GET" && decision && DECISIONS[decision[1]]) {
+            return () => policyFixture(DECISIONS[decision[1]]);
+        }
+        return undefined;
+    }
+
     function api(request, response, url, body) {
         const { pathname } = url;
         const id = state.trace.operation.id;
@@ -139,6 +187,10 @@ export async function startServer(dist) {
         };
         if (reads[key]) {
             return send(response, 200, reads[key]());
+        }
+        const policy = policyRoute(request.method, pathname);
+        if (policy) {
+            return send(response, 200, policy());
         }
         const step = pathname.match(/^\/api\/v1\/operations\/[^/]+\/steps\/([^/]+)$/);
         if (request.method === "GET" && step) {

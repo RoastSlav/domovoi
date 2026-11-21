@@ -1,0 +1,251 @@
+{
+  "label": "draft revision 4",
+  "truncated": false,
+  "notes": [
+    "Each decision is re-evaluated with the host state recorded when it was made.",
+    "Nothing here is enforced."
+  ],
+  "summary": {
+    "evaluated": 4,
+    "same": 1,
+    "changed": 1,
+    "not_replayable": 2,
+    "newly_allowed": 1,
+    "newly_denied": 0,
+    "newly_requires_approval": 0
+  },
+  "items": [
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e001",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "evaluated_at": "2026-11-20T10:01:00Z",
+      "degraded": false,
+      "recorded_policy_version": 3,
+      "gaps": [],
+      "enforced": {
+        "comparison": "changed",
+        "baseline": {
+          "outcome": {
+            "kind": "require_approval"
+          },
+          "reason": "default",
+          "matched": [],
+          "winners": [],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "simulated": {
+          "outcome": {
+            "kind": "allow"
+          },
+          "reason": "single_winner",
+          "matched": ["plex-restart"],
+          "winners": ["plex-restart"],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [
+            {
+              "kind": "dangerous_exception",
+              "allow": "plex-restart",
+              "deny": "no-destroy"
+            }
+          ],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      },
+      "shadow": {
+        "comparison": "same",
+        "baseline": {
+          "outcome": {
+            "kind": "require_approval"
+          },
+          "reason": "default",
+          "matched": [],
+          "winners": [],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "simulated": {
+          "outcome": {
+            "kind": "require_approval"
+          },
+          "reason": "default",
+          "matched": [],
+          "winners": [],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      }
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e002",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.prune_images",
+      "evaluated_at": "2026-11-20T10:02:00Z",
+      "degraded": false,
+      "recorded_policy_version": 3,
+      "gaps": [],
+      "enforced": {
+        "comparison": "same",
+        "baseline": {
+          "outcome": {
+            "kind": "deny"
+          },
+          "reason": "single_winner",
+          "matched": ["no-prune-plain"],
+          "winners": ["no-prune-plain"],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "simulated": {
+          "outcome": {
+            "kind": "deny"
+          },
+          "reason": "single_winner",
+          "matched": ["no-prune-plain"],
+          "winners": ["no-prune-plain"],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      },
+      "shadow": null
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e003",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "evaluated_at": "2026-11-20T10:03:00Z",
+      "degraded": true,
+      "recorded_policy_version": 3,
+      "gaps": [],
+      "enforced": {
+        "comparison": "not_replayable",
+        "baseline": null,
+        "simulated": {
+          "error": "contract_not_indexed"
+        }
+      },
+      "shadow": null
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e004",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "evaluated_at": "2026-11-20T10:04:00Z",
+      "degraded": false,
+      "recorded_policy_version": 3,
+      "gaps": [],
+      "enforced": {
+        "comparison": "not_replayable",
+        "baseline": {
+          "outcome": {
+            "kind": "require_approval"
+          },
+          "reason": "default",
+          "matched": [],
+          "winners": [],
+          "locked": [],
+          "overridden": [],
+          "would_have_been": null,
+          "constraints": {
+            "max_per_hour": null,
+            "max_ttl_secs": null,
+            "targets": null,
+            "conditions": []
+          },
+          "hard_limits_applied": [],
+          "facts_used": [],
+          "typed_confirmation": "none",
+          "warnings": [],
+          "policy_version": "0192a000-0000-7000-8000-0000000000b3",
+          "ceiling_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "simulated": {
+          "error": "ceiling_hash_missing"
+        }
+      },
+      "shadow": null
+    }
+  ]
+}

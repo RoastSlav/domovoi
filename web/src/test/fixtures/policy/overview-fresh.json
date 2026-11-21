@@ -1,0 +1,24 @@
+{
+  "shadow_enabled": false,
+  "time_window_zone": "UTC",
+  "active": null,
+  "draft": null,
+  "shadow": {
+    "total_evaluated": 0,
+    "total_unevaluable": 0,
+    "total_skipped": 0,
+    "last_sweep_at": null,
+    "last_error": null,
+    "last_24h": {
+      "total": 0,
+      "by_status": {},
+      "by_enforced_outcome": {},
+      "degraded": 0,
+      "differing": 0
+    }
+  },
+  "notes": [
+    "Nothing here is enforced. Approvals and limits do not read these rules yet.",
+    "Decisions are recorded for comparison only."
+  ]
+}

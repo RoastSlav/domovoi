@@ -1,0 +1,22 @@
+{
+  "base_number": 3,
+  "rules_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "preview_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "validation": [],
+  "report": {
+    "blocked": false,
+    "findings": []
+  },
+  "blocking": [],
+  "locked_changes": [],
+  "notes": ["The rules are well formed."],
+  "simulation": {
+    "evaluated": 200,
+    "same": 200,
+    "changed": 0,
+    "not_replayable": 0,
+    "newly_allowed": 0,
+    "newly_denied": 0,
+    "newly_requires_approval": 0
+  }
+}

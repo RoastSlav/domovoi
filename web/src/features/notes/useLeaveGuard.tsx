@@ -6,14 +6,24 @@ import { ConfirmDialog } from "../../components";
  * Holds the person on the page while `dirty`: a "Leave without saving?" question for
  * in-app navigation, the Back button included (render `guard` somewhere in the page), and
  * the browser's own prompt for closing or reloading the tab. Call `allowLeaving()` just
- * before navigating away on purpose, after a save or a delete.
+ * before navigating away on purpose, after a save or a delete. With `samePage` a change of
+ * the query string or hash on the same path (an editor opened beside the page) is let through.
  */
-export function useLeaveGuard(dirty: boolean): {
+export function useLeaveGuard(
+  dirty: boolean,
+  what = "note",
+  samePage = false,
+): {
   allowLeaving: () => void;
   guard: ReactNode;
 } {
   const allowedRef = useRef(false);
-  const blocker = useBlocker(() => dirty && !allowedRef.current);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty &&
+      !allowedRef.current &&
+      !(samePage && currentLocation.pathname === nextLocation.pathname),
+  );
 
   useEffect(() => {
     if (!dirty) {
@@ -35,7 +45,7 @@ export function useLeaveGuard(dirty: boolean): {
     blocker.state === "blocked" ? (
       <ConfirmDialog
         title="Leave without saving?"
-        consequence="Your changes to this note are lost if you leave this page."
+        consequence={`Your changes to this ${what} are lost if you leave this page.`}
         confirmLabel="Leave without saving"
         tone="danger"
         onConfirm={() => blocker.proceed()}
