@@ -134,7 +134,9 @@ impl PackageStore {
             let dir = target.parent().unwrap_or(&self.root);
             make_dir(dir).await?;
             fs::rename(&from, &target).await?;
-            sync_dir(dir).await
+            sync_dir(dir).await?;
+            // A new shard directory is itself an entry of the store root.
+            sync_dir(&self.root).await
         }
         .await;
         if result.is_err() {

@@ -25,6 +25,9 @@ use super::keys::PackageKeys;
 use super::store::{PackageStore, Placed, StagedFile, SweepReport};
 use super::verify::{parse_signature_file, verify_signature};
 
+/// How many uploads may stream into the store's temporary directory at once.
+const MAX_STAGING: usize = 4;
+
 /// The first four bytes of every zstd frame.
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 
@@ -123,6 +126,9 @@ pub struct PackageImporter {
     uow: Arc<dyn UnitOfWork>,
     clock: Arc<dyn Clock>,
     serial: tokio::sync::Mutex<()>,
+    /// Bounds how many uploads stream into `.tmp` at once, so staged bytes stay within
+    /// `MAX_STAGING * max_artifact_bytes` however many requests arrive together.
+    staging: tokio::sync::Semaphore,
 }
 
 impl PackageImporter {
@@ -143,6 +149,7 @@ impl PackageImporter {
             uow,
             clock,
             serial: tokio::sync::Mutex::new(()),
+            staging: tokio::sync::Semaphore::new(MAX_STAGING),
         }
     }
 
@@ -176,7 +183,10 @@ impl PackageImporter {
         ctx: &ImportContext,
         source: &mut dyn ArchiveSource,
     ) -> Result<StagedArchive, ImportError> {
-        let result = self.stream(source).await;
+        let result = match self.staging.acquire().await {
+            Ok(_permit) => self.stream(source).await,
+            Err(_) => Err(ImportError::Io(std::io::Error::other("staging is closed"))),
+        };
         self.audited(ctx, "package:import", result).await
     }
 
