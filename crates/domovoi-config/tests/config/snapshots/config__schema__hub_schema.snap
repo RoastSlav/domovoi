@@ -62,6 +62,10 @@ expression: "HubConfig::json_schema()"
       "description": "The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.",
       "$ref": "#/$defs/OrchestrationSection"
     },
+    "packages": {
+      "description": "The package store and the keys that sign packages. Off by default.",
+      "$ref": "#/$defs/PackagesHubSection"
+    },
     "policy": {
       "description": "Policy rules the hub evaluates without enforcing them.",
       "$ref": "#/$defs/HubPolicySection"
@@ -676,6 +680,65 @@ expression: "HubConfig::json_schema()"
       },
       "additionalProperties": false
     },
+    "PackagesHubSection": {
+      "description": "`[packages]`. Off by default: with `enabled = false` the hub imports and installs nothing,\nthough it still lists what it holds.",
+      "type": "object",
+      "properties": {
+        "approval_window": {
+          "description": "How long a person's approval to install stays valid. 1 minute to 1 hour; default\n`\"10m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "enabled": {
+          "description": "Whether packages can be imported and installed from this hub. Default `false`.",
+          "type": "boolean",
+          "default": false
+        },
+        "job_history_days": {
+          "description": "Days finished install jobs are kept. 7 to 3650; default 180.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 180,
+          "minimum": 0
+        },
+        "max_artifact_bytes": {
+          "description": "Largest archive accepted on import, in bytes. 1 KiB to 256 MiB; default 20 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 20971520,
+          "minimum": 0
+        },
+        "max_artifacts": {
+          "description": "Most archives the hub keeps. 1 to 1000; default 64.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 64,
+          "minimum": 0
+        },
+        "max_store_bytes": {
+          "description": "Most bytes of archives the hub keeps. 1 MiB to 16 GiB; default 512 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 536870912,
+          "minimum": 0
+        },
+        "owner_keys": {
+          "description": "Keys whose signatures the hub accepts on import. Read from the file only; the web UI\ncannot change them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          }
+        },
+        "revoked": {
+          "description": "Key ids (16 lowercase hex characters) whose packages are never accepted, even when\nalso listed in `owner_keys`. Read from the file only; the web UI cannot change it.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "Price": {
       "description": "`price = { .. }`: what a provider charges, in US dollars per million tokens.",
       "type": "object",
@@ -1008,6 +1071,33 @@ expression: "HubConfig::json_schema()"
         }
       },
       "additionalProperties": false
+    },
+    "TrustedKey": {
+      "description": "One key entry: `[[packages.trusted_keys]]` in `agent.toml`, `[[packages.owner_keys]]` in `hub.toml`.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The key id: the first 16 hex characters of the SHA-256 of the raw public key.",
+          "type": "string"
+        },
+        "label": {
+          "description": "A note for people, at most 64 characters.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "public_key": {
+          "description": "The Ed25519 public key, 32 bytes in standard padded base64.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "public_key"
+      ]
     },
     "UpdatesSection": {
       "description": "`[updates]`.",

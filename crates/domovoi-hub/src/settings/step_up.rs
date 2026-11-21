@@ -8,9 +8,10 @@
 //! cannot slip through.
 //!
 //! [`STEP_UP_ENFORCED_ACTIONS`] names the actions that already ask for the password again,
-//! and which service checks it. [`STEP_UP_ACTIONS`] names the actions that will need the same
-//! confirmation once their features exist. Nothing enforces those entries yet; they are here
-//! so the intent is written down in one place.
+//! and which service checks it. [`STEP_UP_ACTIONS`] names the actions that need the same
+//! confirmation and are not settings changes. Some wait for their feature; `installation.start`
+//! is enforced by the package job endpoints, which confirm the password before they create a
+//! job. The entries are here so the intent is written down in one place.
 //!
 //! Cancelling, pausing, resuming and answering an operation are deliberately not on that
 //! list: an owner session is enough, as for approving an offered step. `autonomy.resume` is
@@ -65,6 +66,10 @@ pub const STEP_UP_SETTINGS: &[StepUpRule] = &[
         path: PathRule::Under("retention"),
         why: "changes how long data is kept; applies once configurable retention exists",
     },
+    StepUpRule {
+        path: PathRule::Under("packages"),
+        why: "package installation can put code on hosts",
+    },
 ];
 
 /// An action that will need the password again once its feature exists.
@@ -98,8 +103,10 @@ pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
     },
 ];
 
-/// Actions that need the password again when their features exist. Declared only:
-/// no code enforces them yet, and each says what must exist first.
+/// Actions that need the password again and are not settings changes. Each says where the
+/// confirmation happens, or what must exist first. `installation.start` is enforced by the
+/// package job endpoints (creating a job, retrying a target); the settings service does not
+/// check it because starting an installation is not a settings change.
 pub const STEP_UP_ACTIONS: &[StepUpAction] = &[
     StepUpAction {
         id: "capability.enable",
@@ -107,7 +114,7 @@ pub const STEP_UP_ACTIONS: &[StepUpAction] = &[
     },
     StepUpAction {
         id: "installation.start",
-        applies_once: "package installation exists",
+        applies_once: "enforced by the package job endpoints (create and retry), before any approval is made",
     },
     StepUpAction {
         id: "autonomy.resume",
@@ -221,6 +228,18 @@ mod tests {
             change,
             Change::Plain { path, .. } if path == "llm.secondary.cli.preset"
         )));
+    }
+
+    #[test]
+    fn packages_enabled_change_requires_step_up() {
+        for path in [
+            "packages.enabled",
+            "packages.approval_window",
+            "packages.max_store_bytes",
+        ] {
+            assert!(path_needs_step_up(path), "{path}");
+        }
+        assert!(!path_needs_step_up("packages_other"));
     }
 
     #[test]

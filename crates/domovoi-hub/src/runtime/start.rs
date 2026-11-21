@@ -70,6 +70,7 @@ impl HubRuntime {
     ) -> Result<(), RuntimeError> {
         let public_url = support::public_url(config)?;
         ServerSettings::from_config(config)?;
+        crate::packages::keys::PackageKeys::from_config(&config.packages)?;
         adapters::build_chat(config, clock, &public_url, &AdapterOverrides::default())?;
         if config.triage.enabled {
             let primary = config.llm.primary.as_ref().ok_or_else(|| {

@@ -229,6 +229,16 @@ impl SettingsService {
                 applied: false,
             });
         }
+        if let Some(change) = patched
+            .changes
+            .iter()
+            .find(|change| patch::is_file_only(change.path()))
+        {
+            return Err(SettingsError::Locked {
+                path: change.path().to_owned(),
+                origin: "file".to_owned(),
+            });
+        }
         if patched.changes.iter().any(is_sensitive) {
             let password = password.ok_or(SettingsError::PasswordRequired)?;
             deps.auth

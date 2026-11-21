@@ -218,6 +218,30 @@ Limits an operation starts with.
 | `tokens` | integer | Model tokens, input and output together. Default 200000. |
 | `wall_time` | duration | Wall-clock time from admission. Default `"72h"`. |
 
+### `[packages]`
+
+The package store and the keys that sign packages. Off by default.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `approval_window` | duration | How long a person's approval to install stays valid. 1 minute to 1 hour; default `"10m"`. |
+| `enabled` | boolean | Whether packages can be imported and installed from this hub. Default `false`. |
+| `job_history_days` | integer | Days finished install jobs are kept. 7 to 3650; default 180. |
+| `max_artifact_bytes` | integer | Largest archive accepted on import, in bytes. 1 KiB to 256 MiB; default 20 MiB. |
+| `max_artifacts` | integer | Most archives the hub keeps. 1 to 1000; default 64. |
+| `max_store_bytes` | integer | Most bytes of archives the hub keeps. 1 MiB to 16 GiB; default 512 MiB. |
+| `revoked` | list of string | Key ids (16 lowercase hex characters) whose packages are never accepted, even when also listed in `owner_keys`. Read from the file only; the web UI cannot change it. |
+
+#### `[[packages.owner_keys]]`
+
+Keys whose signatures the hub accepts on import. Read from the file only; the web UI cannot change them.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | The key id: the first 16 hex characters of the SHA-256 of the raw public key. |
+| `label` | string | A note for people, at most 64 characters. |
+| `public_key` | string | The Ed25519 public key, 32 bytes in standard padded base64. |
+
 ### `[policy]`
 
 Policy rules the hub evaluates without enforcing them.

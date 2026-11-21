@@ -27,7 +27,7 @@ use serde::de::DeserializeOwned;
 pub use agent::{AgentConfig, DockerMode, MutationLimits};
 pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
-pub use hub::{FALLBACK_KEEP_PRE_MIGRATE, HubConfig};
+pub use hub::{FALLBACK_KEEP_PRE_MIGRATE, HubConfig, PackagesHubSection};
 pub use issue::{ConfigIssue, IssueSeverity};
 pub use layered::{
     BOOTSTRAP_KEYS, Layered, LayeredError, LayeredResult, bootstrap_data_dir,

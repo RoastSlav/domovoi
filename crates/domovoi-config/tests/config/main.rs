@@ -2,6 +2,7 @@
 
 mod examples;
 mod helpers;
+mod hub_packages;
 mod layered;
 mod packages;
 mod parsing;

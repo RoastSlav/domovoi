@@ -47,6 +47,9 @@ pub enum RuntimeError {
     /// Another hub process holds this data directory.
     #[error(transparent)]
     Locked(#[from] LockError),
+    /// A key in `[packages]` cannot be used.
+    #[error(transparent)]
+    PackageKeys(#[from] crate::packages::keys::PackageKeysError),
     /// The settings could not be loaded.
     #[error(transparent)]
     Settings(#[from] crate::settings::LoadError),

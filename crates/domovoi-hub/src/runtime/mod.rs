@@ -139,6 +139,7 @@ impl HubRuntime {
             store,
             settings,
         } = opened;
+        crate::packages::keys::PackageKeys::from_config(&config.packages)?;
         let mut secrets = Vec::new();
         config.secrets_mut(&mut |_, secret| secrets.push(secret.value().clone()));
         let redactor = Arc::new(PatternRedactor::new(secrets));

@@ -16,6 +16,7 @@ use crate::time::{LocalTime, TimeZone};
 mod backup;
 mod llm;
 mod orchestration;
+mod packages;
 mod policy;
 mod retention;
 mod updates;
@@ -25,6 +26,7 @@ pub use llm::{
     CliConfig, CliPreset, LlmKind, LlmProvider, LlmSection, Price, TriageLimits, TriageSection,
 };
 pub use orchestration::{OrchestrationBudgets, OrchestrationSection};
+pub use packages::PackagesHubSection;
 pub use policy::HubPolicySection;
 pub use retention::{Applies, RETENTION_KEYS, RetentionKey, RetentionSection};
 pub use updates::UpdatesSection;
@@ -93,6 +95,9 @@ pub struct HubConfig {
     /// Policy rules the hub evaluates without enforcing them.
     #[serde(default)]
     pub policy: HubPolicySection,
+    /// The package store and the keys that sign packages. Off by default.
+    #[serde(default)]
+    pub packages: PackagesHubSection,
 }
 
 /// `[hub]`.

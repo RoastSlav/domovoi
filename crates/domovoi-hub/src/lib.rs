@@ -14,6 +14,7 @@ pub mod csp;
 mod digest;
 pub mod ingest;
 pub mod middleware;
+pub mod packages;
 pub mod profile;
 pub mod router;
 pub mod runtime;

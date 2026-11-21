@@ -114,6 +114,21 @@ pub fn is_sensitive(change: &Change) -> bool {
     matches!(change, Change::Secret { .. }) || super::step_up::path_needs_step_up(change.path())
 }
 
+/// Settings that only `hub.toml` can set: the trust roots for packages. The web UI refuses a
+/// change to them as if the file had set them, so a stolen session cannot add a signing key.
+pub const FILE_ONLY_SETTINGS: &[super::step_up::PathRule] = &[
+    super::step_up::PathRule::Under("packages.owner_keys"),
+    super::step_up::PathRule::Under("packages.revoked"),
+];
+
+/// Whether `path` is one of [`FILE_ONLY_SETTINGS`].
+#[must_use]
+pub fn is_file_only(path: &str) -> bool {
+    FILE_ONLY_SETTINGS
+        .iter()
+        .any(|rule| super::step_up::covers(rule, path))
+}
+
 fn join(prefix: &str, key: &str) -> String {
     if prefix.is_empty() {
         key.to_owned()
