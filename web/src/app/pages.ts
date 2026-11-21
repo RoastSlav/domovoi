@@ -30,6 +30,15 @@ export const PAGES = {
   firstRun: page(() => import("../features/setup/FirstRun").then((m) => m.FirstRun)),
   host: page(() => import("../features/hosts/HostDetailPage").then((m) => m.HostDetailPage)),
   hosts: page(() => import("../features/hosts/HostsPage").then((m) => m.HostsPage)),
+  knowledge: page(() => import("../features/knowledge/KnowledgePage").then((m) => m.KnowledgePage)),
+  fact: page(() => import("../features/knowledge/FactDetailPage").then((m) => m.FactDetailPage)),
+  entity: page(() =>
+    import("../features/knowledge/EntityDetailPage").then((m) => m.EntityDetailPage),
+  ),
+  paths: page(() => import("../features/knowledge/PathsPage").then((m) => m.PathsPage)),
+  experience: page(() =>
+    import("../features/experience/ExperiencePage").then((m) => m.ExperiencePage),
+  ),
   logs: page(() => import("../features/logs/LogsPage").then((m) => m.LogsPage)),
   overview: page(() => import("../features/overview/OverviewPage").then((m) => m.OverviewPage)),
   note: page(() => import("../features/notes/NoteEditorPage").then((m) => m.NoteEditorPage)),

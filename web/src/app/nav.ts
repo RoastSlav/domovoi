@@ -93,6 +93,19 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     title: "Knowledge",
     items: [
+      { to: "/knowledge", label: "Knowledge", icon: "info", preload: PAGES.knowledge.preload },
+      {
+        to: "/knowledge/paths",
+        label: "Management paths",
+        icon: "server",
+        preload: PAGES.paths.preload,
+      },
+      {
+        to: "/knowledge/experience",
+        label: "Experience",
+        icon: "search",
+        preload: PAGES.experience.preload,
+      },
       { to: "/rules", label: "Known conditions", icon: "rules", preload: PAGES.rules.preload },
       { to: "/notes", label: "Notes", icon: "note", preload: PAGES.notes.preload },
       { to: "/digest", label: "Digest", icon: "digest", preload: PAGES.digest.preload },
