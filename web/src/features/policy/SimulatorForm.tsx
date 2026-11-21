@@ -61,7 +61,6 @@ function RulesField({
     <Stack gap={3}>
       <SimulatorChoices
         legend="Test these rules"
-        required
         choices={choices}
         value={chosen}
         onChange={change}
@@ -83,8 +82,6 @@ function RulesField({
     </Stack>
   );
 }
-
-const SELECTIONS: SimulatorState["selection"][] = ["enforced", "shadow", "both"];
 
 /**
  * The simulator's settings: which rules, what to compare them with, which inputs, and, behind
@@ -135,7 +132,7 @@ export function SimulatorForm({
       >
         <Stack gap={4}>
           {step}
-          <Section title="What to test">
+          <Section title="What to test" description="All three are needed to run.">
             <div className={styles.group}>
               <RulesField
                 value={rules}
@@ -145,24 +142,20 @@ export function SimulatorForm({
                 active={overview.active?.number}
                 onChange={(next) => onState({ rules: next })}
               />
-              <SimulatorChoices
-                legend="Against"
-                required
-                value={state.selection}
-                onChange={(text) => {
-                  const selection = SELECTIONS.find((o) => o === text);
-                  if (selection) onState({ selection });
-                }}
-                hint="Which recorded decisions to compare with."
-                choices={[
-                  { value: "enforced", label: "The active policy" },
-                  { value: "shadow", label: "The shadow rules" },
-                  { value: "both", label: "Both" },
-                ]}
-              />
+              <Field label="Against" hint="Which recorded decisions to compare with.">
+                <SegmentedControl
+                  label="Against"
+                  value={state.selection}
+                  onChange={(selection) => onState({ selection })}
+                  options={[
+                    { value: "enforced", label: "Active policy" },
+                    { value: "shadow", label: "Shadow rules" },
+                    { value: "both", label: "Both" },
+                  ]}
+                />
+              </Field>
               <Field
                 label="Using"
-                required
                 hint={state.inputs === "current" ? SIMULATION_CURRENT : SIMULATION_RECORDED}
               >
                 <SegmentedControl

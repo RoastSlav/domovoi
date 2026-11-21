@@ -57,7 +57,7 @@ function HostField({ value, onChange }: { onChange: (host: string) => void; valu
   if (hosts.length > 0 && hosts.length <= HOST_CHOICES) {
     return (
       <SimulatorChoices
-        legend="Host (optional)"
+        legend="Host"
         value={value}
         onChange={onChange}
         choices={[
@@ -68,7 +68,7 @@ function HostField({ value, onChange }: { onChange: (host: string) => void; valu
     );
   }
   return (
-    <Field label="Host (optional)">
+    <Field label="Host">
       <Select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">All hosts</option>
         {hosts.map((h) => (
@@ -95,7 +95,7 @@ function ActionField({
   const unreadable = choices.failed || (!choices.loading && choices.actions.length === 0);
   return (
     <Stack gap={2}>
-      <Field label="Action (optional)" hint="Pick from what the host offers.">
+      <Field label="Action" hint="Pick from what the host offers.">
         <Select value={value} onChange={(e) => onChange(e.target.value)}>
           <option value="">Any action</option>
           {!listed && <option value={value}>{value}</option>}
@@ -129,55 +129,67 @@ export function SimulatorFilters({
   values: FilterValues;
 }) {
   const count = countFilters(values);
+  const hosts = useHosts().data ?? [];
+  const host = hosts.find((h) => h.id === (values.host ?? ""))?.name ?? "All hosts";
+  const summary = [
+    host,
+    shadowStatusMeta(values.status).label,
+    values.contract.trim() !== "" ? values.contract.trim() : null,
+    values.since !== "" || values.until !== ""
+      ? `${values.since || "any start"} to ${values.until || "now"}`
+      : null,
+    `up to ${values.limit} results`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <Section
-      title="Optional: narrow it down"
-      description={count === 0 ? undefined : `${count} ${count === 1 ? "filter" : "filters"} set`}
-    >
-      <div className={`${styles.group} ${styles.optional}`}>
-        <div className={styles.wide}>
-          <HostField value={values.host ?? ""} onChange={(host) => onChange({ host })} />
+    <Section title="Which decisions" description="Optional. Change it to narrow the run.">
+      <Disclosure label={summary} count={count > 0 ? count : undefined} reveal={false}>
+        <div className={`${styles.group} ${styles.optional}`}>
+          <div className={styles.wide}>
+            <HostField value={values.host ?? ""} onChange={(host) => onChange({ host })} />
+          </div>
+          <div className={styles.wide}>
+            <ActionField
+              hostId={values.host ?? ""}
+              value={values.contract}
+              onChange={(contract) => onChange({ contract })}
+            />
+          </div>
+          <Field label="Status">
+            <Select value={values.status} onChange={(e) => onChange({ status: e.target.value })}>
+              <option value="">Any status</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {shadowStatusMeta(s).label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="From (UTC)">
+            <TextInput
+              type="date"
+              value={values.since}
+              onChange={(e) => onChange({ since: e.target.value })}
+            />
+          </Field>
+          <Field label="To (UTC)">
+            <TextInput
+              type="date"
+              value={values.until}
+              onChange={(e) => onChange({ until: e.target.value })}
+            />
+          </Field>
+          <Field label="Most results" hint="Between 1 and 500.">
+            <NumberInput
+              min={1}
+              max={500}
+              value={values.limit}
+              onChange={(e) => onChange({ limit: e.target.value })}
+            />
+          </Field>
         </div>
-        <div className={styles.wide}>
-          <ActionField
-            hostId={values.host ?? ""}
-            value={values.contract}
-            onChange={(contract) => onChange({ contract })}
-          />
-        </div>
-        <Field label="Status (optional)">
-          <Select value={values.status} onChange={(e) => onChange({ status: e.target.value })}>
-            <option value="">Any status</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {shadowStatusMeta(s).label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="From (UTC) (optional)">
-          <TextInput
-            type="date"
-            value={values.since}
-            onChange={(e) => onChange({ since: e.target.value })}
-          />
-        </Field>
-        <Field label="To (UTC) (optional)">
-          <TextInput
-            type="date"
-            value={values.until}
-            onChange={(e) => onChange({ until: e.target.value })}
-          />
-        </Field>
-        <Field label="Most results (optional)" hint="Between 1 and 500.">
-          <NumberInput
-            min={1}
-            max={500}
-            value={values.limit}
-            onChange={(e) => onChange({ limit: e.target.value })}
-          />
-        </Field>
-      </div>
+      </Disclosure>
     </Section>
   );
 }

@@ -2,6 +2,7 @@
    readable next to the navigation. */
 .form {
   container-type: inline-size;
+  max-width: 46rem;
 }
 
 .group {
