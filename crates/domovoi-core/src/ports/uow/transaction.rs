@@ -3,7 +3,8 @@
 use std::fmt;
 
 use crate::id::{
-    ActionId, ConversationId, EffectId, IncidentId, NoteId, OperationId, PolicyVersionId,
+    ActionId, ConversationId, EffectId, IncidentId, InstallJobId, NoteId, OperationId,
+    PolicyVersionId,
 };
 use crate::policy_store::PolicyWrite;
 use crate::ports::repos::IncidentTimelineEntry;
@@ -11,7 +12,7 @@ use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
     AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
-    EffectReschedule, JournalDraft, OperationWrite,
+    EffectReschedule, InstallWrite, JournalDraft, OperationWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -35,6 +36,8 @@ pub enum AggregateKind {
     Entity,
     /// An Operator conversation and its messages.
     Conversation,
+    /// A package install or uninstall job and its targets.
+    InstallJob,
 }
 
 impl AggregateKind {
@@ -42,8 +45,8 @@ impl AggregateKind {
     /// only these, so it never touches an operation's effects.
     pub const LEGACY: [Self; 3] = [Self::Incident, Self::Action, Self::Note];
 
-    /// Stable lowercase name stored in the database: `"incident"`, `"action"`, `"note"` or
-    /// `"operation"`.
+    /// Stable lowercase name stored in the database, for example `"incident"` or
+    /// `"install_job"`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -56,6 +59,7 @@ impl AggregateKind {
             Self::Relation => "relation",
             Self::Entity => "entity",
             Self::Conversation => "conversation",
+            Self::InstallJob => "install_job",
         }
     }
 
@@ -72,6 +76,7 @@ impl AggregateKind {
             "relation" => Some(Self::Relation),
             "entity" => Some(Self::Entity),
             "conversation" => Some(Self::Conversation),
+            "install_job" => Some(Self::InstallJob),
             _ => None,
         }
     }
@@ -132,6 +137,17 @@ impl AggregateRef {
     pub fn conversation(id: ConversationId) -> Self {
         Self {
             kind: AggregateKind::Conversation,
+            id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// An install job reference: the aggregate of every install target journal entry.
+    #[must_use]
+    pub fn install_job(id: InstallJobId) -> Self {
+        Self {
+            kind: AggregateKind::InstallJob,
             id: id.to_string(),
         }
     }
@@ -273,6 +289,8 @@ pub enum StateWrite {
     Knowledge(crate::knowledge::KnowledgeWrite),
     /// One change to an Operator conversation or its messages.
     Conversation(ConversationWrite),
+    /// One change to a package artifact, an install job or a host's package inventory.
+    Install(InstallWrite),
 }
 
 /// Everything one business event changes.

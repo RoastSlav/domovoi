@@ -6,6 +6,9 @@ use jiff::Timestamp;
 use crate::action::{JournalEpoch, PlanHash};
 use crate::capability::catalog::{CatalogPageData, CatalogQuery};
 use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
+use crate::install::{
+    CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
+};
 use crate::ports::capability::HostView;
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
@@ -360,7 +363,59 @@ pub trait AgentLink: Send + Sync {
     ) -> Result<CatalogPageData, LinkError> {
         Err(LinkError::Rejected(CATALOGUE_UNSUPPORTED.to_owned()))
     }
+
+    /// Sends one frame of a package transfer to `host`'s live session, which must still be
+    /// `expected_session`.
+    ///
+    /// `Begin` and `Chunk` return `Ok(None)` once the encoded frame is in the session's
+    /// outgoing queue, waiting for room until `deadline`. `End` is queued and then waits for
+    /// the agent's answer to that frame: `Ok(Some(..))` is the agent's verdict. A refusal is
+    /// [`LinkError::Rejected`]; no answer, or a session that dropped while waiting, is
+    /// [`LinkError::Indeterminate`].
+    async fn send_transfer(
+        &self,
+        _host: HostId,
+        _frame: TransferFrame,
+        _expected_session: AgentSessionId,
+        _deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Hands one package capability request to `host`'s live session, which must still be
+    /// `expected_session` with the journal `expected_epoch` names, and returns once the frame
+    /// is in that session's outgoing queue.
+    ///
+    /// Failing means nothing was queued. Every later failure belongs to
+    /// [`AgentLink::capability_result`].
+    async fn start_capability(
+        &self,
+        _host: HostId,
+        _req: PackageDispatch,
+        _expected_session: AgentSessionId,
+        _expected_epoch: JournalEpoch,
+        _deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Waits for the terminal answer to a request handed over by
+    /// [`AgentLink::start_capability`].
+    ///
+    /// [`LinkError::Rejected`] is the agent's confirmed refusal or failure. Every other error
+    /// leaves the outcome unknown.
+    async fn capability_result(
+        &self,
+        _host: HostId,
+        _handoff: CapabilityHandoff,
+        _deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
 }
+
+/// What a link answers to a package operation it does not implement.
+const NOT_SUPPORTED: &str = "not supported by this link";
 
 /// The refusal a link answers when it, or the agent behind it, cannot page a catalogue.
 ///
@@ -389,105 +444,4 @@ pub trait SignalSink: Send + Sync {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A link that only knows presence, so it exercises the default `availability`.
-    struct PresenceOnly(Presence);
-
-    #[async_trait]
-    impl AgentLink for PresenceOnly {
-        async fn run_tool(
-            &self,
-            _host: HostId,
-            _call: ReadToolCall,
-            _deadline: Timestamp,
-        ) -> Result<ToolOutput, LinkError> {
-            Err(LinkError::NotConnected)
-        }
-
-        async fn start_skill(
-            &self,
-            _host: HostId,
-            _req: SkillDispatch,
-            _expected_session: crate::id::AgentSessionId,
-            _expected_epoch: JournalEpoch,
-            _deadline: Timestamp,
-        ) -> Result<SkillHandoff, LinkError> {
-            Err(LinkError::NotConnected)
-        }
-
-        fn snapshot(&self, _host: HostId) -> Option<AgentSnapshot> {
-            None
-        }
-
-        async fn skill_result(
-            &self,
-            _host: HostId,
-            _handoff: SkillHandoff,
-            _deadline: Timestamp,
-        ) -> Result<SkillOutput, LinkError> {
-            Err(LinkError::NotConnected)
-        }
-
-        async fn run_check(
-            &self,
-            _host: HostId,
-            _check: CheckKey,
-            _target: Option<TargetKey>,
-            _deadline: Timestamp,
-        ) -> Result<CheckRecheck, LinkError> {
-            Err(LinkError::NotConnected)
-        }
-
-        fn presence(&self, _host: HostId) -> Presence {
-            self.0.clone()
-        }
-
-        fn journal_epoch(&self, _host: HostId) -> Option<JournalEpoch> {
-            None
-        }
-
-        async fn action_status(
-            &self,
-            _host: HostId,
-            _ids: Vec<ActionId>,
-            _expected_epoch: JournalEpoch,
-            _deadline: Timestamp,
-        ) -> Result<ActionAnswers, LinkError> {
-            Err(LinkError::NotConnected)
-        }
-
-        fn skills(&self, _host: HostId) -> Vec<SkillSummary> {
-            Vec::new()
-        }
-    }
-
-    #[test]
-    fn availability_default_follows_presence() {
-        futures::executor::block_on(async {
-            let host = HostId::new();
-            let since = Timestamp::constant(1_700_000_000, 0);
-
-            let connected = PresenceOnly(Presence::Connected {
-                since,
-                version: "0.1.0".to_owned(),
-            });
-            assert_eq!(
-                connected.availability(host).await,
-                HostAvailability::Known { since },
-            );
-
-            let left = PresenceOnly(Presence::Disconnected {
-                last_seen: Some(since),
-            });
-            assert_eq!(
-                left.availability(host).await,
-                HostAvailability::Absent { since },
-            );
-
-            let never = PresenceOnly(Presence::Disconnected { last_seen: None });
-            assert_eq!(never.availability(host).await, HostAvailability::Unknown);
-        });
-    }
-}
+mod tests;

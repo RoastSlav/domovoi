@@ -182,6 +182,18 @@ define_id!(
     /// idempotent and lets a stale reply be recognised.
     TurnId
 );
+define_id!(
+    /// Identifies one imported package archive and its signature file.
+    PackageArtifactId
+);
+define_id!(
+    /// Identifies one install or uninstall job, which has one target per host.
+    InstallJobId
+);
+define_id!(
+    /// Identifies one host's attempt within an install job.
+    InstallTargetId
+);
 
 #[cfg(test)]
 mod tests {

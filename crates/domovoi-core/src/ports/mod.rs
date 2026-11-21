@@ -34,7 +34,7 @@ pub use capability::{
 };
 pub use caps::{
     ActionCaps, AvailabilityProbe, CheckRerun, EvidenceCaps, HandoffRunner, HostObservation,
-    HostRead, JournalStatus,
+    HostRead, JournalStatus, PackageCaps, PackageRelay,
 };
 pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,

@@ -3,6 +3,7 @@
 mod approval;
 mod authorization;
 mod epoch;
+mod package_plan;
 mod plan;
 mod request;
 mod stored;
@@ -13,6 +14,7 @@ pub use authorization::{
     Authorization, AuthorizationKind, PermitError, PolicyPermit, PolicyPermitParts,
 };
 pub use epoch::JournalEpoch;
+pub use package_plan::{PackagePlan, job_plan_hash};
 pub use plan::{ImplHash, PlanContract, PlanError, PlanTarget};
 pub use request::{ActionRequest, ActionStatus, ApprovalPlan, PlanFamily, Principal, StoredAction};
 pub use stored::{ApprovalEvidenceError, StoredActionError};

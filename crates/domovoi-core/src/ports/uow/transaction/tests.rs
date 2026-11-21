@@ -14,6 +14,7 @@ fn aggregate_kinds_round_trip() {
         AggregateKind::Operation,
         AggregateKind::Policy,
         AggregateKind::Conversation,
+        AggregateKind::InstallJob,
     ] {
         assert_eq!(AggregateKind::parse(kind.as_str()), Some(kind));
     }

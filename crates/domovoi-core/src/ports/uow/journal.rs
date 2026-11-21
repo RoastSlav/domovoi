@@ -49,6 +49,8 @@ pub enum JournalKind {
     ConversationUpdated,
     /// An Operator conversation was deleted.
     ConversationDeleted,
+    /// An install target changed status.
+    InstallTarget,
 }
 
 impl JournalKind {
@@ -74,6 +76,7 @@ impl JournalKind {
             Self::ConversationMessage => "conversation.message",
             Self::ConversationUpdated => "conversation.updated",
             Self::ConversationDeleted => "conversation.deleted",
+            Self::InstallTarget => "install.target",
         }
     }
 
@@ -99,6 +102,7 @@ impl JournalKind {
             "conversation.message" => Some(Self::ConversationMessage),
             "conversation.updated" => Some(Self::ConversationUpdated),
             "conversation.deleted" => Some(Self::ConversationDeleted),
+            "install.target" => Some(Self::InstallTarget),
             _ => None,
         }
     }
@@ -263,6 +267,7 @@ mod tests {
             JournalKind::ConversationMessage,
             JournalKind::ConversationUpdated,
             JournalKind::ConversationDeleted,
+            JournalKind::InstallTarget,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }
