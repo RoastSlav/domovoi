@@ -184,6 +184,11 @@ hub with `host`) or renders `<AllHostsNote>` saying why not; the setup, login, w
 not-found pages are outside the shell's host scope and need no note. Navigation counts come from
 `useOverview(host)`: never fetch a list to count it.
 
+The **Knowledge** group holds Known conditions, Notes, Digest and three more items: Knowledge
+(`/knowledge`: facts, proposals, relations and entities), Management paths (`/knowledge/paths`) and
+Experience (`/knowledge/experience`). None carries a count. Fact and entity pages sit under
+`/knowledge` and read "Knowledge" in the breadcrumb.
+
 ## Presentation profiles
 
 Every element of an operations-style screen has one category, and the detail level decides
@@ -207,8 +212,12 @@ The table is data in `src/design/visibility.ts` (`PRESENTATION`); nothing else d
 7. **One provider, everything else asks.** `VisibilityProvider` holds the choice; components call `useVisibility`. Dialogs, toasts, menus and tooltips are exempt: they carry no category.
 
 **Custom** is a per-page override on top of the default level. The pages that offer one are
-listed in `VISIBILITY_PAGES` (`operations`, `operation`); a page names itself with
-`VisibilityPage`. **The default is Detailed**, for a new owner, an unknown value and any
+listed in `VISIBILITY_PAGES` (`operations`, `operation`, `policy`, `policy-draft`,
+`policy-decision`, `policy-simulator`, `knowledge`, `knowledge-detail`, `paths`, `experience`); a
+page names itself with `VisibilityPage`. The Knowledge pages use `knowledge` (the browser),
+`knowledge-detail` (fact and entity pages), `paths` and `experience`. The resolution summary and
+the similar-operations panel sit on the operation page and follow its level; the incident page
+has no key of its own, so its panel follows the default level. **The default is Detailed**, for a new owner, an unknown value and any
 failure to load the choice: it fails visible.
 
 **Where to choose.** The account menu has a "Detail level" group (Detailed, Standard,
@@ -469,6 +478,29 @@ sets one page apart in Settings, Display. What needs the person (an approval, a 
 current state) is on screen at every level; the rest is one click away, behind a labelled
 toggle or a "+N details" button. The choice follows the person to every browser.
 
+**Check what Domovoi knows.**
+
+- Facts show where each one came from (you, a host, an integration or Domovoi's own inference),
+  its status and when it was last seen or checked. A fact Domovoi inferred is not yours until you
+  accept it: those wait on the Proposals tab and a note on the Facts tab says how many.
+- Retracted and replaced facts are hidden until you pick their status. Stale and disputed facts
+  stay in the list with their label; a disputed pair is settled by choosing the right value.
+- Accept, verify and retract are on the fact. Retracting asks first and never needs the password.
+  Accepting, verifying or adding a management path or a trusted network asks for the password
+  before anything is sent.
+- Past operations are labelled "historical evidence, not authorization" wherever they appear.
+
+**Check the management paths.**
+
+- The page is per host and shows each path's state, where it came from and how fresh it is.
+- Confirming a path needs the helper's own check, which this version does not have. The page says
+  so, shows Confirm disabled with that reason and sends nothing. You can still add a path, accept
+  one Domovoi found and retract a wrong one.
+- The blocked line lists why unattended containment is blocked on the host. It is a reading of what
+  the hub reports, not a control, and it says monitoring and actions you approve yourself are not
+  affected. When nothing blocks it, the page says other conditions still apply.
+- No path is ever called covered or protected here.
+
 **Change the policy.**
 
 - Start a draft from the active version. Edits stay in the draft until you publish, and the active
@@ -564,9 +596,14 @@ updated" label, so a failed refetch no longer hides behind old data. "Live" will
 event stream the page uses, not only incidents and actions.
 
 **New statuses** (operation, node including uncertain and planned, capability
-install, enable and authorize, knowledge state, and the step outcomes `Refused`, `NotRun`,
+install, enable and authorize, and the step outcomes `Refused`, `NotRun`,
 `Unavailable` and `OutcomeUnknown`) follow the "Add a status" recipe, each with a label, tone,
-hint and icon. More are planned. The host state **`Incompatible`** (agent upgrade required:
+hint and icon. More are planned. The knowledge statuses are in `design/knowledgeVocab.ts` and read
+through `tone.ts`: `knowledgeStatusMeta` (current, stale, disputed, replaced, retracted),
+`pathStateMeta` (not yours yet, waiting for you, confirmed, stale) and `coverageMeta`, which has two
+states only, "Cannot be verified yet" and "Checked when you confirm". There is no state that reads
+as covered. Words for sources, predicates and relations are plain lookups in
+`design/knowledgeText.ts`, not statuses. The host state **`Incompatible`** (agent upgrade required:
 the agent speaks another protocol minor than the hub, D-20) is its own status with an
 upgrade-required hint and is never shown with the offline status; its banner and host page keep
 history readable. It is read from the persisted agent record, so it survives a hub restart, and
@@ -672,7 +709,36 @@ pages in the browser.
 
 The policy tables (`design/policyVocab.ts`, `policyLimits.ts`, `policyRecord.ts` and `policyMeta.ts`)
 are vocabularies too. Add a value there and read it through `tone.ts`; a feature never writes a
-policy label itself.
+policy label itself. The same goes for `design/knowledgeVocab.ts`.
+
+**Ask for the password.** Use `useStepUp` (`features/knowledge/useStepUp.tsx`) over the kit's
+`PasswordPrompt` whenever the hub demands the password again. Call `start(variables, needsPassword)`:
+it runs the action at once, or opens the prompt first. The password lives only in the prompt and
+in the one request, never in a URL, a key, storage or a toast.
+
+```tsx
+const accept = useActionFeedback(useAcceptFact(), { success, error, errorDisplay: "inline" });
+const stepUp = useStepUp({
+  confirmLabel: "Accept",
+  reason: () => "This kind of fact can affect protective actions. Enter your password to save it.",
+  run: (v, password, callbacks) => accept.mutate({ ...v, password }, callbacks),
+  busy: accept.isPending,
+  error: accept.error,
+  reset: accept.reset,
+});
+// render stepUp.dialog once; stepUp.inline is a failure to show next to the button
+```
+
+A 403 inside the prompt reads "That password is not right." and the prompt stays open; a 429 shows
+the wait; any other failure shows the hub's words. A form dialog that needs the password is replaced
+by the prompt with its draft kept, never stacked under it. Whether to ask is a rule in
+`design/knowledgeText.ts` (`needsPassword`): safety-related facts, and every confirmation.
+
+**Show knowledge.** Write a subject in words with `useSubjectLabels` and `subjectLabel` (a host
+name, "plex on nas", an entity name; the id is never assumed to be a UUID), a value with
+`valueText`, a source with `SOURCES` and a status with `knowledgeStatusMeta`. All of them accept a
+value they do not know and show the raw text. Fact values, notes, names and evidence are text, never
+HTML or Markdown; only evidence of a known kind with a plain id becomes a link.
 
 **Show an action's result.** The worked examples are `useIncidentActions.ts` and
 `StepApproveControl.tsx`.
