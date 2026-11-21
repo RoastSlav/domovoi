@@ -600,7 +600,14 @@ async fn install_tables_exist_after_upgrade_from_the_schema5_fixture() {
         .await
         .unwrap();
     let mut original = raw(&fixture()).await;
-    for table in ["hosts", "incidents", "signals", "incident_events", "actions", "notes"] {
+    for table in [
+        "hosts",
+        "incidents",
+        "signals",
+        "incident_events",
+        "actions",
+        "notes",
+    ] {
         let sql = format!("SELECT count(*) FROM {table}");
         let before: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.clone()))
             .fetch_one(&mut original)
