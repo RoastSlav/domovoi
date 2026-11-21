@@ -643,7 +643,8 @@ describe("page override", () => {
       await waitFor(() => expect(calls.some((call) => call.route === STEP_ROUTE)).toBe(true));
       await settle(client);
       made[profile] = calls
-        .filter((call) => !call.route.includes("preferences"))
+        // Similar past operations are technical detail: Essential asks for them only once opened.
+        .filter((call) => !call.route.includes("preferences") && !call.route.endsWith("/similar"))
         .map((call) => `${call.route} ${JSON.stringify(call.init)}`)
         .sort();
       unmount();

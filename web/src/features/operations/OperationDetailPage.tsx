@@ -18,6 +18,7 @@ import {
   Visible,
   VisibilityPage,
 } from "../../components";
+import { OperationExperience } from "../experience/OperationExperience";
 import { CancelDialog } from "./CancelDialog";
 import { OperationBanner } from "./OperationBanner";
 import { OperationDetails } from "./OperationDetails";
@@ -147,6 +148,7 @@ export function OperationDetailPage() {
         <Section title="Details">
           <OperationDetails trace={trace} hostNames={hostNames} />
         </Section>
+        <OperationExperience operationId={operation.id} status={operation.status} />
       </Stack>
       <StepInspector
         operationId={operation.id}

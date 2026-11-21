@@ -13,6 +13,7 @@ import {
   Stack,
   Text,
 } from "../../components";
+import { SimilarOperations } from "../experience/SimilarOperations";
 import { IncidentOperations } from "../operations/IncidentOperations";
 import { useActionOutcomes } from "../approvals/useActionOutcomes";
 import { ActionSections } from "./ActionSections";
@@ -108,6 +109,11 @@ export function IncidentDetailPage() {
           <div className={styles.slot} data-slot="operations">
             <IncidentOperations operations={data.operations} />
           </div>
+          {data.operations.length > 0 && (
+            <div className={styles.slot} data-slot="experience">
+              <SimilarOperations source={{ incident: summary.id }} />
+            </div>
+          )}
           <div className={styles.slot} data-slot="evidence">
             <IncidentEvidence detail={data} />
           </div>

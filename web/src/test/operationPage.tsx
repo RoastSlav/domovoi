@@ -40,12 +40,18 @@ export function showOperation(
     search = "",
     width = 1300,
     get,
+    summary,
+    similar,
     profile = "detailed",
     pages = {},
   }: {
     search?: string;
     width?: number;
     get?: () => unknown;
+    /** The answer to the operation's resolution summary; by default "not ready". */
+    summary?: () => unknown;
+    /** The answer to its similar past operations; by default none. */
+    similar?: () => unknown;
     profile?: ProfileId;
     pages?: Record<string, ProfileId>;
   } = {},
@@ -53,6 +59,29 @@ export function showOperation(
   stubSlotEnvironment({ width, wide: true });
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/operations/{id}", get ?? (() => detail));
+  route(
+    "GET /api/v1/operations/{id}/summary",
+    summary ??
+      (() => ({
+        operation_id: detail.operation.id,
+        as_of_seq: detail.as_of_seq,
+        state: "not_ready",
+        ended_at: null,
+        fields: [],
+        history: [],
+        history_truncated: false,
+        label: "historical evidence, not authorization",
+      })),
+  );
+  route(
+    "GET /api/v1/operations/{id}/similar",
+    similar ??
+      (() => ({
+        items: [],
+        as_of_seq: detail.as_of_seq,
+        label: "historical evidence, not authorization",
+      })),
+  );
   route("GET /api/v1/operations/{id}/steps/{step}", (init) =>
     stepDetail(detail, init.params?.path?.step ?? ""),
   );
