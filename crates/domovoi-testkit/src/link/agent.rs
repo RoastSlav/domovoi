@@ -202,6 +202,38 @@ impl AgentLink for FakeAgentLink {
         })
     }
 
+    async fn send_transfer(
+        &self,
+        host: HostId,
+        frame: TransferFrame,
+        expected_session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<Option<TransferAnswer>, LinkError> {
+        self.fake_transfer(host, frame, expected_session, deadline)
+            .await
+    }
+
+    async fn start_capability(
+        &self,
+        host: HostId,
+        req: PackageDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.fake_start_capability(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn capability_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<PackageOutputs, LinkError> {
+        self.fake_capability_result(host, handoff, deadline).await
+    }
+
     async fn get_catalog(
         &self,
         host: HostId,
