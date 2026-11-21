@@ -23,6 +23,22 @@ const STATUS: Record<string, number> = {
   budget_spent: 503,
   delivery_failed: 502,
   internal: 500,
+  packages_disabled: 409,
+  package_conflict: 409,
+  package_in_use: 409,
+  store_full: 409,
+  unknown_key: 422,
+  revoked_key: 422,
+  bad_signature: 422,
+  digest_mismatch: 422,
+  signature_file_invalid: 422,
+  not_zstd: 422,
+  too_large: 413,
+  upload_failed: 400,
+  plan_changed: 409,
+  host_busy: 409,
+  no_such_package: 404,
+  no_such_job: 404,
 };
 
 const OTHER_FAILURES: [string, unknown][] = [

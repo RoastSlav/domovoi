@@ -116,4 +116,5 @@ export const VISIBILITY_PAGES: readonly { key: string; label: string }[] = [
   { key: "knowledge-detail", label: "Fact and entity detail" },
   { key: "paths", label: "Management paths" },
   { key: "experience", label: "Experience search" },
+  { key: "capabilities", label: "Capability Center" },
 ];

@@ -1,6 +1,7 @@
 import { HUB_SECTIONS } from "./hub";
 import { DISCORD_SECTION, OUTSIDE_SECTIONS } from "./integrations";
 import { MODEL_SECTIONS } from "./models";
+import { PACKAGE_SECTION } from "./packages";
 import type { SectionSpec } from "./types";
 import { UPKEEP_SECTIONS } from "./upkeep";
 import { VIEW_SECTIONS } from "./views";
@@ -16,6 +17,7 @@ export const SECTIONS: SectionSpec[] = [
   DISCORD_SECTION,
   ...MODEL_SECTIONS,
   ...OUTSIDE_SECTIONS,
+  PACKAGE_SECTION,
   ...UPKEEP_SECTIONS,
   ...VIEW_SECTIONS,
 ];

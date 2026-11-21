@@ -61,6 +61,15 @@ export const PAGES = {
   rules: page(() => import("../features/rules/RulesPage").then((m) => m.RulesPage)),
   settings: page(() => import("../features/settings/SettingsPage").then((m) => m.SettingsPage)),
   skills: page(() => import("../features/skills/SkillsPage").then((m) => m.SkillsPage)),
+  packageInstall: page(() =>
+    import("../features/packages/InstallWizardPage").then((m) => m.InstallWizardPage),
+  ),
+  installJob: page(() =>
+    import("../features/packages/InstallJobPage").then((m) => m.InstallJobPage),
+  ),
+  helperKey: page(() =>
+    import("../features/capabilities/HelperKeyPage").then((m) => m.HelperKeyPage),
+  ),
   capabilities: page(() =>
     import("../features/capabilities/CapabilitiesPage").then((m) => m.CapabilitiesPage),
   ),

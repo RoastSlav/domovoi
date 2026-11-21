@@ -44,6 +44,30 @@ export type Skill = Schemas["SkillDto"];
 export type Capability = Schemas["CapabilityDto"];
 /** One host's capability inventory. */
 export type Capabilities = Schemas["CapabilitiesDto"];
+/** What one host reported as its unattended limits. */
+export type HostCeiling = Schemas["CeilingDto"];
+/** One capability's bound in a host's limits. */
+export type CeilingEntry = Schemas["CeilingEntryDto"];
+/** The package store's status and the owner key list. */
+export type PackagesStatus = Schemas["PackagesStatusDto"];
+/** An imported package. */
+export type PackageSummary = Schemas["PackageDto"];
+/** An imported package with its signature file and the hosts holding it. */
+export type PackageDetail = Schemas["PackageDetailDto"];
+/** The plan the hub computed for an install or removal. */
+export type InstallPlan = Schemas["InstallPlanDto"];
+/** One host's part of a plan. */
+export type InstallPlanTarget = Schemas["PlanTargetDto"];
+/** An install job. */
+export type InstallJob = Schemas["InstallJobDto"];
+/** One host's attempt within a job. */
+export type InstallTarget = Schemas["InstallTargetDto"];
+/** One page of install jobs. */
+export type JobPage = Schemas["JobPageDto"];
+/** What a host reported it has installed. */
+export type HostPackages = Schemas["HostPackagesDto"];
+/** One package a host holds. */
+export type HostPackage = Schemas["HostPackageDto"];
 /** A note. */
 export type Note = Schemas["NoteDto"];
 /** Creating or replacing a note. */

@@ -1,4 +1,6 @@
 import { ApiFailure, type Issue } from "../api/types";
+import { PACKAGE_CATALOGUE, PACKAGE_HUB_CODES } from "./packageErrors";
+import { failureDetail, failureSentence } from "./packageFailures";
 
 /**
  * The single place where a failure becomes words. Every hub error code, a network failure,
@@ -41,12 +43,14 @@ export const HUB_CODES = [
   "budget_spent",
   "delivery_failed",
   "internal",
+  ...PACKAGE_HUB_CODES,
 ] as const;
 
 /** One of the hub's error codes. */
 export type HubCode = (typeof HUB_CODES)[number];
 
 const CATALOGUE: Record<HubCode, Entry> = {
+  ...PACKAGE_CATALOGUE,
   unauthorized: { reason: "Your session ended. Log in again.", specific: false },
   setup_required: {
     reason: "No account exists yet. Open the setup link the hub logged when it started.",
@@ -231,4 +235,18 @@ export function describeTurnFailure(
   const title = known && Object.hasOwn(TURN_FAILURES, failure ?? "") ? known : GENERIC_TURN_FAILURE;
   const extra = detail?.trim();
   return extra ? { title, detail: sentence(extra) } : { title };
+}
+
+/**
+ * One install target's failure in words: the sentence for its code's family as the title and
+ * the host's own message, without its leading code, as plain-text detail. A code this page
+ * does not know gets a generic title; the raw code is never shown.
+ */
+export function describeTargetFailure(failure: { code: string; message: string }): {
+  title: string;
+  detail?: string;
+} {
+  const title = failureSentence(failure.code);
+  const detail = failureDetail(failure.code, failure.message, title);
+  return detail ? { title, detail } : { title };
 }
