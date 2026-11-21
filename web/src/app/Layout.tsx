@@ -13,6 +13,7 @@ import { PageSkeleton } from "./PageSkeleton";
 import { PageTitleProvider } from "./PageTitle";
 import { RightSlotHost, RightSlotProvider } from "./rightSlot";
 import { Sidebar } from "./Sidebar";
+import { VisibilityProvider } from "./VisibilityProvider";
 import { TopBar, TopBarSlot } from "./TopBar";
 import { useSidebarRail } from "./useSidebarRail";
 
@@ -60,59 +61,61 @@ export function Layout() {
 
   return (
     <HostProvider>
-      <PageTitleProvider>
-        <RightSlotProvider>
-          <div className={styles.shell} data-rail={rail}>
-            <a className={styles.skip} href="#main">
-              Skip to content
-            </a>
-            <Sidebar
-              live={live.status}
-              open={open}
-              onClose={closeSheet}
-              onOpenPalette={openPalette}
-              paletteOpen={palette.open}
-              rail={rail}
-              onToggleRail={toggle}
-            />
-            <AppPalette
-              open={palette.open}
-              onClose={() => palette.setOpen(false)}
-              onToggleRail={toggle}
-            />
-            <OperatorSurface />
-            <div className={styles.column}>
-              <TopBar
-                menu={menu}
-                sheetOpen={open}
-                onMenu={() => setOpenFor(open ? null : location.key)}
-                slot={setSlot}
+      <VisibilityProvider>
+        <PageTitleProvider>
+          <RightSlotProvider>
+            <div className={styles.shell} data-rail={rail}>
+              <a className={styles.skip} href="#main">
+                Skip to content
+              </a>
+              <Sidebar
+                live={live.status}
+                open={open}
+                onClose={closeSheet}
+                onOpenPalette={openPalette}
+                paletteOpen={palette.open}
+                rail={rail}
+                onToggleRail={toggle}
               />
-              <div className={styles.body}>
-                <main id="main" className={styles.main} tabIndex={-1} data-slot-inert>
-                  <div className={styles.content}>
-                    <div className={styles.banners}>
-                      {live.paused && (
-                        <Banner tone="warning" title="Live updates paused">
-                          Reconnecting…
-                        </Banner>
-                      )}
-                      <UpdateBanner />
-                      <SetupBanner />
+              <AppPalette
+                open={palette.open}
+                onClose={() => palette.setOpen(false)}
+                onToggleRail={toggle}
+              />
+              <OperatorSurface />
+              <div className={styles.column}>
+                <TopBar
+                  menu={menu}
+                  sheetOpen={open}
+                  onMenu={() => setOpenFor(open ? null : location.key)}
+                  slot={setSlot}
+                />
+                <div className={styles.body}>
+                  <main id="main" className={styles.main} tabIndex={-1} data-slot-inert>
+                    <div className={styles.content}>
+                      <div className={styles.banners}>
+                        {live.paused && (
+                          <Banner tone="warning" title="Live updates paused">
+                            Reconnecting…
+                          </Banner>
+                        )}
+                        <UpdateBanner />
+                        <SetupBanner />
+                      </div>
+                      <TopBarSlot.Provider value={slot}>
+                        <Suspense fallback={<PageSkeleton />}>
+                          <Outlet />
+                        </Suspense>
+                      </TopBarSlot.Provider>
                     </div>
-                    <TopBarSlot.Provider value={slot}>
-                      <Suspense fallback={<PageSkeleton />}>
-                        <Outlet />
-                      </Suspense>
-                    </TopBarSlot.Provider>
-                  </div>
-                </main>
-                <RightSlotHost />
+                  </main>
+                  <RightSlotHost />
+                </div>
               </div>
             </div>
-          </div>
-        </RightSlotProvider>
-      </PageTitleProvider>
+          </RightSlotProvider>
+        </PageTitleProvider>
+      </VisibilityProvider>
     </HostProvider>
   );
 }

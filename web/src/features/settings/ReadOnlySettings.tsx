@@ -5,6 +5,7 @@ import styles from "./layout.module.css";
 import { RowHeading, SettingsCard, ValueRow } from "./SettingRow";
 import { AboutSection } from "./views/AboutSection";
 import { Advisories } from "./views/Advisories";
+import { DisplaySection } from "./views/DisplaySection";
 import { BudgetMeter, budgetOf, usageRows } from "./views/Usage";
 
 type Llm = NonNullable<Settings["llm_primary"]>;
@@ -164,6 +165,9 @@ export function ReadOnlySettings({ settings: s }: { settings: Settings }) {
             { label: "Status", value: heartbeat },
           ]}
         />
+        <Block title="Display">
+          <DisplaySection />
+        </Block>
         <Block title="Advisories">
           <Advisories />
         </Block>

@@ -6,6 +6,7 @@ import { FleetDemos } from "./FleetDemos";
 import { FormDemos } from "./FormDemos";
 import { NewKitDemos } from "./NewKitDemos";
 import { OperationDemos } from "./OperationDemos";
+import { VisibilityDemos } from "./VisibilityDemos";
 import { RespondDemos } from "./RespondDemos";
 import { ControlDemos, OverlayDemos } from "./ControlDemos";
 import { FeedbackDemos, StatusDemos } from "./StatusDemos";
@@ -102,6 +103,7 @@ export default function DesignPage() {
       <OverlayDemos />
       <RespondDemos />
       <OperationDemos />
+      <VisibilityDemos />
       <FleetDemos />
       <SystemDemos />
 

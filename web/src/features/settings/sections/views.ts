@@ -1,3 +1,4 @@
+import { DisplaySection } from "../views/DisplaySection";
 import { StatusSection } from "../views/StatusSection";
 import type { SectionSpec } from "./types";
 
@@ -11,5 +12,12 @@ export const VIEW_SECTIONS: SectionSpec[] = [
     intro: "Model spending this month, the heartbeat and open advisories.",
     fields: none,
     view: StatusSection,
+  },
+  {
+    id: "display",
+    title: "Display",
+    intro: "How much the interface shows. Safety and state are always shown.",
+    fields: none,
+    view: DisplaySection,
   },
 ];

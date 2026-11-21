@@ -4,6 +4,8 @@ type Schemas = components["schemas"];
 
 /** The logged-in user and the session's CSRF token. */
 export type Session = Schemas["SessionDto"];
+export type Preferences = Schemas["PreferencesDto"];
+export type PresentationPrefs = Schemas["PresentationDto"];
 /** One incident in a list. */
 export type IncidentSummary = Schemas["IncidentSummary"];
 /** One page of incidents. */

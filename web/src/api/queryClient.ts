@@ -4,6 +4,7 @@ import { ApiFailure } from "./types";
 /** Query keys, so invalidation matches what the hooks cache. */
 export const keys = {
   session: ["session"] as const,
+  preferences: ["preferences"] as const,
   incidents: ["incidents"] as const,
   incidentLists: ["incidents", "list"] as const,
   incidentDetails: ["incidents", "detail"] as const,
