@@ -34,6 +34,7 @@ pub mod legacy;
 pub mod manager;
 pub mod notify;
 pub mod operations;
+pub mod packages;
 pub mod plan;
 pub mod policy;
 pub mod policy_shadow;
