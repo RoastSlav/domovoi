@@ -272,6 +272,10 @@ export async function startServer(dist) {
             "GET /api/v1/overview": () => data.overview(state),
             "GET /api/v1/system/update": () => ({ current: "0.1.0", latest: null, newer: false }),
             "GET /api/v1/settings": () => data.settings(),
+            "GET /api/v1/advisories": () => [],
+            "GET /api/v1/audit": () => data.auditPage(url.searchParams.get("history")),
+            "GET /api/v1/audit/verification": () =>
+                data.auditVerification(url.searchParams.get("scope")),
             "GET /api/v1/actions": () => ({ items: data.actions(state), next_cursor: null }),
             "GET /api/v1/operations": () => data.page(state, url.searchParams.get("status")),
             [`GET /api/v1/operations/${id}`]: () => data.detail(state),

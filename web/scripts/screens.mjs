@@ -46,6 +46,8 @@ const PAGES = [
     ["notes", "/notes"],
     ["digest", "/digest"],
     ["logs", "/logs"],
+    ["audit", "/audit"],
+    ["retention", "/settings/retention"],
     ["policy", "/policy"],
     ["policy-draft", "/policy/draft"],
     ["policy-simulator", "/policy/simulator"],

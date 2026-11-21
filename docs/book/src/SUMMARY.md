@@ -38,6 +38,7 @@
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
 - [Retention](guide/retention.md)
+- [Audit log](guide/audit.md)
 - [Detail level](guide/display.md)
 - [Packages](guide/packages.md)
 

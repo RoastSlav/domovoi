@@ -221,6 +221,81 @@ export function settings() {
         webhooks: [],
         heartbeat: { configured: false, url: "[unset]", interval: null, failing: false },
         usage: { tokens_in: 0, tokens_out: 0, cost_usd: 0 },
+        retention: {
+            entries: [
+                ["signals_days", 30, null],
+                ["incident_timeline_days", 90, null],
+                ["conversations_days", 180, null],
+                ["notifications_days", 30, null],
+                ["triage_cache_days", 90, null],
+                ["resolved_advisories_days", 30, null],
+                ["operation_journal_days", 180, "operations exist"],
+                ["execution_outputs_days", 30, "execution outputs are stored apart"],
+                ["retracted_facts_days", 30, "knowledge exists"],
+            ].map(([key, days, once]) => ({
+                key,
+                days,
+                default_days: days,
+                applies: once ? "later" : "now",
+                applies_once: once,
+            })),
+            backups_keep: 7,
+            backups_keep_pre_migrate: 3,
+        },
         editable: null,
+    };
+}
+
+const HASH = "9f2c".repeat(16);
+
+/** `GET /audit`: five chained and two legacy entries; one detail holds an angle bracket. */
+export function auditPage(history) {
+    const row = (seq, legacy) => ({
+        seq,
+        at: "2026-11-18T10:00:00Z",
+        actor: "user:0190",
+        kind: "action.approved",
+        subject: `action:${seq}`,
+        detail: seq === 7 ? "<b>marked</b>" : "{}",
+        detail_truncated: false,
+        history: legacy ? "legacy" : "chained",
+        hash: legacy ? null : HASH,
+    });
+    const legacy = [row(2, true), row(1, true)];
+    const chained = [7, 6, 5, 4, 3].map((seq) => row(seq, false));
+    const items = history === "legacy" ? legacy : chained;
+    return { legacy_last_id: 2, next_cursor: null, items };
+}
+
+/** `GET /audit/verification`: a recent check, or the whole log. */
+export function auditVerification(scope) {
+    return {
+        scope: scope === "full" ? "full" : "recent",
+        recent_limit: 10000,
+        checked_at: "2026-11-18T10:00:00Z",
+        legacy: {
+            status: scope === "full" ? "verified" : "count_only",
+            count: 2,
+            expected_count: null,
+            actual_count: null,
+            digest_matches: null,
+        },
+        chained: {
+            status: "intact",
+            checked: 5,
+            head_seq: 7,
+            head_hash: HASH,
+            first_broken_seq: null,
+            break_reason: null,
+            break_text: null,
+        },
+        anchor: {
+            install_id: "install-1",
+            legacy_last_id: 2,
+            legacy_count: 2,
+            legacy_digest: "ab".repeat(32),
+            anchor_hash: "cd".repeat(32),
+        },
+        head: { seq: 7, hash: HASH },
     };
 }

@@ -5,6 +5,8 @@ import styles from "./layout.module.css";
 import { RowHeading, SettingsCard, ValueRow } from "./SettingRow";
 import { AboutSection } from "./views/AboutSection";
 import { Advisories } from "./views/Advisories";
+import { RetentionKept } from "./views/RetentionKept";
+import { RetentionRows } from "./views/RetentionRows";
 import { DisplaySection } from "./views/DisplaySection";
 import { BudgetMeter, budgetOf, usageRows } from "./views/Usage";
 
@@ -167,6 +169,10 @@ export function ReadOnlySettings({ settings: s }: { settings: Settings }) {
         />
         <Block title="Display">
           <DisplaySection />
+        </Block>
+        <Block title="Retention">
+          <RetentionKept />
+          <RetentionRows retention={s.retention} />
         </Block>
         <Block title="Advisories">
           <Advisories />

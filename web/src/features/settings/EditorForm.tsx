@@ -17,7 +17,7 @@ import {
   Tag,
   fieldIdForPath,
 } from "../../components";
-import { isSensitive } from "./form";
+import { isSensitive, sensitiveReason } from "./form";
 import { placeIssues } from "./placeIssues";
 import { failureOf, type SaveFailure } from "./saveFailure";
 import { SectionBody } from "./SectionBody";
@@ -221,7 +221,7 @@ export function EditorForm({
       )}
       {asking && (
         <PasswordPrompt
-          reason="This change affects who can act or what is trusted. Enter your password to save it."
+          reason={sensitiveReason(form.changes())}
           error={passwordError}
           busy={saving}
           onConfirm={(password) => void submit(password)}

@@ -84,6 +84,7 @@ export function AppRoutes() {
             <Route path="/notes" element={<PAGES.notes.Page />} />
             <Route path="/notes/:id" element={<PAGES.note.Page />} />
             <Route path="/digest" element={<PAGES.digest.Page />} />
+            <Route path="/audit" element={<PAGES.audit.Page />} />
             <Route path="/logs" element={<PAGES.logs.Page />} />
             <Route path="/knowledge" element={<PAGES.knowledge.Page />} />
             <Route path="/knowledge/facts/:id" element={<PAGES.fact.Page />} />

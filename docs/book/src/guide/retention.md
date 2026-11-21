@@ -1,6 +1,6 @@
 # Retention
 
-Domovoi keeps raw data for a limited time and keeps the records that explain what happened. Every period below is a setting in `[retention]`, in **Settings → Retention** once the page ships, in `hub.toml`, or through a `DOMOVOI_RETENTION__<KEY>` variable. The defaults are the owner's decision.
+Domovoi keeps raw data for a limited time and keeps the records that explain what happened. Every period below is a setting in `[retention]`, in **Settings → Retention**, in `hub.toml`, or through a `DOMOVOI_RETENTION__<KEY>` variable. The defaults are the owner's decision.
 
 | Setting | Default | Removed after | Kept |
 | --- | --- | --- | --- |
@@ -26,4 +26,6 @@ The purge runs daily at 03:30 local time. All of its deletes happen in one trans
 
 A purge removes the data from the live database, from its full-text index and from what the model sees at that moment. It does not remove it from backups: deleted rows stay in the nightly backups until they rotate out (`[backup] keep`, default 7) and in the last pre-migration copies (`[backup] keep_pre_migrate`, default 3). Restoring a backup brings the data back until the next purge deletes it again.
 
-Changing any retention setting asks for the admin's password again, because a shorter period destroys data sooner.
+Changing any retention setting asks for the admin's password again, because a shorter period destroys data sooner. The page asks for it when you change a period or the backup counts.
+
+Periods the hub declares but does not apply yet (`operation_journal_days` and `execution_outputs_days`) carry a "Not applied yet" mark. Their periods are accepted, but nothing is removed by them yet. A hub whose settings are managed in `hub.toml` shows the values read-only.
