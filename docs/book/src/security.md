@@ -32,7 +32,16 @@ These hold however the model behaves. Each one is enforced by code and by named 
 
 [ARCHITECTURE.md §15](https://github.com/RoastSlav/domovoi/blob/main/ARCHITECTURE.md#15-security-invariants) lists how each one is enforced.
 
-Owner-signed packages are trusted only as far as the files you place on the host yourself. The agent accepts a package only when its signature matches a key you listed in `agent.toml`, and the hub cannot add or change those keys. A signed package still needs a person's approval to install, and installing it does not enable or run anything. Its skills cannot run until a skill runner that executes packaged code exists, and that runner is not yet available.
+### Owner-signed packages
+
+The hub offers and relays packages; the agent decides. The hub checks an import against its own owner key list as a convenience, but that list is not trust. The agent checks every signature against the keys in its own `agent.toml`, and refuses anything else. The hub cannot add, replace or remove an agent's keys, and its requests carry no key field.
+
+- Only a signed-in person can start an install or an uninstall. It needs your password, and the package name typed again. A chat message, a model or a background task cannot start one.
+- The plan you approved must still match when the job starts. A host that changed since then is refused, not installed.
+- Installing does not enable or run anything. The package's skills stay off until a later step enables them, and that step does not exist yet.
+- If the hub loses track of an install after sending it, it asks the agent what happened and does not send it again on its own.
+
+See [Packages](guide/packages.md) for the workflow and what each outcome means.
 
 ## What could go wrong, and what stops it
 
