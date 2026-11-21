@@ -12263,9 +12263,21 @@
           "approvals_waiting",
           "hosts_offline",
           "hosts_total",
+          "operations_running",
+          "operations_waiting_approval",
+          "operations_waiting_user",
+          "operations_paused",
+          "actions_outcome_unknown",
+          "attention_total",
           "as_of_seq"
         ],
         "properties": {
+          "actions_outcome_unknown": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Classic actions whose result is unknown.",
+            "minimum": 0
+          },
           "approvals_waiting": {
             "type": "integer",
             "format": "int32",
@@ -12276,6 +12288,12 @@
             "type": "integer",
             "format": "int64",
             "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
+            "minimum": 0
+          },
+          "attention_total": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Everything that waits for the owner: incidents that need action, approvals, questions,\npaused operations, unknown results and offline hosts.",
             "minimum": 0
           },
           "hosts_offline": {
@@ -12304,6 +12322,30 @@
             "type": "integer",
             "format": "int32",
             "description": "Incidents that are not resolved: pending, open, acknowledged or muted.",
+            "minimum": 0
+          },
+          "operations_paused": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Operations that are paused, for whatever reason, including an unknown result.",
+            "minimum": 0
+          },
+          "operations_running": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Operations that are running.",
+            "minimum": 0
+          },
+          "operations_waiting_approval": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Operations with a step waiting for a person to approve it (operations, not steps).",
+            "minimum": 0
+          },
+          "operations_waiting_user": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Operations waiting for the person to answer a question.",
             "minimum": 0
           }
         }

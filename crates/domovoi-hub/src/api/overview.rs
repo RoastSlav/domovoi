@@ -3,7 +3,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use domovoi_core::ports::{ActionFilter, IncidentFilter, Page, Presence};
+use domovoi_core::ports::{ActionFilter, IncidentFilter, OperationFilter, Page, Presence};
 use domovoi_core::{Host, Incident, IncidentGroup, IncidentStatus, Verdict};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -35,6 +35,19 @@ pub struct OverviewDto {
     pub hosts_offline: u32,
     /// Hosts counted.
     pub hosts_total: u32,
+    /// Operations that are running.
+    pub operations_running: u32,
+    /// Operations with a step waiting for a person to approve it (operations, not steps).
+    pub operations_waiting_approval: u32,
+    /// Operations waiting for the person to answer a question.
+    pub operations_waiting_user: u32,
+    /// Operations that are paused, for whatever reason, including an unknown result.
+    pub operations_paused: u32,
+    /// Classic actions whose result is unknown.
+    pub actions_outcome_unknown: u32,
+    /// Everything that waits for the owner: incidents that need action, approvals, questions,
+    /// paused operations, unknown results and offline hosts.
+    pub attention_total: u32,
     /// The journal position this snapshot was read at; apply only events with a greater `seq`.
     pub as_of_seq: u64,
 }
@@ -81,6 +94,27 @@ async fn is_offline(state: &ApiState, host: &Host) -> Result<bool, ApiError> {
         return Ok(false);
     }
     Ok(state.deps.hosts.live_agent(host.id).await?.is_some())
+}
+
+/// How many operations are in `status`, for `only` host when given.
+async fn operations_in(
+    state: &ApiState,
+    status: &str,
+    only: Option<domovoi_core::HostId>,
+    page: &Page,
+) -> Result<usize, ApiError> {
+    let filter = OperationFilter {
+        status: Some(status.to_owned()),
+        host: only,
+        ..OperationFilter::default()
+    };
+    Ok(state
+        .deps
+        .operation_repo
+        .list(&filter, page)
+        .await?
+        .items
+        .len())
 }
 
 /// Counts for the navigation: incidents, approvals and offline hosts.
@@ -132,6 +166,17 @@ pub(super) async fn show(
     };
     let waiting = state.deps.actions.list(&proposed, &page).await?.items.len();
 
+    let unknown = ActionFilter {
+        host: only,
+        status: Some("outcome_unknown".to_owned()),
+        ..ActionFilter::default()
+    };
+    let unknown = state.deps.actions.list(&unknown, &page).await?.items.len();
+    let running = operations_in(&state, "running", only, &page).await?;
+    let waiting_approval = operations_in(&state, "waiting_approval", only, &page).await?;
+    let waiting_user = operations_in(&state, "waiting_user", only, &page).await?;
+    let paused = operations_in(&state, "paused", only, &page).await?;
+
     let mut offline = 0_usize;
     for host in &hosts {
         if is_offline(&state, host).await? {
@@ -139,13 +184,32 @@ pub(super) async fn show(
         }
     }
 
+    let groups = IncidentGroupsDto::of(&incidents);
+    let attention_total = [
+        groups.needs_action,
+        count(waiting),
+        count(waiting_approval),
+        count(waiting_user),
+        count(paused),
+        count(unknown),
+        count(offline),
+    ]
+    .into_iter()
+    .fold(0_u32, u32::saturating_add);
+
     Ok(Json(OverviewDto {
         incidents_action_needed: count(action_needed),
         incidents_open: count(incidents.len()),
-        incident_groups: IncidentGroupsDto::of(&incidents),
+        incident_groups: groups,
         approvals_waiting: count(waiting),
         hosts_offline: count(offline),
         hosts_total: count(hosts.len()),
+        operations_running: count(running),
+        operations_waiting_approval: count(waiting_approval),
+        operations_waiting_user: count(waiting_user),
+        operations_paused: count(paused),
+        actions_outcome_unknown: count(unknown),
+        attention_total,
         as_of_seq,
     }))
 }
