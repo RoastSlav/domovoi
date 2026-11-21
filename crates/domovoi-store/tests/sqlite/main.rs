@@ -8,6 +8,8 @@ mod audit;
 #[cfg(test)]
 mod audit_chain;
 #[cfg(test)]
+mod audit_inspect;
+#[cfg(test)]
 mod backup;
 #[cfg(test)]
 mod backup_logging;

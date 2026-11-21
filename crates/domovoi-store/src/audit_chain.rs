@@ -19,8 +19,8 @@ use crate::error::{StoreOpenError, db};
 pub(crate) const BATCH: u32 = 1000;
 
 #[derive(sqlx::FromRow)]
-struct AuditChainRow {
-    seq: i64,
+pub(crate) struct AuditChainRow {
+    pub(crate) seq: i64,
     at: i64,
     actor: String,
     kind: String,
@@ -31,7 +31,7 @@ struct AuditChainRow {
 }
 
 impl AuditChainRow {
-    fn into_chain_row(self) -> Result<ChainRow, StoreError> {
+    pub(crate) fn into_chain_row(self) -> Result<ChainRow, StoreError> {
         let prev_hash = self
             .prev_hash
             .as_deref()

@@ -5,6 +5,7 @@
 //! suites live in `domovoi-testkit`.
 
 pub mod agent_link;
+pub mod audit_inspect;
 pub mod capability;
 pub mod caps;
 pub mod chat;
@@ -30,6 +31,7 @@ pub use agent_link::{
     CATALOGUE_UNSUPPORTED, CheckRecheck, HostAvailability, IngestError, LinkError, Presence,
     SignalSink, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnknownReason,
 };
+pub use audit_inspect::{AuditHistory, AuditInspect, AuditRowFilter};
 pub use capability::{
     CapabilityRegistry, DISABLED_REASON, HelperState, HostView, HostWords, RunnerState,
 };
