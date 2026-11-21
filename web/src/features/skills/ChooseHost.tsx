@@ -27,8 +27,20 @@ function Head({ host }: { host: Host }) {
  * Under "All hosts": a card per host that selects it and shows its skills. A host with no
  * agent has no skills to see, so its card is not a link and says why in words.
  */
-export function ChooseHost() {
+export function ChooseHost({
+  prompt = "Choose a host to see its skills.",
+  query,
+}: {
+  /** The line above the cards, when the page is not about skills. */
+  prompt?: string;
+  /** Query parameters kept in each card's link, such as the tab a page is on. */
+  query?: Record<string, string>;
+} = {}) {
   const hosts = useHosts();
+  const link = (name: string) =>
+    query
+      ? `/capabilities?${new URLSearchParams({ ...query, host: name }).toString()}`
+      : `/skills?host=${encodeURIComponent(name)}`;
   return (
     <QueryBoundary
       query={hosts}
@@ -43,7 +55,7 @@ export function ChooseHost() {
       {(list) => (
         <Stack gap={4}>
           <Text muted block>
-            Choose a host to see its skills.
+            {prompt}
           </Text>
           <nav aria-label="Hosts">
             <Grid min="sm" gap={3}>
@@ -58,7 +70,7 @@ export function ChooseHost() {
                     </div>
                   </Card>
                 ) : (
-                  <Card key={host.id} to={`/skills?host=${encodeURIComponent(host.name)}`}>
+                  <Card key={host.id} to={link(host.name)}>
                     <div className={styles.hostCard}>
                       <Head host={host} />
                       <span className={styles.hostGo}>

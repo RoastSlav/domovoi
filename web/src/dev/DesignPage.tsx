@@ -10,6 +10,7 @@ import { OperationDemos } from "./OperationDemos";
 import { PolicyDemos } from "./PolicyDemos";
 import { VisibilityDemos } from "./VisibilityDemos";
 import { RespondDemos } from "./RespondDemos";
+import { CapabilityDemos } from "./CapabilityDemos";
 import { ControlDemos, OverlayDemos } from "./ControlDemos";
 import { FeedbackDemos, StatusDemos } from "./StatusDemos";
 import { SystemDemos } from "./SystemDemos";
@@ -109,6 +110,7 @@ export default function DesignPage() {
       <KnowledgeDemos />
       <VisibilityDemos />
       <FleetDemos />
+      <CapabilityDemos />
       <SystemDemos />
 
       <section>

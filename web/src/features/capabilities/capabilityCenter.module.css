@@ -1,0 +1,14 @@
+/* Placement only: the Limits table and the tab strip spacing. */
+.tabs {
+  margin-top: var(--space-4);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.bounds {
+  overflow-wrap: anywhere;
+}
