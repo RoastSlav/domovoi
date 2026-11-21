@@ -108,4 +108,8 @@ export const PRESENTATION_WORDS: Readonly<Record<Presentation, string>> = {
 export const VISIBILITY_PAGES: readonly { key: string; label: string }[] = [
   { key: "operations", label: "Operations list" },
   { key: "operation", label: "Operation detail" },
+  { key: "policy", label: "Policy overview and versions" },
+  { key: "policy-draft", label: "Policy editor and publication" },
+  { key: "policy-decision", label: "Policy decision" },
+  { key: "policy-simulator", label: "Policy simulator" },
 ];

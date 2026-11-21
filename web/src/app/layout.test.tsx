@@ -109,7 +109,7 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
   ]);
   expect(linksOf("Fleet")).toEqual(["Hosts", "Skills", "Capabilities", "Logs"]);
   expect(linksOf("Knowledge")).toEqual(["Known conditions", "Notes", "Digest"]);
-  expect(linksOf("System")).toEqual(["Settings"]);
+  expect(linksOf("System")).toEqual(["Policy", "Settings"]);
   expect(navLink("Incidents")).toHaveAttribute("href", "/incidents");
   expect(navLink("Overview")).toHaveAttribute("href", "/");
   expect(within(sheet()).getByRole("link", { name: "Domovoi", hidden: true })).toHaveAttribute(

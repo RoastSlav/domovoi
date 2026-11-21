@@ -1,6 +1,7 @@
 /** The smoke checks, in the order the brief lists them. Each one throws on the first failure. */
 import { createRequire } from "node:module";
 import { PLAN_HASH } from "./data.mjs";
+import { policyFixture } from "./server.mjs";
 
 const require = createRequire(import.meta.url);
 const AXE = require.resolve("axe-core");
@@ -70,6 +71,41 @@ function stepLinks(page) {
 
 async function insideSlot(page) {
     return page.evaluate(() => Boolean(document.activeElement?.closest("aside, [role=dialog]")));
+}
+
+const LOCKED_ID = "0192a000-0000-7000-8000-00000000e001";
+const LIMITS_ID = "0192a000-0000-7000-8000-00000000e003";
+
+async function bothSchemes(ctx, run) {
+    try {
+        for (const scheme of ["light", "dark"]) {
+            await ctx.page.emulateMedia({ colorScheme: scheme });
+            await run(scheme);
+        }
+    } finally {
+        await ctx.page.emulateMedia({ colorScheme: "light" });
+    }
+}
+
+async function lockedDeny(page, what) {
+    await visible(page.getByText("Locked Deny", { exact: true }), `Locked Deny (${what})`);
+}
+
+async function openPublish(ctx, viewport = WIDE_DESK) {
+    await open(ctx, "/policy/draft/publish", viewport);
+    await visible(
+        ctx.page.getByRole("heading", { level: 1, name: "Review and publish" }),
+        "the review",
+    );
+}
+
+async function waitForPost(server, suffix) {
+    for (let i = 0; i < 50; i += 1) {
+        const found = server.posts.find((entry) => entry.path.endsWith(suffix));
+        if (found) return found;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return undefined;
 }
 
 export const CHECKS = [
@@ -358,6 +394,147 @@ export const CHECKS = [
                 "the folded technical steps",
             );
             expect(!navigated, "The page reloaded.");
+        },
+    },
+    {
+        name: "the policy overview shows the notes, the active version, Locked Deny and decisions",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            const overview = policyFixture("overview-active");
+            await open(ctx, "/policy", WIDE_DESK);
+            await visible(page.getByRole("heading", { level: 1, name: "Policy" }), "the heading");
+            await visible(page.getByText(overview.notes[0]), "the standing note");
+            await visible(
+                page.getByText(`Version ${overview.active.number}`).first(),
+                "the active version",
+            );
+            await lockedDeny(page, "the rules table");
+            await page.getByRole("tab", { name: "Decisions" }).click();
+            await visible(page.getByText("skill.restart_plex").first(), "decision rows");
+            for (const viewport of [PHONE, WIDE_DESK]) {
+                await open(ctx, "/policy?tab=decisions", viewport);
+                await visible(page.getByText("skill.restart_plex").first(), "decision rows");
+                const wide = await page.evaluate(
+                    () =>
+                        document.documentElement.scrollWidth > document.documentElement.clientWidth,
+                );
+                expect(!wide, `The policy page scrolls sideways at ${viewport.width} px.`);
+            }
+            await bothSchemes(ctx, async (scheme) => {
+                await open(ctx, "/policy", WIDE_DESK);
+                await visible(page.getByText("Locked Deny", { exact: true }), "Locked Deny");
+                await axe(page, `the policy overview (${scheme})`);
+                await open(ctx, "/policy?tab=decisions", WIDE_DESK);
+                await visible(page.getByText("skill.restart_plex").first(), "decision rows");
+                await axe(page, `the decisions tab (${scheme})`);
+            });
+        },
+    },
+    {
+        name: "a decision explains Locked Deny, hard limits and Not enforced, and offers no Approve",
+        async run(ctx) {
+            const { page } = ctx;
+            await open(ctx, `/policy/decisions/${LOCKED_ID}`, WIDE_DESK);
+            await visible(page.getByText("Locked Deny", { exact: true }), "Locked Deny");
+            await visible(page.getByText("Not enforced", { exact: true }), "Not enforced");
+            expect(
+                (await page.getByRole("button", { name: /approve/i }).count()) === 0,
+                "The decision page offers an Approve button.",
+            );
+            await axe(page, "the locked decision");
+            await open(ctx, `/policy/decisions/${LIMITS_ID}`, WIDE_DESK);
+            await visible(page.getByText("Hard limits", { exact: true }), "the hard-limits card");
+            await visible(page.getByText("Not enforced", { exact: true }), "Not enforced");
+            expect(
+                (await page.getByRole("button", { name: /approve/i }).count()) === 0,
+                "The limits decision offers an Approve button.",
+            );
+            await bothSchemes(ctx, async (scheme) => {
+                await open(ctx, `/policy/decisions/${LIMITS_ID}`, WIDE_DESK);
+                await visible(page.getByText("Hard limits", { exact: true }), "hard limits");
+                await axe(page, `the limits decision (${scheme})`);
+            });
+        },
+    },
+    {
+        name: "publishing needs every box ticked, then a password, and sends the reviewed hash",
+        async run(ctx) {
+            const { page, server } = ctx;
+            const preview = policyFixture("preview-blocking");
+            server.reset();
+            await openPublish(ctx);
+            const publish = page.getByRole("button", { name: /^Publish version/ });
+            await visible(publish, "Publish");
+            const enabled = async () =>
+                (await publish.first().getAttribute("aria-disabled")) !== "true" &&
+                !(await publish.first().isDisabled());
+            expect(!(await enabled()), "Publish is enabled before any box is ticked.");
+            const boxes = page.getByRole("checkbox", { name: /^Acknowledge:/ });
+            expect(
+                (await boxes.count()) === preview.blocking.length,
+                `Expected ${preview.blocking.length} acknowledgement boxes, saw ${await boxes.count()}.`,
+            );
+            for (let i = 0; i < preview.blocking.length; i += 1) {
+                expect(!(await enabled()), `Publish is enabled with only ${i} boxes ticked.`);
+                await boxes.nth(i).check();
+            }
+            expect(await enabled(), "Publish stays disabled with every box ticked.");
+            await publish.first().click();
+            const dialog = page.getByRole("dialog");
+            await visible(dialog, "the password dialog");
+            expect(
+                !server.posts.some((entry) => entry.path.endsWith("/publish")),
+                "Opening the dialog already posted.",
+            );
+            await dialog.getByLabel("Password").fill("correct horse");
+            await dialog.getByRole("button", { name: /^Publish version/ }).click();
+            const post = await waitForPost(server, "/policy/draft/publish");
+            expect(post, "Confirming posted nothing to /policy/draft/publish.");
+            const sent = [...(post.body?.acknowledged ?? [])].sort();
+            expect(
+                JSON.stringify(sent) === JSON.stringify([...preview.blocking].sort()),
+                `The publish body acknowledged ${JSON.stringify(sent)}.`,
+            );
+            expect(
+                post.body?.preview_hash === preview.preview_hash,
+                "The publish body has a different preview hash.",
+            );
+            expect(
+                typeof post.body?.password === "string" && post.body.password.length > 0,
+                "The publish body has no password.",
+            );
+            await page.waitForURL((url) => url.pathname === "/policy", WAIT);
+        },
+    },
+    {
+        name: "the simulator warns about widening, and Essential keeps the policy safety content",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/policy/simulator", WIDE_DESK);
+            await page.getByRole("button", { name: "Run simulation" }).click();
+            await visible(
+                page.getByText(/would become Allow automatically/),
+                "the widening warning",
+            );
+            await visible(page.getByRole("table").first(), "the results table");
+            server.setPreference("essential");
+            const note = policyFixture("overview-active").notes[0];
+            await open(ctx, "/policy", WIDE_DESK);
+            await visible(page.getByText(note), "the standing note (Essential)");
+            await lockedDeny(page, "Essential");
+            await openPublish(ctx);
+            await visible(page.getByText(policyFixture("preview-blocking").notes[0]), "the notes");
+            await visible(
+                page.getByRole("checkbox", { name: /^Acknowledge:/ }),
+                "the acknowledgement boxes",
+            );
+            await visible(page.getByRole("button", { name: /^Publish version/ }), "Publish");
+            await open(ctx, `/policy/decisions/${LIMITS_ID}`, WIDE_DESK);
+            await visible(page.getByText("Hard limits", { exact: true }), "the hard-limits card");
         },
     },
 ];

@@ -1,0 +1,162 @@
+{
+  "summary": {
+    "number": 3,
+    "published_at": "2026-11-18T09:00:00Z",
+    "published_by": "admin",
+    "rule_count": 6,
+    "locked_count": 1,
+    "shadow_count": 1,
+    "rules_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "rules": [
+    {
+      "id": "no-destroy",
+      "enabled": true,
+      "locked": true,
+      "shadow": false,
+      "outcome": "deny",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "effect",
+        "effect": "destructive"
+      },
+      "conditions": [],
+      "note": "Never destroy anything automatically."
+    },
+    {
+      "id": "plex-restart",
+      "enabled": true,
+      "locked": false,
+      "shadow": false,
+      "outcome": "allow",
+      "host": {
+        "kind": "host",
+        "host_id": "0192a000-0000-7000-8000-000000000001"
+      },
+      "targets": {
+        "kind": "exact",
+        "names": ["plex"]
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.restart_plex"
+      },
+      "conditions": [
+        {
+          "kind": "max_rate",
+          "max_per_hour": 3
+        },
+        {
+          "kind": "time_window",
+          "start": "22:00",
+          "end": "06:00"
+        },
+        {
+          "kind": "requires_fact",
+          "fact": "plex.idle",
+          "expected": true
+        }
+      ]
+    },
+    {
+      "id": "ask-containers",
+      "enabled": true,
+      "locked": false,
+      "shadow": false,
+      "outcome": "require_approval",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "category",
+        "category": "container.lifecycle"
+      },
+      "conditions": []
+    },
+    {
+      "id": "shadow-prune-small",
+      "enabled": true,
+      "locked": false,
+      "shadow": true,
+      "outcome": "allow",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.restart_container"
+      },
+      "conditions": [
+        {
+          "kind": "arg_constraint",
+          "arg": "grace_secs",
+          "op": "int_at_most",
+          "value": 30
+        },
+        {
+          "kind": "max_ttl",
+          "max_ttl_secs": 600
+        }
+      ]
+    },
+    {
+      "id": "old-ask",
+      "enabled": false,
+      "locked": false,
+      "shadow": false,
+      "outcome": "require_approval",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "category",
+        "category": "service.lifecycle"
+      },
+      "conditions": []
+    },
+    {
+      "id": "no-prune-plain",
+      "enabled": true,
+      "locked": false,
+      "shadow": false,
+      "outcome": "deny",
+      "host": {
+        "kind": "all"
+      },
+      "targets": {
+        "kind": "any"
+      },
+      "capability": {
+        "kind": "contract",
+        "contract": "skill.prune_images"
+      },
+      "conditions": []
+    }
+  ],
+  "acknowledgements": [
+    {
+      "finding_key": "incomparable:ask-containers:plex-restart",
+      "kind": "incomparable_conflict",
+      "first_rule": "ask-containers",
+      "second_rule": "plex-restart",
+      "resolution": "deny",
+      "note": "Neither rule is more specific than the other.",
+      "acknowledged_at": "2026-11-18T08:59:00Z",
+      "acknowledged_by": "admin"
+    }
+  ]
+}

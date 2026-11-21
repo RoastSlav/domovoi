@@ -1,0 +1,83 @@
+{
+  "items": [
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e001",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "status": "evaluated",
+      "evaluated_at": "2026-11-20T10:01:00Z",
+      "degraded": false,
+      "policy_version": 3,
+      "enforced_outcome": "require_approval",
+      "shadow_outcome": "allow",
+      "reason": null
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e002",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "status": "evaluated",
+      "evaluated_at": "2026-11-20T10:02:00Z",
+      "degraded": false,
+      "policy_version": 3,
+      "enforced_outcome": "require_approval",
+      "shadow_outcome": "require_approval",
+      "reason": null
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e003",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.prune_images",
+      "status": "evaluated",
+      "evaluated_at": "2026-11-20T10:03:00Z",
+      "degraded": false,
+      "policy_version": 3,
+      "enforced_outcome": "deny",
+      "shadow_outcome": "deny",
+      "reason": null
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e004",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.unknown",
+      "status": "unevaluable",
+      "evaluated_at": "2026-11-20T10:04:00Z",
+      "degraded": false,
+      "policy_version": 3,
+      "enforced_outcome": null,
+      "shadow_outcome": null,
+      "reason": "contract_unknown"
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e005",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "package.install",
+      "status": "skipped",
+      "evaluated_at": "2026-11-20T10:05:00Z",
+      "degraded": false,
+      "policy_version": 3,
+      "enforced_outcome": null,
+      "shadow_outcome": null,
+      "reason": "package_contract"
+    },
+    {
+      "execution_id": "0192a000-0000-7000-8000-00000000e006",
+      "operation_id": "0192a000-0000-7000-8000-0000000000a1",
+      "host_id": "0192a000-0000-7000-8000-000000000001",
+      "contract": "skill.restart_plex",
+      "status": "evaluated",
+      "evaluated_at": "2026-11-20T10:06:00Z",
+      "degraded": true,
+      "policy_version": 3,
+      "enforced_outcome": "require_approval",
+      "shadow_outcome": "allow",
+      "reason": "late"
+    }
+  ],
+  "next_cursor": "cursor-2"
+}

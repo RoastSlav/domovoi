@@ -41,6 +41,14 @@ export const PAGES = {
   operation: page(() =>
     import("../features/operations/OperationDetailPage").then((m) => m.OperationDetailPage),
   ),
+  policy: page(() => import("../features/policy/PolicyPage").then((m) => m.PolicyPage)),
+  policyVersion: page(() => import("../features/policy/VersionPage").then((m) => m.VersionPage)),
+  policyDraft: page(() => import("../features/policy/DraftPage").then((m) => m.DraftPage)),
+  policyPublish: page(() => import("../features/policy/PublishPage").then((m) => m.PublishPage)),
+  policyDecision: page(() => import("../features/policy/DecisionPage").then((m) => m.DecisionPage)),
+  policySimulator: page(() =>
+    import("../features/policy/SimulatorPage").then((m) => m.SimulatorPage),
+  ),
   rules: page(() => import("../features/rules/RulesPage").then((m) => m.RulesPage)),
   settings: page(() => import("../features/settings/SettingsPage").then((m) => m.SettingsPage)),
   skills: page(() => import("../features/skills/SkillsPage").then((m) => m.SkillsPage)),

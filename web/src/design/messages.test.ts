@@ -1,5 +1,12 @@
 import { ApiFailure } from "../api/types";
-import { HUB_CODES, describeError, describeTurnFailure, errorText } from "./messages";
+import {
+  HUB_CODES,
+  WRONG_PASSWORD_TEXT,
+  describeError,
+  describeTurnFailure,
+  errorText,
+  stepUpError,
+} from "./messages";
 
 const STATUS: Record<string, number> = {
   unauthorized: 401,
@@ -129,5 +136,19 @@ describe("describeTurnFailure", () => {
 
   it("adds the hub's detail as a sentence", () => {
     expect(describeTurnFailure("busy", "retry at 10:00").detail).toBe("Retry at 10:00.");
+  });
+});
+
+describe("stepUpError", () => {
+  test("step_up_error_words_a_wrong_password_and_a_lockout_and_nothing_else", () => {
+    expect(stepUpError(new ApiFailure(403, "forbidden", "wrong password"))).toBe(
+      WRONG_PASSWORD_TEXT,
+    );
+    expect(stepUpError(new ApiFailure(429, "too_many_requests", "slow down", 28))).toBe(
+      "Too many attempts. Try again in 28 s.",
+    );
+    expect(stepUpError(new ApiFailure(409, "conflict", "stale"))).toBeUndefined();
+    expect(stepUpError(new ApiFailure(500, "internal", "boom"))).toBeUndefined();
+    expect(stepUpError(new TypeError("fetch failed"))).toBeUndefined();
   });
 });
