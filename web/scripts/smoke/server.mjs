@@ -2,12 +2,85 @@
  * A local server for the smoke test: it serves the built `dist/` and answers `/api/v1/*` as a
  * mock hub. Any `/api` request it does not know is recorded in `unexpected`, and the run fails.
  */
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as data from "./data.mjs";
 import { makePackageState, packageRoute } from "./packages.mjs";
+
+const hubSource = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../crates/domovoi-hub/src/csp.rs",
+);
+
+/**
+ * The hub's own base policy, read from `csp.rs` so the smoke test cannot drift from what the hub
+ * sends. Throws when the constant is not found exactly once, so a renamed constant fails loudly.
+ */
+export function readBasePolicy(source = readFileSync(hubSource, "utf8")) {
+    const found = [...source.matchAll(/pub const BASE_POLICY: &str =\s*"((?:[^"\\]|\\.)*)"\s*;/g)];
+    if (found.length !== 1) {
+        throw new Error(
+            `Expected one BASE_POLICY constant in crates/domovoi-hub/src/csp.rs, found ${found.length}.`,
+        );
+    }
+    if (found[0][1].includes("\\")) {
+        throw new Error("BASE_POLICY has an escape sequence; read it differently.");
+    }
+    return found[0][1];
+}
+
+/** The `'sha256-...'` source of every inline script (no `src`) in `html`, as `csp.rs` hashes them. */
+export function inlineScriptHashes(html) {
+    const visibleHtml = html.replace(/<!--[\s\S]*?-->/g, "");
+    const hashes = [];
+    for (const match of visibleHtml.matchAll(/<script(?=[\s/>])([^>]*)>([\s\S]*?)<\/script/gi)) {
+        if (!/(^|[\s/])src\s*=/i.test(match[1])) {
+            const digest = createHash("sha256").update(match[2], "utf8").digest("base64");
+            hashes.push(`'sha256-${digest}'`);
+        }
+    }
+    return hashes;
+}
+
+/** The full policy for the built page: the hub's base, `script-src 'self'` and the inline hashes. */
+export function hubPolicy(dist) {
+    const html = readFileSync(join(dist, "index.html"), "utf8");
+    return [`${readBasePolicy()}; script-src 'self'`, ...inlineScriptHashes(html)].join(" ");
+}
+
+/**
+ * Runs before every page script. Reports each policy violation through the console (a line
+ * starting with `__csp__`, which the runner collects across navigations), and counts the
+ * `<style>` elements and `insertRule` calls the page makes, for information.
+ */
+export const INIT_SCRIPT = `
+(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+        console.log("__csp__" + JSON.stringify({
+            directive: event.violatedDirective,
+            blocked: event.blockedURI,
+            sample: event.sample,
+        }));
+    }, true);
+    window.__styleElements = 0;
+    window.__insertRules = 0;
+    new MutationObserver((records) => {
+        for (const record of records) {
+            for (const node of record.addedNodes) {
+                if (node.nodeName === "STYLE") window.__styleElements += 1;
+            }
+        }
+    }).observe(document, { childList: true, subtree: true });
+    const insert = CSSStyleSheet.prototype.insertRule;
+    CSSStyleSheet.prototype.insertRule = function (...args) {
+        window.__insertRules += 1;
+        return insert.apply(this, args);
+    };
+})();
+`;
 
 const policyDir = join(dirname(fileURLToPath(import.meta.url)), "../../src/test/fixtures/policy");
 
@@ -63,6 +136,7 @@ export async function startServer(dist) {
     const posts = [];
     const unexpected = [];
     const puts = [];
+    const policy = hubPolicy(dist);
     let preferences = { profile: "detailed", pages: {} };
     let preferencesAt = null;
 
@@ -329,6 +403,7 @@ export async function startServer(dist) {
 
     const server = createServer(async (request, response) => {
         const url = new URL(request.url ?? "/", "http://localhost");
+        response.setHeader("content-security-policy", policy);
         if (url.pathname.startsWith("/api/")) {
             api(request, response, url, await readBody(request));
         } else {
@@ -339,6 +414,7 @@ export async function startServer(dist) {
     const { port } = server.address();
     return {
         base: `http://127.0.0.1:${port}`,
+        policy,
         posts,
         puts,
         unexpected,
@@ -360,6 +436,11 @@ export async function startServer(dist) {
             state.trace.operation.pause_reason = { type: "manual" };
             state.trace.operation.waiting_for = [];
             state.executionState = "refused";
+            push();
+        },
+        /** Changes one step's outcome behind the page's back and tells the stream. */
+        changeStepOutcome(index, outcome) {
+            state.trace.steps[index].outcome = outcome;
             push();
         },
         state: () => state,

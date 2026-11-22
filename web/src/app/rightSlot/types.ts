@@ -30,5 +30,7 @@ export interface RightSlotApi {
   /** Opens `id`, or brings it to the front when it is already open. A no-op for an unregistered id. */
   open(id: SurfaceId, options?: OpenOptions): void;
   close(id: SurfaceId): void;
+  /** Moves focus into an open surface (its heading). A no-op when it is closed or unregistered. */
+  focus(id: SurfaceId): void;
   toggle(id: SurfaceId, options?: OpenOptions): void;
 }

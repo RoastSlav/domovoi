@@ -19,6 +19,8 @@ export interface GraphNodeModel {
   members: readonly string[];
   /** The step has a `retry_of` edge. */
   retry: boolean;
+  /** The raw step kind (`approval`), which the `a` key needs; absent for a group. */
+  stepKind?: string;
 }
 
 /** One edge: `from` is the dependent step, `to` its prerequisite. */

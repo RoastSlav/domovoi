@@ -25,6 +25,8 @@ import { OperationDetails } from "./OperationDetails";
 import { OperationHeader } from "./OperationHeader";
 import { StaleNote } from "./StaleNote";
 import { StepInspector } from "./StepInspector";
+import { useMediaQuery, WIDE_QUERY } from "../../app/useMediaQuery";
+import { GraphView } from "./GraphView";
 import { StepOutline, type OutlineView } from "./StepOutline";
 import { useStepSelection } from "./useStepSelection";
 import { WaitingForYou, focusWaiting } from "./WaitingForYou";
@@ -32,7 +34,10 @@ import { WaitingForYou, focusWaiting } from "./WaitingForYou";
 const VIEWS = [
   { value: "timeline", label: "Timeline" },
   { value: "tree", label: "Tree" },
+  { value: "graph", label: "Graph" },
 ] as const;
+
+type View = OutlineView | "graph";
 
 function name(goal: string | undefined): string | undefined {
   return goal && goal.length > 60 ? `${goal.slice(0, 59)}…` : goal;
@@ -50,7 +55,9 @@ export function OperationDetailPage() {
   const hostNames = useHostNames();
   const data = query.data;
   const { selected, select, clear } = useStepSelection(data?.trace);
-  const [view, setView] = useState<OutlineView>("timeline");
+  const wide = useMediaQuery(WIDE_QUERY);
+  const [chosen, setChosen] = useState<View | null>(null);
+  const view: View = chosen ?? (wide ? "graph" : "timeline");
   const [cancelling, setCancelling] = useState(false);
   usePageName(name(data?.operation.goal));
 
@@ -133,17 +140,27 @@ export function OperationDetailPage() {
           title="Steps"
           actions={
             <Visible category="P1" id="operation.steps-head">
-              <SegmentedControl label="View" options={VIEWS} value={view} onChange={setView} />
+              <SegmentedControl label="View" options={VIEWS} value={view} onChange={setChosen} />
             </Visible>
           }
         >
-          <StepOutline
-            trace={trace}
-            executions={executions}
-            selected={selected}
-            onSelect={select}
-            view={view}
-          />
+          {view === "graph" ? (
+            <GraphView
+              trace={trace}
+              executions={executions}
+              selected={selected}
+              onSelect={select}
+              onClear={clear}
+            />
+          ) : (
+            <StepOutline
+              trace={trace}
+              executions={executions}
+              selected={selected}
+              onSelect={select}
+              view={view}
+            />
+          )}
         </Section>
         <Section title="Details">
           <OperationDetails trace={trace} hostNames={hostNames} />

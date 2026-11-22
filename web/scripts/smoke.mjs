@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { CHECKS } from "./smoke/checks.mjs";
-import { startServer } from "./smoke/server.mjs";
+import { INIT_SCRIPT, startServer } from "./smoke/server.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -27,22 +27,49 @@ if (!existsSync(join(dist, "index.html"))) {
     process.exit(1);
 }
 
+/**
+ * The control: with the hub's policy in force, an inline script added by the test must be blocked
+ * and must report a violation. If it runs, the policy is not being applied and the run proves
+ * nothing, so it fails here.
+ */
+async function proveEnforcement({ page, base, violations }) {
+    await page.goto(`${base}/`);
+    await page.addScriptTag({ content: "window.__x = 1" }).catch(() => undefined);
+    for (let i = 0; i < 40 && violations.length === 0; i += 1) {
+        await page.waitForTimeout(50);
+    }
+    const ran = await page.evaluate(() => window.__x !== undefined);
+    if (ran || violations.length === 0) {
+        throw new Error(
+            `The policy is not being enforced (inline script ran: ${ran}, violations: ${violations.length}).`,
+        );
+    }
+    console.log("ok 0   the hub's policy blocks an inline script (enforcement control)");
+}
+
 const server = await startServer(dist);
 let browser;
 let failed = false;
 try {
     browser = await chromium.launch({ channel: process.env.SMOKE_CHANNEL || undefined });
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await context.addInitScript(INIT_SCRIPT);
     const page = await context.newPage();
     const problems = [];
+    const violations = [];
     page.on("console", (message) => {
-        if (message.type() === "error") {
+        if (message.text().startsWith("__csp__")) {
+            violations.push(message.text().slice("__csp__".length));
+        } else if (message.type() === "error") {
             problems.push(`console.error: ${message.text()}`);
         }
     });
     page.on("pageerror", (error) => problems.push(`uncaught error: ${error.message}`));
 
-    const ctx = { page, context, browser, server, base: server.base };
+    const ctx = { page, context, browser, server, base: server.base, violations };
+    await proveEnforcement(ctx);
+    violations.length = 0;
+    problems.length = 0;
     for (const [index, check] of CHECKS.entries()) {
         try {
             await check.run(ctx);
@@ -65,10 +92,13 @@ try {
     if (!failed) {
         const extra = [
             ...problems,
+            ...violations.map((violation) => `Content-Security-Policy violation: ${violation}`),
             ...server.unexpected.map((key) => `unexpected request: ${key}`),
         ];
         if (extra.length === 0) {
-            console.log(`ok ${CHECKS.length + 1}  no console errors and no unexpected API request`);
+            console.log(
+                `ok ${CHECKS.length + 1}  no console errors, no policy violation and no unexpected API request`,
+            );
         } else {
             failed = true;
             console.error(`FAIL ${CHECKS.length + 1}  errors during the run:\n${extra.join("\n")}`);

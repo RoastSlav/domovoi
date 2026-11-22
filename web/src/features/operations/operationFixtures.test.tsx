@@ -146,6 +146,9 @@ describe("robustness", () => {
     }));
     await open({ ...base, trace: { ...base.trace, steps, edges: [] }, executions: [] });
     expect(stepRowCount()).toBe(201);
-    expect(screen.getByRole("button", { name: "Show 99 earlier steps" })).toBeVisible();
+    // The Graph view has its own button above the graph, and the list below has another.
+    const earlier = screen.getAllByRole("button", { name: "Show 99 earlier steps" });
+    expect(earlier.length).toBeGreaterThan(0);
+    expect(earlier[0]).toBeVisible();
   });
 });

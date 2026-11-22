@@ -1,0 +1,9 @@
+/* The placeholder that holds the graph frame's height while the graph loads. */
+
+.skeleton {
+  height: clamp(20rem, 60vh, 40rem);
+}
+
+.skeleton > span {
+  height: 100%;
+}

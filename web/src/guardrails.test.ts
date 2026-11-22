@@ -75,3 +75,29 @@ describe("lint guardrails for page code", () => {
     expect(await rulesFiredBy(code, "src/features/example/Long.ts")).toContain("max-lines");
   });
 });
+
+describe("lint guardrails for the graph", () => {
+  it("lint_rejects_an_inline_style_in_the_graph_directory", async () => {
+    const code = "export const A = () => <div style={{ width: 1 }} />;";
+    expect(await rulesFiredBy(code, "src/components/graph/Example.tsx")).toContain(
+      "no-restricted-syntax",
+    );
+    expect(await rulesFiredBy(code, "src/components/Example.tsx")).not.toContain(
+      "no-restricted-syntax",
+    );
+  });
+
+  it("lint_rejects_the_graph_library_outside_the_graph_directory", async () => {
+    const code = 'import dagre from "@dagrejs/dagre";\nexport const A = dagre;';
+    for (const path of [
+      "src/features/example/Example.tsx",
+      "src/app/Example.tsx",
+      "src/components/Other.tsx",
+    ]) {
+      expect(await rulesFiredBy(code, path), path).toContain("no-restricted-imports");
+    }
+    expect(await rulesFiredBy(code, "src/components/graph/GraphEngine.tsx")).not.toContain(
+      "no-restricted-imports",
+    );
+  });
+});
