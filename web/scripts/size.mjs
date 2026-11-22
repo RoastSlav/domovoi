@@ -58,7 +58,9 @@ console.log(`Graph chunk (gzip): ${graphChunks.length > 0 ? graphReport : "none"
 /** The chunks a file imports statically (`from"./x.js"` and `import"./x.js"`), not dynamic imports. */
 function staticImports(file) {
     const text = readFileSync(join(dist, file), "utf8");
-    const found = [...text.matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g)].map((m) => `assets/${m[1]}`);
+    const found = [...text.matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g)].map(
+        (m) => `assets/${m[1]}`,
+    );
     return found;
 }
 

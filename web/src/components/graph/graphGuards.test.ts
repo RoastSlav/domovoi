@@ -19,10 +19,13 @@ const code = (path: string): boolean => /\.(ts|tsx)$/.test(path);
 const rel = (path: string): string => relative(SRC, path).split(sep).join("/");
 const read = (path: string): string => readFileSync(path, "utf8");
 const graphFiles = (): string[] => walk(GRAPH).filter(code);
+/** The kit, the operation graph's feature folder and the view that hosts it. */
 const graphDirs = (): string[] =>
-  [...graphFiles(), ...walk(join(SRC, "features", "operations", "graph")).filter(code)].filter(
-    (path) => !isTest(path),
-  );
+  [
+    ...graphFiles(),
+    ...walk(join(SRC, "features", "operations", "graph")).filter(code),
+    join(SRC, "features", "operations", "GraphView.tsx"),
+  ].filter((path) => !isTest(path));
 
 /** The files of the engine: the one that imports the library, and what it is split into. */
 const ENGINE = [
@@ -91,10 +94,20 @@ describe("graph guards", () => {
 
   it("graph_code_cannot_approve", () => {
     const forbidden =
-      /operationControls|useApprove|useApproveStep|useDenyStep|useCancelOperation|usePauseOperation|useResumeOperation|useAnswerStep|\.mutate\(/;
+      /operationControls|useApprove|useApproveStep|useDenyStep|useCancelOperation|usePauseOperation|useResumeOperation|useAnswerStep|\.mutate\(|\.mutateAsync\(/;
     for (const path of graphDirs()) {
       expect(read(path), rel(path)).not.toMatch(forbidden);
     }
+  });
+
+  it("the_decision_guards_scan_the_kit_the_feature_folder_and_the_graph_view", () => {
+    const scanned = graphDirs().map(rel);
+    expect(scanned).toContain("components/graph/GraphShell.tsx");
+    expect(scanned).toContain("features/operations/graph/OperationGraph.tsx");
+    expect(scanned).toContain("features/operations/GraphView.tsx");
+    expect(scanned.some((path) => path.endsWith(".test.ts") || path.endsWith(".test.tsx"))).toBe(
+      false,
+    );
   });
 
   it("the_graph_makes_no_network_request", () => {
