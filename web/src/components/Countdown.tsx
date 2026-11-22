@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { Tooltip } from "./Tooltip";
 import styles from "./data.module.css";
 
-/** `ms` as "m:ss", or "h:mm:ss" from an hour up. */
+/** `ms` as "m:ss", "h:mm:ss" from an hour up, or "3d 4h" from a day up. */
 export function formatRemaining(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   const hours = Math.floor(total / 3600);
+  if (hours >= 24) {
+    return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  }
   const minutes = Math.floor((total % 3600) / 60);
   const seconds = String(total % 60).padStart(2, "0");
   return hours > 0

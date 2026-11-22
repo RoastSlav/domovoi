@@ -5,6 +5,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { Markdown } from "./Markdown";
 import { PageHeader } from "./PageHeader";
 import { relative } from "./RelativeTime";
+import { formatRemaining } from "./Countdown";
 
 test("confirm_dialog_traps_focus_and_closes_on_escape", async () => {
   const user = userEvent.setup();
@@ -80,4 +81,9 @@ test("relative_time_reads_naturally", () => {
   expect(relative(new Date("2026-10-31T11:55:00Z"), now)).toBe("5 minutes ago");
   expect(relative(new Date("2026-10-31T11:59:40Z"), now)).toBe("just now");
   expect(relative(new Date("2026-10-30T12:00:00Z"), now)).toBe("yesterday");
+});
+
+test("a_countdown_longer_than_a_day_reads_in_days_and_hours", () => {
+  expect(formatRemaining(26 * 3600 * 1000 + 60_000)).toBe("1d 2h");
+  expect(formatRemaining(90 * 60 * 1000)).toBe("1:30:00");
 });
