@@ -34,9 +34,8 @@ export function readBasePolicy(source = readFileSync(hubSource, "utf8")) {
 
 /** The `'sha256-...'` source of every inline script (no `src`) in `html`, as `csp.rs` hashes them. */
 export function inlineScriptHashes(html) {
-    const visibleHtml = html.replace(/<!--[\s\S]*?-->/g, "");
     const hashes = [];
-    for (const match of visibleHtml.matchAll(/<script(?=[\s/>])([^>]*)>([\s\S]*?)<\/script/gi)) {
+    for (const match of html.matchAll(/<script(?=[\s/>])([^>]*)>([\s\S]*?)<\/script/gi)) {
         if (!/(^|[\s/])src\s*=/i.test(match[1])) {
             const digest = createHash("sha256").update(match[2], "utf8").digest("base64");
             hashes.push(`'sha256-${digest}'`);
