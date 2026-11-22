@@ -1168,6 +1168,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How one operation unfolded, for replaying its graph. */
+        get: operations["get_operation_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/{id}/pause": {
         parameters: {
             query?: never;
@@ -2893,6 +2910,28 @@ export interface components {
             /** @description `[set]` or `[unset]`. */
             url: string;
         };
+        /**
+         * @description One journal row of the operation, reduced to what replay needs. It never carries intent,
+         *     summary, reason, output or any free text.
+         */
+        HistoryEventDto: {
+            /** @description When the row was recorded: RFC 3339 UTC with a trailing `Z`. */
+            at: string;
+            /** @description The stored journal kind string; unknown kinds pass through. */
+            kind: string;
+            /**
+             * Format: int64
+             * @description The row's global journal sequence number.
+             */
+            seq: number;
+            /**
+             * @description The new state the row records: an execution state name for `operation.execution`, an
+             *     operation status name for `operation.status`; `null` otherwise.
+             */
+            state?: string | null;
+            /** @description The step the row is about, when the payload names one. */
+            step?: string | null;
+        };
         /** @description One check on a host. */
         HostCheckDto: {
             /** @description The check key. */
@@ -3589,6 +3628,29 @@ export interface components {
             operation: components["schemas"]["OperationSummaryDto"];
             /** @description The timeline and graph. */
             trace: components["schemas"]["OperationTraceDto"];
+        };
+        /**
+         * @description How an operation unfolded, as a projection of its journal rows. Replay rebuilds past states
+         *     from this and the operation's final trace.
+         */
+        OperationHistoryDto: {
+            /**
+             * Format: int64
+             * @description The journal head read **before** the rows: rows with a larger `seq` are not included.
+             */
+            as_of_seq: number;
+            /**
+             * @description True when `events` starts at the `operation.created` row and holds every row up to
+             *     `as_of_seq`.
+             */
+            complete: boolean;
+            /** @description Oldest first, ascending `seq`. */
+            events: components["schemas"]["HistoryEventDto"][];
+            /**
+             * @description Why not complete: `"pruned"` (the oldest rows are gone), `"capped"` (more rows than
+             *     `HISTORY_ROW_CAP`: the newest are missing) or `"both"`. `null` when complete.
+             */
+            incomplete_reason?: string | null;
         };
         /** @description One page of operations, newest first. */
         OperationPage: {
@@ -8826,6 +8888,56 @@ export interface operations {
                 };
             };
             /** @description Orchestration is not enabled, or the service is restarting */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_operation_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The operation's journal rows, reduced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationHistoryDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Orchestration is not enabled */
             503: {
                 headers: {
                     [name: string]: unknown;

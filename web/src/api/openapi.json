@@ -4940,6 +4940,68 @@
         }
       }
     },
+    "/api/v1/operations/{id}/history": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "How one operation unfolded, for replaying its graph.",
+        "operationId": "get_operation_history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation's journal rows, reduced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationHistoryDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Orchestration is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/operations/{id}/pause": {
       "post": {
         "tags": [
@@ -10272,6 +10334,45 @@
           }
         }
       },
+      "HistoryEventDto": {
+        "type": "object",
+        "description": "One journal row of the operation, reduced to what replay needs. It never carries intent,\nsummary, reason, output or any free text.",
+        "required": [
+          "seq",
+          "at",
+          "kind"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "When the row was recorded: RFC 3339 UTC with a trailing `Z`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The stored journal kind string; unknown kinds pass through."
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The row's global journal sequence number.",
+            "minimum": 0
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The new state the row records: an execution state name for `operation.execution`, an\noperation status name for `operation.status`; `null` otherwise."
+          },
+          "step": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The step the row is about, when the payload names one."
+          }
+        }
+      },
       "HostCheckDto": {
         "type": "object",
         "description": "One check on a host.",
@@ -12072,6 +12173,41 @@
           "trace": {
             "$ref": "#/components/schemas/OperationTraceDto",
             "description": "The timeline and graph."
+          }
+        }
+      },
+      "OperationHistoryDto": {
+        "type": "object",
+        "description": "How an operation unfolded, as a projection of its journal rows. Replay rebuilds past states\nfrom this and the operation's final trace.",
+        "required": [
+          "as_of_seq",
+          "complete",
+          "events"
+        ],
+        "properties": {
+          "as_of_seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The journal head read **before** the rows: rows with a larger `seq` are not included.",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "True when `events` starts at the `operation.created` row and holds every row up to\n`as_of_seq`."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEventDto"
+            },
+            "description": "Oldest first, ascending `seq`."
+          },
+          "incomplete_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not complete: `\"pruned\"` (the oldest rows are gone), `\"capped\"` (more rows than\n`HISTORY_ROW_CAP`: the newest are missing) or `\"both\"`. `null` when complete."
           }
         }
       },

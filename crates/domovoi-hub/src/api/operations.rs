@@ -22,11 +22,11 @@ use super::{ApiState, Authed, host_named, page};
 use crate::services::risk_of_skill;
 
 /// The 503 every operation endpoint but the list answers while orchestration is off.
-fn off() -> ApiError {
+pub(super) fn off() -> ApiError {
     ApiError::Unavailable("orchestration is not enabled".to_owned())
 }
 
-fn parse<T: std::str::FromStr>(text: &str) -> Result<T, ApiError> {
+pub(super) fn parse<T: std::str::FromStr>(text: &str) -> Result<T, ApiError> {
     text.parse().map_err(|_| ApiError::NotFound)
 }
 
