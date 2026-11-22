@@ -213,7 +213,7 @@ describe("attention ranking", () => {
     const label = (key: string) => items.find((item) => item.key === key)?.meta;
 
     expect(label("operation:a")?.label).toBe("Waiting for approval");
-    expect(label("operation:q")?.label).toBe("Waiting for your answer");
+    expect(label("operation:q")?.label).toBe("Question");
     expect(label("operation:p")?.label).toBe("Paused");
     expect(label("incident:odd")).toMatchObject({ label: "mystery", tone: "neutral" });
   });

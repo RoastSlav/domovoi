@@ -83,7 +83,12 @@ test("relative_time_reads_naturally", () => {
   expect(relative(new Date("2026-10-30T12:00:00Z"), now)).toBe("yesterday");
 });
 
-test("a_countdown_longer_than_a_day_reads_in_days_and_hours", () => {
-  expect(formatRemaining(26 * 3600 * 1000 + 60_000)).toBe("1d 2h");
-  expect(formatRemaining(90 * 60 * 1000)).toBe("1:30:00");
+test("a_countdown_uses_the_unit_that_fits_the_time_left", () => {
+  const h = 3600 * 1000;
+  expect(formatRemaining(26 * h + 60_000)).toBe("1 day 2 hours");
+  expect(formatRemaining(48 * h)).toBe("2 days");
+  expect(formatRemaining(18 * h + 5 * 60_000)).toBe("18 hours 5 minutes");
+  expect(formatRemaining(57 * 60_000)).toBe("57 minutes");
+  expect(formatRemaining(10 * 60_000)).toBe("10:00");
+  expect(formatRemaining(42_000)).toBe("0:42");
 });
