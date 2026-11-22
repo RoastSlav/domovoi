@@ -7,7 +7,8 @@ use domovoi_core::{AgentIdentity, Risk, Verdict};
 use domovoi_testkit::build::{action, host, incident, open_incident, resolved_incident};
 use serde_json::json;
 
-use crate::api_harness::{Api, api};
+use crate::api_harness::{Api, api, api_with_operations};
+use domovoi_core::Actor;
 
 /// Enrolls an agent for `host`, as a finished enrollment leaves it in the store.
 async fn enroll(a: &Api, host: domovoi_core::HostId) {
@@ -69,6 +70,8 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
             "approvals_waiting": 3,
             "hosts_offline": 1,
             "hosts_total": 2,
+            "operations_running": 0, "operations_waiting_approval": 0, "operations_waiting_user": 0,
+            "operations_paused": 0, "actions_outcome_unknown": 0, "attention_total": 6,
         })
     );
 
@@ -84,6 +87,8 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
             "approvals_waiting": 2,
             "hosts_offline": 0,
             "hosts_total": 1,
+            "operations_running": 0, "operations_waiting_approval": 0, "operations_waiting_user": 0,
+            "operations_paused": 0, "actions_outcome_unknown": 0, "attention_total": 3,
         })
     );
     let media = a.get("/api/v1/overview?host=media", &login).await;
@@ -229,4 +234,117 @@ fn without_position(mut body: serde_json::Value) -> serde_json::Value {
         object.remove("as_of_seq");
     }
     body
+}
+
+#[tokio::test]
+async fn overview_counts_operations_by_state() {
+    let a = api_with_operations().await;
+    let login = a.admin().await;
+    let waiting = a.create_operation("waiting", true).await;
+    a.propose_restart(waiting).await;
+    let other = a.create_operation("another waiting", false).await;
+    a.propose_restart(other).await;
+    let paused = a.create_operation("paused", false).await;
+    a.ops()
+        .pause(paused, Actor::System("tests".to_owned()))
+        .await
+        .unwrap();
+
+    let reply = a.get("/api/v1/overview", &login).await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["operations_waiting_approval"], 2);
+    assert_eq!(reply.body["operations_paused"], 1);
+    assert_eq!(reply.body["operations_running"], 0);
+    assert_eq!(reply.body["operations_waiting_user"], 0);
+}
+
+#[tokio::test]
+async fn overview_counts_classic_actions_with_an_unknown_result() {
+    let a = api().await;
+    let login = a.admin().await;
+    let mut unknown = a.propose(Risk::Write).await;
+    let now = a.now();
+    domovoi_testkit::approvals::approve(
+        &mut unknown,
+        domovoi_testkit::approvals::human(domovoi_core::UserId::new()),
+        now,
+    )
+    .unwrap();
+    unknown
+        .dispatch(unknown.plan_hash_for_approval(), None, now)
+        .unwrap();
+    unknown.outcome_unknown("lost".to_owned(), now).unwrap();
+    ActionRepo::update_from(&*a.store, &unknown, "proposed")
+        .await
+        .unwrap();
+    a.propose(Risk::Write).await;
+
+    let reply = a.get("/api/v1/overview", &login).await;
+
+    assert_eq!(reply.body["actions_outcome_unknown"], 1);
+    assert_eq!(reply.body["approvals_waiting"], 1);
+}
+
+#[tokio::test]
+async fn attention_total_is_the_sum_of_what_the_attention_centre_lists() {
+    let a = api_with_operations().await;
+    let login = a.admin().await;
+    let op = a.create_operation("waiting", true).await;
+    a.propose_restart(op).await;
+    a.propose(Risk::Write).await;
+    let mut monitor = open_incident(a.nas.id, "cpu.load", None).unwrap();
+    monitor.set_verdict(Some(Verdict::Expected));
+    IncidentRepo::insert(&*a.store, &monitor).await.unwrap();
+
+    let body = a.get("/api/v1/overview", &login).await.body;
+
+    let n = |k: &str| body[k].as_u64().unwrap();
+    let expected = body["incident_groups"]["needs_action"].as_u64().unwrap()
+        + n("approvals_waiting")
+        + n("operations_waiting_approval")
+        + n("operations_waiting_user")
+        + n("operations_paused")
+        + n("actions_outcome_unknown")
+        + n("hosts_offline");
+    assert_eq!(n("attention_total"), expected);
+    assert!(expected >= 3, "{body}");
+}
+
+#[tokio::test]
+async fn attention_counts_follow_the_host_filter() {
+    let a = api_with_operations().await;
+    let login = a.admin().await;
+    let media = host("media").unwrap();
+    HostRepo::upsert_host(&*a.store, &media).await.unwrap();
+    let op = a.create_operation("on nas", false).await;
+    a.propose_restart(op).await;
+
+    let nas = a.get("/api/v1/overview?host=nas", &login).await.body;
+    let other = a.get("/api/v1/overview?host=media", &login).await.body;
+
+    assert_eq!(nas["operations_waiting_approval"], 1);
+    assert_eq!(other["operations_waiting_approval"], 0);
+    assert_eq!(other["attention_total"], 0);
+    assert_eq!(
+        a.get("/api/v1/overview?host=nope", &login).await.status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn operation_counts_are_zero_when_orchestration_is_off() {
+    let a = api().await;
+    let login = a.admin().await;
+
+    let body = a.get("/api/v1/overview", &login).await.body;
+
+    for key in [
+        "operations_running",
+        "operations_waiting_approval",
+        "operations_waiting_user",
+        "operations_paused",
+    ] {
+        assert_eq!(body[key], 0, "{key}");
+    }
 }

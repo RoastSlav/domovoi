@@ -3657,6 +3657,11 @@ export interface components {
         OverviewDto: {
             /**
              * Format: int32
+             * @description Classic actions whose result is unknown.
+             */
+            actions_outcome_unknown: number;
+            /**
+             * Format: int32
              * @description Actions waiting for a person to approve or deny them.
              */
             approvals_waiting: number;
@@ -3665,6 +3670,12 @@ export interface components {
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
              */
             as_of_seq: number;
+            /**
+             * Format: int32
+             * @description Everything that waits for the owner: incidents that need action, approvals, questions,
+             *     paused operations, unknown results and offline hosts.
+             */
+            attention_total: number;
             /**
              * Format: int32
              * @description Hosts with an enrolled agent that is not connected.
@@ -3687,6 +3698,26 @@ export interface components {
              * @description Incidents that are not resolved: pending, open, acknowledged or muted.
              */
             incidents_open: number;
+            /**
+             * Format: int32
+             * @description Operations that are paused, for whatever reason, including an unknown result.
+             */
+            operations_paused: number;
+            /**
+             * Format: int32
+             * @description Operations that are running.
+             */
+            operations_running: number;
+            /**
+             * Format: int32
+             * @description Operations with a step waiting for a person to approve it (operations, not steps).
+             */
+            operations_waiting_approval: number;
+            /**
+             * Format: int32
+             * @description Operations waiting for the person to answer a question.
+             */
+            operations_waiting_user: number;
         };
         /** @description An owner key the hub accepts signatures from. The key itself is never returned. */
         OwnerKeyDto: {

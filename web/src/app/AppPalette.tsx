@@ -66,6 +66,13 @@ export function AppPalette({
           onSelect: () => (onWorkspace(location.pathname) ? undefined : slot.open(OPERATOR_ID)),
         },
         {
+          id: "search",
+          label: "Search everything",
+          icon: "search",
+          keywords: ["find", "look up"],
+          onSelect: () => navigate("/search"),
+        },
+        {
           id: "theme",
           label: theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme",
           icon: theme === "dark" ? "sun" : "moon",

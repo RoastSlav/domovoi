@@ -2,6 +2,7 @@ import { StatusPill, ThemeSwitch } from "../components";
 import { ICON_NAMES, Icon } from "../design/icons";
 import { TONES } from "../design/tone";
 import { LayoutDemos, StateDemos } from "./ContentDemos";
+import { AttentionDemos } from "./AttentionDemos";
 import { FleetDemos } from "./FleetDemos";
 import { FormDemos } from "./FormDemos";
 import { KnowledgeDemos } from "./KnowledgeDemos";
@@ -106,6 +107,7 @@ export default function DesignPage() {
       <OverlayDemos />
       <RespondDemos />
       <OperationDemos />
+      <AttentionDemos />
       <PolicyDemos />
       <KnowledgeDemos />
       <VisibilityDemos />

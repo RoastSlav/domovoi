@@ -173,6 +173,15 @@ describe("visibility gates", () => {
       "inspector.approval",
       "approval.card",
       "incident.investigation-status",
+      "control.tiles",
+      "control.attention",
+      "control.running",
+      "control.approvals",
+      "control.hosts",
+      "attention.list",
+      "search.scope",
+      "search.status",
+      "search.history-label",
     ];
     const usages = visibleUsages();
     const stepRows = Object.values(sources).some((text) => text.includes('"operation.step"'));

@@ -37,6 +37,7 @@
 - [Migrating from cron scripts](guide/migrating.md)
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
+- [Control room, attention and search](guide/control-room.md)
 - [Retention](guide/retention.md)
 - [Audit log](guide/audit.md)
 - [Detail level](guide/display.md)

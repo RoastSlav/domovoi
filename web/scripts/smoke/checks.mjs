@@ -847,4 +847,178 @@ export const CHECKS = [
             await noSideways(page, "Settings retention");
         },
     },
+    {
+        name: "the control room shows the four tiles, a running operation, the approval and an incompatible host",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/", WIDE_DESK);
+            await visible(
+                page.getByRole("heading", { level: 1, name: "Control room" }),
+                "the heading",
+            );
+            for (const label of [
+                "Needs you",
+                "Running now",
+                "Waiting for approval",
+                "Hosts online",
+            ]) {
+                await visible(page.getByText(label, { exact: true }), `the "${label}" tile`);
+            }
+            await visible(
+                page.getByRole("link", { name: /Rebuild the media index/ }),
+                "the running operation",
+            );
+            const card = page.getByRole("group", { name: /Action restart_container/ });
+            await visible(card, "the approval card");
+            const text = await card.first().innerText();
+            expect(
+                text.includes(`Plan ${PLAN_HASH.slice(0, 8)}`),
+                "The approval card has no plan prefix.",
+            );
+            const approve = card
+                .first()
+                .getByRole("button", { name: /^Approve/ })
+                .first();
+            await visible(approve, "Approve on the card");
+            expect(await approve.isEnabled(), "Approve is disabled in the control room.");
+            const hosts = page
+                .locator("section")
+                .filter({ has: page.getByRole("heading", { name: "Hosts", exact: true }) });
+            await visible(hosts.getByText("old-agent"), "the incompatible host");
+            const hostText = await hosts.first().innerText();
+            expect(hostText.includes("Incompatible"), "The host card does not say Incompatible.");
+            expect(!/offline/i.test(hostText), "The incompatible host reads as offline.");
+            await page
+                .getByRole("link", { name: /Running now/ })
+                .first()
+                .click();
+            await page.waitForURL(/\/operations\?status=running/, WAIT);
+        },
+    },
+    {
+        name: "the attention centre lists Act now before Waiting for you and updates from a live frame",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/attention", WIDE_DESK);
+            const act = page.getByRole("heading", { level: 2, name: "Act now" });
+            const waiting = page.getByRole("heading", { level: 2, name: "Waiting for you" });
+            await visible(act, "the Act now heading");
+            await visible(waiting, "the Waiting for you heading");
+            const headings = await page.locator("main h2").allInnerTexts();
+            expect(
+                headings.indexOf("Act now") >= 0 &&
+                    headings.indexOf("Act now") < headings.indexOf("Waiting for you"),
+                `The headings are in the wrong order: ${headings.join(", ")}.`,
+            );
+            await visible(page.getByText("prune_images on nas"), "the result-unknown row");
+            const order = await page.evaluate(() => {
+                const unknown = [...document.querySelectorAll("main a")].find((a) =>
+                    a.textContent?.includes("prune_images on nas"),
+                );
+                const approval = document.querySelector('main [role="group"]');
+                if (!unknown || !approval) return false;
+                return Boolean(
+                    unknown.compareDocumentPosition(approval) & Node.DOCUMENT_POSITION_FOLLOWING,
+                );
+            });
+            expect(order, "The approval card is not after the result-unknown row.");
+            const link = page.getByRole("link", { name: /^Attention/ }).first();
+            const linkText = await link.innerText();
+            expect(/\d/.test(linkText), `The Attention link shows no count ("${linkText}").`);
+            await visible(
+                page.getByRole("button", { name: /^Approve/ }).first(),
+                "Approve before the frame",
+            );
+            let navigated = false;
+            page.once("framenavigated", () => {
+                navigated = true;
+            });
+            server.pauseExternally();
+            await visible(
+                page.getByText("It was paused by a person.").first(),
+                "the paused row after the frame",
+            );
+            expect(
+                (await page.getByRole("button", { name: /^Approve/ }).count()) === 0,
+                "The card still offers Approve after the operation was paused.",
+            );
+            expect(!navigated, "The page reloaded.");
+        },
+    },
+    {
+        name: "search names the six groups, labels past operations as evidence and shows all on request",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await open(ctx, "/search?q=plex", WIDE_DESK);
+            for (const name of [
+                "Incidents",
+                "Active operations",
+                "Past operations",
+                "Notes",
+                "Facts",
+                "Hosts",
+            ]) {
+                await visible(
+                    page.getByRole("heading", { level: 2, name, exact: true }),
+                    `the "${name}" group`,
+                );
+            }
+            await visible(
+                page.getByText("historical evidence, not authorization"),
+                "the evidence label",
+            );
+            await visible(page.getByText(/^Searches incidents/), "the scope sentence");
+            expect(
+                (await page.getByRole("link", { name: /old alert/ }).count()) === 0,
+                "The sixth incident shows before Show all.",
+            );
+            await page
+                .getByRole("button", { name: /^Show all/ })
+                .first()
+                .click();
+            await visible(page.getByRole("link", { name: /old alert/ }), "the rest after Show all");
+            await open(ctx, "/search?q=a", WIDE_DESK);
+            await visible(page.getByText("Type at least 2 characters."), "the short-query hint");
+        },
+    },
+    {
+        name: "control room, attention and search fit 375 px and pass axe in every scheme and detail level",
+        async run(ctx) {
+            const { page, server } = ctx;
+            const pages = [
+                ["/", "Control room", "What is running, what needs you"],
+                ["/attention", "Attention centre", "Act now"],
+                ["/search?q=plex", "Search", "Past operations"],
+            ];
+            try {
+                for (const profile of ["detailed", "standard", "essential"]) {
+                    for (const scheme of ["light", "dark"]) {
+                        await page.emulateMedia({ colorScheme: scheme });
+                        for (const [path, name, loaded] of pages) {
+                            const what = `${name} (${profile}/${scheme})`;
+                            server.reset();
+                            server.setPreference(profile);
+                            await open(ctx, path, WIDE_DESK);
+                            await visible(page.getByText(loaded).first(), `${what} content`);
+                            await page.waitForTimeout(500);
+                            await axe(page, what);
+                            if (scheme === "light" && profile === "detailed") {
+                                await open(ctx, path, PHONE);
+                                await visible(page.getByText(loaded).first(), `${what} on a phone`);
+                                await noSideways(page, name);
+                            }
+                        }
+                    }
+                }
+            } finally {
+                await page.emulateMedia({ colorScheme: "light" });
+            }
+        },
+    },
 ];

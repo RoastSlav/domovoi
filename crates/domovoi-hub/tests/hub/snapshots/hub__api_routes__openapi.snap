@@ -4331,6 +4331,12 @@ expression: spec
       "OverviewDto": {
         "description": "What needs the operator right now, as counts. Each count stops at 200.",
         "properties": {
+          "actions_outcome_unknown": {
+            "description": "Classic actions whose result is unknown.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "approvals_waiting": {
             "description": "Actions waiting for a person to approve or deny them.",
             "format": "int32",
@@ -4340,6 +4346,12 @@ expression: spec
           "as_of_seq": {
             "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
             "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "attention_total": {
+            "description": "Everything that waits for the owner: incidents that need action, approvals, questions,\npaused operations, unknown results and offline hosts.",
+            "format": "int32",
             "minimum": 0,
             "type": "integer"
           },
@@ -4370,6 +4382,30 @@ expression: spec
             "format": "int32",
             "minimum": 0,
             "type": "integer"
+          },
+          "operations_paused": {
+            "description": "Operations that are paused, for whatever reason, including an unknown result.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operations_running": {
+            "description": "Operations that are running.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operations_waiting_approval": {
+            "description": "Operations with a step waiting for a person to approve it (operations, not steps).",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "operations_waiting_user": {
+            "description": "Operations waiting for the person to answer a question.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -4379,6 +4415,12 @@ expression: spec
           "approvals_waiting",
           "hosts_offline",
           "hosts_total",
+          "operations_running",
+          "operations_waiting_approval",
+          "operations_waiting_user",
+          "operations_paused",
+          "actions_outcome_unknown",
+          "attention_total",
           "as_of_seq"
         ],
         "type": "object"

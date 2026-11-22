@@ -1,9 +1,10 @@
 import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { action, incident, nas, overview } from "../../test/fixtures";
+import { incompatibleHost, offlineHost } from "../../test/attentionFixtures";
+import { serveAttention } from "../../test/attentionRoutes";
+import { nas, overview } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
-import { OverviewPage } from "./OverviewPage";
+import { hostSeverity, OverviewPage } from "./OverviewPage";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
 
@@ -12,10 +13,8 @@ const pi = { ...nas, id: "host-pi", name: "pi", connected: false, open_incidents
 beforeEach(() => {
   resetApi();
   localStorage.clear();
-  route("GET /api/v1/hosts", () => [nas, pi]);
+  serveAttention({ hosts: [nas, pi] });
   route("GET /api/v1/overview", () => overview());
-  route("GET /api/v1/incidents", () => ({ items: [], next_cursor: null }));
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
 });
 
 function open(url = "/") {
@@ -24,15 +23,20 @@ function open(url = "/") {
 
 const tile = (name: RegExp) => screen.findByRole("link", { name });
 
-test("tiles_show_what_needs_the_person_and_lead_to_their_lists", async () => {
+test("tiles_show_attention_running_approvals_and_hosts_and_lead_to_their_lists", async () => {
   route("GET /api/v1/overview", () =>
-    overview({ incidents_action_needed: 2, incidents_open: 5, approvals_waiting: 3 }),
+    overview({
+      attention_total: 6,
+      operations_running: 1,
+      approvals_waiting: 1,
+      operations_waiting_approval: 2,
+    }),
   );
   open();
 
-  expect(await tile(/^Needs attention 2/)).toHaveAttribute("href", "/incidents");
-  expect(await tile(/^Open incidents 5/)).toHaveAttribute("href", "/incidents");
-  expect(await tile(/^Waiting for approval 3/)).toHaveAttribute("href", "/approvals");
+  expect(await tile(/^Needs you 6/)).toHaveAttribute("href", "/attention");
+  expect(await tile(/^Running now 1/)).toHaveAttribute("href", "/operations?status=running");
+  expect(await tile(/^Waiting for approval 3/)).toHaveAttribute("href", "/attention");
   const hosts = await tile(/^Hosts online 1 of 2/);
   expect(hosts).toHaveAttribute("href", "/hosts");
   expect(hosts, "what is down is said in words, not only by colour").toHaveTextContent("1 offline");
@@ -51,70 +55,43 @@ test("hosts_online_counts_connected_agents_and_says_who_never_connected", async 
 });
 
 test("tiles_say_all_clear_when_nothing_is_wrong", async () => {
-  route("GET /api/v1/hosts", () => [nas]);
+  serveAttention({ hosts: [nas] });
   open();
 
-  expect(await tile(/^Needs attention 0/)).toHaveTextContent("All clear");
+  expect(await tile(/^Needs you 0/)).toHaveTextContent("All clear");
+  expect(await tile(/^Running now 0/)).toHaveTextContent("Nothing running");
   expect(await tile(/^Hosts online 1 of 1/)).toHaveTextContent("All connected");
 });
 
-test("overview_says_nothing_needs_you_when_both_lists_are_empty", async () => {
+test("a_missing_attention_count_reads_neutral_not_all_clear", async () => {
+  route("GET /api/v1/overview", () => {
+    const old: Partial<ReturnType<typeof overview>> = overview();
+    delete old.attention_total;
+    return old;
+  });
+  open();
+
+  const needs = await tile(/^Needs you/);
+  expect(needs, "an older hub sends no count").not.toHaveTextContent("All clear");
+});
+
+test("control_room_has_its_title_and_intro", async () => {
+  serveAttention({ hosts: [nas] });
+  open();
+
+  expect(screen.getByRole("heading", { level: 1, name: "Control room" })).toBeVisible();
+  expect(
+    screen.getByText("What is running, what needs you and how your hosts are doing."),
+  ).toBeVisible();
+});
+
+test("nothing_needs_you_and_nothing_to_approve_are_said_when_both_are_empty", async () => {
+  serveAttention({ hosts: [nas] });
   open();
 
   expect(await screen.findByText("Nothing needs you")).toBeVisible();
   expect(screen.getByText("Nothing to approve")).toBeVisible();
-  expect(screen.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
-  expect(screen.getByText("What needs you and how your hosts are doing.")).toBeVisible();
-});
-
-test("needs_attention_lists_the_first_five_incidents_as_links", async () => {
-  route("GET /api/v1/incidents", () => ({
-    items: Array.from({ length: 7 }, (_, n) =>
-      incident({
-        id: `inc-${n}`,
-        title: `Problem ${n}`,
-        severity: n === 0 ? "critical" : "warning",
-      }),
-    ),
-    next_cursor: null,
-  }));
-  open();
-
-  await screen.findByText("Problem 0");
-  const list = within(screen.getByRole("region", { name: "Needs attention" }));
-  const links = list.getAllByRole("link").filter((link) => link.textContent !== "View all");
-  expect(links, "five rows, not seven").toHaveLength(5);
-  expect(links[0]).toHaveAttribute("href", "/incidents/inc-0");
-  expect(links[0]).toHaveTextContent(/Critical.*Problem 0.*nas/);
-  expect(list.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/incidents");
-  expect(
-    calls.find((call) => call.route === "GET /api/v1/incidents")?.init.params?.query,
-    "only incidents that need action are asked for",
-  ).toMatchObject({ group: "needs_action" });
-});
-
-test("waiting_for_approval_lists_actions_with_skill_host_risk_and_a_link", async () => {
-  route("GET /api/v1/actions", () => ({
-    items: [
-      action({ id: "late", skill: "later_one", expires_at: "2026-10-31T14:00:00Z" }),
-      action({
-        id: "soon",
-        skill: "sooner_one",
-        risk: "destructive",
-        expires_at: "2026-10-31T13:00:00Z",
-      }),
-    ],
-    next_cursor: null,
-  }));
-  open();
-
-  await screen.findByText("sooner_one");
-  const list = within(screen.getByRole("region", { name: "Waiting for approval" }));
-  const rows = list.getAllByRole("link").filter((link) => link.textContent !== "View all");
-  expect(rows[0], "the soonest to expire first").toHaveTextContent(/sooner_one.*nas.*Destructive/);
-  expect(rows[1]).toHaveTextContent("later_one");
-  expect(rows[0]).toHaveAttribute("href", "/approvals");
-  expect(list.getByRole("link", { name: "View all" })).toHaveAttribute("href", "/approvals");
+  expect(await screen.findByText("Nothing is running")).toBeVisible();
 });
 
 test("hosts_are_cards_that_link_to_the_host", async () => {
@@ -124,77 +101,6 @@ test("hosts_are_cards_that_link_to_the_host", async () => {
   expect(card).toHaveAttribute("href", "/hosts/nas");
   expect(screen.getByRole("link", { name: "pi" })).toHaveAttribute("href", "/hosts/pi");
   expect(screen.getByRole("region", { name: "Hosts" })).toBeVisible();
-});
-
-test("overview_follows_the_host_selector", async () => {
-  open("/?host=pi");
-
-  await screen.findByRole("link", { name: "pi" });
-  expect(screen.queryByRole("link", { name: "nas" }), "only the chosen host's card").toBeNull();
-  expect(calls.find((call) => call.route === "GET /api/v1/overview")?.init.params?.query).toEqual({
-    host: "pi",
-  });
-  expect(
-    calls.find((call) => call.route === "GET /api/v1/actions")?.init.params?.query,
-  ).toMatchObject({ host: "pi" });
-});
-
-test("a_failed_load_is_an_error_with_retry_and_never_nothing_needs_you", async () => {
-  route("GET /api/v1/overview", () => failure(500, "internal", "the hub is sick"));
-  route("GET /api/v1/incidents", () => failure(500, "internal", "the hub is sick"));
-  open();
-
-  expect(await screen.findByText("Could not load the overview")).toBeVisible();
-  expect(await screen.findByText("Could not load incidents")).toBeVisible();
-  expect(screen.getAllByRole("button", { name: "Retry" }).length).toBeGreaterThan(0);
-  expect(
-    screen.queryByText("Nothing needs you"),
-    "a failed load is never read as empty",
-  ).toBeNull();
-});
-
-test("needs_attention_puts_the_most_severe_first_then_the_most_recent", async () => {
-  route("GET /api/v1/incidents", () => ({
-    items: [
-      incident({
-        id: "i1",
-        title: "Info newest",
-        severity: "info",
-        last_firing_at: "2026-10-31T12:30:00Z",
-      }),
-      incident({
-        id: "w1",
-        title: "Warning old",
-        severity: "warning",
-        last_firing_at: "2026-10-31T11:00:00Z",
-      }),
-      incident({
-        id: "c1",
-        title: "Critical old",
-        severity: "critical",
-        last_firing_at: "2026-10-31T10:00:00Z",
-      }),
-      incident({
-        id: "w2",
-        title: "Warning new",
-        severity: "warning",
-        last_firing_at: "2026-10-31T12:00:00Z",
-      }),
-    ],
-    next_cursor: null,
-  }));
-  open();
-
-  await screen.findByText("Critical old");
-  const list = within(screen.getByRole("region", { name: "Needs attention" }));
-  const titles = list
-    .getAllByRole("link")
-    .filter((link) => link.textContent !== "View all")
-    .map((link) => link.textContent);
-  expect(titles[0]).toMatch(/Critical old/);
-  expect(titles[1]).toMatch(/Warning new/);
-  expect(titles[2]).toMatch(/Warning old/);
-  expect(titles[3]).toMatch(/Info newest/);
 });
 
 const fine = (n: number) => ({ ...nas, id: `ok-${n}`, name: `fine-${n}`, open_incidents: 0 });
@@ -245,17 +151,63 @@ test("when_every_host_is_fine_one_muted_line_says_so", async () => {
   expect(section.getByRole("link", { name: "View all 3 hosts" })).toBeVisible();
 });
 
-test("a_long_host_name_in_a_waiting_row_is_cut_and_keeps_its_tooltip", async () => {
-  const user = userEvent.setup();
-  const long = "edge-router-gateway-frankfurt-primary-uplink-monitor-and-failover-probe";
-  route("GET /api/v1/hosts", () => [{ ...nas, name: long }]);
-  route("GET /api/v1/actions", () => ({ items: [action()], next_cursor: null }));
+test("an_incompatible_host_is_among_the_cards_and_never_called_offline", async () => {
+  serveAttention({
+    hosts: [
+      ...Array.from({ length: 6 }, (_, n) => offlineHost(`down-${n}`, { open_incidents: 9 })),
+      incompatibleHost("old-agent"),
+    ],
+  });
   open();
 
-  await screen.findByText("restart_container");
-  const approvals = within(screen.getByRole("region", { name: "Waiting for approval" }));
-  const name = approvals.getByText(long);
-  expect(name.className, "one line with an ellipsis").toMatch(/host/);
-  await user.hover(name);
-  expect(await screen.findByRole("tooltip")).toHaveTextContent(long);
+  const section = within(await screen.findByRole("region", { name: "Hosts" }));
+  const card = await section.findByRole("link", { name: /^old-agent/ });
+  expect(card, "ahead of six offline hosts, so it is within the six").toHaveTextContent(
+    "Incompatible",
+  );
+  expect(card).not.toHaveTextContent("Offline");
+  expect(section.getAllByRole("link", { name: /^(down|old)-/ })).toHaveLength(6);
+});
+
+test("host_selection_ranks_incompatible_then_offline_then_expected_incompatible", () => {
+  const hosts = [
+    { ...nas, name: "connected-busy", open_incidents: 9 },
+    offlineHost("never", { agent_enrolled: false }),
+    offlineHost("expected", { protocol_state: "expected_incompatible" }),
+    offlineHost("down-few", { open_incidents: 1 }),
+    offlineHost("down-many", { open_incidents: 4 }),
+    incompatibleHost("old"),
+  ];
+
+  expect(hosts.sort(hostSeverity).map((host) => host.name)).toEqual([
+    "old",
+    "down-many",
+    "down-few",
+    "expected",
+    "never",
+    "connected-busy",
+  ]);
+});
+
+test("control_room_follows_the_host_selector", async () => {
+  open("/?host=pi");
+
+  await screen.findByRole("link", { name: "pi" });
+  expect(screen.queryByRole("link", { name: "nas" }), "only the chosen host's card").toBeNull();
+  expect(calls.find((call) => call.route === "GET /api/v1/overview")?.init.params?.query).toEqual({
+    host: "pi",
+  });
+  const sources = calls.filter((call) => /\/(incidents|actions|operations)$/.test(call.route));
+  expect(sources.length).toBeGreaterThanOrEqual(7);
+  for (const call of sources) {
+    expect(call.init.params?.query, call.route).toMatchObject({ host: "pi" });
+  }
+});
+
+test("a_failed_overview_is_a_load_error_with_retry", async () => {
+  route("GET /api/v1/overview", () => failure(500, "internal", "the hub is sick"));
+  open();
+
+  expect(await screen.findByText("Could not load the control room")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Retry" }).length).toBeGreaterThan(0);
 });

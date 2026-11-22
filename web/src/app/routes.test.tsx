@@ -90,13 +90,13 @@ test("a_page_outside_the_first_download_loads_names_the_tab_and_takes_focus", as
   expect(document.title).toBe("Hosts · Domovoi");
 });
 
-test("the_root_address_opens_the_overview_inside_the_shell", async () => {
+test("the_root_address_opens_the_control_room_inside_the_shell", async () => {
   renderApp("/");
 
-  expect(await heading("Overview")).toBeVisible();
-  expect(document.title).toBe("Overview · Domovoi");
+  expect(await heading("Control room")).toBeVisible();
+  expect(document.title).toBe("Control room · Domovoi");
   const nav = screen.getByRole("navigation", { name: "Main", hidden: true });
-  expect(within(nav).getByRole("link", { name: "Overview", hidden: true })).toHaveAttribute(
+  expect(within(nav).getByRole("link", { name: "Control room", hidden: true })).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -121,6 +121,18 @@ test("an_old_settings_about_link_lands_on_the_merged_about_and_updates_section",
 
   expect(await screen.findByRole("region", { name: "About and updates" })).toBeVisible();
   expect(screen.queryByText("No such section")).toBeNull();
+});
+
+test("new_routes_render_their_pages", async () => {
+  const page = { items: [], next_cursor: null, as_of_seq: 1 };
+  route("GET /api/v1/operations", () => page);
+  route("GET /api/v1/actions", () => page);
+  const { unmount } = renderApp("/attention");
+  expect(await heading("Attention")).toBeVisible();
+  expect(document.title).toBe("Attention · Domovoi");
+  unmount();
+  renderApp("/search");
+  expect(await heading("Search")).toBeVisible();
 });
 
 test("operations_routes_render_their_pages", async () => {

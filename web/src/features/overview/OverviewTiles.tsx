@@ -50,30 +50,38 @@ function fleetHint(fleet: Fleet): string {
 }
 
 /**
- * The four numbers that answer "is anything wrong?": what needs the person, what is open,
+ * The four numbers that answer "is anything wrong?": what needs the person, what is running,
  * what waits for approval and how many hosts are up. Each tile leads to its list.
  */
 export function OverviewTiles({ overview, hosts }: { hosts: readonly Host[]; overview: Overview }) {
-  const needs = overview.incidents_action_needed;
-  const waiting = overview.approvals_waiting;
+  // An older hub sends no attention count: say nothing about it rather than "all clear".
+  const needs = overview.attention_total as number | undefined;
+  const running = overview.operations_running ?? 0;
+  const waiting = overview.approvals_waiting + (overview.operations_waiting_approval ?? 0);
   const fleet = fleetOf(hosts);
   const down = fleet.offline + fleet.never;
   return (
     <Grid min="xs" gap={3} fill>
       <StatTile
-        label="Needs attention"
-        value={needs}
-        tone={needs > 0 ? "danger" : "success"}
-        hint={needs > 0 ? "Open and nobody has taken them" : "All clear"}
-        to="/incidents"
+        label="Needs you"
+        value={needs ?? 0}
+        tone={needs === undefined ? undefined : needs > 0 ? "danger" : "success"}
+        hint={needs === 0 ? "All clear" : "Open the attention centre"}
+        to="/attention"
       />
-      <StatTile label="Open incidents" value={overview.incidents_open} to="/incidents" />
+      <StatTile
+        label="Running now"
+        value={running}
+        tone={running > 0 ? "progress" : undefined}
+        hint={running > 0 ? "Operations in progress" : "Nothing running"}
+        to="/operations?status=running"
+      />
       <StatTile
         label="Waiting for approval"
         value={waiting}
         tone={waiting > 0 ? "pending" : undefined}
         hint={waiting > 0 ? "Nothing runs until you decide" : "Nothing to decide"}
-        to="/approvals"
+        to="/attention"
       />
       <StatTile
         label="Hosts online"

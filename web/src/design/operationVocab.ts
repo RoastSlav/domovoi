@@ -70,7 +70,7 @@ export const OPERATION_STATUSES: Table<OperationStatus> = {
     hint: "Nothing runs until a person approves the proposed action.",
   },
   waiting_user: {
-    label: "Waiting for your answer",
+    label: "Question",
     tone: "pending",
     icon: "help",
     hint: "Domovoi asked a question and continues once you answer.",

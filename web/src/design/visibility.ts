@@ -106,6 +106,9 @@ export const PRESENTATION_WORDS: Readonly<Record<Presentation, string>> = {
 
 /** The pages that offer their own detail level. A later page appends itself here. */
 export const VISIBILITY_PAGES: readonly { key: string; label: string }[] = [
+  { key: "control-room", label: "Control room" },
+  { key: "attention", label: "Attention centre" },
+  { key: "search", label: "Search" },
   { key: "operations", label: "Operations list" },
   { key: "operation", label: "Operation detail" },
   { key: "policy", label: "Policy overview and versions" },

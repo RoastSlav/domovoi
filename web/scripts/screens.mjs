@@ -35,6 +35,9 @@ const channel = process.env.SCREENS_CHANNEL ?? "chrome";
 const WIDTHS = [375, 768, 1280, 1920];
 const THEMES = ["light", "dark"];
 const PAGES = [
+    ["control-room", "/"],
+    ["attention", "/attention"],
+    ["search", "/search?q=nas"],
     ["incidents", "/incidents"],
     ["operations", "/operations"],
     ["approvals", "/approvals"],

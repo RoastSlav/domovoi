@@ -184,7 +184,11 @@ hub with `host`) or renders `<AllHostsNote>` saying why not; the setup, login, w
 not-found pages are outside the shell's host scope and need no note. Navigation counts come from
 `useOverview(host)`: never fetch a list to count it.
 
-The **Knowledge** group holds Known conditions, Notes, Digest and three more items: Knowledge
+The **Respond** group starts with "Control room" (`/`) and "Attention" (`/attention`). Attention
+carries a danger count from `attention_total`, shown only above zero, and follows the host selector.
+The command palette offers "Search everything" first for any typed text; it opens `/search?q=`.
+
+The **Knowledge** group starts with "Search" (`/search`), then holds Known conditions, Notes, Digest and three more items: Knowledge
 (`/knowledge`: facts, proposals, relations and entities), Management paths (`/knowledge/paths`) and
 Experience (`/knowledge/experience`). None carries a count. Fact and entity pages sit under
 `/knowledge` and read "Knowledge" in the breadcrumb.
@@ -260,6 +264,13 @@ Operations screens, from the code:
 | P0       | `operation.banner`, `operation.title`, `operation.controls`, `operation.progress`, `operation.scope`, `operation.waiting`, `operation.stale-note`, `operation.schema-warning`, `operations.state`, `operations.table`, `approval.card`, `incident.investigation-status`               |
 | P1       | `operation.steps-head`, `operation.incidents`, `operation.budgets`, `operation.cycle-tag`, `operation.cycle-label`, `operation.earlier-steps`, `operation.scope-note`, `operations.filters`, `operations.legacy-tag`, `approval.reason`, `approval.origin`, `incident.investigations` |
 | P3       | `operation.metadata`                                                                                                                                                                                                                                                                  |
+
+Control room, attention and search:
+
+| Category | Elements (`id`)                                                                                                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | `control.tiles`, `control.attention`, `control.running`, `control.approvals`, `control.hosts`, `attention.list`, `attention.item` (through `visibilityAttrs`), `search.scope`, `search.status`, `search.history-label` |
+| P1       | `control.hosts-link`, `search.box`, `search.incidents`, `search.operations`, `search.past`, `search.notes`, `search.facts`, `search.hosts`                                                                             |
 
 Step inspector: `inspector.outcome`, `inspector.reason` and `inspector.approval` are P0;
 `inspector.kind` and `inspector.summary` are P1; `inspector.intent`, `inspector.output` and
@@ -375,9 +386,19 @@ counts live on the chips, not also in the header), then `QueryBoundary` around a
 `DataTable` or one bordered list with an `EmptyState`; in a list the whole row is the click
 target. **Detail page:** `PageHeader` with `meta` and `actions` (visible secondary buttons;
 only the dangerous one hides in a menu), then `Section`s or `Tabs`; facts as a `KeyValueList`
-in a bordered card, two columns when wide. **Overview page:** a row of `StatTile`s, then two
-columns (what needs attention, what waits for approval; stacked when narrow), then a `Grid`
-of host cards. **Settings page:** a sticky section list at the left; each section is a
+in a bordered card, two columns when wide. **Control room page:** four `StatTile`s (Needs you, Running now,
+Waiting for approval, Hosts online), then two columns (the first five items that need the person,
+and the operations running now; stacked when narrow), then the approval cards (the first three,
+decided in place, with a link to the rest), then the hosts that need a look as a `Grid` of host
+cards with a link to all hosts. **Attention centre page:** one `Section` per urgency tier (Act now,
+Waiting for you, Worth a look), an empty tier is left out; a tier holds link rows (status pill,
+title, one plain sentence on what to do, host, time) and, under Waiting for you, the shared
+approval cards with Approve primary; a failed source is named above the list with one Retry.
+**Search page:** the search box, one sentence on what is searched and who matches, then one
+`Section` per source in a fixed order (incidents, active operations, past operations, notes,
+facts, hosts); each shows five rows and "Show all", its own loading and error state, and a
+coverage sentence where the source is partial; past operations carry the hub's "historical
+evidence, not authorization" label under the heading. **Settings page:** a sticky section list at the left; each section is a
 heading and description, then one bordered radius-8 card in which every setting is a row (the
 label, source badge and hint on the left; the control, at most 320 px wide, on the right;
 switches right-aligned; 1 px rules between rows; 16 px padding; rows stack under 900 px).
@@ -472,13 +493,21 @@ act within ten seconds.
 
 **Morning check: is anything wrong?**
 
-- The overview answers it at a glance: what needs attention, open incidents, what waits for
-  approval, hosts online, and the first few items of each.
+- The Control room answers it at a glance: what needs the person, what is running, what waits
+  for approval, hosts online, and the first few items of each.
+- An incompatible host is its own state with its own word and reason; it is never shown as
+  offline, in a tile hint, a card or a row.
 - A count appears once per view: on the filter chip, not also in the header and the heading.
 - In a list, the whole row is the click target (for the keyboard the title is the link; the
   row has a pointer cursor and a hover state and forwards the click).
 - An empty column shows "–" with a tooltip saying why, or is hidden when no row has a value.
 - Links inside tables are not underlined until hover.
+
+**Decide an approval from the attention centre.** The attention centre shows the same approval
+card as the operation page and the Control room, so the decision is made in one familiar place with
+the same confirmation. Approve is the primary button there and secondary in the Control room,
+where the page is a summary. Rows that are not approvals link to the place of decision: the
+operation, the incident or the host.
 
 **Approve a fix.** A step approval card follows the rules above and is decided on its operation's page. The Approvals page does not yet gather pending steps across operations: its "Waiting for you" area is an empty state that points to Operations. "Recently decided" shows the decision, who decided and when, in a compact list, and legacy actions appear there read-only.
 
@@ -590,7 +619,7 @@ with its tokens, kit component, `/dev/design` demo and test.
 side when the page keeps at least 640 px of content, otherwise the surface opened most recently wins
 and the other collapses to a tab; a full-screen sheet on phones; never over content. Escape closes
 one thing per press: tooltip, popover or menu; dialog or palette; the panel or inspector with
-focus; then the graph selection. An attention-centre entry and an autonomy-state indicator join
+focus; then the graph selection. An autonomy-state indicator joins
 the shell.
 
 **New kit components** (`OperatorThread` is in the kit; the Operator is a surface of the right slot, and its `turn status` vocabulary is `Answering`, `Answered`, `Not answered`, `Stopped`) (each added to the kit, this list and `/dev/design` together): a graph
@@ -696,7 +725,7 @@ TBT 27 ms; incidents LCP 1.4 s, CLS 0.021, TBT 0 ms. Incidents, Login and Setup 
 first download; every other page is in `pages.ts` and fetched when opened (a link fetches on
 hover or focus). Markdown is its own chunk; `vendor` is split so it stays cached across hub
 upgrades. A mutation refreshes only what it changed; polling stops when nothing can change.
-Bundle size after this change: initial JS 169.4 kB gzip, largest chunk 110.8 kB, CSS 23.4 kB gzip (within budget).
+Bundle size after this change: initial JS 180.7 kB gzip, largest chunk 111.7 kB, CSS 27.4 kB gzip (within budget).
 
 Raise the budget only with a reason in the PR, and record the new number above.
 

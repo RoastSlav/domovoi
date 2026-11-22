@@ -103,6 +103,20 @@ Errors are JSON, with an HTTP status to match:
 
 Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `cursor=<next_cursor>` for the next page; `limit` is 1 to 200 and defaults to 50.
 
+## Overview
+
+`GET /api/v1/overview` returns the counts the web UI shows in its navigation and on the Control room. Pass `host=<name>` to count for one host; without it every host is counted. The fields are:
+
+- `incidents_action_needed` and `incidents_open`, with `incident_groups` (`needs_action`, `monitor`, `pending`, `expected` and `handled`);
+- `approvals_waiting`: classic actions waiting for a decision;
+- `operations_running`, `operations_waiting_approval`, `operations_waiting_user` and `operations_paused`;
+- `actions_outcome_unknown`: classic actions whose result is unknown;
+- `hosts_offline` and `hosts_total`;
+- `attention_total`: `incident_groups.needs_action` + `approvals_waiting` + `operations_waiting_approval` + `operations_waiting_user` + `operations_paused` + `actions_outcome_unknown` + `hosts_offline`;
+- `as_of_seq`: the journal position the counts were read at.
+
+See [Control room, attention and search](../guide/control-room.md) for how the pages use them.
+
 ## Hosts
 
 `GET /api/v1/hosts` lists every host with its agent's presence, whether the agent is older than the hub (`outdated`), the protocol state (`compatible`, `incompatible`, `expected_incompatible` or `unknown`) with the reported and hub protocol versions, and how many of its incidents are not yet resolved (`open_incidents`). `GET /api/v1/hosts/{name}` adds the latest value of each digest fact the host reported in the last 24 hours.

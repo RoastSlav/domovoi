@@ -75,3 +75,15 @@ test("incidents_are_not_fetched_until_the_palette_opens", async () => {
   expect(await screen.findByRole("combobox", { name: "Host" })).toBeVisible();
   expect(listed("GET /api/v1/incidents")).toHaveLength(0);
 });
+
+test("the_palette_offers_search_everything_and_lists_the_new_pages", async () => {
+  const { user, search } = await openPalette();
+  await user.type(search, "attention");
+  expect(await screen.findByRole("option", { name: /Attention/ })).toBeVisible();
+  await user.clear(search);
+  await user.type(search, "search everything");
+  await user.click(await screen.findByRole("option", { name: /Search everything/ }));
+
+  expect(screen.queryByRole("combobox", { name: "Search" })).toBeNull();
+  expect(screen.getByTestId("location")).toHaveTextContent("/search");
+});
