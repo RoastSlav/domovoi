@@ -1,0 +1,85 @@
+/* Placement only: colours, borders and type come from tokens and the kit. */
+
+.list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.item + .item {
+  border-top: 1px solid var(--color-border);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--row-h);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  text-decoration: none;
+}
+
+.row:hover {
+  background: var(--color-surface-raised);
+  text-decoration: none;
+}
+
+.main {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.title {
+  display: block;
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.why {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.trail {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-left: auto;
+}
+
+.host {
+  flex: 0 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cards {
+  display: grid;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}

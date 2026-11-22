@@ -25,6 +25,8 @@ function page(load: () => Promise<ComponentType>): LazyPage {
  * are what a person opens the app for, so `routes.tsx` imports them directly.
  */
 export const PAGES = {
+  attention: page(() => import("../features/attention/AttentionPage").then((m) => m.AttentionPage)),
+  search: page(() => import("../features/search/SearchPage").then((m) => m.SearchPage)),
   approvals: page(() => import("../features/approvals/ApprovalsPage").then((m) => m.ApprovalsPage)),
   digest: page(() => import("../features/digest/DigestPage").then((m) => m.DigestPage)),
   firstRun: page(() => import("../features/setup/FirstRun").then((m) => m.FirstRun)),

@@ -65,6 +65,8 @@ export function AppRoutes() {
         <Route element={<RequireSession />}>
           <Route element={<Layout />}>
             <Route index element={<PAGES.overview.Page />} />
+            <Route path="/attention" element={<PAGES.attention.Page />} />
+            <Route path="/search" element={<PAGES.search.Page />} />
             <Route path="/incidents" element={<IncidentListPage />} />
             <Route path="/incidents/:id" element={<IncidentDetailPage />} />
             <Route path="/operations" element={<PAGES.operations.Page />} />

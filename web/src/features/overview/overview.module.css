@@ -22,64 +22,6 @@
   min-width: 0;
 }
 
-/* One bordered list; each row is a link, so the whole row is the click target. */
-.list {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  list-style: none;
-}
-
-.item + .item {
-  border-top: 1px solid var(--color-border);
-}
-
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  min-height: var(--row-h);
-  padding: var(--space-2) var(--space-4);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
-  text-decoration: none;
-}
-
-.row:hover {
-  background: var(--color-surface-raised);
-  text-decoration: none;
-}
-
-.title {
-  flex: 1 1 12rem;
-  min-width: 0;
-  overflow: hidden;
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill {
-  flex: 1 1 12rem;
-  min-width: 0;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meta {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: var(--leading-xs);
-}
-
 /* The section's action sits on the heading's line, not centred in the taller page-header slot. */
 .viewAll {
   align-self: flex-start;
@@ -98,16 +40,4 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-}
-
-/* The host: one line, at most 10 rem, cut with an ellipsis. */
-.host {
-  flex: 0 1 10rem;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: var(--leading-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

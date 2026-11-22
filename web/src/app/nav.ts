@@ -39,9 +39,16 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       {
         to: "/",
-        label: "Overview",
+        label: "Control room",
         icon: "dashboard",
         preload: PAGES.overview.preload,
+      },
+      {
+        to: "/attention",
+        label: "Attention",
+        icon: "alert-circle",
+        count: { field: "attention_total", tone: "danger", label: "need you" },
+        preload: PAGES.attention.preload,
       },
       {
         to: "/incidents",
@@ -93,6 +100,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     title: "Knowledge",
     items: [
+      { to: "/search", label: "Search", icon: "search", preload: PAGES.search.preload },
       { to: "/knowledge", label: "Knowledge", icon: "info", preload: PAGES.knowledge.preload },
       {
         to: "/knowledge/paths",

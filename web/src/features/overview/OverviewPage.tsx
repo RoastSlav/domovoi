@@ -11,10 +11,16 @@ import {
   Skeleton,
   Stack,
   Text,
+  Visible,
+  VisibilityPage,
 } from "../../components";
 import { hostConnectionOf } from "../../design/tone";
 import { HostCards } from "../hosts/HostCards";
-import { ApprovalList, AttentionList } from "./OverviewLists";
+import { ApprovalGroup } from "../attention/ApprovalGroup";
+import { AttentionRows, PREVIEW_ROWS } from "../attention/AttentionRows";
+import { SourceFailures } from "../attention/SourceNotices";
+import { useAttentionSources } from "../attention/useAttentionSources";
+import { RunningNow } from "./RunningNow";
 import { OverviewTiles, OverviewTilesSkeleton } from "./OverviewTiles";
 import styles from "./overview.module.css";
 
@@ -36,10 +42,21 @@ export function hasProblem(host: Host): boolean {
   );
 }
 
-/** Worst first: not connected, then the most open incidents. */
-function worst(a: Host, b: Host): number {
-  const down = (host: Host) => (host.connected || hostConnectionOf(host) === "hub_only" ? 0 : 1);
-  return down(b) - down(a) || b.open_incidents - a.open_incidents;
+const CONNECTION_RANK: Record<string, number> = {
+  incompatible: 0,
+  offline: 1,
+  expected_incompatible: 2,
+  never_connected: 3,
+};
+
+/** Which hosts to show first: incompatible, offline, expected incompatible, never connected, the rest. */
+function hostRank(host: Host): number {
+  return CONNECTION_RANK[hostConnectionOf(host)] ?? 4;
+}
+
+/** Selects the hosts the section shows: the most urgent state first, then the most open incidents. */
+export function hostSeverity(a: Host, b: Host): number {
+  return hostRank(a) - hostRank(b) || b.open_incidents - a.open_incidents;
 }
 
 /**
@@ -72,7 +89,7 @@ function HostsSection({
           if (host) {
             return <HostCards hosts={shown} />;
           }
-          const problems = shown.filter(hasProblem).sort(worst);
+          const problems = shown.filter(hasProblem).sort(hostSeverity);
           return (
             <Stack gap={3}>
               {problems.length === 0 ? (
@@ -82,9 +99,9 @@ function HostsSection({
               ) : (
                 <HostCards hosts={problems.slice(0, PROBLEM_HOSTS)} />
               )}
-              <div>
+              <Visible category="P1" id="control.hosts-link">
                 <Link to="/hosts">View all {shown.length} hosts</Link>
-              </div>
+              </Visible>
             </Stack>
           );
         }}
@@ -93,10 +110,59 @@ function HostsSection({
   );
 }
 
+/** The pieces of the Control Room that read the attention sources. */
+function NeedsYou({ host }: { host: string | undefined }) {
+  const state = useAttentionSources(host);
+  const rows = state.items.filter((item) => item.kind !== "approval").slice(0, PREVIEW_ROWS);
+  const approvals = state.inputs.waitingApproval.length + state.inputs.proposed.length;
+  return (
+    <Stack gap={3}>
+      <SourceFailures failed={state.failed} />
+      {state.pending && state.items.length === 0 && <Skeleton shape="rows" count={3} />}
+      {rows.length > 0 && <AttentionRows items={rows} hostNames={state.inputs.hostNames} />}
+      {state.allLoaded && rows.length === 0 && (
+        <EmptyState
+          icon="check-circle"
+          title={approvals > 0 ? "Nothing else needs you" : "Nothing needs you"}
+        >
+          <p>No result is unknown, nothing is paused and no host or incident needs action.</p>
+        </EmptyState>
+      )}
+    </Stack>
+  );
+}
+
+/** The approval cards, decided in place; the attention centre has the rest. */
+function Approvals({ host }: { host: string | undefined }) {
+  const state = useAttentionSources(host);
+  const { waitingApproval, proposed, hostNames } = state.inputs;
+  const total = waitingApproval.length + proposed.length;
+  const limit = 3;
+  if (total === 0) {
+    return state.allLoaded ? (
+      <EmptyState icon="approve" title="Nothing to approve">
+        <p>Actions Domovoi proposes show up here.</p>
+      </EmptyState>
+    ) : null;
+  }
+  return (
+    <Stack gap={3}>
+      <ApprovalGroup
+        operations={waitingApproval}
+        actions={proposed}
+        hostNames={hostNames}
+        limit={limit}
+        emphasis="secondary"
+      />
+      {total > limit && <Link to="/attention">{total - limit} more waiting</Link>}
+    </Stack>
+  );
+}
+
 /**
- * The first page of the app, and the answer to "is anything wrong?": four counts, the first
- * few incidents that need the person and actions that wait for them, and every host. It
- * follows the host selector, like the lists it summarises.
+ * The first page of the app, and the answer to "is anything wrong, and what is Domovoi doing?":
+ * four counts, what needs the person, what is running, the approvals waiting for a decision
+ * and the hosts that need a look. It follows the host selector, like the lists it summarises.
  */
 export function OverviewPage() {
   const [host] = useSelectedHost();
@@ -113,28 +179,65 @@ export function OverviewPage() {
     },
   };
   return (
-    <>
-      <PageHeader title="Overview" intro="What needs you and how your hosts are doing." />
+    <VisibilityPage page="control-room">
+      <PageHeader
+        title="Control room"
+        intro="What is running, what needs you and how your hosts are doing."
+        docs="guide/control-room.html"
+      />
       <div className={styles.tiles}>
-        <QueryBoundary
-          query={tiles}
-          context="load the overview"
-          loading={<OverviewTilesSkeleton />}
-        >
-          {(shown) => (
-            <OverviewTiles overview={shown.overview} hosts={visible(shown.hosts, host)} />
-          )}
-        </QueryBoundary>
+        <Visible category="P0" id="control.tiles">
+          <QueryBoundary
+            query={tiles}
+            context="load the control room"
+            loading={<OverviewTilesSkeleton />}
+          >
+            {(shown) => (
+              <OverviewTiles overview={shown.overview} hosts={visible(shown.hosts, host)} />
+            )}
+          </QueryBoundary>
+        </Visible>
       </div>
       <div className={styles.columns}>
         <div className={styles.column}>
-          <AttentionList host={host} />
+          <Section
+            title="Needs you"
+            actions={
+              <Link to="/attention" className={styles.viewAll}>
+                Attention centre
+              </Link>
+            }
+          >
+            <Visible category="P0" id="control.attention">
+              <NeedsYou host={host} />
+            </Visible>
+          </Section>
         </div>
         <div className={styles.column}>
-          <ApprovalList host={host} />
+          <Section
+            title="Running now"
+            actions={
+              <Link to="/operations" className={styles.viewAll}>
+                All operations
+              </Link>
+            }
+          >
+            <Visible category="P0" id="control.running">
+              <RunningNow host={host} />
+            </Visible>
+          </Section>
         </div>
       </div>
-      <HostsSection host={host} hosts={hosts} />
-    </>
+      <div className={styles.tiles}>
+        <Section title="Waiting for approval">
+          <Visible category="P0" id="control.approvals">
+            <Approvals host={host} />
+          </Visible>
+        </Section>
+      </div>
+      <Visible category="P0" id="control.hosts">
+        <HostsSection host={host} hosts={hosts} />
+      </Visible>
+    </VisibilityPage>
   );
 }
