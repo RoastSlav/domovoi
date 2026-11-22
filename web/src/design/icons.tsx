@@ -24,6 +24,7 @@ import {
   LoaderCircle,
   Lock,
   LogOut,
+  Maximize,
   Menu,
   MessageSquare,
   Monitor,
@@ -49,6 +50,8 @@ import {
   WifiOff,
   Wrench,
   X,
+  ZoomIn,
+  ZoomOut,
   type LucideIcon,
 } from "lucide-react";
 
@@ -104,6 +107,9 @@ const ICONS = {
   eye: Eye,
   "eye-off": EyeOff,
   skip: SkipForward,
+  fit: Maximize,
+  "zoom-in": ZoomIn,
+  "zoom-out": ZoomOut,
   // Theme
   sun: Sun,
   moon: Moon,

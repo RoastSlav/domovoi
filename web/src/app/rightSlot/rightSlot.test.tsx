@@ -160,3 +160,49 @@ test("the_page_keeps_its_content_when_the_slot_is_open_side_by_side", async () =
   expect(Array.from(body.children).map((child) => child.tagName)).toEqual(["MAIN", "ASIDE"]);
   expect(document.querySelector("main")).not.toHaveAttribute("inert");
 });
+
+function FocusButtons() {
+  const slot = useRightSlot();
+  return (
+    <>
+      <button type="button" onClick={() => slot.focus("a")}>
+        Focus a
+      </button>
+      <button type="button" onClick={() => slot.focus("missing")}>
+        Focus missing
+      </button>
+    </>
+  );
+}
+
+test("slot_focus_moves_focus_into_an_open_surface", async () => {
+  const user = userEvent.setup();
+  renderSlot(
+    <>
+      <Page focus={false} />
+      <FocusButtons />
+    </>,
+  );
+  await user.click(screen.getByRole("button", { name: "Open a" }));
+  await screen.findByText("Content of a");
+
+  await user.click(screen.getByRole("button", { name: "Focus a" }));
+
+  expect(screen.getByRole("heading", { name: "Panel a" })).toHaveFocus();
+});
+
+test("slot_focus_is_a_no_op_for_a_closed_or_unregistered_surface", async () => {
+  const user = userEvent.setup();
+  renderSlot(
+    <>
+      <Page />
+      <FocusButtons />
+    </>,
+  );
+  const focusButton = screen.getByRole("button", { name: "Focus a" });
+
+  await user.click(focusButton);
+  expect(focusButton).toHaveFocus();
+  await user.click(screen.getByRole("button", { name: "Focus missing" }));
+  expect(screen.getByRole("button", { name: "Focus missing" })).toHaveFocus();
+});

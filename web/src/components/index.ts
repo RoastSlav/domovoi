@@ -116,5 +116,15 @@ export {
   type PresentationChoice,
 } from "./visibilityContext";
 
+// Graph
+export {
+  StepGraph,
+  preloadGraph,
+  type GraphEdgeModel,
+  type GraphModel,
+  type GraphNodeModel,
+  type StepGraphProps,
+} from "./graph";
+
 // Hooks
 export { useDebounced } from "./useDebounced";

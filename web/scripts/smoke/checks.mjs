@@ -1,10 +1,13 @@
 /** The smoke checks, in the order the brief lists them. Each one throws on the first failure. */
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { PLAN_HASH } from "./data.mjs";
 import { policyFixture } from "./server.mjs";
 
 const require = createRequire(import.meta.url);
-const AXE = require.resolve("axe-core");
+// The hub's policy blocks an injected <script>, so axe goes in through evaluate (the devtools
+// protocol, not subject to the page policy).
+const AXE_SOURCE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const WIDE = { width: 1440, height: 900 };
 const WIDE_DESK = { width: 1280, height: 900 };
 const PHONE = { width: 375, height: 812 };
@@ -47,7 +50,9 @@ async function noSideways(page, what) {
 }
 
 async function axe(page, what) {
-    await page.addScriptTag({ path: AXE });
+    if (!(await page.evaluate(() => Boolean(globalThis.axe)))) {
+        await page.evaluate(AXE_SOURCE);
+    }
     const violations = await page.evaluate(async () => {
         const result = await globalThis.axe.run(document, {
             resultTypes: ["violations"],
@@ -106,6 +111,39 @@ async function waitForPost(server, suffix) {
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return undefined;
+}
+
+/**
+ * The CSS property names the graph may write as inline style: none (the graph's renderer sets
+ * SVG attributes and uses a CSS module, never a style attribute). Widening it is a design change.
+ */
+const GRAPH_STYLE_ALLOWANCE = [];
+
+async function graphPage(ctx) {
+    await operationPage(ctx, WIDE);
+    await visible(ctx.page.locator('[data-graph][data-ready="true"]'), "the graph");
+}
+
+async function graphNodes(page) {
+    const text = (await page.locator("[data-graph]").getAttribute("data-graph-nodes")) ?? "";
+    return text.split(/\s+/).filter(Boolean);
+}
+
+function onGraph(page) {
+    return page.evaluate(() => document.activeElement?.matches("[data-graph]") ?? false);
+}
+
+function insideGraph(page) {
+    return page.evaluate(() => Boolean(document.activeElement?.closest("[data-graph]")));
+}
+
+/** The `--motion-graph` token in milliseconds, as it computes right now. */
+async function graphToken(page) {
+    const text = await page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue("--motion-graph").trim(),
+    );
+    const value = Number.parseFloat(text);
+    return text.endsWith("ms") ? value : text.endsWith("s") ? value * 1000 : Number.NaN;
 }
 
 export const CHECKS = [
@@ -942,6 +980,11 @@ export const CHECKS = [
                 page.getByText("It was paused by a person.").first(),
                 "the paused row after the frame",
             );
+            await page
+                .getByRole("button", { name: /^Approve/ })
+                .first()
+                .waitFor({ state: "detached", timeout: 5000 })
+                .catch(() => undefined);
             expect(
                 (await page.getByRole("button", { name: /^Approve/ }).count()) === 0,
                 "The card still offers Approve after the operation was paused.",
@@ -1019,6 +1062,251 @@ export const CHECKS = [
             } finally {
                 await page.emulateMedia({ colorScheme: "light" });
             }
+        },
+    },
+    {
+        name: "at 1440 px the Steps view is the graph, ready, with one node per step",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await graphPage(ctx);
+            const ids = await graphNodes(page);
+            const steps = server.state().trace.steps.map((step) => step.id);
+            expect(
+                ids.length === steps.length,
+                `The graph lists ${ids.length} nodes for ${steps.length} steps.`,
+            );
+            expect(
+                steps.every((id) => ids.includes(id)),
+                "The graph does not list every step of the trace.",
+            );
+            await visible(
+                page.getByRole("button", { name: "Fit to view" }),
+                "the Fit to view button",
+            );
+        },
+    },
+    {
+        name: "the graph is one tab stop; arrows, Page, Home, End and a move focus only; Enter opens; Escape returns",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await graphPage(ctx);
+            const steps = server.state().trace.steps;
+            const edges = server.state().trace.edges;
+            const id = (index) => steps[index].id;
+            const focused = () => page.locator("[data-graph]").getAttribute("data-focused-node");
+            const expectFocus = async (wanted, what) => {
+                const now = await focused();
+                const ok = Array.isArray(wanted) ? wanted.includes(now) : now === wanted;
+                expect(
+                    ok,
+                    `${what}: focus is on "${now}", expected ${[wanted].flat().join(" or ")}.`,
+                );
+                expect(!page.url().includes("step="), `${what} changed the address.`);
+            };
+
+            // One tab stop: Tab from the toolbar enters the graph, the next Tab leaves it.
+            await page.locator('[role="toolbar"] button').last().focus();
+            let entered = false;
+            for (let i = 0; i < 6 && !entered; i += 1) {
+                await page.keyboard.press("Tab");
+                entered = await onGraph(page);
+            }
+            expect(entered, "Tab never reached the graph.");
+            await page.keyboard.press("Tab");
+            expect(!(await insideGraph(page)), "A second Tab stayed inside the graph.");
+            await page.keyboard.press("Shift+Tab");
+            expect(await onGraph(page), "Shift+Tab did not return to the graph root.");
+
+            // The active step: the approval that waits for a person.
+            const waiting = steps.findIndex(
+                (step) => step.kind === "approval" && step.outcome === "pending",
+            );
+            expect(waiting >= 0, "The fixture has no pending approval.");
+            await expectFocus(id(waiting), "Entering the graph");
+            const dependents = edges.filter((edge) => edge.to === id(waiting)).map((e) => e.from);
+            expect(dependents.length === 1, "The fixture's approval has not one dependent.");
+            await page.keyboard.press("ArrowRight");
+            await expectFocus(dependents[0], "ArrowRight");
+            const prerequisites = edges.filter((e) => e.from === dependents[0]).map((e) => e.to);
+            await page.keyboard.press("ArrowLeft");
+            await expectFocus(prerequisites, "ArrowLeft");
+            await page.keyboard.press("a");
+            await expectFocus(id(waiting), "a");
+            await page.keyboard.press("PageDown");
+            await expectFocus(id(waiting + 1), "PageDown");
+            await page.keyboard.press("PageUp");
+            await expectFocus(id(waiting), "PageUp");
+            await page.keyboard.press("Home");
+            await expectFocus(id(0), "Home");
+            await page.keyboard.press("End");
+            await expectFocus(id(steps.length - 1), "End");
+            await page.keyboard.press("a");
+            await expectFocus(id(waiting), "a");
+
+            // Enter selects the step, opens the inspector and moves focus into it.
+            await page.keyboard.press("Enter");
+            const slot = page.getByRole("complementary", { name: "Step inspector" });
+            await visible(slot, "the step inspector");
+            expect(page.url().includes(`step=${id(waiting)}`), "Enter did not set the step.");
+            expect(await insideSlot(page), "Enter did not move focus into the inspector.");
+
+            // Escape inside the inspector closes it and returns focus to the graph.
+            await page.keyboard.press("Escape");
+            await slot.waitFor({ state: "hidden", ...WAIT });
+            expect(await onGraph(page), "Escape did not return focus to the graph.");
+            expect(!page.url().includes("step="), "The address kept the step after Escape.");
+
+            // Escape on the graph with a selection clears the step.
+            await stepLinks(page).first().click();
+            await visible(slot, "the step inspector (outline click)");
+            expect(page.url().includes("step="), "The outline click did not set the step.");
+            await page.locator("[data-graph]").focus();
+            await page.keyboard.press("Escape");
+            await slot.waitFor({ state: "hidden", ...WAIT });
+            expect(!page.url().includes("step="), "Escape on the graph kept the step.");
+        },
+    },
+    {
+        name: "the graph and the outline below it share one selection, also after a reload",
+        async run(ctx) {
+            const { page } = ctx;
+            ctx.server.reset();
+            ctx.server.setPreference("detailed");
+            await graphPage(ctx);
+            const link = stepLinks(page).nth(2);
+            const href = (await link.getAttribute("href")) ?? "";
+            const wanted = href.split("step=")[1];
+            expect(wanted, `The outline row has no step id in "${href}".`);
+            await link.click();
+            await visible(
+                page.getByRole("complementary", { name: "Step inspector" }),
+                "the step inspector",
+            );
+            const graph = page.locator("[data-graph]");
+            expect(
+                (await graph.getAttribute("data-selected-step")) === wanted,
+                "The graph does not select the step clicked in the outline.",
+            );
+            expect(
+                (await graphNodes(page)).includes(wanted),
+                "The selected step is not a node of the graph.",
+            );
+            await page.reload();
+            await visible(
+                page.locator('[data-graph][data-ready="true"]'),
+                "the graph after reload",
+            );
+            await visible(
+                page.getByRole("complementary", { name: "Step inspector" }),
+                "the inspector after reload",
+            );
+            expect(
+                (await graph.getAttribute("data-selected-step")) === wanted,
+                "The reload lost the selected step in the graph.",
+            );
+            expect(!(await insideSlot(page)), "The reload moved focus into the inspector.");
+        },
+    },
+    {
+        name: "reduced motion starts no animation when a step outcome changes; otherwise the graph token is 240 ms",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            const steps = server.state().trace.steps;
+            const target = steps.findIndex((step) => step.kind === "execution");
+            expect(target >= 0, "The fixture has no execution step.");
+            try {
+                await page.emulateMedia({ reducedMotion: "reduce" });
+                await graphPage(ctx);
+                expect(
+                    (await graphToken(page)) === 0,
+                    "--motion-graph is not 0 under reduced motion.",
+                );
+                const failed = page.getByText("Failed", { exact: true });
+                expect((await failed.count()) === 0, "A step reads Failed before the change.");
+                server.changeStepOutcome(target, "failed");
+                await visible(failed, "the new outcome (Failed)");
+                for (let frame = 0; frame < 3; frame += 1) {
+                    const running = await page.evaluate(() => document.getAnimations().length);
+                    expect(running === 0, `${running} animations run under reduced motion.`);
+                    await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+                }
+                await page.emulateMedia({ reducedMotion: "no-preference" });
+                expect(
+                    (await graphToken(page)) === 240,
+                    "--motion-graph is not 240 ms when motion is allowed.",
+                );
+            } finally {
+                await page.emulateMedia({ reducedMotion: "no-preference" });
+            }
+        },
+    },
+    {
+        name: "the graph writes no style attribute at all",
+        async run(ctx) {
+            const { page } = ctx;
+            await visible(page.locator('[data-graph][data-ready="true"]'), "the graph");
+            const found = await page.evaluate(() =>
+                [...document.querySelectorAll("[data-graph], [data-graph] *")]
+                    .filter((element) => element.hasAttribute("style"))
+                    .map((element) => ({
+                        element: element.tagName.toLowerCase(),
+                        properties: [...element.style],
+                    })),
+            );
+            const outside = found.filter((entry) =>
+                entry.properties.some((name) => !GRAPH_STYLE_ALLOWANCE.includes(name)),
+            );
+            const empty = found.filter((entry) => entry.properties.length === 0);
+            expect(
+                outside.length === 0 && (empty.length === 0 || GRAPH_STYLE_ALLOWANCE.length > 0),
+                `Elements in the graph carry a style attribute: ${JSON.stringify(found.slice(0, 5))}.`,
+            );
+            const counts = await page.evaluate(() => ({
+                styles: window.__styleElements,
+                rules: window.__insertRules,
+            }));
+            console.log(
+                `    info: <style> elements added at run time: ${counts.styles}; insertRule calls: ${counts.rules}`,
+            );
+        },
+    },
+    {
+        name: "at 375 px the graph, chosen by hand, does not scroll the page and its toolbar is reachable",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await operationPage(ctx, PHONE);
+            await page.locator("label", { hasText: /^Graph$/ }).click();
+            await visible(page.locator('[data-graph][data-ready="true"]'), "the graph");
+            await noSideways(page, "The graph view");
+            for (const name of ["Fit to view", "Zoom in", "Zoom out"]) {
+                const button = page.getByRole("button", { name, exact: true });
+                await visible(button, `the "${name}" button`);
+                await button.scrollIntoViewIfNeeded();
+                const box = await button.boundingBox();
+                expect(
+                    box && box.x >= 0 && box.x + box.width <= PHONE.width,
+                    `The "${name}" button is outside the 375 px viewport.`,
+                );
+                const hit = await button.evaluate((element) => {
+                    const rect = element.getBoundingClientRect();
+                    const top = document.elementFromPoint(
+                        rect.x + rect.width / 2,
+                        rect.y + rect.height / 2,
+                    );
+                    return element === top || element.contains(top);
+                });
+                expect(hit, `Something covers the "${name}" button.`);
+            }
+            await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+            await noSideways(page, "The graph view after zooming");
         },
     },
 ];

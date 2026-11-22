@@ -128,6 +128,16 @@ export function RightSlotProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const focus = useCallback((id: SurfaceId) => {
+    if (!latest.current.open.includes(id)) {
+      return;
+    }
+    document
+      .querySelector(`[data-surface-id="${CSS.escape(id)}"]`)
+      ?.querySelector<HTMLElement>("h2")
+      ?.focus();
+  }, []);
+
   const takeFocus = useCallback((id: SurfaceId) => wantsFocus.current.delete(id), []);
 
   const api = useMemo<RightSlotApi>(
@@ -137,9 +147,10 @@ export function RightSlotProvider({ children }: { children: ReactNode }) {
       isOpen: (id) => state.open.includes(id),
       open,
       close,
+      focus,
       toggle: (id, options) => (state.open.includes(id) ? close(id) : open(id, options)),
     }),
-    [state.specs, state.open, open, close],
+    [state.specs, state.open, open, close, focus],
   );
 
   const layout = useMemo(

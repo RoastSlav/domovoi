@@ -11,6 +11,13 @@ function durations(css: string): [string, number][] {
 }
 
 describe("motion tokens", () => {
+  it("graph_motion_tokens_exist_with_the_planned_values", () => {
+    const all = Object.fromEntries(durations(ROOT));
+    expect(all["--motion-graph"]).toBe(240);
+    expect(all["--motion-graph-edge"]).toBe(400);
+    expect(all["--motion-layout"]).toBe(320);
+  });
+
   it("motion_tokens_never_exceed_600ms_and_reduced_motion_zeroes_every_one", () => {
     const all = durations(ROOT);
     expect(all.map(([name]) => name)).toContain("--motion-panel");

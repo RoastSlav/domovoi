@@ -91,3 +91,41 @@ A step that needs approval shows its plan code, marked `v2 binding`. Check what 
 When an operation ends, Domovoi writes a summary of it. See [Experience](experience.md).
 
 Click any step in the list to open the step inspector beside the page, or as a full-width sheet on a narrow window. Press Escape to close it.
+
+## The graph view
+
+On a screen wide enough for it, the Steps section of an operation opens as a graph: one box per step, drawn left to right in the order the work depends on itself, with the same steps as a list right under it. On a narrow screen the timeline opens instead. The **View** switch next to the heading lets you pick Timeline, Tree or Graph, and your choice stays until you leave the page.
+
+**What it shows.** Each box is a step. It has the kind of step, its outcome in words with an icon, and a short summary. Its colour is the outcome's tone, but the words and icon always say the same thing. A step you selected has a thick green border. A step that is running shows a still icon, not a spinner. Steps that are not decisions on their own, such as the model's turns and evidence requests, are folded in Standard and Essential: a dashed box such as "3 technical steps" stands for them, and Enter or a click opens it. A step that needs you, or went wrong, is never folded. Use **Fold technical steps** in the toolbar to close the groups you opened.
+
+**What the lines mean.** An arrow runs from a step to the step that has to come before it. The pattern of the line tells you why, so it never depends on colour alone:
+
+| Line                      | Meaning                                       |
+| ------------------------- | --------------------------------------------- |
+| Solid                     | Depends on: it could not start without it     |
+| Dashed                    | Caused by: it was proposed because of that    |
+| Dotted                    | Verifies: it checks the result of that step   |
+| Dash and dot, alternating | Retry of: it is another attempt at that step  |
+| Long dashes               | Answers: it replies to that question          |
+
+The edge key under the graph lists the patterns that are present.
+
+**Using the keyboard.** The graph is one stop in the tab order. Moving around it with the keys only moves focus: it does not select anything or change the page address. A line under the graph, read aloud by screen readers, describes the focused step.
+
+| Key                     | What it does                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| Tab                     | Enters the graph, at the selected step if there is one                               |
+| Right arrow, Left arrow | Moves to a step that depends on this one, or to one this step depends on             |
+| Down arrow, Up arrow    | Moves to the next or previous step in the same column                                |
+| Page Down, Page Up      | Moves to the next or previous step in time order                                     |
+| Home, End               | Moves to the first or the last step                                                  |
+| `a`                     | Moves to the step that is active: running, else waiting for you, else not started    |
+| Enter                   | Opens the step in the step inspector, or opens a folded group                        |
+| Escape                  | Clears the selection and closes the inspector                                        |
+| `+`, `-`, `0`           | Zooms in, zooms out, fits the whole graph in view                                    |
+
+With a pointer, click a step to select it, double-click to open it, drag the background to move the view, and hold Ctrl or Cmd while you scroll to zoom. In the inspector, Escape closes it and puts focus back on the graph.
+
+**The list under the graph.** The same steps appear below it as a list. Selecting a step in the list selects it in the graph, and the other way round. The list is the way to read the steps with a screen reader, and it stays on the page if the graph cannot be drawn. In that case the graph is replaced by a message with **Try again**, and nothing else on the page changes.
+
+The graph is only for looking. Approving, denying, pausing and answering happen where they always do: on the banner and the cards above it, and in the step inspector.

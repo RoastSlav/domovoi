@@ -79,6 +79,7 @@ the dark theme each step is lighter; in the light theme overlay and surface are 
 | `--font-sans`, `--font-mono`                                    | UI text; commands, logs, arguments, IDs and shortcuts                                 |
 | `--z-sticky`, `-dropdown`, `-overlay`, `-toast`, `-tooltip`     | Layers. Never a bare `z-index` number                                                 |
 | `--motion-fast`, `--motion-base`, `--ease-out`, `--scrim-blur`  | 120 ms, 180 ms, the one easing curve; the 2 px blur behind a dialog                   |
+| `--motion-graph`, `--motion-graph-edge`, `--motion-layout`      | 240, 400 and 320 ms: graph node entry and status settle; edge reveal; relayout, fit   |
 
 **Type.** One sans, Inter Variable, bundled with the app (`@fontsource-variable/inter`,
 `src/styles/fonts.css`). It is served from the hub's own origin like every other asset, so
@@ -369,7 +370,7 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
 
 - **Visibility:** `Visible` (`category`, `id`; a P2 or P3 also takes `label`, `count`, `reveal`: draws a block as the detail level says; for a block of a screen, not for dialogs, toasts, menus or tooltips, and never around a P0 inside a P2 or P3), `DetailsScope` (groups the P3 blocks of one place under one "+N details" button; draws nothing when none is hidden), `Disclosure` (a labelled toggle with an optional `count` whose content is not rendered until opened; for technical detail or a run of rows, not for a page section, where `Section collapsed` serves, and not for anything a person must see), `VisibilityPage` (`page`: names the page for its per-page override; for the root of a page in `VISIBILITY_PAGES`, not for sections). Hooks: `useVisibility(category)` answers `shown`, `collapsed` or `hidden`; `useProfile()` answers the level in force here and whether it is a page override. `visibilityAttrs` marks a row or cell.
 
-**Newer kit components.** Both are built to this contract and join the kit, this list and
+**Newer kit components.** All of them are built to this contract and join the kit, this list and
 `/dev/design` together.
 
 - `StatTile`: a label (12 px/500 muted), a value (24 px/600 tabular), an optional tone dot, an
@@ -380,6 +381,86 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
   sidebar, log out). Opened by Ctrl/Cmd+K and by the sidebar search button; arrow keys move,
   Enter runs, Escape closes; it filters by substring and shows `Kbd` hints. It is its own
   lazily loaded chunk, so it never counts toward the first download.
+- `StepGraph`: the graph of an operation's steps, described in "The step graph" below. It is
+  its own lazily loaded chunk too.
+
+### The step graph
+
+`StepGraph` (`src/components/graph/`) draws the steps of an operation and the edges between them. The
+kit knows no vocabulary: the feature builds a `GraphModel` (nodes with a resolved title, status
+label, tone and icon, and plain-text summary; edges with a kind and a label) and passes it in.
+`OperationGraph` (`src/features/operations/graph/`) is the wiring for one operation: it applies the
+detail level, folds runs of technical steps into group nodes, and reads and writes `?step=`.
+`GraphView` puts it above the same steps as a list.
+
+Props of `StepGraph`: `model`, `selectedId`, `label` (the region's accessible name, default "Step
+graph"), `animate` (default true; false makes every change instant), `rememberKey`, `onSelect`,
+`onOpen`, `onClear`, `onToggleGroup`, `onFoldAll` (given only while a group is open; the toolbar
+then shows "Fold technical steps") and `openerRef` (the focusable root, so closing the inspector
+returns focus to the graph). The shell (`StepGraph`) and the engine (`GraphEngine`) are split: the
+shell owns the toolbar, the keyboard, the live line and the edge key and is always in the page's
+chunk; the engine owns layout and drawing, is the only importer of the library and loads on first
+use. `preloadGraph()` warms it.
+
+- **Library.** The graph is drawn by our own SVG renderer. Its layout comes from `@dagrejs/dagre`
+  (exact version 3.1.3, MIT; it brings `@dagrejs/graphlib` 4.0.6, MIT). The library is imported only
+  inside `src/components/graph/`, only by the engine and only through a dynamic import, so its code is
+  a separate lazy chunk named `graph`. Nothing else may import it. Node text is SVG `<text>`, never
+  HTML, so step text is shown as text and nothing in it is interpreted.
+- **Inline style: the graph writes no `style` attribute (class S0).** Positions, sizes and
+  transitions are SVG attributes (`transform`, `x`, `y`, `d`, `viewBox`) or tokens in a CSS module.
+  Movement is animated by a `requestAnimationFrame` tween of the `transform` attribute whose duration
+  is `motionMs(...)`. The ESLint rule that bans JSX `style` covers `src/components/graph/` and the
+  smoke test fails if any element inside `[data-graph]` carries a `style` attribute (its allowance is
+  the empty list). If a later change needs a custom property for computed geometry, it goes through
+  one helper, `src/components/graph/geometry.ts`, which sets custom properties only and is then the
+  only file there allowed to touch `style`; that is a design change and is written here first.
+- **Workers and the policy.** No web worker is used. If one is ever added it must be a same-origin
+  hashed file; `blob:`, `unsafe-eval` and `wasm-unsafe-eval` stay forbidden. The hub's
+  Content-Security-Policy is unchanged, and the smoke test runs the page under the hub's real policy.
+- **Motion.** Durations are `--motion-graph` (240 ms: a node entering, a status settling),
+  `--motion-graph-edge` (400 ms: an edge next to an entering node, used sparingly) and
+  `--motion-layout` (320 ms: relayout, opening or folding a group, fit to view). No transition is
+  longer than 600 ms, and a burst animates at most five nodes: the rest appear in their final state
+  at once, and a reload or reconnect animates nothing. Selection, focus and hover are instant. Under
+  reduced motion the three tokens are 0 ms, so a `0` duration means "do not animate at all". Script
+  never uses a literal duration: it calls `motionMs("graph" | "graph-edge" | "layout")` from
+  `src/design/motion.ts`, which reads the token when an animation starts, so a change of the setting
+  applies to the next one and a missing token reads as 0. The state is always visible without
+  motion: the node's label, icon and outline change at once.
+- **Edge key.** Edge kinds differ by line pattern, never by colour alone: a solid line is "depends
+  on", dashes are "caused by", dots are "verifies", dash-dot is "retry of", long dashes are
+  "answers". An unknown kind is drawn solid and thin, and shows its raw name. `GraphLegend` lists the
+  kinds present in the graph as real DOM, with the line samples drawn as SVG attributes.
+- **Live line.** A polite status line announces the focused or selected node: "Title, outcome:
+  summary. Depends on 2 steps. Needed by 1 step." with " Selected." when it is the selection, and for
+  a folded group "3 technical steps folded: summary. Press Enter to show them." It changes only when
+  focus or selection moves, never on a data refresh.
+- **Keyboard.** The graph root is one tab stop (nodes are not tab stops) and carries the help text
+  as its description. Arrow keys never change the address; Enter and a click select.
+
+  | Key                      | Effect                                                                             |
+  | ------------------------ | ---------------------------------------------------------------------------------- |
+  | Tab                      | Enters the graph at the selected step, the last focused one, or the active step    |
+  | Arrow Right / Arrow Left | A step that depends on the focused one / a step it depends on                      |
+  | Arrow Down / Arrow Up    | The next or previous node in the same column                                       |
+  | Page Down / Page Up      | The next or previous step in time order (reaches every node)                       |
+  | Home / End               | The first / last step in time order                                                |
+  | `a`                      | The active step: running, else waiting for a person, else not started, else last   |
+  | Enter                    | Opens a step (selects it and moves focus into the inspector); opens a folded group |
+  | Escape                   | Clears the selection; with no selection it does nothing and is not consumed        |
+  | `+` or `=` / `-` / `0`   | Zoom in / zoom out / fit to view                                                   |
+
+  A key that moves nothing is silent. The toolbar ("Fit to view", "Zoom in", "Zoom out", "Fold
+  technical steps" when offered) comes before the graph in the tab order. Dragging the background
+  pans; Ctrl or Cmd with the wheel zooms; a plain wheel scrolls the page.
+
+- **Failure.** When the chunk does not download or the engine throws, the graph and toolbar are
+  replaced by a warning, "The graph could not be drawn", with Try again (a fresh import per attempt)
+  and, after a second failure, "If it keeps failing, reload the page." The step list under the graph is
+  always on the page, so the page stays usable and no approval, banner or inspector depends on the graph.
+- **Not a place to decide.** The graph has no approve, deny, resume or cancel control and imports no
+  hook that sends one. Selecting a step opens the inspector, where a decision is made as everywhere.
 
 Layout patterns. **List page:** `PageHeader` with `intro`, compact `FilterChips` (the
 counts live on the chips, not also in the header), then `QueryBoundary` around a
@@ -517,6 +598,15 @@ sets one page apart in Settings, Display. What needs the person (an approval, a 
 current state) is on screen at every level; the rest is one click away, behind a labelled
 toggle or a "+N details" button. The choice follows the person to every browser.
 
+**See how an operation unfolded.** On a screen wide enough for it the Steps section opens as a
+graph of the steps, with the same steps as a list right under it; narrower screens open the
+timeline, and the View switch lets the person pick any of the three (the choice lasts until they
+leave the page). Moving around the graph with the arrow keys only moves focus, it does not select
+anything or open anything: Enter, or a click, opens the step in the inspector, and Escape closes
+it and brings focus back to the graph. Selecting a step in the list selects it in the graph and the
+other way round. In Standard and Essential the technical steps (model turns, evidence) fold into
+one node that opens with Enter or a click, and a step that needs the person is never folded.
+
 **Check what Domovoi knows.**
 
 - Facts show where each one came from (you, a host, an integration or Domovoi's own inference),
@@ -597,13 +687,10 @@ with its tokens, kit component, `/dev/design` demo and test.
 
 **Visualization and transition motion** (a second class beside the 120/180 ms tokens).
 
-| Planned token / behavior                            | Value                    | Use                                                              |
-| --------------------------------------------------- | ------------------------ | ---------------------------------------------------------------- |
-| `--motion-panel` (side panel, inspector)            | 240 ms, `transform` only | Open and close; content is padded, never reflowed mid-transition |
-| `--motion-graph` (node entry, state, status settle) | 240 ms                   | Graph nodes and status changes                                   |
-| `--motion-graph-edge`                               | up to 400 ms             | Active-path reveal, used sparingly                               |
-| `--motion-layout`                                   | 240 to 400 ms            | Group collapse and expand, re-layout, fit to view                |
-| Playback                                            | user-controlled speed    | Replay of a completed operation; the last U2 deliverable (D-25)  |
+| Planned token / behavior                 | Value                    | Use                                                              |
+| ---------------------------------------- | ------------------------ | ---------------------------------------------------------------- |
+| `--motion-panel` (side panel, inspector) | 240 ms, `transform` only | Open and close; content is padded, never reflowed mid-transition |
+| Playback                                 | user-controlled speed    | Replay of a completed operation; the last U2 deliverable (D-25)  |
 
 - Recommended 240 to 400 ms. A single transition never exceeds 600 ms; a test reads the tokens
   and fails above it.
@@ -622,19 +709,10 @@ one thing per press: tooltip, popover or menu; dialog or palette; the panel or i
 focus; then the graph selection. An autonomy-state indicator joins
 the shell.
 
-**New kit components** (`OperatorThread` is in the kit; the Operator is a surface of the right slot, and its `turn status` vocabulary is `Answering`, `Answered`, `Not answered`, `Stopped`) (each added to the kit, this list and `/dev/design` together): a graph
-canvas with an outline (real DOM, the screen-reader path) and keyboard navigation (arrows move
-between connected nodes, Enter opens the inspector, Home and End go to the first and last node, a
-key jumps to the active node); an inspector; a split pane with a keyboard-operable divider; a
+**New kit components** (`OperatorThread` is in the kit; the Operator is a surface of the right slot, and its `turn status` vocabulary is `Answering`, `Answered`, `Not answered`, `Stopped`) (each added to the kit, this list and `/dev/design` together): an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
 reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, an agent refusal reason such as a rate limit, and the unverified human variant for containment without verified helper coverage (reason, NOT PROTECTED path list, step-up then typed confirmation, RW-37); model text secondary and labelled); a
 freshness label.
-
-**Lint and size amendments the graph will need, each written here before the code.** Computed
-geometry goes through one kit helper that sets SVG attributes and CSS custom properties; there is
-no blanket exemption from the inline-style rule. The 250-line file cap is not relaxed: split the
-graph by responsibility. A layout worker, if used, is a same-origin hashed file (no `blob:`). The
-graph is its own lazy chunk inside the 120 kB chunk limit.
 
 **Freshness.** `QueryBoundary` gains refreshing, stale and refresh-error states and a "last
 updated" label, so a failed refetch no longer hides behind old data. "Live" will describe the
@@ -695,20 +773,24 @@ as the graph.
 | `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top                    |
 | A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                               |
 | `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                                       |
+| The graph library imported outside `src/components/graph/`                                                                                            | `npm run lint`  | Only the engine imports it, through a dynamic import                             |
+| Inline `style` in `src/components/graph/`                                                                                                             | `npm run lint`  | SVG attributes or a CSS module with tokens                                       |
 | A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                          |
 | Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                           |
+| No graph chunk, or it is in the first download or statically imported by an initial chunk, or it imports more than `vendor`                           | `npm run build` | Import the library only through the engine's dynamic import (`npm run size`)     |
+| A graph motion token above 600 ms, or not 0 ms under reduced motion                                                                                   | `npm test`      | Fix the token in `tokens.css` (`styles/motion.test.ts`)                          |
 | A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`)           |
 | Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                                     |
 | An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`                       |
 | A placeholder helper view that gains a helper request or data                                                                                         | `npm test`      | When the hub gains helper endpoints, replace the placeholder and update the test |
 | An install job created or retried outside the two authorization dialogs                                                                               | `npm test`      | Only the confirm buttons of the install and retry dialogs may call them          |
-| A broken operations page, slot, focus or contrast in a browser                                                                                        | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                          |
+| A broken operations page, slot, focus, graph or contrast in a browser, or any violation of the hub's real Content-Security-Policy                     | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                          |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 
 ## Performance budget
 
-<!-- budget:initial-js-gzip-kb 183 -->
+<!-- budget:initial-js-gzip-kb 185 -->
 
 | Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                  |
 | ------------------------------ | ------------------------ | -------- | ---------------------------------------------------------------------- |
@@ -725,7 +807,11 @@ TBT 27 ms; incidents LCP 1.4 s, CLS 0.021, TBT 0 ms. Incidents, Login and Setup 
 first download; every other page is in `pages.ts` and fetched when opened (a link fetches on
 hover or focus). Markdown is its own chunk; `vendor` is split so it stays cached across hub
 upgrades. A mutation refreshes only what it changed; polling stops when nothing can change.
-Bundle size after this change: initial JS 180.7 kB gzip, largest chunk 111.7 kB, CSS 27.4 kB gzip (within budget).
+Bundle size after this change: initial JS 183.1 kB gzip, largest chunk 111.7 kB, CSS 29.4 kB gzip (within budget). The initial JS grew by 2.4 kB because the kit now carries the graph wrapper (lazy loading, failure fallback), three toolbar icons and the right slot's `focus`; the budget rose from 183 to 185 kB for that.
+
+The step graph is its own lazy chunk (`graph-<hash>.js`, the `@dagrejs` packages), fetched when a
+graph is first shown, so it is outside the first download and inside the 120 kB chunk limit.
+Graph chunk: 15.7 kB gzip (graph library and its layout code only); the engine and shell are two more small lazy chunks (4.5 kB and 3.2 kB gzip).
 
 Raise the budget only with a reason in the PR, and record the new number above.
 
