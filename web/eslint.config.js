@@ -29,6 +29,10 @@ export default tseslint.config(
               group: ["**/api/schema"],
               message: "Import generated types only inside src/api; expose hooks instead.",
             },
+            {
+              group: ["@dagrejs/*"],
+              message: "Import the graph library only inside src/components/graph (web/DESIGN.md).",
+            },
           ],
         },
       ],
@@ -70,12 +74,48 @@ export default tseslint.config(
               message: "Import generated types only inside src/api; expose hooks instead.",
             },
             {
+              group: ["@dagrejs/*"],
+              message: "Import the graph library only inside src/components/graph (web/DESIGN.md).",
+            },
+            {
               regex: "/components/.+",
               message: "Import kit components from the barrel: src/components (web/DESIGN.md).",
             },
             {
               group: ["lucide-react"],
               message: "Draw icons through Icon in src/design/icons.tsx.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The graph draws computed geometry; it follows the same inline-style rule as page code and is
+    // the only place that imports the graph library (web/DESIGN.md).
+    files: ["src/components/graph/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.test.{ts,tsx}", "src/components/graph/geometry.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "JSXAttribute[name.name='style']",
+          message:
+            "No inline styles in the graph: use a CSS module with tokens, or the sanctioned geometry helper.",
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/components/graph/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/api/schema"],
+              message: "Import generated types only inside src/api; expose hooks instead.",
             },
           ],
         },

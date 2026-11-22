@@ -51,6 +51,17 @@ console.log(`Initial JS (gzip):  ${kb(initial)}`);
 console.log(`Largest chunk:      ${kb(largest.size)} (${largest.file})`);
 console.log(`Total CSS (gzip):   ${kb(cssTotal)}`);
 
+const graphChunks = chunks.filter((c) => c.file.startsWith("assets/graph-"));
+const graphReport = graphChunks.map((c) => `${kb(c.size)} (${c.file})`).join(", ");
+console.log(`Graph chunk (gzip): ${graphChunks.length > 0 ? graphReport : "none"}`);
+
+/** The chunks a file imports statically (`from"./x.js"` and `import"./x.js"`), not dynamic imports. */
+function staticImports(file) {
+    const text = readFileSync(join(dist, file), "utf8");
+    const found = [...text.matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g)].map((m) => `assets/${m[1]}`);
+    return found;
+}
+
 if (process.argv.includes("--report")) {
     process.exit(0);
 }
@@ -66,6 +77,37 @@ for (const chunk of chunks.filter((c) => c.size > CHUNK_LIMIT)) {
     problems.push(
         `${chunk.file} is ${kb(chunk.size)}, over the ${kb(CHUNK_LIMIT)} chunk limit. Split it with a dynamic import.`,
     );
+}
+const initialFiles = initialScripts();
+if (graphChunks.length === 0) {
+    problems.push(
+        "No graph chunk was built. The graph library must be its own lazy chunk (vite.config.ts group `graph`).",
+    );
+}
+for (const chunk of graphChunks) {
+    if (initialFiles.includes(chunk.file)) {
+        problems.push(
+            "The graph chunk is loaded by the first page. Import it only through StepGraph's dynamic import.",
+        );
+    }
+    const reached = new Set();
+    const queue = [...initialFiles];
+    while (queue.length > 0) {
+        const file = queue.pop();
+        if (reached.has(file)) {
+            continue;
+        }
+        reached.add(file);
+        queue.push(...staticImports(file));
+    }
+    if (reached.has(chunk.file) && !initialFiles.includes(chunk.file)) {
+        problems.push(`The graph chunk is statically imported by the first page (${chunk.file}).`);
+    }
+    for (const dep of staticImports(chunk.file)) {
+        if (!dep.startsWith("assets/vendor-")) {
+            problems.push(`The graph chunk depends on ${dep}; keep the library self-contained.`);
+        }
+    }
 }
 if (cssTotal > CSS_LIMIT) {
     problems.push(`CSS is ${kb(cssTotal)}, over the ${kb(CSS_LIMIT)} limit. Remove dead rules.`);

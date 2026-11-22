@@ -177,6 +177,9 @@
   --motion-fast: 120ms;
   --motion-base: 180ms;
   --motion-panel: 240ms;
+  --motion-graph: 240ms; /* graph node entry and status settle */
+  --motion-graph-edge: 400ms; /* graph edge reveal, used sparingly */
+  --motion-layout: 320ms; /* graph relayout, group open and fold, fit to view */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --scrim-blur: 2px;
 
@@ -403,6 +406,9 @@
     --motion-fast: 0ms;
     --motion-base: 0ms;
     --motion-panel: 0ms;
+    --motion-graph: 0ms;
+    --motion-graph-edge: 0ms;
+    --motion-layout: 0ms;
     --scrim-blur: 0px;
   }
 }

@@ -28,6 +28,14 @@ export default defineConfig({
               test: /node_modules[\\/](react|react-dom|react-router|scheduler|@tanstack|openapi-fetch)[\\/]/,
               priority: 20,
             },
+            // The graph library is only fetched when a graph is first shown
+            // (src/components/graph/StepGraph.tsx). It must not join the Markdown chunk, or the
+            // two would be downloaded and budgeted together.
+            {
+              name: "graph",
+              test: /node_modules[\\/](@dagrejs)[\\/]/,
+              priority: 15,
+            },
             // The Markdown stack is only fetched when Markdown is first shown
             // (src/components/Markdown.tsx); everything it pulls in travels together.
             {
