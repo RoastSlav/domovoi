@@ -103,6 +103,12 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 2,
+    operations_running: 0,
+    operations_waiting_approval: 0,
+    operations_waiting_user: 0,
+    operations_paused: 0,
+    actions_outcome_unknown: 0,
+    attention_total: 0,
     as_of_seq: 0,
     ...overrides,
   };

@@ -101,7 +101,8 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
       .getAllByRole("link", { hidden: true })
       .map((link) => link.textContent);
   expect(linksOf("Respond")).toEqual([
-    "Overview",
+    "Control room",
+    "Attention",
     "Incidents",
     "Operations",
     "Operator",
@@ -109,6 +110,7 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
   ]);
   expect(linksOf("Fleet")).toEqual(["Hosts", "Skills", "Capabilities", "Logs"]);
   expect(linksOf("Knowledge")).toEqual([
+    "Search",
     "Knowledge",
     "Management paths",
     "Experience",
@@ -118,16 +120,16 @@ test("navigation_is_grouped_by_what_the_operator_is_doing", () => {
   ]);
   expect(linksOf("System")).toEqual(["Policy", "Audit log", "Settings"]);
   expect(navLink("Incidents")).toHaveAttribute("href", "/incidents");
-  expect(navLink("Overview")).toHaveAttribute("href", "/");
+  expect(navLink("Control room")).toHaveAttribute("href", "/");
   expect(within(sheet()).getByRole("link", { name: "Domovoi", hidden: true })).toHaveAttribute(
     "href",
     "/",
   );
 });
 
-test("overview_is_current_only_on_the_root_address", () => {
+test("control_room_is_current_only_on_the_root_address", () => {
   renderLayout("/incidents");
-  expect(navLink("Overview")).not.toHaveAttribute("aria-current");
+  expect(navLink("Control room")).not.toHaveAttribute("aria-current");
   expect(navLink("Incidents")).toHaveAttribute("aria-current", "page");
 });
 
@@ -369,6 +371,16 @@ test("counts_show_what_needs_attention_and_hide_at_zero", async () => {
   ).toBeInTheDocument();
   expect(navLink("Hosts 1 offline")).toBeInTheDocument();
   expect(navLink("Approvals"), "nothing waits, so no count").toBeInTheDocument();
+});
+
+test("attention_and_search_are_in_the_navigation_with_the_count", async () => {
+  route("GET /api/v1/overview", () => ({ ...QUIET, attention_total: 6 }));
+  renderLayout();
+
+  expect(
+    await within(nav()).findByRole("link", { name: "Attention 6 need you", hidden: true }),
+  ).toHaveAttribute("href", "/attention");
+  expect(navLink("Search")).toHaveAttribute("href", "/search");
 });
 
 test("hosts_count_hides_when_no_host_is_offline", async () => {
