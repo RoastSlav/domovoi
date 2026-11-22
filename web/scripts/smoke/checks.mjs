@@ -980,6 +980,11 @@ export const CHECKS = [
                 page.getByText("It was paused by a person.").first(),
                 "the paused row after the frame",
             );
+            await page
+                .getByRole("button", { name: /^Approve/ })
+                .first()
+                .waitFor({ state: "detached", timeout: 5000 })
+                .catch(() => undefined);
             expect(
                 (await page.getByRole("button", { name: /^Approve/ }).count()) === 0,
                 "The card still offers Approve after the operation was paused.",
