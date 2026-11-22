@@ -2347,6 +2347,45 @@ expression: spec
         ],
         "type": "object"
       },
+      "HistoryEventDto": {
+        "description": "One journal row of the operation, reduced to what replay needs. It never carries intent,\nsummary, reason, output or any free text.",
+        "properties": {
+          "at": {
+            "description": "When the row was recorded: RFC 3339 UTC with a trailing `Z`.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The stored journal kind string; unknown kinds pass through.",
+            "type": "string"
+          },
+          "seq": {
+            "description": "The row's global journal sequence number.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "state": {
+            "description": "The new state the row records: an execution state name for `operation.execution`, an\noperation status name for `operation.status`; `null` otherwise.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "step": {
+            "description": "The step the row is about, when the payload names one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "kind"
+        ],
+        "type": "object"
+      },
       "HostCheckDto": {
         "description": "One check on a host.",
         "properties": {
@@ -4147,6 +4186,41 @@ expression: spec
           "operation",
           "trace",
           "executions"
+        ],
+        "type": "object"
+      },
+      "OperationHistoryDto": {
+        "description": "How an operation unfolded, as a projection of its journal rows. Replay rebuilds past states\nfrom this and the operation's final trace.",
+        "properties": {
+          "as_of_seq": {
+            "description": "The journal head read **before** the rows: rows with a larger `seq` are not included.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "complete": {
+            "description": "True when `events` starts at the `operation.created` row and holds every row up to\n`as_of_seq`.",
+            "type": "boolean"
+          },
+          "events": {
+            "description": "Oldest first, ascending `seq`.",
+            "items": {
+              "$ref": "#/components/schemas/HistoryEventDto"
+            },
+            "type": "array"
+          },
+          "incomplete_reason": {
+            "description": "Why not complete: `\"pruned\"` (the oldest rows are gone), `\"capped\"` (more rows than\n`HISTORY_ROW_CAP`: the newest are missing) or `\"both\"`. `null` when complete.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "as_of_seq",
+          "complete",
+          "events"
         ],
         "type": "object"
       },
@@ -12881,6 +12955,68 @@ expression: spec
           }
         },
         "summary": "Cancels an operation. Pending steps and effects are cancelled; a run already dispatched\nis not recalled and its result is still recorded.",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/api/v1/operations/{id}/history": {
+      "get": {
+        "operationId": "get_operation_history",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationHistoryDto"
+                }
+              }
+            },
+            "description": "The operation's journal rows, reduced"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such operation"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Orchestration is not enabled"
+          }
+        },
+        "summary": "How one operation unfolded, for replaying its graph.",
         "tags": [
           "operations"
         ]

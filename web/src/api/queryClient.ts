@@ -60,6 +60,7 @@ export const keys = {
   operationStep: (operation: string, step: string | undefined) =>
     ["operations", "detail", operation, "step", step ?? ""] as const,
   operationSummary: (id: string) => ["operations", "detail", id, "summary"] as const,
+  operationHistory: (id: string) => ["operations", "detail", id, "history"] as const,
   operationSimilar: (id: string, limit: number | undefined) =>
     ["operations", "detail", id, "similar", limit ?? ""] as const,
   incidentSimilar: (id: string, limit: number | undefined) =>

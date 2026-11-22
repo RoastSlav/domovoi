@@ -195,6 +195,10 @@ export type OperationSummary = Schemas["OperationSummaryDto"];
 export type OperationPage = Schemas["OperationPage"];
 /** An operation with its trace and executions. */
 export type OperationDetail = Schemas["OperationDetailDto"];
+/** How an operation unfolded, as the journal rows replay rebuilds past states from. */
+export type OperationHistory = Schemas["OperationHistoryDto"];
+/** One journal row of an operation, reduced to ids, a time, a kind and a state. */
+export type HistoryEvent = Schemas["HistoryEventDto"];
 /** A run a person approves or denies. */
 export type Execution = Schemas["ExecutionDto"];
 /** One step with its stored intent and bounded output. */

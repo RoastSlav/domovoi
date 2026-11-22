@@ -359,6 +359,7 @@ export async function startServer(dist) {
             "GET /api/v1/notes/search": () => data.noteHits(state, url.searchParams.get("q") ?? ""),
             "GET /api/v1/operations": () => data.page(state, url.searchParams.get("status")),
             [`GET /api/v1/operations/${id}`]: () => data.detail(state),
+            [`GET /api/v1/operations/${id}/history`]: () => data.history(state),
         };
         if (reads[key]) {
             return send(response, 200, reads[key]());
@@ -443,6 +444,8 @@ export async function startServer(dist) {
             push();
         },
         state: () => state,
+        /** The history the mock serves for the current operation. */
+        history: () => data.history(state),
         packages: () => packages,
         close() {
             for (const open of streams) {

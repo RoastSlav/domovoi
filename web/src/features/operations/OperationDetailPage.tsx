@@ -23,6 +23,7 @@ import { CancelDialog } from "./CancelDialog";
 import { OperationBanner } from "./OperationBanner";
 import { OperationDetails } from "./OperationDetails";
 import { OperationHeader } from "./OperationHeader";
+import { ReplayStatusProvider } from "./replay/ReplayContext";
 import { StaleNote } from "./StaleNote";
 import { StepInspector } from "./StepInspector";
 import { useMediaQuery, WIDE_QUERY } from "../../app/useMediaQuery";
@@ -87,103 +88,105 @@ export function OperationDetailPage() {
   const running = trace.steps.find((step) => step.outcome === "running");
   return (
     <VisibilityPage page="operation">
-      <OperationHeader
-        operation={operation}
-        hostNames={hostNames}
-        onCancel={() => setCancelling(true)}
-      />
-      <Stack gap={5}>
-        {query.isError && (
-          <Visible category="P0" id="operation.stale-note">
-            <StaleNote updatedAt={query.dataUpdatedAt} onRetry={() => void query.refetch()} />
+      <ReplayStatusProvider>
+        <OperationHeader
+          operation={operation}
+          hostNames={hostNames}
+          onCancel={() => setCancelling(true)}
+        />
+        <Stack gap={5}>
+          {query.isError && (
+            <Visible category="P0" id="operation.stale-note">
+              <StaleNote updatedAt={query.dataUpdatedAt} onRetry={() => void query.refetch()} />
+            </Visible>
+          )}
+          <Visible category="P1" id="operation.scope-note">
+            <AllHostsNote>An operation is shown whatever host is selected.</AllHostsNote>
           </Visible>
-        )}
-        <Visible category="P1" id="operation.scope-note">
-          <AllHostsNote>An operation is shown whatever host is selected.</AllHostsNote>
-        </Visible>
-        {trace.schema_version > 1 && (
-          <Visible category="P0" id="operation.schema-warning">
-            <InlineMessage tone="warning">
-              This page was built for an older operation format. Some details may be missing.
-            </InlineMessage>
+          {trace.schema_version > 1 && (
+            <Visible category="P0" id="operation.schema-warning">
+              <InlineMessage tone="warning">
+                This page was built for an older operation format. Some details may be missing.
+              </InlineMessage>
+            </Visible>
+          )}
+          <Visible category="P0" id="operation.banner">
+            <OperationBanner
+              operation={operation}
+              trace={trace}
+              executions={executions}
+              hostNames={hostNames}
+              onShowStep={(step) => select(step.id, document.body)}
+              onReview={focusWaiting}
+              onCancel={() => setCancelling(true)}
+            />
           </Visible>
-        )}
-        <Visible category="P0" id="operation.banner">
-          <OperationBanner
-            operation={operation}
+          {operation.status === "running" && (
+            <Visible category="P0" id="operation.progress">
+              <Progress label={running?.summary ? `Working: ${running.summary}` : "Working…"} />
+            </Visible>
+          )}
+          {operation.status === "queued" && (
+            <Visible category="P0" id="operation.progress">
+              <Progress label="Queued. It starts when a slot is free." />
+            </Visible>
+          )}
+          <WaitingForYou
+            operationId={operation.id}
             trace={trace}
             executions={executions}
             hostNames={hostNames}
-            onShowStep={(step) => select(step.id, document.body)}
-            onReview={focusWaiting}
-            onCancel={() => setCancelling(true)}
+            paused={operation.status === "paused"}
           />
-        </Visible>
-        {operation.status === "running" && (
-          <Visible category="P0" id="operation.progress">
-            <Progress label={running?.summary ? `Working: ${running.summary}` : "Working…"} />
-          </Visible>
-        )}
-        {operation.status === "queued" && (
-          <Visible category="P0" id="operation.progress">
-            <Progress label="Queued. It starts when a slot is free." />
-          </Visible>
-        )}
-        <WaitingForYou
+          <Section
+            title="Steps"
+            actions={
+              <Visible category="P1" id="operation.steps-head">
+                <SegmentedControl label="View" options={VIEWS} value={view} onChange={setChosen} />
+              </Visible>
+            }
+          >
+            {view === "graph" ? (
+              <GraphView
+                trace={trace}
+                executions={executions}
+                selected={selected}
+                onSelect={select}
+                onClear={clear}
+              />
+            ) : (
+              <StepOutline
+                trace={trace}
+                executions={executions}
+                selected={selected}
+                onSelect={select}
+                view={view}
+              />
+            )}
+          </Section>
+          <Section title="Details">
+            <OperationDetails trace={trace} hostNames={hostNames} />
+          </Section>
+          <OperationExperience operationId={operation.id} status={operation.status} />
+        </Stack>
+        <StepInspector
           operationId={operation.id}
           trace={trace}
           executions={executions}
           hostNames={hostNames}
-          paused={operation.status === "paused"}
+          selected={selected}
+          onSelect={select}
+          onClose={clear}
+          onReview={focusWaiting}
         />
-        <Section
-          title="Steps"
-          actions={
-            <Visible category="P1" id="operation.steps-head">
-              <SegmentedControl label="View" options={VIEWS} value={view} onChange={setChosen} />
-            </Visible>
-          }
-        >
-          {view === "graph" ? (
-            <GraphView
-              trace={trace}
-              executions={executions}
-              selected={selected}
-              onSelect={select}
-              onClear={clear}
-            />
-          ) : (
-            <StepOutline
-              trace={trace}
-              executions={executions}
-              selected={selected}
-              onSelect={select}
-              view={view}
-            />
-          )}
-        </Section>
-        <Section title="Details">
-          <OperationDetails trace={trace} hostNames={hostNames} />
-        </Section>
-        <OperationExperience operationId={operation.id} status={operation.status} />
-      </Stack>
-      <StepInspector
-        operationId={operation.id}
-        trace={trace}
-        executions={executions}
-        hostNames={hostNames}
-        selected={selected}
-        onSelect={select}
-        onClose={clear}
-        onReview={focusWaiting}
-      />
-      {cancelling && (
-        <CancelDialog
-          operationId={operation.id}
-          goal={operation.goal}
-          onClose={() => setCancelling(false)}
-        />
-      )}
+        {cancelling && (
+          <CancelDialog
+            operationId={operation.id}
+            goal={operation.goal}
+            onClose={() => setCancelling(false)}
+          />
+        )}
+      </ReplayStatusProvider>
     </VisibilityPage>
   );
 }

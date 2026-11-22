@@ -40,6 +40,7 @@ mod logs;
 mod notes;
 mod operation_controls;
 pub(crate) mod operation_errors;
+pub(crate) mod operation_history;
 pub(crate) mod operations;
 pub mod operator;
 mod overview;
@@ -361,6 +362,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(operations::list))
         .routes(routes!(operations::detail))
         .routes(routes!(operations::trace))
+        .routes(routes!(operation_history::get_operation_history))
         .routes(routes!(operations::step))
         .routes(routes!(operations::approve_step))
         .routes(routes!(operations::deny_step))

@@ -59,6 +59,8 @@ mod legacy_retirement;
 #[cfg(test)]
 mod operation_controls;
 #[cfg(test)]
+mod operation_history;
+#[cfg(test)]
 mod operations_api;
 #[cfg(test)]
 mod operations_steps;

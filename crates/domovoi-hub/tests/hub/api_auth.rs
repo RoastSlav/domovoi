@@ -282,6 +282,7 @@ async fn unauthenticated_requests_get_401() {
         "/api/v1/advisories",
         "/api/v1/digest/preview",
         "/api/v1/events",
+        "/api/v1/operations/0196ac01-0000-7000-8000-000000000001/history",
         "/api/v1/conversations",
         "/api/v1/conversations/0196ac01-0000-7000-8000-000000000001",
         "/api/v1/events?topics=incidents",

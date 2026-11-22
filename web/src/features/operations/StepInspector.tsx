@@ -2,7 +2,10 @@ import { useOperationStep } from "../../api/hooks/operations";
 import type { OperationTrace } from "../../api/operationTrace";
 import type { Execution } from "../../api/types";
 import { RightSlotSurface } from "../../app/rightSlot";
+import { InlineMessage, Visible } from "../../components";
 import { stepKindMeta } from "../../design/tone";
+import { useReplayStatus } from "./replay/ReplayContext";
+import { inspectorNote } from "./replay/replayText";
 import { INSPECTOR_ID } from "./useStepSelection";
 import {
   StepAction,
@@ -38,6 +41,7 @@ export function StepInspector({
 }) {
   const step = trace.steps.find((candidate) => candidate.id === selected);
   const execution = executions.find((candidate) => candidate.step === selected);
+  const replay = useReplayStatus();
   return (
     <RightSlotSurface
       spec={{ id: INSPECTOR_ID, label: "Step inspector", icon: "search" }}
@@ -45,6 +49,13 @@ export function StepInspector({
     >
       {step && (
         <>
+          {replay.replaying && (
+            <Visible category="P0" id="inspector.replay-note">
+              <InlineMessage tone="info" title="Showing the live record">
+                {inspectorNote(replay.label)}
+              </InlineMessage>
+            </Visible>
+          )}
           <p className="visually-hidden" role="status">
             Showing {stepKindMeta(step.kind).label}
             {step.summary ? `: ${step.summary}` : ""}

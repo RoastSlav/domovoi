@@ -29,6 +29,8 @@ export interface OperationGraphProps {
   rememberKey?: string;
   /** Default "Step graph". */
   label?: string;
+  /** Show "No steps yet" instead of the graph when the trace has no steps. Default true; a replay turns it off so the graph stays mounted at an empty moment. */
+  emptyState?: boolean;
   /** Receives the graph's focusable root, so the inspector can return focus to it. */
   openerRef?: StepGraphProps["openerRef"];
 }
@@ -47,6 +49,7 @@ export function OperationGraph({
   animate,
   rememberKey,
   label,
+  emptyState = true,
   openerRef,
 }: OperationGraphProps) {
   const { profile } = useProfile();
@@ -58,7 +61,7 @@ export function OperationGraph({
     () => buildGraphModel({ trace, profile, expanded, selected, showAll }),
     [trace, profile, expanded, selected, showAll],
   );
-  if (trace.steps.length === 0) {
+  if (trace.steps.length === 0 && emptyState) {
     return <EmptyState icon="play" title="No steps yet" />;
   }
   return (

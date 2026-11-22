@@ -32,9 +32,12 @@ export function experienceFixture(name) {
     return JSON.parse(readFileSync(join(fixtureRoot, "experience", `${name}.json`), "utf8"));
 }
 
-/** A fresh, mutable state for one run: the waiting-approval operation, one legacy action. */
-export function makeState({ destructive = false } = {}) {
-    const trace = load("waiting-approval");
+/**
+ * A fresh, mutable state for one run: one legacy action and, by default, the waiting-approval
+ * operation; `trace` names another of the golden trace fixtures to serve instead.
+ */
+export function makeState({ destructive = false, trace: fixture = "waiting-approval" } = {}) {
+    const trace = load(fixture);
     const pinned = trace.operation.pinned[0];
     return {
         seq: trace.as_of_seq,
@@ -105,6 +108,71 @@ export function detail(state) {
         operation: summary(state),
         trace: { ...state.trace, as_of_seq: state.seq },
         executions: executions(state),
+    };
+}
+
+const SECOND = 1000;
+const iso = (ms) => new Date(ms).toISOString().replace(".000Z", "Z");
+/** Execution outcomes that are also execution states of the same name in the journal. */
+const EXECUTION_FINAL = ["succeeded", "failed", "refused", "outcome_unknown"];
+
+/**
+ * `GET /operations/{id}/history`: the journal rows an operation of these steps would have left,
+ * as the hub projects them. A step is created when it started (a step with no time gets the
+ * previous step's time plus one second); an execution step also records `awaiting_approval`, then
+ * `dispatched` and its final state when it got that far. Always complete.
+ */
+export function history(state) {
+    const { operation, steps } = state.trace;
+    const rows = [{ at: Date.parse(operation.created_at), kind: "operation.created", step: null }];
+    let previous = Date.parse(operation.created_at);
+    for (const step of steps) {
+        const created = step.started_at ? Date.parse(step.started_at) : previous + SECOND;
+        previous = created;
+        rows.push({ at: created, kind: "operation.step_created", step: step.id });
+        if (step.kind !== "execution") {
+            continue;
+        }
+        rows.push({
+            at: created,
+            kind: "operation.execution",
+            step: step.id,
+            to: "awaiting_approval",
+        });
+        if (step.outcome === "pending") {
+            continue;
+        }
+        rows.push({
+            at: created + SECOND,
+            kind: "operation.execution",
+            step: step.id,
+            to: "dispatched",
+        });
+        if (EXECUTION_FINAL.includes(step.outcome)) {
+            const ended = step.ended_at ? Date.parse(step.ended_at) : created + 2 * SECOND;
+            rows.push({
+                at: Math.max(ended, created + 2 * SECOND),
+                kind: "operation.execution",
+                step: step.id,
+                to: step.outcome,
+            });
+        }
+    }
+    const ordered = rows
+        .map((row, index) => ({ row, index }))
+        .sort((a, b) => a.row.at - b.row.at || a.index - b.index)
+        .map(({ row }, index) => ({
+            seq: index + 1,
+            at: iso(row.at),
+            kind: row.kind,
+            step: row.step,
+            state: row.to ?? null,
+        }));
+    return {
+        as_of_seq: state.seq,
+        complete: true,
+        incomplete_reason: null,
+        events: ordered,
     };
 }
 
