@@ -360,6 +360,7 @@ flowchart LR
 - **Capability inventory:** `GET /api/v1/hosts/{name}/capabilities` returns one row per contract the hub knows, with its state, its catalogue state, its effect class, its execution path and the two agent labels (`root_agent`, `runner_installed`), plus the ids the agent reported that no contract describes. The `/capabilities` page renders it read-only: it enables, disables and approves nothing, and an `available` row is never a promise that a run will proceed.
 
 - **Host ceiling:** `GET /api/v1/hosts/{name}/ceiling` returns what the host's agent reported as its unattended limits (`reported`, `not_reported` or `unreadable`). It is read-only and never written by the hub. The Capability Center at `/capabilities` groups the inventory, packages (import and install wizard), host limits and helper placeholders as tabs.
+- **Overview:** `GET /api/v1/overview` (optional `host`) counts incidents, approvals, operations by state (running, waiting for approval, waiting for an answer, paused), actions with an unknown result and offline hosts, plus an `attention_total` that sums everything that waits for the owner; see the [HTTP API reference](docs/book/src/reference/api.md#overview).
 - **Audit log:** `GET /api/v1/audit` lists entries with their chain fields and `GET /api/v1/audit/verification` checks the chain; both only read. See the [HTTP API reference](docs/book/src/reference/api.md#audit-log).
 
 ## 11. LLM and triage
