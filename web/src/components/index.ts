@@ -55,6 +55,7 @@ export { DataTable, type Column, type TableSort } from "./DataTable";
 export { KeyValueList, type KeyValue } from "./KeyValueList";
 export { FilterChips, type Chip } from "./FilterChips";
 export { Tabs, type Tab } from "./Tabs";
+export { Scrubber } from "./Scrubber";
 export { RelativeTime } from "./RelativeTime";
 export { Timeline, TIMELINE_PREVIEW, type TimelineItem } from "./Timeline";
 export { Countdown, formatRemaining, useRemaining } from "./Countdown";
