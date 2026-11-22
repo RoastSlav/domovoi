@@ -1,6 +1,6 @@
 import type { OperationTrace, TraceStep } from "../../../api/operationTrace";
 import { floorSecond, type Frame } from "./frames";
-import type { HistoryEvent, OperationHistory } from "./types";
+import type { HistoryEvent, OperationHistory } from "../../../api/types";
 
 /** First time (whole second) per step of the events of one kind, optionally filtered by state. */
 function firstSecondPerStep(
@@ -10,7 +10,7 @@ function firstSecondPerStep(
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const e of events) {
-    if (e.kind === kind && e.step !== null && (state === undefined || e.state === state)) {
+    if (e.kind === kind && e.step != null && (state === undefined || e.state === state)) {
       const at = floorSecond(e.at);
       const known = out.get(e.step);
       if (at !== null && (known === undefined || at < known)) {
@@ -96,7 +96,7 @@ export function traceAt(input: {
     if (e.kind === "operation.created") {
       createdSeen = true;
     }
-    if (e.kind === "operation.status" && e.state !== null) {
+    if (e.kind === "operation.status" && e.state != null) {
       status = e.state;
       statusSeen = true;
     }

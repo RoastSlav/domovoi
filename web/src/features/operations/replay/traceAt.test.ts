@@ -10,7 +10,7 @@ import {
 import { makeTrace } from "../../../test/syntheticTrace";
 import { buildFrames, positionsOf } from "./frames";
 import { traceAt } from "./traceAt";
-import type { OperationHistory } from "./types";
+import type { OperationHistory } from "../../../api/types";
 
 const waiting = TRACE_FIXTURES["waiting-approval"] as OperationTrace;
 const id = (n: number): string => `01900000-0000-7000-8000-00000001000${n}`;

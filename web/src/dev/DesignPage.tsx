@@ -8,6 +8,7 @@ import { FormDemos } from "./FormDemos";
 import { KnowledgeDemos } from "./KnowledgeDemos";
 import { NewKitDemos } from "./NewKitDemos";
 import { GraphDemos } from "./GraphDemos";
+import { ReplayDemos } from "./ReplayDemos";
 import { OperationDemos } from "./OperationDemos";
 import { PolicyDemos } from "./PolicyDemos";
 import { VisibilityDemos } from "./VisibilityDemos";
@@ -110,6 +111,7 @@ export default function DesignPage() {
       <OperationDemos />
       <AttentionDemos />
       <GraphDemos />
+      <ReplayDemos />
       <PolicyDemos />
       <KnowledgeDemos />
       <VisibilityDemos />

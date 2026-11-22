@@ -63,6 +63,10 @@ Four requests control an operation. Each needs a logged-in session and the CSRF 
 
 An unknown operation or step is 404, and a bad reason, limit or answer is 400 with the reason in `message`.
 
+## Operation history
+
+`GET /api/v1/operations/{id}/history` answers how an operation unfolded, for the replay in the graph view. It needs a logged-in session. The answer has `as_of_seq` (the event-stream position it was read at), `complete`, `incomplete_reason` and `events`, oldest first. Each event is `{"seq", "at", "kind", "step", "state"}`: the journal row's time, its kind, the step it names (or `null`) and the new state it records (an execution state or an operation status, otherwise `null`). It never carries intent, summary or any free text. `incomplete_reason` is `null` when the history starts at the operation's creation and holds every row up to `as_of_seq`; otherwise it is `pruned` (the oldest rows were removed), `capped` (there are more than 500 rows, so the newest are missing) or `both`. An unknown operation answers 404, and while operations are off the endpoint answers 503 "orchestration is not enabled".
+
 ## Policy
 
 The policy routes read and change the policy draft, publish numbered versions and show shadow decisions. See [Policy](../concepts/policy.md) for what the terms mean.

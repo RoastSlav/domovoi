@@ -129,3 +129,19 @@ With a pointer, click a step to select it, double-click to open it, drag the bac
 **The list under the graph.** The same steps appear below it as a list. Selecting a step in the list selects it in the graph, and the other way round. The list is the way to read the steps with a screen reader, and it stays on the page if the graph cannot be drawn. In that case the graph is replaced by a message with **Try again**, and nothing else on the page changes.
 
 The graph is only for looking. Approving, denying, pausing and answering happen where they always do: on the banner and the cards above it, and in the step inspector.
+
+## Replaying how an operation unfolded
+
+Above the graph there is a **Replay** button. It opens a bar that lets you watch the graph as it was at an earlier moment: which steps existed, and what state each was in. A *moment* is one whole second in which something was recorded. The last stop, **Live**, is the operation as it is now. Nothing is loaded until you press Replay.
+
+**Use the bar.** Drag the "Replay position" slider, or press **Previous moment** and **Next moment**. **Play** steps through the moments one a second, and the speed control makes it 2 or 4 times faster. **Back to live** (or **Close replay**) returns to the present. While you are looking at an earlier moment, a note above the graph says "Replay: showing" and the time, and the status line says which moment of how many you are on and what changed.
+
+**What it can show, and what it cannot.** The replay is rebuilt from two things: the operation's final record and the journal of changes. It does not keep a picture of every second. So it is exact to the second for when a step was created and for the outcome it ended with. A step shows as `running` only where the journal recorded that it started or was dispatched, and otherwise stays pending until its final outcome. The text of a step is always the final text: the replay never invents words. Costs, budgets and the header of the page are not replayed.
+
+**Everything else stays live.** Only the graph goes back in time. The step list, the banner, **Waiting for you** and its Approve button, and the step inspector all show the present, and the inspector says "Showing the live record" while you replay. You can approve or deny while replaying, and Replay never does it for you.
+
+**When the history is incomplete.** If the oldest records of the operation were removed, a note says the replay starts later than the operation. If the operation has more records than a replay can hold, a note says the replay stops before the latest changes; **Back to live** shows the current state.
+
+**Keys.** With the graph focused and the replay bar open: `,` goes to the previous moment, `.` to the next, Space plays or pauses, and `l` returns to live. The slider also answers the arrow keys, Home, End, Page Up and Page Down. Escape is not used by the replay.
+
+**Reduced motion.** If your system asks for reduced motion, there is no automatic play: **Play** is disabled and says why. Previous moment and Next moment still work, and the graph changes at once.

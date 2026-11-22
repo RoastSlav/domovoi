@@ -277,6 +277,11 @@ Step inspector: `inspector.outcome`, `inspector.reason` and `inspector.approval`
 `inspector.kind` and `inspector.summary` are P1; `inspector.intent`, `inspector.output` and
 `inspector.connections` are P2; `inspector.times` is P3.
 
+Replay (inside `operation.graph`): `operation.replay-toggle` and `operation.replay-bar` are P1;
+`operation.replay-note` ("Replay: showing"), `operation.replay-gap` (the pruned and capped notes) and
+`inspector.replay-note` ("Showing the live record") are P0, because each says what the graph is
+showing or that the record is incomplete. The history's loading and failure states are P0.
+
 Steps (`operation.step`, from `stepVisibility.ts`):
 
 | Rule                                                                                            | Category         |
@@ -354,7 +359,12 @@ page needs something the kit lacks, add it to the kit, to this list and to `/dev
   a 12 px muted hint 6 px under the control, the error below), `TextInput`, `NumberInput`
   (digits right-aligned), `Textarea`, `Select` (custom chevron), `PasswordInput`,
   `Checkbox`, `Switch` (32 by 18 px track, accent when on, label and hint to its right),
-  `SegmentedControl`, `DropZone`, `FormErrorSummary`, `SubmitBar`. Text inputs, selects and
+  `SegmentedControl`, `Scrubber` (a position along a short sequence: a native range input with a
+  visible label, `aria-valuetext` and a 44 px touch height, tokens only, no ticks, no tooltip; use it to
+  pick one of a few dozen ordered moments, such as a replay position; not for a free number, which
+  takes `NumberInput`, and not for a volume or a zoom; arrows, Home, End and Page keys move it as any
+  range input does, and it needs `disabledReason` when disabled), `DropZone`, `FormErrorSummary`,
+  `SubmitBar`. Text inputs, selects and
   textareas are 32 px (a textarea at least that), surface background, strong border, radius
   6, subtle placeholder; hover brightens the border (`--color-border-hover`), focus turns it
   accent and adds `--shadow-focus`.
@@ -459,6 +469,21 @@ use. `preloadGraph()` warms it.
   replaced by a warning, "The graph could not be drawn", with Try again (a fresh import per attempt)
   and, after a second failure, "If it keeps failing, reload the page." The step list under the graph is
   always on the page, so the page stays usable and no approval, banner or inspector depends on the graph.
+- **Replay.** Above the graph a **Replay** button opens the replay bar (`ReplayBar`, inside
+  `GraphView`); closed is the default and fetches nothing. The bar is a group named "Replay":
+  Previous moment, Play or Pause, Next moment, a Speed control (1×, 2×, 4×), Back to live and a
+  `Scrubber` named "Replay position". A position is a moment (one whole second in which something was
+  recorded) or Live, the last stop; the status line says "Moment i of n: clock. caption", or "Live". While a
+  moment shows, the graph frame carries `data-replay="true"` and a note above it, "Replay: showing
+  {clock}", says so; the step list, the banner, **Waiting for you** and the inspector stay live, and
+  the inspector says "Showing the live record". With the graph focused, `,` is the previous moment,
+  `.` the next, Space plays or pauses and `l` goes back to live; Escape is not used. The replay is
+  rebuilt from the final record and the journal: creation and final outcomes are exact to the second,
+  a step reads `running` only where the journal recorded it, and step text is always the final text.
+  An incomplete history says so (the oldest records were removed, or the replay stops before the
+  latest changes). Reduced motion has no autoplay: Play is disabled with its reason, and Previous and
+  Next work at once. The replay code has no mutation hook and no approval path, and runs one timer
+  per tick, never an interval.
 - **Not a place to decide.** The graph has no approve, deny, resume or cancel control and imports no
   hook that sends one. Selecting a step opens the inspector, where a decision is made as everywhere.
 
@@ -642,6 +667,14 @@ one node that opens with Enter or a click, and a step that needs the person is n
   is fixed.
 - Decisions are recorded for comparison and are not enforced. Every recorded answer says so.
 
+**Replay how an operation unfolded.** Press Replay above the graph, then drag the "Replay position"
+slider or step with Previous moment and Next moment; Play runs the moments at 1×, 2× or 4×, and Back
+to live returns. The graph shows the operation at that moment and a note says so; everything else on
+the page, including approvals, is live. The replay is honest about what it knows: it is rebuilt from
+the final record and the journal, so only creation, `awaiting_approval`, `dispatched` and final outcomes
+are placed in time, and a step that was running shows `running` only where that was recorded. When the
+history is incomplete, a note says which end is missing. With reduced motion there is no autoplay.
+
 **Install a package.** Import the owner-signed archive and its signature file on the Packages tab of
 the Capability Center, then choose the package and the hosts. Review the plan code, then confirm
 with your password and the package name typed by you. Watch each host on the progress page; a retry
@@ -690,7 +723,6 @@ with its tokens, kit component, `/dev/design` demo and test.
 | Planned token / behavior                 | Value                    | Use                                                              |
 | ---------------------------------------- | ------------------------ | ---------------------------------------------------------------- |
 | `--motion-panel` (side panel, inspector) | 240 ms, `transform` only | Open and close; content is padded, never reflowed mid-transition |
-| Playback                                 | user-controlled speed    | Replay of a completed operation; the last U2 deliverable (D-25)  |
 
 - Recommended 240 to 400 ms. A single transition never exceeds 600 ms; a test reads the tokens
   and fails above it.
@@ -750,9 +782,6 @@ containment step the helper refuses because its safety identity changed carries 
 `safety_changed`. The owner confirms only covered paths. The Capability Center
 reserves the Helper tab and `/capabilities/helper-key` as labelled placeholders until the hub
 collects helper data.
-Playback of a completed operation is the last U2 deliverable (D-25); the timeline and the outline
-do not depend on it, and its motion follows the same visualization class and reduced-motion rule
-as the graph.
 
 ## Checks that will fail your PR
 
@@ -808,6 +837,8 @@ first download; every other page is in `pages.ts` and fetched when opened (a lin
 hover or focus). Markdown is its own chunk; `vendor` is split so it stays cached across hub
 upgrades. A mutation refreshes only what it changed; polling stops when nothing can change.
 Bundle size after this change: initial JS 183.1 kB gzip, largest chunk 111.7 kB, CSS 29.4 kB gzip (within budget). The initial JS grew by 2.4 kB because the kit now carries the graph wrapper (lazy loading, failure fallback), three toolbar icons and the right slot's `focus`; the budget rose from 183 to 185 kB for that.
+
+Bundle size after the replay bar: initial JS 183.5 kB gzip, largest chunk 111.7 kB, graph chunk 15.7 kB, CSS 29.4 kB (within budget).
 
 The step graph is its own lazy chunk (`graph-<hash>.js`, the `@dagrejs` packages), fetched when a
 graph is first shown, so it is outside the first download and inside the 120 kB chunk limit.

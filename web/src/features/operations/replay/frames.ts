@@ -1,6 +1,6 @@
 import type { OperationTrace } from "../../../api/operationTrace";
 import { executionStateMeta, operationStatusMeta, stepKindMeta } from "../../../design/tone";
-import type { HistoryEvent } from "./types";
+import type { HistoryEvent } from "../../../api/types";
 
 /** One moment of a replay: a whole second in which something was recorded. */
 export interface Frame {
@@ -65,12 +65,12 @@ export function frameCaption(frame: Frame, final: OperationTrace): string {
   let other = 0;
   for (const event of frame.events) {
     if (event.kind === "operation.step_created") {
-      const kind = event.step === null ? undefined : kindOf.get(event.step);
+      const kind = event.step == null ? undefined : kindOf.get(event.step);
       const label = kind === undefined ? "step" : stepKindMeta(kind).label;
       created.set(label, (created.get(label) ?? 0) + 1);
-    } else if (event.kind === "operation.execution" && event.state !== null) {
+    } else if (event.kind === "operation.execution" && event.state != null) {
       actions.push(`Action: ${executionStateMeta(event.state).label}`);
-    } else if (event.kind === "operation.status" && event.state !== null) {
+    } else if (event.kind === "operation.status" && event.state != null) {
       statuses.push(`Operation: ${operationStatusMeta(event.state).label}`);
     } else {
       other += 1;

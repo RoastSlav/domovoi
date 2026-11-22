@@ -1,6 +1,6 @@
 import type { OperationTrace } from "../api/operationTrace";
 import { floorSecond } from "../features/operations/replay/frames";
-import type { HistoryEvent, OperationHistory } from "../features/operations/replay/types";
+import type { HistoryEvent, OperationHistory } from "../api/types";
 import failedVerification from "./fixtures/operation-trace/failed-verification-new-cycle.json";
 import outcomeUnknown from "./fixtures/operation-trace/outcome-unknown-paused.json";
 import questionAndBudget from "./fixtures/operation-trace/question-and-budget-pause.json";

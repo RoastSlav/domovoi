@@ -78,6 +78,45 @@ async function insideSlot(page) {
     return page.evaluate(() => Boolean(document.activeElement?.closest("aside, [role=dialog]")));
 }
 
+const REDUCED_REASON =
+    "Automatic replay is off because your system asks for reduced motion. Use Previous moment and Next moment.";
+
+function replayPosition(page) {
+    return page.getByLabel("Replay position", { exact: true });
+}
+
+async function positionValue(page) {
+    return Number(await replayPosition(page).inputValue());
+}
+
+/** Opens the replay bar on the graph of the state the mock now serves and parks at the first moment. */
+async function openReplay(ctx) {
+    const { page } = ctx;
+    await graphPage(ctx);
+    await page.getByRole("button", { name: "Replay", exact: true }).click();
+    await visible(page.getByRole("group", { name: "Replay", exact: true }), "the replay bar");
+    await visible(replayPosition(page), "the replay position control");
+}
+
+async function seekFirst(page) {
+    await replayPosition(page).fill("0");
+    await visible(page.getByText("Replay: showing"), "the replay note");
+}
+
+/** How many distinct whole seconds the mock's history records: the replay's moments. */
+function momentsOf(server) {
+    const seconds = new Set(
+        server.history().events.map((event) => Math.floor(Date.parse(event.at) / 1000)),
+    );
+    return seconds.size;
+}
+
+async function noGraphLoss(page, before, what) {
+    const now = (await graphNodes(page)).length;
+    expect(now >= before, `${what}: the graph went from ${before} to ${now} nodes.`);
+    return now;
+}
+
 const LOCKED_ID = "0192a000-0000-7000-8000-00000000e001";
 const LIMITS_ID = "0192a000-0000-7000-8000-00000000e003";
 
@@ -1307,6 +1346,157 @@ export const CHECKS = [
             }
             await page.getByRole("button", { name: "Zoom in", exact: true }).click();
             await noSideways(page, "The graph view after zooming");
+        },
+    },
+    {
+        name: "replay opens on a finished operation, scrubs to the first moment, steps forward and returns to live",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset({ trace: "verified-success" });
+            server.setPreference("detailed");
+            await openReplay(ctx);
+            const steps = server.state().trace.steps.length;
+            const max = Number(await replayPosition(page).getAttribute("max"));
+            expect(
+                max === momentsOf(server) - 1,
+                `The scrubber's max is ${max}; the history has ${momentsOf(server)} moments.`,
+            );
+            expect(
+                (await page.getByText("Replay: showing").count()) === 0,
+                "The replay note shows before the person moved.",
+            );
+            await seekFirst(page);
+            const first = (await graphNodes(page)).length;
+            expect(first < steps, `The first moment shows ${first} of ${steps} nodes.`);
+            await page.getByRole("button", { name: "Next moment" }).click();
+            await noGraphLoss(page, first, "Next moment");
+            await page.getByRole("button", { name: "Back to live" }).click();
+            await page
+                .getByText("Replay: showing")
+                .waitFor({ state: "detached", ...WAIT })
+                .catch(() => undefined);
+            expect(
+                (await page.getByText("Replay: showing").count()) === 0,
+                "The replay note stays after Back to live.",
+            );
+            const live = (await graphNodes(page)).length;
+            expect(live === steps, `Live shows ${live} nodes for ${steps} steps.`);
+            expect(
+                (await page.locator("[data-graph-frame]").getAttribute("data-replay")) !== "true",
+                "The graph frame is still marked as replaying at live.",
+            );
+        },
+    },
+    {
+        name: "the page stays live during a replay: approval, every step and the inspector's own note",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset();
+            server.setPreference("detailed");
+            await openReplay(ctx);
+            await seekFirst(page);
+            expect(
+                (await page.locator('[data-graph-frame][data-replay="true"]').count()) === 1,
+                "The graph frame is not marked data-replay while replaying.",
+            );
+            await visible(
+                page.getByRole("heading", { name: "Waiting for you" }),
+                "the Waiting for you section",
+            );
+            await visible(page.getByRole("button", { name: /^Approve/ }), "Approve");
+            for (const step of server.state().trace.steps) {
+                expect(
+                    (await page.locator(`a[href*="step=${step.id}"]`).count()) > 0,
+                    `The step list does not list ${step.id} during the replay.`,
+                );
+            }
+            await stepLinks(page).first().click();
+            await visible(
+                page.getByRole("complementary", { name: "Step inspector" }),
+                "the inspector",
+            );
+            await visible(page.getByText("Showing the live record"), "the inspector's replay note");
+        },
+    },
+    {
+        name: "autoplay advances within 3 s and pauses; with reduced motion Play is off and the arrows work instantly",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset({ trace: "verified-success" });
+            server.setPreference("detailed");
+            try {
+                await page.emulateMedia({ reducedMotion: "no-preference" });
+                await openReplay(ctx);
+                await seekFirst(page);
+                const start = await positionValue(page);
+                await page.getByRole("button", { name: "Play", exact: true }).click();
+                await page.waitForFunction(
+                    (from) => Number(document.querySelector('input[type="range"]')?.value) > from,
+                    start,
+                    { timeout: 3000 },
+                );
+                await page.getByRole("button", { name: "Pause", exact: true }).click();
+                const stopped = await positionValue(page);
+                await page.waitForTimeout(1500);
+                expect(
+                    (await positionValue(page)) === stopped,
+                    "The replay kept advancing after Pause.",
+                );
+
+                await page.emulateMedia({ reducedMotion: "reduce" });
+                await openReplay(ctx);
+                const play = page.getByRole("button", { name: "Play", exact: true });
+                await visible(play, "the Play button");
+                expect(await play.isDisabled(), "Play is enabled under reduced motion.");
+                expect(
+                    ((await play.getAttribute("aria-description")) ?? "").includes(REDUCED_REASON),
+                    "The reason Play is off is not given to assistive technology.",
+                );
+                await seekFirst(page);
+                const before = (await graphNodes(page)).length;
+                await page.getByRole("button", { name: "Next moment" }).click();
+                await page.waitForTimeout(50);
+                const running = await page.evaluate(() => document.getAnimations().length);
+                expect(
+                    running === 0,
+                    `${running} animations run after Next moment under reduced motion.`,
+                );
+                const after = (await graphNodes(page)).length;
+                expect(after > before, `Next moment left the graph at ${before} nodes.`);
+                await page.getByRole("button", { name: "Previous moment" }).click();
+                expect(
+                    (await graphNodes(page)).length === before,
+                    "Previous moment did not undo Next moment at once.",
+                );
+            } finally {
+                await page.emulateMedia({ reducedMotion: "no-preference" });
+            }
+        },
+    },
+    {
+        name: "from the graph, . steps forward and l returns to live",
+        async run(ctx) {
+            const { page, server } = ctx;
+            server.reset({ trace: "verified-success" });
+            server.setPreference("detailed");
+            await openReplay(ctx);
+            await seekFirst(page);
+            const start = await positionValue(page);
+            await page.locator("[data-graph]").focus();
+            await page.keyboard.press(".");
+            expect(
+                (await positionValue(page)) === start + 1,
+                "The . key did not move to the next moment.",
+            );
+            await page.keyboard.press(",");
+            expect((await positionValue(page)) === start, "The , key did not move back.");
+            await page.keyboard.press("l");
+            const max = Number(await replayPosition(page).getAttribute("max"));
+            expect((await positionValue(page)) === max, "The l key did not go to live.");
+            expect(
+                (await page.getByText("Replay: showing").count()) === 0,
+                "The replay note stays after l.",
+            );
         },
     },
 ];
