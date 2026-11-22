@@ -183,7 +183,8 @@ export async function startServer(dist) {
                             .toLowerCase()
                             .includes(q)),
             );
-            return ok({ items, next_cursor: null });
+            const limit = Number(searchParams.get("limit")) || items.length;
+            return ok({ items: items.slice(0, limit), next_cursor: null });
         }
         const one = pathname.match(/^\/api\/v1\/knowledge\/facts\/([^/]+)$/);
         if (method === "GET" && one) {
@@ -276,7 +277,13 @@ export async function startServer(dist) {
             "GET /api/v1/audit": () => data.auditPage(url.searchParams.get("history")),
             "GET /api/v1/audit/verification": () =>
                 data.auditVerification(url.searchParams.get("scope")),
-            "GET /api/v1/actions": () => ({ items: data.actions(state), next_cursor: null }),
+            "GET /api/v1/actions": () => ({
+                items: data.actions(state, url.searchParams.get("status")),
+                next_cursor: null,
+            }),
+            "GET /api/v1/incidents": () =>
+                data.incidents(state, url.searchParams.get("group"), url.searchParams.get("q")),
+            "GET /api/v1/notes/search": () => data.noteHits(state, url.searchParams.get("q") ?? ""),
             "GET /api/v1/operations": () => data.page(state, url.searchParams.get("status")),
             [`GET /api/v1/operations/${id}`]: () => data.detail(state),
         };

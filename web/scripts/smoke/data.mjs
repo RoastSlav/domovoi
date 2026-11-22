@@ -108,10 +108,36 @@ export function detail(state) {
     };
 }
 
-/** `GET /operations`. */
+/** Operations other than the main one, by status: a small different page for each. */
+const OTHER_OPERATIONS = {
+    running: {
+        id: "0192a000-0000-7000-8000-00000000f001",
+        goal: "Rebuild the media index",
+        waiting_for: [],
+        pause_reason: null,
+    },
+    waiting_user: {
+        id: "0192a000-0000-7000-8000-00000000f002",
+        goal: "Choose how long to keep snapshots",
+        waiting_for: ["answer"],
+        pause_reason: null,
+    },
+    paused: {
+        id: "0192a000-0000-7000-8000-00000000f003",
+        goal: "Prune old snapshots",
+        waiting_for: [],
+        pause_reason: { type: "manual" },
+    },
+};
+
+/** `GET /operations`: the main operation when its status matches, plus the others of that status. */
 export function page(state, status) {
     const row = summary(state);
-    const items = status && status !== row.status ? [] : [row];
+    const other = status ? OTHER_OPERATIONS[status] : undefined;
+    const items = [
+        ...(!status || status === row.status ? [row] : []),
+        ...(other ? [{ ...row, ...other, status, updated_at: "2026-10-31T11:00:00Z" }] : []),
+    ];
     return { items, next_cursor: null, as_of_seq: state.seq };
 }
 
@@ -159,41 +185,155 @@ export function hosts(state) {
             incompatible_since: null,
             open_incidents: 1,
         },
-    ];
-}
-
-/** One legacy action, so the list shows a row tagged Legacy. */
-export function actions(state) {
-    return [
         {
-            id: "act-legacy",
-            incident_id: "inc-legacy",
-            host_id: state.hostId,
-            skill: "restart_container",
-            risk: "write",
-            args: { name: "web" },
-            status: "proposed",
-            plan_hash: "9f2c1a4b".repeat(8),
-            plan_hash_v1: "1a4b9f2c".repeat(8),
-            plan_binding: "v1",
-            proposed_by: "system:triage",
-            expires_at: "2099-01-01T00:00:00Z",
-            created_at: "2026-10-30T12:00:00Z",
-            updated_at: "2026-10-30T12:00:00Z",
-            legacy: true,
+            id: "0192a000-0000-7000-8000-00000000c0aa",
+            name: "old-agent",
+            kind: "remote",
+            connected: false,
+            agent_enrolled: true,
+            version: "0.0.0",
+            outdated: false,
+            protocol_state: "incompatible",
+            reported_protocol: "0.9",
+            hub_protocol: "1.1",
+            reported_release: "0.0.0",
+            incompatible_since: "2026-10-31T10:00:00Z",
+            last_seen: "2026-10-31T10:00:00Z",
+            open_incidents: 0,
         },
     ];
 }
 
-/** `GET /overview`: nothing going on. */
+/** The classic actions by status: one proposed (tagged Legacy in lists), one whose result is unknown. */
+function classicActions(state) {
+    const base = {
+        host_id: state.hostId,
+        risk: "write",
+        plan_binding: "v1",
+        proposed_by: "system:triage",
+        expires_at: "2099-01-01T00:00:00Z",
+        created_at: "2026-10-30T12:00:00Z",
+        updated_at: "2026-10-30T12:00:00Z",
+        legacy: true,
+    };
+    return [
+        {
+            ...base,
+            id: "act-legacy",
+            incident_id: "inc-legacy",
+            skill: "restart_container",
+            args: { name: "web" },
+            status: "proposed",
+            plan_hash: "9f2c1a4b".repeat(8),
+            plan_hash_v1: "1a4b9f2c".repeat(8),
+        },
+        {
+            ...base,
+            id: "act-unknown",
+            incident_id: "inc-unknown",
+            skill: "prune_images",
+            args: { all: false },
+            status: "outcome_unknown",
+            plan_hash: "3c7e5d21".repeat(8),
+            plan_hash_v1: "5d213c7e".repeat(8),
+        },
+    ];
+}
+
+/** `GET /actions`: without a status only the proposed one (the list tags it Legacy). */
+export function actions(state, status) {
+    return classicActions(state).filter((action) => action.status === (status ?? "proposed"));
+}
+
+/** Incidents the mock knows, with the group each belongs to (not sent to the page). */
+const INCIDENTS = [
+    ["inc-plex", "plex keeps restarting", "critical", "needs_action", "2026-10-31T11:50:00Z"],
+    ["inc-p1", "plex slow response 1", "warning", "monitor", "2026-10-31T11:40:00Z"],
+    ["inc-p2", "plex slow response 2", "warning", "monitor", "2026-10-31T11:39:00Z"],
+    ["inc-p3", "plex slow response 3", "warning", "monitor", "2026-10-31T11:38:00Z"],
+    ["inc-p4", "plex slow response 4", "warning", "monitor", "2026-10-31T11:37:00Z"],
+    ["inc-p5", "plex slow response 5", "warning", "monitor", "2026-10-31T11:36:00Z"],
+    ["inc-old", "Plex old alert", "warning", "handled", "2026-10-30T09:00:00Z"],
+    ["inc-disk", "nas disk is almost full", "warning", "monitor", "2026-10-31T09:00:00Z"],
+];
+
+/** `GET /incidents`: honours `group` and `q`, newest first, in one page. */
+export function incidents(state, group, q) {
+    const needle = (q ?? "").toLowerCase();
+    const items = INCIDENTS.filter(
+        ([, title, , own]) => (!group || own === group) && title.toLowerCase().includes(needle),
+    ).map(([id, title, severity, , at]) => ({
+        id,
+        host_id: state.hostId,
+        check: "container.running",
+        target: "plex",
+        title,
+        status: "open",
+        severity,
+        verdict: null,
+        opened_at: at,
+        last_firing_at: at,
+        occurrences: 1,
+    }));
+    return { items, next_cursor: null, as_of_seq: state.seq };
+}
+
+/** `GET /notes/search`: one note for any text, with its matching excerpt. */
+export function noteHits(state, q) {
+    return [
+        {
+            note: {
+                id: "note-plex",
+                title: "How plex is set up",
+                body_markdown: `Plex runs in a container; the text asked for was ${q}.`,
+                host_id: state.hostId,
+                tags: [],
+                updated_at: "2026-10-30T12:00:00Z",
+            },
+            score: 1,
+            snippet: "Plex runs in a container.",
+        },
+    ];
+}
+
+/**
+ * `GET /overview`: one of everything. The attention total is the sum the hub documents:
+ * needs-action incidents, approvals, operations waiting for approval or an answer, paused
+ * operations, unknown results and offline hosts (an incompatible host counts as offline).
+ */
 export function overview(state) {
+    const waitingApproval = state.trace.operation.status === "waiting_approval" ? 1 : 0;
+    const paused = 1 + (state.trace.operation.status === "paused" ? 1 : 0);
+    const counts = {
+        operations_running: 1 + (state.trace.operation.status === "running" ? 1 : 0),
+        operations_waiting_approval: waitingApproval,
+        operations_waiting_user: 1,
+        operations_paused: paused,
+        actions_outcome_unknown: 1,
+        approvals_waiting: 1,
+        hosts_offline: 1,
+    };
+    const needsAction = 1;
     return {
-        incidents_action_needed: 0,
-        incidents_open: 0,
-        incident_groups: { needs_action: 0, monitor: 0, pending: 0, expected: 0, handled: 0 },
-        approvals_waiting: 0,
-        hosts_offline: 0,
-        hosts_total: 1,
+        incidents_action_needed: needsAction,
+        incidents_open: 8,
+        incident_groups: {
+            needs_action: needsAction,
+            monitor: 6,
+            pending: 0,
+            expected: 0,
+            handled: 1,
+        },
+        ...counts,
+        attention_total:
+            needsAction +
+            counts.approvals_waiting +
+            counts.operations_waiting_approval +
+            counts.operations_waiting_user +
+            counts.operations_paused +
+            counts.actions_outcome_unknown +
+            counts.hosts_offline,
+        hosts_total: 2,
         as_of_seq: state.seq,
     };
 }
