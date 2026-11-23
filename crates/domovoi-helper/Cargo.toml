@@ -1,0 +1,32 @@
+[package]
+name = "domovoi-helper"
+description = "The root helper runtime, the host inspection adapter and the isolation self-test for Domovoi."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+domovoi-core = { workspace = true }
+domovoi-config = { workspace = true }
+async-trait = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
+[dev-dependencies]
+domovoi-testkit = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

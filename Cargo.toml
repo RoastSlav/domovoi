@@ -26,6 +26,7 @@ domovoi-llm = { path = "crates/domovoi-llm" }
 domovoi-chat = { path = "crates/domovoi-chat" }
 domovoi-checks = { path = "crates/domovoi-checks" }
 domovoi-runner = { path = "crates/domovoi-runner" }
+domovoi-helper = { path = "crates/domovoi-helper" }
 domovoi-agent = { path = "crates/domovoi-agent" }
 domovoi-hub = { path = "crates/domovoi-hub" }
 domovoi-testkit = { path = "crates/domovoi-testkit" }

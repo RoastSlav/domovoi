@@ -2,30 +2,33 @@
 # "Add host" dialog, then start it with
 #   systemctl enable --now domovoi-agent
 #
-# It runs as root: SMART needs the disks, the journal checks read every unit's log, and
-# skills run as the user their manifest names. The unit still keeps /usr and /etc
-# read-only, gives the agent a private /tmp, and only lets it write its own state.
+# It runs as the unprivileged domovoi-agent account (the primary group of the same name, plus
+# systemd-journal when that group exists, never docker). Work that needs root goes through the
+# local helper socket; the unit works without the helper, so it Wants the socket rather than
+# Requires it. The unit still keeps /usr and /etc read-only, gives the agent a private /tmp,
+# and only lets it write its own state and the package directory.
 #
 # RestrictSUIDSGID=no because a skill may run a setuid tool (for example `sudo -u` in a
 # manifest's command, or a vendor CLI); blocking it would make those skills fail.
 #
-# To run it unprivileged instead, add a drop-in (systemctl edit domovoi-agent) with
-# User=, Group= and ReadWritePaths= for its state directory. SMART, journal and skill
-# checks that need root then report errors; the rest keep working.
+# Do not add drop-ins to this unit: `domovoi agent selftest` reports any drop-in as
+# unit_modified.
 
 [Unit]
 Description=Domovoi agent
 Documentation=https://github.com/RoastSlav/domovoi
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target domovoi-helper.socket
+After=network-online.target domovoi-helper.socket
 
 [Service]
 Type=simple
+User=domovoi-agent
+Group=domovoi-agent
 ExecStart=/usr/local/bin/domovoi agent run
 Restart=always
 RestartSec=5
 
-ReadWritePaths=/var/lib/domovoi-agent
+ReadWritePaths=/var/lib/domovoi-agent /var/lib/domovoi-packages
 ProtectSystem=full
 PrivateTmp=yes
 ProtectKernelModules=yes
