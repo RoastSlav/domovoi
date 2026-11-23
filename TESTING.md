@@ -92,6 +92,7 @@ CI (`.github/workflows/ci.yml`) only runs a job when files it covers change. The
 | Shell scripts lint                          | `install.sh`, `deploy/test/`, skill `run` scripts              | `shellcheck install.sh deploy/test/*.sh examples/skills/*/run`                                                                                      |
 | Installer on ubuntu:24.04 / debian:12       | `install.sh`, `deploy/test/installer.sh`                       | see [Installer test](#installer-test)                                                                                                               |
 | systemd units verify                        | `deploy/systemd/`                                              | see [systemd units](#systemd-units)                                                                                                                 |
+| Real accounts and systemd units (not required) | `install.sh`, `deploy/`, `crates/domovoi-helper/`; nightly and on demand | see [Privileged identity test](#privileged-identity-test)                                                                            |
 | Coverage                                    | Rust changes                                                   | `cargo llvm-cov nextest --workspace --locked --no-tests=pass --html`, then open `target/llvm-cov/html/index.html`                                   |
 
 Other workflows:
@@ -270,7 +271,21 @@ docker run --rm -v "$PWD:/src" -w /src debian:12 \
   sh -c 'apt-get update -qq && apt-get install -y -qq ca-certificates curl python3 >/dev/null && sh deploy/test/installer.sh'
 ```
 
-CI runs it on `ubuntu:24.04` too.
+CI runs it on `ubuntu:24.04` too. It has no systemd, so for an agent it checks the path of a host that cannot get the privilege boundary: no accounts, no helper, today's modes and the "privilege boundary not in effect" notice. The three-identities install is tested by the next script.
+
+### Privileged identity test
+
+`deploy/test/identities.sh` installs with the real accounts, directories and systemd units: the accounts and every path of the layout with its mode, the root helper behind its socket, the self-test, the migration of a root agent to the `domovoi-agent` account and its rollback. It cannot run in a container. It needs a **disposable machine that boots with systemd as PID 1** (a virtual machine), root, and a built binary. It creates and deletes the accounts `domovoi-agent` and `domovoi-skill`, changes owners and modes, and starts the helper socket, so never run it on a machine you care about. It refuses to run when any of those names or paths already exists, and it exits 2 unless `DOMOVOI_PRIVILEGED_TESTS=1` is set.
+
+```sh
+cargo build --package domovoi
+sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
+  DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/identities.sh
+```
+
+It also needs `python3`, `curl`, `useradd`, `userdel`, `groupadd`, `groupdel`, `gpasswd`, `runuser`, `script` (the migration asks for the typed word on a terminal), `systemctl` and `journalctl`. The release is a fake one served on `127.0.0.1:18734`, as in the installer test. Each check prints `ok`, `FAIL` or `skip` with its name; the row that needs a `docker` group is skipped on a machine without one. A trap deletes only what the script recorded, and the last check fails when a `domovoi-probe-ci-*` account or one of the real names is left behind.
+
+CI runs it in the `Real accounts and systemd units` job on `ubuntu-24.04`, which first prints `systemctl --version`, the cgroup filesystem and the name of PID 1 and fails with a clear message when PID 1 is not systemd. The job runs on pull requests that touch `install.sh`, `deploy/` or `crates/domovoi-helper/`, nightly, and on demand (`workflow_dispatch`). It is not in the required checks yet.
 
 ### systemd units
 
@@ -278,9 +293,12 @@ CI runs it on `ubuntu:24.04` too.
 
 ```sh
 printf '#!/bin/sh\n' | sudo tee /usr/local/bin/domovoi >/dev/null && sudo chmod 0755 /usr/local/bin/domovoi
-systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service
+systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service \
+  deploy/systemd/domovoi-helper.socket deploy/systemd/domovoi-helper@.service
 sudo rm /usr/local/bin/domovoi
 ```
+
+The helper service is a template (`domovoi-helper@.service`) and the agent unit wants the helper socket, so all four units go in one run.
 
 ## Troubleshooting
 

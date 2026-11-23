@@ -38,18 +38,34 @@ owner_of() { stat -c '%U:%G' "$1"; }
     exit 2
 }
 
-for path in /usr/local/bin/domovoi /etc/domovoi /var/lib/domovoi /var/lib/domovoi-agent; do
+for path in /usr/local/bin/domovoi /etc/domovoi /var/lib/domovoi /var/lib/domovoi-agent \
+    /var/lib/domovoi-packages /var/lib/domovoi-helper; do
     [ ! -e "$path" ] || {
         echo "$path exists; run this on a clean machine" >&2
         exit 2
     }
 done
+for account in domovoi-agent domovoi-skill; do
+    ! id "$account" >/dev/null 2>&1 || {
+        echo "the $account account exists; run this on a clean machine" >&2
+        exit 2
+    }
+done
 
 # The units embedded in install.sh are the ones in deploy/systemd/.
-for role in hub agent; do
-    check "embedded $role unit matches deploy/systemd" \
-        sh -c "sh '$installer' --print-unit $role | cmp -s - '$root/deploy/systemd/domovoi-$role.service'"
+for pair in hub:domovoi-hub.service agent:domovoi-agent.service \
+    helper-socket:domovoi-helper.socket helper-service:domovoi-helper@.service; do
+    unit="${pair%%:*}"
+    unit_file="${pair#*:}"
+    check "embedded $unit unit matches deploy/systemd" \
+        sh -c "sh '$installer' --print-unit $unit | cmp -s - '$root/deploy/systemd/$unit_file'"
 done
+check "the agent unit runs as domovoi-agent" \
+    sh -c "sh '$installer' --print-unit agent | grep -qx 'User=domovoi-agent'"
+check "the legacy agent unit keeps running as root" \
+    sh -c "! sh '$installer' --print-unit agent-legacy | grep -Eq '^(User|Group)='"
+check "an unknown unit name is refused" \
+    sh -c "! sh '$installer' --print-unit runner >/dev/null 2>&1"
 
 case "$(uname -m)" in
 x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;
@@ -136,6 +152,7 @@ check "/etc/domovoi is 0750 root:domovoi" \
     test "$(mode_of /etc/domovoi) $(owner_of /etc/domovoi)" = "750 root:domovoi"
 check "no hub.toml written" test ! -e /etc/domovoi/hub.toml
 check "hub unit installed" cmp -s /etc/systemd/system/domovoi-hub.service "$root/deploy/systemd/domovoi-hub.service"
+check "hub install prints no privilege boundary notice" test -z "$(grep 'privilege boundary' "$work/out")"
 check "hub next steps printed" grep -q "systemctl enable --now domovoi-hub" "$work/out"
 check "setup hint printed" grep -q "journalctl -u domovoi-hub | grep setup" "$work/out"
 check "attestation hint printed" grep -q "gh attestation verify" "$work/out"
@@ -149,13 +166,30 @@ check "empty skills directory created" test -d /etc/domovoi/skills
 check "starter skills copied on first install" test -f /etc/domovoi/skills/alpha/skill.toml
 check "starter skill is not writable by others" sh -c "! find /etc/domovoi/skills/alpha -perm -022 | grep -q ."
 check "no agent.toml written" test ! -e /etc/domovoi/agent.toml
-check "agent unit installed" cmp -s /etc/systemd/system/domovoi-agent.service "$root/deploy/systemd/domovoi-agent.service"
+check "agent unit installed (the root unit: there is no systemd here)" \
+    sh -c "sh '$installer' --print-unit agent-legacy | cmp -s - /etc/systemd/system/domovoi-agent.service"
 check "agent next steps printed" grep -q "Add host" "$work/out"
+# With no /run/systemd/system the agent keeps today's layout: no accounts, no helper, today's modes.
+check "privilege boundary notice printed without systemd" \
+    grep -q "privilege boundary not in effect: no systemd on this host" "$work/out"
+check "no domovoi-agent account created" sh -c "! id domovoi-agent >/dev/null 2>&1"
+check "no domovoi-skill account created" sh -c "! id domovoi-skill >/dev/null 2>&1"
+check "no packages directory created" test ! -e /var/lib/domovoi-packages
+check "no helper directory created" test ! -e /var/lib/domovoi-helper
+check "no helper.toml written" test ! -e /etc/domovoi/helper.toml
+check "no helper socket unit installed" test ! -e /etc/systemd/system/domovoi-helper.socket
+check "no helper service unit installed" test ! -e /etc/systemd/system/domovoi-helper@.service
+check "skills directory keeps today's 0750 root:root" \
+    test "$(mode_of /etc/domovoi/skills) $(owner_of /etc/domovoi/skills)" = "750 root:root"
+check "state directory keeps today's 0700 root:root" \
+    test "$(mode_of /var/lib/domovoi-agent) $(owner_of /var/lib/domovoi-agent)" = "700 root:root"
 check "skill added by the latest release copied" test -f /etc/domovoi/skills/gamma/skill.toml
 echo "# edited" >>/etc/domovoi/skills/alpha/skill.toml
 rm -rf /etc/domovoi/skills/gamma
 check "agent upgrade succeeds" run_install --role agent
 check "edited starter skill kept" grep -q "# edited" /etc/domovoi/skills/alpha/skill.toml
+check "agent upgrade still creates no accounts" sh -c "! id domovoi-agent >/dev/null 2>&1 && ! id domovoi-skill >/dev/null 2>&1"
+check "agent upgrade prints the notice again" grep -q "privilege boundary not in effect" "$work/out"
 check "missing starter skill copied again on upgrade" test -f /etc/domovoi/skills/gamma/skill.toml
 
 # Running again changes nothing but the binary; edits are kept.
@@ -172,6 +206,25 @@ check "upgrade suggests restart" grep -q "systemctl restart domovoi-hub" "$work/
 check "upgrade does not suggest enable --now" test -z "$(grep "enable --now" "$work/out")"
 check "changed mode kept" test "$(mode_of /var/lib/domovoi)" = 700
 check "unchanged unit reported up to date" sh -c "sh '$installer' --role agent 2>&1 | grep -q 'domovoi-agent.service is up to date'"
+
+# The identity migration and its rollback need systemd and say so before touching anything.
+if run_install --role agent --migrate-identity; then
+    fail "migrate-identity is refused without systemd"
+else
+    pass "migrate-identity is refused without systemd"
+fi
+check "migrate-identity explains it needs systemd" grep -q "needs a systemd host" "$work/out"
+check "migrate-identity changed nothing" test "$(mode_of /var/lib/domovoi-agent)" = 700
+if run_install --rollback-identity; then
+    fail "rollback-identity is refused without systemd"
+else
+    pass "rollback-identity is refused without systemd"
+fi
+if run_install --role agent --yes; then
+    fail "there is no --yes"
+else
+    pass "there is no --yes"
+fi
 
 # A bad checksum stops the install before anything is replaced.
 before="$(sha256sum /usr/local/bin/domovoi)"
