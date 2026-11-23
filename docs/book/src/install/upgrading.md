@@ -18,6 +18,14 @@ sudo systemctl restart domovoi-hub
 
 `--version v0.9.9` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced without changing anything. Unlike the installer it leaves the unit files, users and examples alone, so use the installer when a release changes them. Run it with `sudo` when the binary is in `/usr/local/bin`. It works on Linux x86-64 and 64-bit ARM, the platforms with release builds.
 
+**An agent that still runs as root.** A routine rerun of the installer, or `domovoi upgrade`, never moves an agent to the three-identities layout. The agent keeps running as root, and the host is labelled "privilege boundary not in effect" in the installer's output, in `domovoi agent selftest` and on the hub. The move is a separate step you choose, with its own plan and a typed confirmation:
+
+```sh
+sudo sh install.sh --role agent --migrate-identity
+```
+
+See [Binary and systemd](binary.md#already-installed) for what it changes and how to roll it back. An agent already on the new layout is checked on every rerun: the installer reports any path with a wrong mode or owner and changes nothing.
+
 **Containers.** Pull the new image and recreate the container on the same volume:
 
 ```sh
@@ -77,11 +85,16 @@ The environment variable `DOMOVOI_UPDATES__CHECK=false` does the same. Turning i
 An agent:
 
 ```sh
-sudo systemctl disable --now domovoi-agent
+sudo systemctl disable --now domovoi-agent domovoi-helper.socket
 sudo rm /etc/systemd/system/domovoi-agent.service
-sudo rm -r /var/lib/domovoi-agent
+sudo rm /etc/systemd/system/domovoi-helper.socket /etc/systemd/system/domovoi-helper@.service
+sudo rm -r /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper
 sudo systemctl daemon-reload
+sudo userdel domovoi-agent
+sudo userdel domovoi-skill
 ```
+
+On a host that never had the three-identities layout, the helper, packages and `userdel` lines have nothing to remove and can be skipped. The helper directory holds nothing but a lock in this release.
 
 Then revoke the host on the hub's **Hosts** page, so its key is no longer accepted.
 

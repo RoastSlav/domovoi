@@ -49,3 +49,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0030](0030-three-identities.md) | Three identities: control agent, skill runner and root helper, and who may reach what on one host | Proposed |
 | [0031](0031-helper-and-skill-runner-delivery.md) | Helper and skill-runner delivery and isolation: socket-activated units, platform tiers and self-test checks | Proposed |
 | [0032](0032-helper-safety-attestation.md) | Helper safety attestation: a signed report of what the helper enforces, verified by the hub before unattended containment | Proposed |
+| [0033](0033-helper-crate-and-isolation-rules.md) | The helper crate, its edges and the isolation rules enforced by `arch-check` | Proposed |

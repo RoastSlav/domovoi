@@ -134,3 +134,7 @@ None of these is made by this change.
 ## Revision (2026-11-22)
 
 Brought up to date with the measurements on four hosts and the maintainer's decisions. Changed: the evidence is stated inline with its hosts and scope; Decision 1 states how each "must not reach" is enforced and withdraws "masked in the agent unit"; Decision 4 uses the real-account results and adds the installer command, the `docker` rule and the check ids; the user's spelling and the inherited-socket question (A1, A4) are decided and A3 is recorded as decided; code sites corrected from four to five; Decision 7 (socket adoption) added; rules `ID-2`, `ID-3`, `UNIT-2`, `UNIT-8` added to the proposed rules; Unproven rewritten (the claims that no real accounts were created and that every result came from one systemd version are no longer true); "What acceptance still needs" added. Status stays proposed.
+
+## Revision (2026-11-23)
+
+Open question A2 is decided: the helper code lives in a new crate, `domovoi-helper`, with edges to `domovoi-core` and `domovoi-config` only, and the rules of Decision 8 listed as proposed are given their enforced form in [0033](0033-helper-crate-and-isolation-rules.md). The runner's own rules (`RUNNER-1`, `RUNNER-2`) stay proposed. Status stays proposed.

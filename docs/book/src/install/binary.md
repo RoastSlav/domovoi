@@ -1,6 +1,6 @@
 # Binary and systemd
 
-The installer puts the release binary on a Linux machine (x86_64 or arm64) and sets up a systemd service for the hub or for an agent. It writes no config file: the hub is set up from its web UI, and an agent by the enroll command the hub gives you.
+The installer puts the release binary on a Linux machine (x86_64 or arm64) and sets up a systemd service for the hub or for an agent. The hub is set up from its web UI, and an agent by the enroll command the hub gives you. The only config file the installer writes is `/etc/domovoi/helper.toml` on an agent host, and only when it is absent.
 
 ## Install the hub
 
@@ -43,13 +43,47 @@ On each machine to watch:
 curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role agent
 ```
 
-In the hub's web UI, open **Hosts**, then **Add host**, and run the enroll command it shows on that machine, with `sudo`. Then start the agent:
+On a systemd host with no hub on it, a fresh agent install sets up three identities: the unprivileged `domovoi-agent` account that runs the agent, the `domovoi-skill` account that skills will run as, and a root helper behind a socket. It creates the accounts, the directories with their modes, `/etc/domovoi/helper.toml`, the helper units, starts the helper socket and then runs `domovoi agent selftest --installer --record`. If a check fails, it stops the helper socket again, prints the report and exits with an error. [Security model](../security.md#three-identities-on-one-host) says what each identity may reach.
+
+In the hub's web UI, open **Hosts**, then **Add host**, and run the enroll command it shows on that machine, with `sudo`. Enroll runs as root, so it hands the agent's files to `domovoi-agent` when it is done and prints one line saying so. Then start the agent:
 
 ```sh
 sudo systemctl enable --now domovoi-agent
 ```
 
 The host shows as connected within a few seconds. The agent dials the hub on port 7421; nothing connects to the agent.
+
+The helper starts on demand when the agent connects to its socket, so you never enable it by hand. This release's helper answers only `health` and `groups`. The host stays Blocked for skills until the skill runner is installed, so skills do not run on a fresh install yet.
+
+### Already installed
+
+An agent installed before this layout existed keeps running as root. A plain run of the installer replaces the binary and nothing else; it prints "privilege boundary not in effect" and the command below. Nothing about the old agent's behaviour changes until you move it.
+
+```sh
+sudo sh install.sh --role agent --migrate-identity
+```
+
+The migration is never done by a routine rerun, because it takes root access away from checks you may rely on. It needs a terminal, shows the full plan first (accounts to create, every path whose owner or mode will change, the new unit, and what stops working) and asks you to type `migrate`. There is no `--yes`. It then saves the old unit and the old owners and modes under `/etc/domovoi/identity-migration/`, stops the agent, applies the layout, starts the agent and checks that it runs as `domovoi-agent`.
+
+What loses root access: checks that need it (Docker through its socket, SMART, the journal of every unit) report errors on a migrated host until the helper carries them, and skills that name a `run_as` have no runner yet. If the migration fails midway it rolls itself back. To roll back later:
+
+```sh
+sudo sh install.sh --role agent --rollback-identity
+```
+
+Rollback restores the saved unit and owners and stops the helper socket. The accounts, `/var/lib/domovoi-helper`, `helper.toml` and the helper unit files stay, unused; nothing deletes them.
+
+The migration refuses when a drop-in under `/etc/systemd/system/domovoi-agent.service.d/` sets `User=`, `Group=` or `SupplementaryGroups=`: it names the file, and you remove it yourself.
+
+### Where the boundary does not apply
+
+These hosts keep today's agent, labelled "privilege boundary not in effect", and the installer does not touch their layout:
+
+- no systemd on the host;
+- a hub on the same host: both roles share `/etc/domovoi`, which the hub makes `root:domovoi` and the agent layout needs as `root:domovoi-agent`. Run the agent on its own host to get the boundary;
+- container installs and the single-process mode.
+
+A host in this state gets no unattended execution.
 
 ## Options
 
@@ -59,7 +93,9 @@ The host shows as connected within a few seconds. The agent dials the hub on por
 | `--version v0.1.0` | Install this release instead of the latest. |
 | `--prefix /opt/domovoi` | Install the binary as `<prefix>/bin/domovoi`. Default `/usr/local`. |
 | `--no-service` | Install only the binary and examples: no user, directories or unit. Works without root when the prefix is writable. |
-| `--print-unit hub` | Print the systemd unit and exit. |
+| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket` and `helper-service`. |
+| `--migrate-identity` | Move an existing root agent to the three-identities layout, after a printed plan and a typed confirmation. Agent role, root, needs a terminal. |
+| `--rollback-identity` | Undo that migration from the saved record. |
 
 ## Verify the download
 
@@ -85,12 +121,18 @@ sudo sh install.sh --role hub
 | `/usr/local/share/domovoi/examples/` | both | Example config files, for reference. |
 | `domovoi` user and group | hub | A system user with no login shell. |
 | `/var/lib/domovoi` | hub | Mode 0750, owned by `domovoi`: the database, `secret.key`, the agent certificate and backups. |
-| `/var/lib/domovoi-agent` | agent | Mode 0700, owned by root: the agent's key, its settings and its spool. |
-| `/etc/domovoi` | both | Mode 0750. Empty unless you add files there. |
+| `domovoi-agent` and `domovoi-skill` users | agent | Two system users with no login shell. `domovoi-agent` is also in `systemd-journal` when that group exists. Neither is ever in `docker`. An account that already exists is checked, never changed. |
+| `/var/lib/domovoi-agent` | agent | Mode 0700, owned by `domovoi-agent`: the agent's key, its settings and its spool. |
+| `/var/lib/domovoi-packages` | agent | Mode 0755, owned by `domovoi-agent`: installed packages. |
+| `/var/lib/domovoi-helper` | agent | Mode 0700, owned by root: the helper's lock, and later its key and state. The agent cannot read it. |
+| `/etc/domovoi` | both | Mode 0750. On an agent host, group `domovoi-agent`. |
+| `/etc/domovoi/skills` | agent | Mode 0755, owned by root. The starter skills are copied here. |
+| `/etc/domovoi/helper.toml` | agent | Mode 0600, root. Written only when absent. See [Helper](../reference/helper.md). |
 | `/etc/systemd/system/domovoi-hub.service` | hub | See [`deploy/systemd`](https://github.com/RoastSlav/domovoi/tree/main/deploy/systemd). |
 | `/etc/systemd/system/domovoi-agent.service` | agent | |
+| `/etc/systemd/system/domovoi-helper.socket` and `domovoi-helper@.service` | agent | The helper, started on demand. |
 
-The installer never enables or starts a service. Running it again replaces the binary and leaves everything else as it is. A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
+Apart from the helper socket on a fresh agent install, the installer never enables or starts a service. Running it again replaces the binary and leaves everything else as it is; on an agent it also checks each path above and reports any wrong mode or owner without changing it (see [Troubleshooting](../troubleshooting.md#a-path-has-the-wrong-mode-or-owner)). A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
 
 ## The units
 
@@ -109,13 +151,15 @@ Claude Code runs on Node.js, whose JIT the unit's `MemoryDenyWriteExecute=yes` b
 MemoryDenyWriteExecute=no
 ```
 
-The agent runs as root, because SMART needs the disks, the journal checks read every unit's log, and skills run as the user their manifest names. Its unit still keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state.
+On a fresh install the agent runs as `domovoi-agent`, not root. Its unit keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state and the packages directory. An agent installed earlier still runs as root until you migrate it (see above). Do not change these units with `systemctl edit`: the self-test reports any drop-in as `unit_modified`, and it will block skills when the runner arrives. See [Hardening](../guide/hardening.md).
+
+The helper runs as root in its own sandbox, one process per connection. `domovoi helper serve` is started by the socket and is not meant to be run by hand.
 
 ## One machine
 
-To watch the machine the hub runs on, install both roles on it and enroll the agent like any other, with the hub at `wss://127.0.0.1:7421`. The two services stay separate, so the agent keeps its root access while the hub stays sandboxed.
+To watch the machine the hub runs on, install both roles on it and enroll the agent like any other, with the hub at `wss://127.0.0.1:7421`. The two services stay separate. Because the hub and the agent then share `/etc/domovoi`, the agent stays on the old layout, runs as root and is labelled "privilege boundary not in effect".
 
-The hub can instead run an agent for its own machine in the same process, with the `--with-local-agent` flag. [`deploy/systemd/single-box.conf`](https://github.com/RoastSlav/domovoi/blob/main/deploy/systemd/single-box.conf) is a drop-in that does this. The local agent then runs inside the hub's sandbox as the `domovoi` user, so SMART, journal checks and skills that switch users report errors. It needs an agent config file, which the drop-in describes. Prefer two services unless you need a single process.
+The hub can instead run an agent for its own machine in the same process, with the `--with-local-agent` flag. [`deploy/systemd/single-box.conf`](https://github.com/RoastSlav/domovoi/blob/main/deploy/systemd/single-box.conf) is a drop-in that does this. The local agent then runs inside the hub's sandbox as the `domovoi` user, so SMART, journal checks and skills that switch users report errors, and the boundary is not in effect. It needs an agent config file, which the drop-in describes. Prefer two services unless you need a single process.
 
 ## Next
 

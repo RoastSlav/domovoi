@@ -56,10 +56,11 @@ flowchart LR
 | `domovoi-chat` | Chat gateway and notifier adapters: Discord, generic webhook | core |
 | `domovoi-checks` | Built-in checks. Feature `host` (agent-side host checks), feature `net` (network probes, also used by the hub) | core |
 | `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution | core |
+| `domovoi-helper` | The root helper: socket adoption and serving, the start checks, the repair command, the host inspection adapter and the isolation self-test. It spawns nothing in this milestone | core, config |
 | `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool | core, config, proto, checks, runner |
 | `domovoi-hub` | Hub runtime: HTTP API, auth, SPA serving, webhook ingest, agent server, wiring of engine with adapters. `PolicyService` is the use-case service for the policy draft, versions, preview, simulation and shadow reads (ADR 0026) | core, config, proto, engine, store, llm, chat, checks |
 | `domovoi-testkit` | Fakes for every port, a fake clock, fixtures, the crash-injecting store, snapshots and invariants. **Dev-dependency only.** | core, proto |
-| `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor | core, config, hub, agent, runner |
+| `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor | core, config, hub, agent, runner, helper |
 | `xtask` | Developer tasks: `arch-check`, `openapi`, `ci`; the checker is also a library the engine's and the hub's gate tests call. **Dev-dependency only.** | none (not part of the product) |
 
 ```mermaid
@@ -73,9 +74,10 @@ flowchart BT
   chat --> core
   checks --> core
   runner --> core
+  helper --> core & config
   agent --> core & config & proto & checks & runner
   hub --> core & config & proto & engine & store & llm & chat & checks
-  bin[domovoi] --> core & config & hub & agent & runner
+  bin[domovoi] --> core & config & hub & agent & runner & helper
 ```
 
 **Rules**
@@ -301,6 +303,7 @@ flowchart LR
 - **Check scheduler**: runs each enabled check on its cadence, turns results into signals, applies the local baseline.
 - **Request handler**: serves `RunTool` and `RunSkill` requests. Every request is re-validated against the agent's local manifests and local policy before the runner sees it.
 - **Spool**: an append-only JSONL file (size-capped) that buffers signals while the hub is unreachable and replays them on reconnect.
+- **Helper probe**: at start and then every 60 seconds the agent connects to the helper socket, asks `health` and `groups`, and reports the result as `helper_status` (`Absent`, `Ok` with the enabled groups, or `Error` with a token). It sends nothing else and never falls back to running a privileged operation itself.
 - **Transfer receiver**: takes package archives and signatures in chunks from the hub, within the transfer limits in the [agent protocol reference](docs/book/src/reference/protocol.md#package-transfers).
 - **Package service**: checks a package's signature against the owner's trusted keys, installs and removes it under `packages_dir`, and keeps the registry. It never enables or runs what it installs.
 
@@ -430,6 +433,14 @@ Package invariants (hub side, covered by the hub's and engine's gate tests and b
 - Installing a package never enables or runs it.
 - Every package install or uninstall is approved by a person: a session, the CSRF token, the account password and the package name typed again. No route accepts a client-supplied approval, and no chat command, model tool or background task creates a job.
 - The hub never opens a package archive and runs no process for packages. It writes only under `<data_dir>/packages/`, with paths built from digests and fixed names.
+
+Identity and helper invariants (ADR 0030, 0031 and 0033):
+
+- The helper cannot be reached by the hub, by the skill runner or by a package. Only the uid of the `domovoi-agent` account is served, and the socket is `root:domovoi-agent 0660` at most.
+- The helper has no write group in this release: its request type is a closed enum with no free-form string, a write group named in `helper.toml` is ignored and reported, and it offers no `run_as`, `sudo`, `systemd-run` or command execution.
+- The helper start check only reads. A wrong mode, owner or type on its directory, lock, key or state refuses start and reports each path; only the owner-confirmed local command `domovoi helper repair` changes a mode or owner, and nothing else can reach it.
+- A host is labelled "privilege boundary not in effect" unless the agent runs as `domovoi-agent` with exactly the expected groups. A platform is never `Supported` while the published list is empty, and a check that was not run never counts as a pass.
+- Rules (enforced by `cargo xtask arch-check`, defined in ADR 0033): `HELPER-1`, `HELPER-2`, `IDENT-1`, `ID-2`, `ID-3`, `UNIT-2` (docker clause), `UNIT-3` (helper unit), `UNIT-4`, `UNIT-5`, `UNIT-7`, `UNIT-8`, `UNIT-9`, `INSTALL-1`, `SELFTEST-1`.
 
 A step is approved only by `POST /api/v1/operations/{id}/steps/{step}/approve`, behind a session and the CSRF token. The body names the whole stored v2 plan hash (a missing or malformed hash is a 400; there is no prefix binding for steps), and a destructive skill, or one whose risk is not known when the person approves, needs its name typed exactly before anything is written. The route builds its authorization with the web helper in `auth/` and hands it to the operation writer, which refuses a policy authorization, a different hash, an expired window and a second approval. No chat command can approve a step.
 

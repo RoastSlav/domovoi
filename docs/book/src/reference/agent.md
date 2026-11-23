@@ -30,9 +30,27 @@ The agent stops retrying, with an error that says what to do, when the hub answe
 - A check that fails to run changes nothing, so its incidents stay as they are.
 - Digest facts go to the hub once an hour, the latest value per key.
 
+## Config file and account
+
+`agent.toml` is written with mode `0644` and owned by root. The agent runs as the unprivileged `domovoi-agent` account on the three-identities layout and reaches the file through the group of `/etc/domovoi` (mode 0750), so it must be readable by that group. An older `0640` file is normalised by the identity migration, and `domovoi agent selftest` reports it on a migrated host.
+
+## Helper probe
+
+The agent asks the root helper about itself at start and then every 60 seconds, and reports the answer to the hub as `helper_status`:
+
+| Value | Meaning |
+| --- | --- |
+| `Absent` | No helper socket exists on this host. The agent works as before. |
+| `Ok` | The helper answered `health` and `groups`. The value lists the enabled read groups, such as `docker.read`. |
+| `Error` | The socket exists but the helper did not answer, answered with a refusal, or its start check failed. The reason is the token, such as `helper_state_permissions`, or `unreachable`. |
+
+A helper that starts after the agent turns `Absent` into `Ok` within one probe interval. The probe sends nothing but `health` and `groups`. Nothing falls back to doing a privileged operation inside the agent when the helper is absent or in error.
+
+The agent also decides whether the privilege boundary is in effect when it starts. It is only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. A root agent, a container agent and the single-process mode are labelled "not in effect", and package results say so.
+
 ## State directory
 
-Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`). Every file is written to a temporary file and renamed, so a crash never leaves half a file. Files are mode `0600`.
+Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`, owned by `domovoi-agent` with mode 0700 on the three-identities layout). Every file is written to a temporary file and renamed, so a crash never leaves half a file. Files are mode `0600`.
 
 | File | Contents |
 | --- | --- |
