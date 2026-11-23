@@ -1,0 +1,246 @@
+//! The agent's side of the helper socket: one request per connection, answered from the
+//! helper's closed set. This is the only agent module that names the helper socket or builds
+//! a helper request.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use domovoi_core::helper::{
+    FrameError, HELPER_PROTOCOL, HELPER_SOCKET, HelperGroup, HelperRequest, HelperRequestFrame,
+    HelperResponse, HelperResponseFrame, encode_frame,
+};
+use domovoi_core::identity::RefusalToken;
+use domovoi_core::ports::Clock;
+use domovoi_proto::messages::HelperStatus;
+use jiff::SignedDuration;
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
+
+use crate::link::STATUS_PROBE_INTERVAL;
+use crate::link::handshake::AgentStatusSource;
+use crate::time::{sleep, within};
+
+/// How long one exchange with the helper may take, measured on the injected clock.
+const EXCHANGE_DEADLINE: SignedDuration = SignedDuration::from_secs(10);
+
+/// What the helper reported about itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HealthInfo {
+    /// The helper protocol number it speaks.
+    pub protocol: u16,
+    /// The build that answered.
+    pub build: String,
+    /// The serving process's id.
+    pub pid: u32,
+}
+
+/// The operation groups the helper serves and what the platform allows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupsInfo {
+    /// Groups the helper will serve.
+    pub enabled: Vec<HelperGroup>,
+    /// Groups named in its configuration but ignored.
+    pub ignored: Vec<HelperGroup>,
+}
+
+/// Why a helper exchange failed.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HelperClientError {
+    /// The socket path does not exist: no helper is installed.
+    #[error("the helper socket does not exist")]
+    Absent,
+    /// Connecting, writing or reading failed, or the deadline passed.
+    #[error("the helper is unreachable: {0}")]
+    Unreachable(String),
+    /// The answer was not a well-formed frame.
+    #[error("the helper sent a malformed frame: {0}")]
+    Frame(String),
+    /// The helper speaks another protocol number.
+    #[error("the helper speaks protocol {0}")]
+    Protocol(u16),
+    /// The helper refused the request.
+    #[error("the helper refused the request: {0}")]
+    Refused(RefusalToken),
+    /// The helper's start check failed.
+    #[error("the helper refused to start: {0}")]
+    StartRefused(RefusalToken),
+    /// The helper answered something other than what was asked.
+    #[error("the helper answered an unexpected message")]
+    Unexpected,
+}
+
+/// A client for the helper's local socket.
+#[derive(Debug, Clone)]
+pub struct HelperClient {
+    socket: PathBuf,
+}
+
+impl HelperClient {
+    /// A client for the socket at `socket`.
+    #[must_use]
+    pub fn new(socket: impl Into<PathBuf>) -> Self {
+        Self {
+            socket: socket.into(),
+        }
+    }
+
+    /// A client for the socket the helper unit listens on.
+    #[must_use]
+    pub fn default_path() -> Self {
+        Self::new(HELPER_SOCKET)
+    }
+
+    /// Asks whether the helper is alive.
+    pub async fn health(&self, clock: &dyn Clock) -> Result<HealthInfo, HelperClientError> {
+        match self.exchange(HelperRequest::Health, clock).await? {
+            HelperResponse::Health {
+                protocol,
+                build,
+                pid,
+            } => Ok(HealthInfo {
+                protocol,
+                build,
+                pid,
+            }),
+            other => Err(refusal(other)),
+        }
+    }
+
+    /// Asks which operation groups the helper serves.
+    pub async fn groups(&self, clock: &dyn Clock) -> Result<GroupsInfo, HelperClientError> {
+        match self.exchange(HelperRequest::Groups, clock).await? {
+            HelperResponse::Groups {
+                enabled, ignored, ..
+            } => Ok(GroupsInfo { enabled, ignored }),
+            other => Err(refusal(other)),
+        }
+    }
+
+    async fn exchange(
+        &self,
+        request: HelperRequest,
+        clock: &dyn Clock,
+    ) -> Result<HelperResponse, HelperClientError> {
+        let frame = HelperRequestFrame {
+            v: HELPER_PROTOCOL,
+            id: Uuid::now_v7(),
+            request,
+        };
+        let bytes = encode_frame(&frame).map_err(frame_error)?;
+        let answer = within(clock, EXCHANGE_DEADLINE, self.round_trip(&bytes))
+            .await
+            .ok_or_else(|| HelperClientError::Unreachable("timed out".to_owned()))??;
+        if answer.v != HELPER_PROTOCOL {
+            return Err(HelperClientError::Protocol(answer.v));
+        }
+        Ok(answer.response)
+    }
+
+    #[cfg(unix)]
+    async fn round_trip(&self, request: &[u8]) -> Result<HelperResponseFrame, HelperClientError> {
+        use domovoi_core::helper::{decode_response, frame_len};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let io_error = |err: std::io::Error| HelperClientError::Unreachable(err.to_string());
+        let mut stream = tokio::net::UnixStream::connect(&self.socket)
+            .await
+            .map_err(|err| match err.kind() {
+                std::io::ErrorKind::NotFound => HelperClientError::Absent,
+                _ => io_error(err),
+            })?;
+        stream.write_all(request).await.map_err(io_error)?;
+        let mut header = [0_u8; 4];
+        stream.read_exact(&mut header).await.map_err(io_error)?;
+        let len = frame_len(header).map_err(frame_error)?;
+        let mut body = vec![0_u8; len];
+        stream.read_exact(&mut body).await.map_err(io_error)?;
+        decode_response(&body).map_err(frame_error)
+    }
+
+    #[cfg(not(unix))]
+    async fn round_trip(&self, _request: &[u8]) -> Result<HelperResponseFrame, HelperClientError> {
+        let _ = &self.socket;
+        Err(HelperClientError::Absent)
+    }
+}
+
+fn frame_error(err: FrameError) -> HelperClientError {
+    HelperClientError::Frame(err.to_string())
+}
+
+fn refusal(response: HelperResponse) -> HelperClientError {
+    match response {
+        HelperResponse::Refused { token } => HelperClientError::Refused(token),
+        HelperResponse::StartRefused { token, .. } => HelperClientError::StartRefused(token),
+        _ => HelperClientError::Unexpected,
+    }
+}
+
+/// What to report to the hub about the helper right now, from a fresh `health` and `groups`
+/// exchange. A missing socket is `Absent`; any other failure is an `Error` carrying the
+/// helper's token, or `unreachable`, `protocol` or `frame` when it never answered properly.
+pub async fn probe_status(client: &HelperClient, clock: &dyn Clock) -> HelperStatus {
+    let health = match client.health(clock).await {
+        Ok(health) => health,
+        Err(err) => return failure(&err),
+    };
+    if health.protocol != HELPER_PROTOCOL {
+        return error_status("protocol");
+    }
+    match client.groups(clock).await {
+        Ok(groups) => HelperStatus::Ok {
+            ops: groups
+                .enabled
+                .iter()
+                .map(|group| group_name(*group))
+                .collect(),
+        },
+        Err(err) => failure(&err),
+    }
+}
+
+fn group_name(group: HelperGroup) -> String {
+    group.as_str().to_owned()
+}
+
+fn failure(err: &HelperClientError) -> HelperStatus {
+    match err {
+        HelperClientError::Absent => HelperStatus::Absent,
+        HelperClientError::Refused(token) | HelperClientError::StartRefused(token) => {
+            error_status(token.as_str())
+        }
+        HelperClientError::Protocol(_) => error_status("protocol"),
+        HelperClientError::Frame(_) | HelperClientError::Unexpected => error_status("frame"),
+        HelperClientError::Unreachable(_) => error_status("unreachable"),
+    }
+}
+
+fn error_status(reason: &str) -> HelperStatus {
+    HelperStatus::Error {
+        reason: reason.to_owned(),
+    }
+}
+
+/// Probes the helper every [`STATUS_PROBE_INTERVAL`] on `clock` and writes the answer into
+/// `status` until `stop` is cancelled, so a helper that starts after the agent turns `Absent`
+/// into `Ok` within one interval. Waits first: the caller probes once at start itself.
+pub async fn keep_status(
+    client: HelperClient,
+    clock: Arc<dyn Clock>,
+    status: AgentStatusSource,
+    stop: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            () = sleep(&*clock, STATUS_PROBE_INTERVAL) => {}
+        }
+        let helper_status = probe_status(&client, &*clock).await;
+        if let Some(mut current) = status.current()
+            && current.helper_status != helper_status
+        {
+            current.helper_status = helper_status;
+            status.set(current);
+        }
+    }
+}

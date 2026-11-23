@@ -188,7 +188,7 @@ async fn package_install_cannot_write_helper_paths() {
     let service = PackageService::open(
         &section(&[&hostile], true),
         dirs.clone(),
-        PackageDeps::production(clock.clone(), false),
+        PackageDeps::production(clock.clone(), false, true),
     )
     .unwrap();
     let staging = service.staging().unwrap();
@@ -214,7 +214,7 @@ async fn package_install_cannot_write_helper_paths() {
     let fenced = PackageService::open(
         &section(&[&hostile], true),
         inside,
-        PackageDeps::production(clock, false),
+        PackageDeps::production(clock, false, true),
     )
     .unwrap();
     assert!(fenced.staging().is_none());

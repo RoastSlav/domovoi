@@ -508,3 +508,41 @@ fn unknown_transfers_are_refused() {
         Code::TransferUnknown
     );
 }
+
+fn boundary_of(euid: u32, groups: &[u32]) -> domovoi_core::isolation::BoundaryState {
+    let account = domovoi_core::identity::UserEntry {
+        name: domovoi_core::identity::AGENT_ACCOUNT.to_owned(),
+        uid: 990,
+        gid: 990,
+        shell: "/usr/sbin/nologin".to_owned(),
+    };
+    domovoi_core::isolation::evaluate_boundary(euid, Some(&account), groups, None, None)
+}
+
+fn boundary_label(state: &domovoi_core::isolation::BoundaryState) -> PrivilegeBoundary {
+    let env = Env::new();
+    let mut deps = env.deps(false);
+    deps.boundary_in_effect = state.in_effect();
+    let section = Env::section(&[]);
+    crate::packages::PackageService::open(&section, env.dirs.clone(), deps)
+        .unwrap()
+        .privilege_boundary()
+}
+
+#[test]
+fn packages_boundary_is_in_effect_only_for_the_agent_account() {
+    let state = boundary_of(990, &[990]);
+    assert!(state.in_effect());
+    assert_eq!(boundary_label(&state), PrivilegeBoundary::InEffect);
+    let root = boundary_of(0, &[0]);
+    assert_eq!(boundary_label(&root), PrivilegeBoundary::NotInEffect);
+}
+
+#[test]
+fn packages_boundary_is_not_in_effect_for_a_nonroot_unexpected_user() {
+    let other_user = boundary_of(1000, &[1000]);
+    assert!(!other_user.in_effect());
+    assert_eq!(boundary_label(&other_user), PrivilegeBoundary::NotInEffect);
+    let extra_group = boundary_of(990, &[990, 4242]);
+    assert_eq!(boundary_label(&extra_group), PrivilegeBoundary::NotInEffect);
+}

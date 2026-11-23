@@ -74,7 +74,7 @@ pub fn write_if_absent(
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o640);
+        options.mode(0o644);
     }
     let mut file = match options.open(path) {
         Ok(file) => file,
@@ -124,7 +124,7 @@ pub fn set_hub_url(path: &Path, hub_url: &Url) -> Result<bool, StateError> {
         return Err(StateError::new(path, reason));
     }
     #[cfg(unix)]
-    let mode = 0o640;
+    let mode = 0o644;
     #[cfg(not(unix))]
     let mode = 0o644;
     write_atomic(path, next.as_bytes(), mode)?;
@@ -153,7 +153,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o640);
+            assert_eq!(mode & 0o777, 0o644);
         }
 
         std::fs::write(&path, "# mine\n").unwrap();
@@ -200,7 +200,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o640);
+            assert_eq!(mode & 0o777, 0o644);
         }
     }
 }

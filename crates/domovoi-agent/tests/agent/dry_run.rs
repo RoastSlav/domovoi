@@ -31,6 +31,7 @@ async fn journal_checks_are_unavailable_in_a_container() {
         docker: None,
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
+        boundary_in_effect: false,
     };
 
     for check in ["kernel.errors", "security.ssh_login"] {
