@@ -588,7 +588,7 @@ privileged write is possible.
 
 ```toml
 # /etc/domovoi/helper.toml (fresh install)
-groups = ["docker.read", "smart.read", "kernel.read", "net.read", "safety.attest"]
+groups = ["docker.read", "systemd.read", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [smart]
 devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
@@ -613,7 +613,7 @@ allow the operation.
 
 ```toml
 # /etc/domovoi/helper.toml (owner-configured example)
-groups = ["docker.read", "docker.write", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.attest"]
+groups = ["docker.read", "docker.write", "systemd.read", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [docker]
 write_containers = ["plex"]           # resolved to container ids by the helper
@@ -623,7 +623,7 @@ restart_units = ["plex.service"]
 
 [nft]
 table = "domovoi"
-max_elements = 1000
+max_elements = 1000                   # 1 to 10 000 (default 1 000); config load refuses 2^32 and above; max_active must not exceed it
 
 [smart]
 devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
@@ -644,7 +644,40 @@ mutations_per_hour = 30
 
 The helper never allows a protected unit or container as a write target, whatever the allowlist
 says. The installer's defaults for `protected_units` cannot be removed: the helper unions them with
-the file.
+the file. Protected units and the `restart_units` allowlist are matched by canonical `Id` and by
+`Names` (aliases), not by the spelling in the file: the installer writes the host's own spelling
+(`ssh.service` on Debian and Ubuntu), adds `ssh.socket` where the host socket-activates sshd, and the
+helper resolves each entry (synthesis 01, items 10 and 11).
+
+**Helper groups for units (R-8; owner decisions in synthesis 00 section 5a).**
+- `systemd.read` is a new group, **enabled by default**: it reads unit identity over D-Bus so that
+  plan-time pre-flight works on a fresh install. `systemd.write` stays **off by default**.
+- `unit.restart` is valid only for plain units whose fragment and drop-ins are under `/etc` or
+  `/usr/lib` (not aliases, linked, generated, transient or masked units, `enabled-runtime`,
+  `/usr/local/lib` or `set-property`-only units). Restart runs by canonical `Id`, and instance
+  strings (`foo@bar.service`) are matched against an exact allowlist; restarting a stopped unit
+  starts it.
+- The unit's identity is bound from the **loaded** configuration read over D-Bus plus a disk-side
+  enumeration of the whole search path, matched by `Id` and `Names`; a restart runs the loaded
+  configuration. The helper never runs `daemon-reload`: `NeedDaemonReload=yes`, or a disk
+  configuration that differs from the loaded one, refuses the step and the owner reloads.
+- The residual race between the last check and the manager acting is not closed (no guard reached
+  zero in measurement): the approval card states it, and the post-restart check of the loaded
+  properties is the detector. A wrong start raises an alert and marks the step failed; the helper
+  takes no corrective restart or stop. Contents of `EnvironmentFile=` and the executables a unit runs
+  are not bound, and the card says so (synthesis 01 sections 5 and 9, Q1 to Q10).
+- The helper reads unit files only with the capability set of its unit (no `CAP_DAC_READ_SEARCH`):
+  units whose drop-ins it cannot read are refused with `read_failed` (synthesis 01 Q10).
+
+**Platform tiers (synthesis 00 section 5b; owner decision, not a version floor).** Domovoi does not
+fix a distribution list or a systemd version floor. Each host is classified at start by a runtime
+isolation check (`selftest`): **Supported** (listed as release-tested; nothing is yet), **Untested**
+(a systemd host that passes every check but is not release-tested: skills and helper read groups are
+allowed with a visible notice, helper write groups need an owner-set per-host switch, off by
+default, recorded in audit), **Blocked** (a failed check, no systemd, or an unmeasured container
+design: skills and helper writes refused). The release notes publish which platforms fall in which
+tier; containment writes are listed as Untested everywhere until the validation matrix of
+synthesis 04 passes.
 
 **`policy`-labelled requests.** The agent checks, in order:
 1. `[unattended].enabled`;
@@ -684,9 +717,26 @@ and `runs_as_root` in `hello`, and again in `agent_status` on any change. The ef
 reaches the hub only as a helper-signed attestation, relayed unchanged (`attest_safety` /
 `safety_attestation`, RW-37). The agent never summarises it itself.
 
-**Attestation key.** `/var/lib/domovoi-helper/attest.key` (root 0600, directory root 0700). Masked in
-the agent and skill-runner units. Pinned by the hub only after the owner compares fingerprints
-(RW-37).
+**Attestation key.** `/var/lib/domovoi-helper/attest.key` (root 0600, directory root 0700). The agent
+is kept from the key by those file permissions, not by a mask (a mask in the agent unit would remove
+the agent's own sockets); the key is masked in the skill-runner unit only (synthesis 02 section 8.3).
+Pinned by the hub only after the owner compares fingerprints (RW-37).
+
+**Attestation verification rules (RW-37 as decided; synthesis 03 sections 5.7, 5.8 and 5.11).**
+- Revocation follows the **latest outcome**, not a sticky flag: trust is revoked by a key mismatch,
+  a signed incomplete report from the pinned key, or a generation regression, and one good
+  attestation under the pin restores it.
+- The hub keeps a persisted high-water mark of `(generation, config_hash, route_state_hash)` per
+  helper, written in the transaction that accepts the report, and rejects a lower generation or an
+  equal generation with different hashes.
+- `expected_safety` is required on every `Contain` request; the helper refuses a missing or
+  malformed tag (`malformed_safety`). Only an explicit `unverified{reason}` skips the identity
+  comparison.
+- A TTL above the effective maximum is refused (`ttl_above_maximum`), never clamped. `max_active = 0`
+  means no containment is allowed. The mutation limit is persisted so a helper restart does not
+  reopen the window.
+- Hosts whose routing state the observation cannot represent get an incomplete report
+  (`route_unrepresentable`) and no containment (`04b` section 3).
 
 **Refusals.** The agent journals them locally and returns `refused{code}`; the helper's refusals carry
 their own codes.
@@ -714,17 +764,24 @@ Assumes D-29 is in effect: control agent as `domovoi-agent`, skills as `domovoi-
 |---|---|
 | Threat | brute force or scanning from an external source |
 | Target | `ipnet:{canonical}` from a detector signal's structured field; prefix ≥ ceiling minimum; equals the pinned subject |
-| Privileges | root-owned helper `nft` group (RW-39), limited to set elements in table `inet domovoi`; no other table touched; exclusions re-checked in the helper |
-| Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min) whose full safety identity (fingerprint, `boot_id`, `generation`, `config_hash`, `route_state_hash`) is bound to the permit and dispatch of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established |
-| Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process |
-| Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives |
-| Apply semantics | step 1: element added with a 30 s timeout; step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch, so the element is never absent); if the element already expired, the transaction fails and the helper reports `expired` (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per supported nftables version is verified in R-2 Each request carries `expected_safety`; the helper refuses `safety_changed` if its recomputed full identity differs from `verified{…}` (honest-path guard; `unverified` skips only this comparison), and always checks the target against its actual set |
-| Rollback | `del element` (idempotent; absent = success) |
-| Postcondition | element present with remaining timeout > 0; hub → agent round trip still works |
+| Privileges | root-owned helper `nft` group (RW-39). The helper creates and maintains only table `inet domovoi` (the table, its sets, one base chain and its rules) and deletes conntrack entries of the target; scripts come from fixed templates. `nft` cannot scope privilege to one table, so the limit is the helper's templates; no other table is touched; exclusions re-checked in the helper. The leak self-test below adds the right to create a network namespace and links (synthesis 04 D14) |
+| Placement | one base chain at hook `prerouting`, priority -310 (a constant covered by a gate test; outside every manager's numbers), with **no `ct` rule** (a `ct state` accept is a no-op below conntrack at -200). Sets per family, default `timeout 30s`: plain hash sets for single hosts; interval sets for prefixes only on platforms where the leak self-test passed. `input` alone and `forward` alone are insufficient (synthesis 04 R-5.1, D1, D2, D12) |
+| Management protection | D-28: paths confirmed and current, covered by a **verified, fresh helper attestation** (≤ 5 min) whose full safety identity (fingerprint, `boot_id`, `generation`, `config_hash`, `route_state_hash`) is bound to the permit and dispatch of the effective set (RW-37: `[safety]` CIDRs, hub address from root-owned config, kernel-observed link peer, loopback, link-local); immediately before apply the helper recomputes its actual set, refuses any overlapping target, and refuses everything if a safety element cannot be established. Exclusions cover both address families and both overlap directions (a target inside an exclusion and one containing it), targets are canonicalised and IPv4-mapped targets refused, and gateways and `local_addr` are inputs; the optional in-chain `excl` sets protect only against our own drop (synthesis 04 R-5.6) |
+| Expiry | nftables set element `timeout` = TTL (≤ `max_ttl`). Kernel-enforced, so it does not depend on the agent, the hub or the helper process; it does depend on the table: deleting the table (for example `nftables.service` with `flush ruleset`) removes the elements (see Table loss). Reboot behaviour is not demonstrated (synthesis 04 D10) |
+| Watchdog (D-22) | built into the two-step apply below: the first element carries a 30 s kernel timeout, so if the hub never confirms reachability the block disappears by itself, whether or not the agent, helper or hub survives. The 30 s window can lapse during a flood that also delays the hub's confirmation: that fails safe but ineffective, and no latency measurement exists |
+| Apply semantics | step 1: `create element … timeout 30s` (not `add`: a duplicate dispatch gets `File exists`, changes nothing, and behaves the same on every kernel seen); step 2: on hub confirmation, `replace_ttl` = `delete element` + `add element … timeout <TTL>` in **one** `nft -f` transaction (atomic netlink batch); "never absent" is scoped to what was measured: plain hash sets, and interval sets on the tested kernel 6.18 and 7.0 pairs, while the interval replace leaked packets on kernel 6.8 with nft 1.0.9, so the interval path is enabled only where the helper's leak self-test passed (run at install and on any change of kernel, nft or layout; a failure or inconclusive run blocks that path, and prefix targets are then refused). If the element already expired, the transaction fails and the helper reports `expired`, decided by membership read and journal, not by error text (no silent re-add). `add element` on an existing element is not relied on to refresh its timeout. Exact behaviour per kernel and nftables pair is the validation matrix of synthesis 04 section 7.4. Each request carries `expected_safety`; the helper refuses `safety_changed` if its recomputed full identity differs from `verified{…}` (honest-path guard; `unverified` skips only this comparison), and always checks the target against its actual set |
+| Rollback | one `nft -f` batch of `add element … timeout 5s` + `delete element` (idempotent for present, absent, expired and prefix targets). Its two failure modes (set full, covering element) leave the set unchanged and fall back to a membership read. `destroy` is not used (absent before nft 1.0.9, not idempotent on interval sets); read-then-delete is not the primary (synthesis 04 R-5.5) |
+| Postcondition | element present with remaining timeout > 0; chain `contain` present with hook, priority and rules matching the template; arrival counter non-decreasing; hub → agent round trip still works |
 | Outcome unknown | read set membership via helper `list`; present → treat as applied; absent → `NotRun` only if the journal proves no apply, else `OutcomeUnknown` |
 | Agent restart | agent lists elements, reconciles with journal, reports active containments; kernel timeouts continue regardless |
 | Hub crash | elements expire on their own; on restart the hub reconciles via `action_status` and the active list |
 | Partial application | element added but not confirmed → expires in ≤ 30 s |
+| Existing flows | the drop cuts established flows that are not offloaded. When flowtables exist the helper deletes the target's conntrack entries; every confirm reports coverage (`cut`, `n/a`, or `may_persist`, which the UI never calls contained). Offloaded hardware flows are not covered (synthesis 04 D4, R-5.10) |
+| Table loss | the helper checks the table before every request. If the table is gone while containment is journaled active, it reports `containment_lost`, re-creates only the empty structure, and the hub re-requests through a normal request with a fresh safety check. The helper unit orders `After=nftables.service`; later reloads are caught by this detection (synthesis 04 D5, D9) |
+| Limits | `[nft] max_elements`: default 1 000, ceiling 10 000, refusal at or above 2^32; `max_active` not above `max_elements`; replace cost is about 20 to 40 ms at 10 000 elements. The `nft` CLI is used with fixed templates and an explicit timeout on every call (synthesis 04 D6, D7) |
+| Bootstrap | create-if-absent: read the table as JSON; send the bootstrap batch (starting with `create table`) only when absent; never re-send `add` over a live table; on drift refuse new containment (`table_drift`). Elements always carry an explicit timeout, never 0 |
+| Platform gate | the leak self-test state per kernel, nft version and layout gates the interval path and is reported (`open`, `blocked_leak`, `blocked_untested`). Ubuntu 24.04's stock pair is Untested for containment writes and gets hosts-only containment (synthesis 04 D14, D15) |
+| Bridge family | out of v1: a bridged physical NIC is detected and reported as a coverage gap on the confirm (synthesis 04 D8) |
 | Drills | expiry on time with agent stopped; excluded address refused; hub unreachable during the confirmation window → block gone ≤ 30 s; agent restart mid-TTL; duplicate dispatch idempotent; `max_active` reached → refused |
 
 **Not production-ready until R-2 is complete** (table/hook placement, packet path, coexistence with firewalld/ufw/Docker, set limits, atomic replacement). The expiry mechanism itself relies only on nftables set timeouts.

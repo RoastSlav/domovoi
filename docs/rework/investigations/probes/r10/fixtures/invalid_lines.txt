@@ -1,0 +1,6 @@
+# One invalid single line per row: <name><TAB><line>. Source: 04b section 4 "Invalid-input vectors".
+raw_pipe_extra_field	local_addr=192.168.1.20/24|eth|0
+lowercase_hex	local_addr=192.168.1.20/24|eth%7c0
+encoded_literal	local_addr=192.168.1.20/24|%65th0
+cidr_host_bits	cidr=192.168.1.7/24
+ipv6_not_rfc5952	hub_addr=2001:DB8::10

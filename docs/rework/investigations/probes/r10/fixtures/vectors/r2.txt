@@ -1,0 +1,17 @@
+domovoi-safety-routes-v1
+hub_addr=192.168.1.10
+hub_addr=2001:db8::10
+link_peer=192.168.1.10|7443
+local_addr=10.8.0.2/24|wg0
+local_addr=192.168.1.20/24|eth0
+local_addr=2001:db8::20/64|eth0
+route=inet6|254|::/0|2001:db8::1|eth0|1024
+route=inet|100|0.0.0.0/0|10.8.0.254|wg0|0
+route=inet|254|0.0.0.0/0|192.168.1.1|eth0|100
+route=inet|254|192.168.1.0/24|-|eth0|100
+rule=inet6|32766|all|254
+rule=inet|0|all|255
+rule=inet|100|fwmark%3D0x1/0xffffffff|100
+rule=inet|32766|all|254
+endpoint_route=192.168.1.10|254|-|eth0|192.168.1.20
+endpoint_route=2001:db8::10|254|2001:db8::1|eth0|2001:db8::20

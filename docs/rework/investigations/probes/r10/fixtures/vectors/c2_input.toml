@@ -1,0 +1,9 @@
+# same effective configuration, written differently
+[safety.containment]
+max_active = 50
+max_ttl = "1440m"
+
+[safety]
+protected_containers = ["homeassistant", "homeassistant"]
+protected_units = ["sshd.service", "plex.service", "domovoi-agent.service"]
+management_cidrs = ["100.64.0.0/10", "192.168.1.0/24", "2001:db8::/32"]
