@@ -12,6 +12,7 @@ pub mod chat;
 pub mod clock;
 pub mod context;
 pub mod experience;
+pub mod host_inspect;
 pub mod hostfs;
 pub mod knowledge;
 pub mod live;
@@ -45,6 +46,7 @@ pub use chat::{
 pub use clock::Clock;
 pub use context::ContextSource;
 pub use experience::ExperienceRead;
+pub use host_inspect::{Access, HostInspect, InspectError, Probe, TreeEntry};
 pub use hostfs::{FsError, HostFs};
 pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};
 pub use live::{LiveEnd, LiveEvent, LivePublisher};

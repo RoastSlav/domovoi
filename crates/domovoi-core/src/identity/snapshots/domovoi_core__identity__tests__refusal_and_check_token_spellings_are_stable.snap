@@ -1,0 +1,45 @@
+---
+source: crates/domovoi-core/src/identity/tests.rs
+expression: "(refusals, checks)"
+---
+[
+  [
+    "helper_state_permissions",
+    "uninitialized",
+    "agent_account_missing",
+    "helper_config_invalid",
+    "peer_not_agent",
+    "frame_too_large",
+    "frame_malformed",
+    "unsupported_version",
+    "unknown_operation",
+    "adopt_unexpected_listen_fds",
+    "adopt_not_a_socket",
+    "platform_record_missing",
+    "platform_record_stale",
+    "confirmation_requires_terminal"
+  ],
+  [
+    "privilege_boundary_not_in_effect",
+    "agent_groups_unexpected",
+    "skill_account_invalid",
+    "agent_account_missing",
+    "docker_group_member",
+    "runner_groups_extra",
+    "runner_privileges",
+    "unit_modified",
+    "unit_not_inspectable",
+    "unit_hardcoded_id",
+    "unit_exec_under_run",
+    "path_mode_wrong",
+    "helper_state_permissions",
+    "socket_mode_wrong",
+    "socket_unreachable",
+    "agent_reaches_helper_state",
+    "agent_reaches_docker",
+    "container_escape_surface",
+    "host_directory_created_by_mask",
+    "runner_not_isolated",
+    "state_write_slow"
+  ]
+]
