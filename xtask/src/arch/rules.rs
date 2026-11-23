@@ -131,6 +131,21 @@ pub const CRATES: &[CrateRule] = &[
         external_allowlist: None,
     },
     CrateRule {
+        name: "domovoi-helper",
+        internal: &["domovoi-core", "domovoi-config"],
+        external_allowlist: Some(&[
+            "async-trait",
+            "serde",
+            "serde_json",
+            "thiserror",
+            "tokio",
+            "tracing",
+            "uuid",
+            "jiff",
+            "nix",
+        ]),
+    },
+    CrateRule {
         name: "domovoi-testkit",
         internal: &["domovoi-core", "domovoi-proto"],
         external_allowlist: None,
@@ -143,6 +158,7 @@ pub const CRATES: &[CrateRule] = &[
             "domovoi-hub",
             "domovoi-agent",
             "domovoi-runner",
+            "domovoi-helper",
         ],
         external_allowlist: None,
     },
@@ -595,3 +611,214 @@ pub const RULES_FILE: &str = "xtask/src/arch/rules.rs";
 
 /// Where ADRs live.
 pub const ADR_DIR: &str = "docs/adr/";
+
+/// One rule of the identity and unit family, as the text a violation carries.
+pub struct RuleCard {
+    /// Rule identifier, e.g. `UNIT-3`.
+    pub id: &'static str,
+    /// What the rule protects and what to do about a violation.
+    pub message: &'static str,
+    /// The decision or finding that backs the rule.
+    pub backs: &'static str,
+}
+
+/// Cards of the helper, identity, unit and installer rules (ADR 0033). The checks live in
+/// `units.rs`, `install_script.rs`, `identity_rules.rs` and `selftest_rule.rs`.
+pub const IDENTITY_CARDS: &[RuleCard] = &[
+    RuleCard {
+        id: "HELPER-1",
+        message: "the helper socket, its request type and its client are named only by the helper's own crates and the files that call it; every other crate reaches root work through the helper protocol",
+        backs: "ADR 0030 Decision 8",
+    },
+    RuleCard {
+        id: "HELPER-2",
+        message: "the helper's state paths are named only by the helper crate and the path table in domovoi-core; nothing else may open them",
+        backs: "ADR 0030 Decision 8",
+    },
+    RuleCard {
+        id: "IDENT-1",
+        message: "the skill account name has one definition, domovoi-core/src/identity/accounts.rs; use the constant",
+        backs: "D-31",
+    },
+    RuleCard {
+        id: "ID-2",
+        message: "account names and group-membership calls live in domovoi-core/src/identity/ and the helper's inspect, selftest and start_check modules, and no numeric uid or gid is assigned next to an account constant",
+        backs: "F-DOC-7",
+    },
+    RuleCard {
+        id: "ID-3",
+        message: "never parse a systemd instance name or compare an instance string; the one allowed instance literal is SELFTEST_INSTANCE in selftest/units.rs",
+        backs: "synthesis 02 section 2.1.1",
+    },
+    RuleCard {
+        id: "UNIT-2",
+        message: "no shipped unit puts a process in the docker group",
+        backs: "F-GRP-1, F-DOC-4",
+    },
+    RuleCard {
+        id: "UNIT-3",
+        message: "domovoi-helper@.service carries every directive of the measured baseline with its value, and no User= or SupplementaryGroups=",
+        backs: "F-PRT-2, F-ACT-2",
+    },
+    RuleCard {
+        id: "UNIT-4",
+        message: "a unit with RuntimeMaxSec= has Type=simple; the limit is ignored with oneshot",
+        backs: "F-CAN-5",
+    },
+    RuleCard {
+        id: "UNIT-5",
+        message: "a shipped socket is SocketMode=0660, SocketUser=root, SocketGroup=domovoi-agent and listens only on a known path",
+        backs: "F-ACT-4, F-MSK-13",
+    },
+    RuleCard {
+        id: "UNIT-7",
+        message: "every plain path in InaccessiblePaths=, BindReadOnlyPaths=, TemporaryFileSystem= and ReadWritePaths= is created by the installer (CREATED_PATHS) or is /var/lib or /run; a path the installer creates takes no - prefix",
+        backs: "F-MSK-7, F-MSK-8, F-MSK-10",
+    },
+    RuleCard {
+        id: "UNIT-8",
+        message: "domovoi-agent.service runs as User=domovoi-agent, and no compose volume mounts docker.sock read-write",
+        backs: "D-29, F-DOC-6",
+    },
+    RuleCard {
+        id: "UNIT-9",
+        message: "no ExecStart=, ExecStartPre= or ExecStopPost= of a shipped unit runs from /run, /tmp or /dev/shm, which may be noexec",
+        backs: "U section 3.3",
+    },
+    RuleCard {
+        id: "INSTALL-1",
+        message: "install.sh creates every CREATED_PATHS entry before the first systemctl enable or start, and lists them between the created-set markers",
+        backs: "F-MSK-10",
+    },
+    RuleCard {
+        id: "SELFTEST-1",
+        message: "every self-test check id, check token and refusal token has a test whose comment says `// covers: <id or token>`",
+        backs: "ADR 0031",
+    },
+];
+
+/// Identifiers the helper socket rule (HELPER-1) keeps inside the allowed files.
+pub const HELPER_SOCKET_NAMES: &[&str] = &[
+    "HELPER_SOCKET",
+    "HelperRequest",
+    "HelperRequestFrame",
+    "HelperClient",
+];
+
+/// The socket file name HELPER-1 looks for in string literals.
+pub const HELPER_SOCKET_LITERAL: &str = "domovoi-helper.sock";
+
+/// Where HELPER-1 allows the socket names. An entry ending in `/` is a directory, any other
+/// entry is one file; test sources are always allowed.
+pub const HELPER_SOCKET_ALLOWED: &[&str] = &[
+    "crates/domovoi-core/src/helper/",
+    "crates/domovoi-helper/",
+    "crates/domovoi-agent/src/helper_client.rs",
+    "crates/domovoi-agent/src/runtime.rs",
+    "crates/domovoi/src/cmd/helper.rs",
+    "crates/domovoi-testkit/",
+];
+
+/// String fragments HELPER-2 keeps inside the allowed files.
+pub const HELPER_STATE_LITERALS: &[&str] = &[
+    "/var/lib/domovoi-helper",
+    "attest.key",
+    "state.lock",
+    "platform.json",
+];
+
+/// Where HELPER-2 allows the state paths; test sources are always allowed.
+pub const HELPER_STATE_ALLOWED: &[&str] = &[
+    "crates/domovoi-helper/",
+    "crates/domovoi-core/src/identity/paths.rs",
+];
+
+/// The one file that may spell the skill account name (IDENT-1).
+pub const SKILL_ACCOUNT_FILE: &str = "crates/domovoi-core/src/identity/accounts.rs";
+
+/// The account literals ID-2 confines, with their quotes.
+pub const ACCOUNT_LITERALS: &[&str] = &["\"domovoi-agent\"", "\"domovoi-skill\""];
+
+/// Group-membership calls ID-2 confines.
+pub const GROUP_CALLS: &[&str] = &["groups_of", "supplementary_groups"];
+
+/// Account constants of `identity/accounts.rs`; ID-2 looks near them for numeric ids.
+pub const ACCOUNT_CONSTANTS: &[&str] = &[
+    "AGENT_ACCOUNT",
+    "SKILL_ACCOUNT",
+    "AGENT_GROUP",
+    "JOURNAL_GROUP",
+    "DOCKER_GROUP",
+];
+
+/// Where ID-2 allows account literals and group calls; test sources are always allowed.
+pub const IDENTITY_ALLOWED: &[&str] = &[
+    "crates/domovoi-core/src/identity/",
+    "crates/domovoi-helper/src/inspect.rs",
+    "crates/domovoi-helper/src/inspect/",
+    "crates/domovoi-helper/src/selftest.rs",
+    "crates/domovoi-helper/src/selftest/",
+    "crates/domovoi-helper/src/start_check.rs",
+    "crates/domovoi-helper/src/start_check/",
+];
+
+/// Source trees where ID-3 forbids parsing systemd instance names.
+pub const INSTANCE_NAME_SCOPE: &[&str] = &[
+    "crates/domovoi-helper/",
+    "crates/domovoi-agent/src/helper_client.rs",
+    "crates/domovoi-runner/",
+];
+
+/// The one file that may spell an instance literal (ID-3).
+pub const INSTANCE_LITERAL_FILE: &str = "crates/domovoi-helper/src/selftest/units.rs";
+
+/// Directory holding the shipped units.
+pub const UNITS_DIR: &str = "deploy/systemd";
+
+/// Directory holding the compose files (UNIT-8).
+pub const COMPOSE_DIR: &str = "deploy/compose";
+
+/// The installer script (INSTALL-1, UNIT-7).
+pub const INSTALL_SCRIPT: &str = "install.sh";
+
+/// Socket paths a shipped `.socket` may listen on (UNIT-5). The skill runner's path joins the
+/// list when its unit ships.
+pub const SOCKET_LISTEN_STREAMS: &[&str] = &["/run/domovoi-helper.sock"];
+
+/// Group a shipped socket belongs to (UNIT-5).
+pub const SOCKET_GROUP: &str = "domovoi-agent";
+
+/// The helper unit and the directives it must carry, `(key, value)` in the `[Service]` section
+/// (UNIT-3). An empty value is a reset and is written out on purpose.
+pub const HELPER_UNIT: &str = "domovoi-helper@.service";
+
+/// The measured baseline of the helper unit (UNIT-3).
+pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
+    ("Type", "simple"),
+    ("StandardInput", "socket"),
+    ("StandardOutput", "journal"),
+    ("StandardError", "journal"),
+    ("ExecStart", "/usr/local/bin/domovoi helper serve"),
+    ("Restart", "no"),
+    ("NoNewPrivileges", "yes"),
+    ("ProtectSystem", "strict"),
+    ("ReadWritePaths", "/var/lib/domovoi-helper"),
+    ("ProtectHome", "yes"),
+    ("PrivateTmp", "yes"),
+    ("PrivateDevices", "yes"),
+    ("CapabilityBoundingSet", "CAP_NET_ADMIN"),
+    ("AmbientCapabilities", ""),
+    ("RuntimeMaxSec", "60s"),
+    ("KillMode", "control-group"),
+    ("TimeoutStopSec", "5s"),
+];
+
+/// Self-test token sources, workspace-relative (SELFTEST-1): the files that define
+/// `CheckId`, `CheckToken` and `RefusalToken`.
+pub const SELFTEST_TOKEN_FILES: &[&str] = &[
+    "crates/domovoi-core/src/identity/tokens.rs",
+    "crates/domovoi-core/src/isolation/check.rs",
+];
+
+/// Crates whose sources may carry the `// covers:` comments (SELFTEST-1).
+pub const SELFTEST_TEST_CRATES: &[&str] = &["crates/domovoi-helper/", "crates/domovoi-core/"];
