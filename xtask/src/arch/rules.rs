@@ -712,6 +712,7 @@ pub const HELPER_SOCKET_LITERAL: &str = "domovoi-helper.sock";
 /// entry is one file; test sources are always allowed.
 pub const HELPER_SOCKET_ALLOWED: &[&str] = &[
     "crates/domovoi-core/src/helper/",
+    "crates/domovoi-core/src/identity/table.rs",
     "crates/domovoi-helper/",
     "crates/domovoi-agent/src/helper_client.rs",
     "crates/domovoi-agent/src/runtime.rs",
@@ -731,6 +732,7 @@ pub const HELPER_STATE_LITERALS: &[&str] = &[
 pub const HELPER_STATE_ALLOWED: &[&str] = &[
     "crates/domovoi-helper/",
     "crates/domovoi-core/src/identity/paths.rs",
+    "crates/domovoi-core/src/identity/table.rs",
 ];
 
 /// The one file that may spell the skill account name (IDENT-1).
@@ -754,6 +756,7 @@ pub const ACCOUNT_CONSTANTS: &[&str] = &[
 /// Where ID-2 allows account literals and group calls; test sources are always allowed.
 pub const IDENTITY_ALLOWED: &[&str] = &[
     "crates/domovoi-core/src/identity/",
+    "crates/domovoi-core/src/isolation/boundary.rs",
     "crates/domovoi-helper/src/inspect.rs",
     "crates/domovoi-helper/src/inspect/",
     "crates/domovoi-helper/src/selftest.rs",
