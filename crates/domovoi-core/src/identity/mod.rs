@@ -18,5 +18,5 @@ pub use paths::{
     FactsError, FaultKind, PathFacts, PathFault, PathId, PathKind, PathSpec, Presence, Principal,
     TreeRule, evaluate_path, evaluate_tree,
 };
-pub use table::{HostDirs, expected_paths};
+pub use table::{HELPER_STATE_DIR, HostDirs, expected_paths};
 pub use tokens::{CheckToken, RefusalToken};

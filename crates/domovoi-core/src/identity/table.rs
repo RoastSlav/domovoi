@@ -26,6 +26,9 @@ pub struct HostDirs {
     pub helper_socket: PathBuf,
 }
 
+/// The helper state directory, where the path table puts it.
+pub const HELPER_STATE_DIR: &str = "/var/lib/domovoi-helper";
+
 impl Default for HostDirs {
     fn default() -> Self {
         Self {
@@ -33,7 +36,7 @@ impl Default for HostDirs {
             skills_dir: PathBuf::from("/etc/domovoi/skills"),
             state_dir: PathBuf::from("/var/lib/domovoi-agent"),
             packages_dir: PathBuf::from("/var/lib/domovoi-packages"),
-            helper_dir: PathBuf::from("/var/lib/domovoi-helper"),
+            helper_dir: PathBuf::from(HELPER_STATE_DIR),
             helper_socket: PathBuf::from(crate::helper::HELPER_SOCKET),
         }
     }

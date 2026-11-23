@@ -22,7 +22,7 @@ pub use probe::{
 };
 pub use report::SelftestReport;
 pub use tier::{
-    PlatformId, PlatformRecordState, PlatformTier, REQUIRED_CHECKS, ReadDecision,
-    SUPPORTED_PLATFORMS, SkillsDecision, TierDecision, TierNotice, WriteDecision, WriteOptIn,
-    classify_platform,
+    PLATFORM_RECORD_FORMAT, PlatformId, PlatformRecord, PlatformRecordState, PlatformTier,
+    REQUIRED_CHECKS, ReadDecision, SUPPORTED_PLATFORMS, SkillsDecision, TierDecision, TierNotice,
+    WriteDecision, WriteOptIn, classify_platform,
 };

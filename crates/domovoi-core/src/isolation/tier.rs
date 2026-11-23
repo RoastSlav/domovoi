@@ -213,3 +213,26 @@ pub fn classify_platform(
         no_systemd,
     }
 }
+
+/// The `format` value of a [`PlatformRecord`] this build writes and understands.
+pub const PLATFORM_RECORD_FORMAT: u32 = 1;
+
+/// What `selftest --installer --record` writes to the helper's `platform.json`: the tier the
+/// last installer self-test decided, tied to the kernel it ran on.
+///
+/// The helper reads it to answer `Groups`; it never trusts a tier a caller claims.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlatformRecord {
+    /// The record layout, [`PLATFORM_RECORD_FORMAT`].
+    pub format: u32,
+    /// When the self-test ran, from the injected clock.
+    pub recorded_at: jiff::Timestamp,
+    /// The kernel release the self-test ran on; a different running kernel makes the record stale.
+    pub kernel_release: String,
+    /// The operating system release and architecture that was classified.
+    pub platform: PlatformId,
+    /// The tier decided.
+    pub tier: PlatformTier,
+    /// The required checks that failed or did not run.
+    pub blocking: Vec<CheckId>,
+}
