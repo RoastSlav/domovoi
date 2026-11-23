@@ -29,6 +29,7 @@ domovoi-core = { workspace = true }
 domovoi-config = { workspace = true }
 domovoi-hub = { workspace = true }
 domovoi-agent = { workspace = true }
+domovoi-helper = { workspace = true }
 domovoi-runner = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }

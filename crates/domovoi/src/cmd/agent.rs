@@ -25,6 +25,8 @@ pub enum AgentCommand {
     Enroll(EnrollArgs),
     /// Show what the link last recorded: connected, reconnecting or incompatible.
     Status(ConfigArg),
+    /// Check the three identities, the directories and the isolation on this host.
+    Selftest(super::agent_selftest::SelftestArgs),
     /// Create, inspect or reset the durable action journal.
     #[command(subcommand)]
     Journal(JournalCommand),
@@ -83,11 +85,13 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 Arc::new(SystemClock),
                 redactor,
                 Some(logs),
-            )?;
+            )?
+            .with_boundary_in_effect(boundary_in_effect());
             let agent = AgentRuntime::new(config, deps).await?;
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)
         }
+        AgentCommand::Selftest(args) => super::agent_selftest::run(args).await,
         AgentCommand::Journal(command) => {
             let (args, reset) = match command {
                 JournalCommand::Init(args) => (args, false),
@@ -110,6 +114,7 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                         "The action journal at {} now uses epoch {epoch}.",
                         dir.display()
                     );
+                    hand_over_state(dir)?;
                     Ok(ExitCode::SUCCESS)
                 }
                 Err(JournalError::Locked(_)) => {
@@ -207,6 +212,7 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 },
             )
             .await?;
+            hand_over_state(&config.agent.state_dir)?;
             println!(
                 "Enrolled as host {} (agent {}). Start it with `domovoi agent run`.",
                 identity.host_id, identity.agent_id
@@ -214,4 +220,33 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// Whether this process is the `domovoi-agent` account with exactly the expected groups,
+/// looked at once at start (ST-01, ST-02).
+#[cfg(unix)]
+fn boundary_in_effect() -> bool {
+    domovoi_core::isolation::inspect_boundary(&domovoi_helper::inspect::UnixHostInspect::new())
+        .in_effect()
+}
+
+#[cfg(not(unix))]
+fn boundary_in_effect() -> bool {
+    false
+}
+
+/// After an owner command that ran as root, gives the agent account what it wrote in `dir`,
+/// so the unprivileged agent can read it. Does nothing when not root or when the account is
+/// missing (a legacy install).
+fn hand_over_state(dir: &std::path::Path) -> anyhow::Result<()> {
+    if let Some(owner) = domovoi_agent::state_owner::resolve_agent_owner()? {
+        let report = domovoi_agent::state_owner::hand_over(dir, owner)?;
+        println!(
+            "Gave {} of {} entries in {} to the agent account.",
+            report.changed,
+            report.visited,
+            dir.display()
+        );
+    }
+    Ok(())
 }

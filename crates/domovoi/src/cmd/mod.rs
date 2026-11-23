@@ -1,9 +1,11 @@
 //! One module per subcommand. Each parses nothing itself and calls library APIs.
 
 mod agent;
+mod agent_selftest;
 mod audit;
 mod check;
 mod digest;
+mod helper;
 mod hub;
 mod hub_run;
 mod notify;
@@ -39,6 +41,9 @@ pub enum Command {
     /// Run or enroll the agent.
     #[command(subcommand)]
     Agent(agent::AgentCommand),
+    /// Serve, initialise or repair the root helper (runs as root).
+    #[command(subcommand)]
+    Helper(helper::HelperCommand),
     /// Validate configuration and skills, or run checks once.
     #[command(subcommand)]
     Check(check::CheckCommand),
@@ -113,6 +118,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Check(command) => check::run(command),
         Command::Hub(command) => block_on(hub::run(command, logs)),
         Command::Agent(command) => block_on(agent::run(command, logs)),
+        Command::Helper(command) => block_on(helper::run(command)),
         Command::Notify(command) => block_on(notify::run(command)),
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),

@@ -199,6 +199,7 @@ mod common {
             docker: None,
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
             logs: None,
+            boundary_in_effect: false,
         };
         let runtime = AgentRuntime::new(config, deps).await.unwrap();
         let shutdown = CancellationToken::new();
