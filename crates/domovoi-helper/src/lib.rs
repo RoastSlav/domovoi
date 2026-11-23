@@ -9,9 +9,9 @@ pub mod adopt;
 #[cfg(unix)]
 pub mod inspect;
 #[cfg(unix)]
-pub mod probe;
-#[cfg(unix)]
 pub mod platform;
+#[cfg(unix)]
+pub mod probe;
 #[cfg(unix)]
 pub mod repair;
 #[cfg(unix)]

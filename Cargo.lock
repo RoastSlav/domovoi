@@ -890,6 +890,7 @@ dependencies = [
  "domovoi-checks",
  "domovoi-config",
  "domovoi-core",
+ "domovoi-helper",
  "domovoi-hub",
  "domovoi-proto",
  "domovoi-runner",
@@ -1078,6 +1079,25 @@ dependencies = [
  "uuid",
  "wiremock",
  "xtask",
+]
+
+[[package]]
+name = "domovoi-helper"
+version = "0.0.10"
+dependencies = [
+ "async-trait",
+ "domovoi-config",
+ "domovoi-core",
+ "domovoi-testkit",
+ "jiff",
+ "nix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
