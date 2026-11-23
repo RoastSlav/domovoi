@@ -4,9 +4,9 @@ Each prompt is one branch and one pull request. The prompt files live in `prompt
 They are self-contained: copy one into a local coding model working in this repository.
 Shared-contract ownership and the standard blocks are in `prompts/README.md` and `prompts/_blocks.md`.
 
-**Status: written except the gated H1, M8 and M9 prompts.** 49 of the 53 prompts in §2 have a prompt
-document; 44, 45, 46 and 47 do not, because their design waits on research evidence or an owner decision
-(§6.4). A prompt with a file is launchable only when its **Depends on** prompts are merged and its
+**Status: all written; the helper, runner and autonomy briefs are gated.** All 53 prompts in §2 have a prompt
+document (47 is four files, 47a to 47d); 44, 47a to 47d, 45 and 46 wait on owner decisions and on each other
+(§6.4, and the launch order in `prompts/README.md`). A prompt with a file is launchable only when its **Depends on** prompts are merged and its
 **Gate** is met (§1). Readiness per milestone is in `06` (Readiness).
 
 **One active V2 branch.** `overhaul-investigation` is the only long-lived V2 branch, and it holds both
@@ -158,10 +158,10 @@ dependency forcing an order (§1): it is not permission to run them at the same 
 | 54 | `spike-helper-and-skill-runner-platforms` | R-3, R-9 | evidence on socket activation, sandbox and filesystem view | — | — | R-3, R-9 evidence | WSL2 environment available (§6.3) | M |
 | 55 | `spike-safety-attestation` | R-10 | scratch implementation reproducing `04b` vectors, parser, route state, locking, adversarial tests | — | — | R-10 evidence | — (no environment gate) | L |
 | 56 | `spike-systemd-unit-identity` | R-8 | evidence on effective unit identity | — | — | R-8 evidence | WSL2 environment available (§6.3) | S |
-| 44 | `helper-adrs` | H1 | ADRs for the three identities and for helper attestation | — | — | ADRs | 54 and 55 evidence (or unproven items recorded) | M |
-| 47 | `three-identities-helper-and-skill-runner` (may be split 47a/b/c) | H1 | helper, attestation, skill runner, installer migration, hub enrollment | 20, 22, 44 | — | helper protocol, SafetyIdentity | **R-3, R-9, R-10 accepted** (O-30 settled as D-31) | L |
-| 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart`; the unresolved-`OutcomeUnknown` unattended-reuse guard | 32, 40, 47 | — | — | **R-8 accepted; H1 complete** | L |
-| 46 | `containment` | M9 | `firewall.block_source` with kernel timeout, verified and unverified paths, drills | 45, 34, 47 | — | — | **R-2, R-10 accepted** | L |
+| 44 | `helper-adrs` | H1 | ADRs for the three identities and for helper attestation; ADRs 0030 to 0032 exist as proposed in an open pull request and are updated from the research before acceptance | — | — | ADRs | 54 and 55 evidence (or unproven items recorded) | M |
+| 47 | `three-identities-helper-and-skill-runner`, four briefs in this order: 47a `helper-accounts-and-skeleton`, 47b `skill-runner`, 47c `helper-attestation`, 47d `helper-read-operations` (contents in §6.4) | H1 | accounts, helper skeleton and installer migration; skill runner; attestation and hub enrollment; helper read operations | 20, 22, 44 (47b, 47c and 47d each need 47a; 47d needs 47c) | — | helper protocol, SafetyIdentity | **R-3, R-9 accepted for building (47a, 47b, 47d), R-10 accepted (47c)** (O-30 settled as D-31) | L |
+| 45 | `policy-permit-autonomy` | M8 | PermitIssuer, ceiling, guardrails, `unit.restart`, `container.restart`; the unresolved-`OutcomeUnknown` unattended-reuse guard | 32, 40, 47 (a to d) | — | — | **R-8 accepted; H1 complete** | L |
+| 46 | `containment` | M9 | `firewall.block_source` with kernel timeout, verified and unverified paths, drills | 45, 34, 47 (a to d) | — | — | **R-2, R-10 accepted** | L |
 | 99 | `pre-release-cleanup` | closing | remove all pre-rework compatibility (legacy actions, v1 plan hash, legacy audit digest, migration squash with an ADR), then audit dead code, tests, comments, the book, ADRs and examples; finally delete these planning documents | every prompt that ships | — | ADR 0029, one baseline migration | all shipping prompts merged; run last | L |
 
 ## 3. Recommended launch order
@@ -193,9 +193,13 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 11. **Wave K, UI pages:** 43 ∥ 48 ∥ 49 ∥ 50 ∥ 51. They share shell files (`nav.ts`, `routes.tsx`,
     `pages.ts`, `tone.ts`, the smoke mock), so each is written against the previous one merged. Then 38
     (gate R-1), then 52.
-12. **Wave L, privilege boundary:** 44, once the 54 and 55 evidence exists; then 47 (or 47a, 47b,
-    47c in order), once R-3, R-9 and R-10 are accepted.
-13. **Wave M, autonomy:** 45, once R-8 is accepted; then 46, once R-2 and R-10 are accepted.
+12. **Wave L, privilege boundary:** 44, once the 54 and 55 evidence exists (its ADRs 0030 to 0032 are in an open pull
+    request); then 47a, 47b, 47c and 47d, one at a time in that order, each once its gate is met (47a: R-3 and R-9
+    accepted for building; 47b: R-9; 47c: R-10; 47d: R-3 and the owner's confirmation of the widened helper unit,
+    OD-1).
+13. **Wave M, autonomy:** 45, once R-8 is accepted and 47d has merged; then 46, once R-2 and R-10 are accepted.
+    The full order, gates, expected migration numbers (47c 0020, 45 0021, 46 0022) and ADR numbers (0033 to 0038) are
+    in `prompts/README.md`.
 
 ## 4. Integration contracts that must exist before dependants start
 
@@ -224,14 +228,14 @@ does not suspend the migration rule (§7) or the shared-file order (§1).
 | ContextSource port | 31 | 32, 34, 35 |
 | visibility categories | 37 | 38, 43, 48–51 |
 | evaluator API | 39 | 40, 43, 45 |
-| helper protocol and SafetyIdentity | 47 | 45, 46, 48, 49 |
+| helper protocol (47a), read operations (47d) and SafetyIdentity (47c) | 47 | 45, 46, 48, 49 |
 
 A wire change after prompt 20 has merged is a coordinated protocol decision (RW-42). It is never a
 silent edit by a later prompt.
 
 ## 5. Milestone coverage
 
-Every milestone has a prompt, and the research gates have spikes. All are written except 44–47 (§6.4).
+Every milestone has a prompt, and the research gates have spikes. All are written; 44 to 47d, 45 and 46 are gated (§6.4).
 
 | Milestone | Prompts |
 |---|---|
@@ -316,19 +320,58 @@ requires exists; acceptance is recorded in the ADRs and the decision register, n
 R-10 in particular stays an implementation validation gate: the attestation design is not validated
 until its implementation and tests demonstrate it.
 
-### 6.4 Unwritten downstream prompts waiting on evidence or an owner decision (4)
+### 6.4 Helper, runner and autonomy briefs waiting on owner decisions (44, 47a to 47d, 45, 46)
 
-No file yet. Their design depends on evidence or an owner decision, so they are neither written nor
-launchable until the gate below is satisfied.
+All have a file. Each is launchable only when its predecessors in `prompts/README.md` ("Launch order") are merged and
+its gate below is satisfied.
 
-- **44** (`helper-adrs`): needs 54 and 55 evidence, or the unproven items recorded.
-- **45** (`policy-permit-autonomy`): needs R-8 accepted and H1 complete.
-- **46** (`containment`): needs R-2 and R-10 accepted.
-- **47** (`three-identities-helper-and-skill-runner`): needs R-3, R-9 and R-10 accepted
-  (its `run_as` rule is settled: D-31). When written it must also replace 49's helper and key-enrollment placeholders and implement
-  34's `ManagementCoverage` hook (both prompts list what it must add).
+Research results: four independent hosts gave evidence for R-2, R-3, R-8, R-9 and R-10; none is
+accepted (`99` section C; synthesis in `investigations/synthesis/`, overview `00-overview-and-implementation-plan.md`).
+The owner's answers to the research decisions are D-36 to D-59 in `99`.
 
-Counts: 49 written + 4 unwritten = 53.
+- **44** (`helper-adrs`): brief written (`prompts/44-helper-adrs.md`); launchable with the 54 and 55 evidence merged.
+  ADRs 0030 to 0032 are written as proposed and sit in an open pull request; later ADRs start at 0033. Before acceptance they are updated from the research:
+  the corrected skill-runner unit replaces the RW-39 text, the isolation (ST checks, modes) and
+  helper requirements are added, ADR 0032 C4 and the harness description are corrected, the three code
+  defects (sticky mismatch flag, missing `expected_safety` accepted for `Contain`, freshness from
+  receipt) are recorded, and the unproven items are listed (synthesis 00 §6).
+- **45** (`policy-permit-autonomy`): needs R-8 accepted and H1 complete. Evidence that exists: unit
+  identity measured on four hosts and four systemd builds (255.4, 257.13, 259.5, 259.9; reports K, O,
+  T, V; synthesis 01), and the owner decisions on it (D-53 to D-55). Still open for R-8: a
+  real-installer pass with the production helper, Debian 12, Ubuntu 22.04 and systemd 258, a non-merged
+  `/usr` host and an SELinux host. The helper must provide the identity read (`systemd.read`) before
+  this item.
+- **46** (`containment`): needs R-2 and R-10 accepted. R-2 evidence exists on four hosts (synthesis 04)
+  and is not accepted; open: the real-installer pass, the reboot test, the separation of kernel from
+  nft version for the interval-set replace leak, other kernels and distributions. R-10 open: live
+  routing and power-loss durability (synthesis 03). The item takes as inputs the placement decision
+  (`prerouting`, priority -310), the reported states `containment_lost`, `existing_flows` and the leak
+  gate states `blocked_leak` and `blocked_untested`, and the **replace leak self-test**: required at
+  install and on a change of kernel, nft or layout, blocking the interval-set path (prefix targets) where it fails
+  (D-56). It also needs the hub high-water mark and latest-outcome gate of R-10 (D-48, D-49).
+- **47** (`three-identities-helper-and-skill-runner`): four briefs in the order 47a, 47b, 47c, 47d (`prompts/47a-*.md` to `prompts/47d-*.md`); needs R-3, R-9 and R-10 accepted
+  (its `run_as` rule is settled: D-31). 47c also replaces 49's helper and key-enrollment placeholders and implements
+  34's `ManagementCoverage` hook (both prompts list what it must add). Split in three, in order
+  (synthesis 00 §6):
+  - **47a, accounts, sockets, helper skeleton:** installer creates `domovoi-agent` and
+    `domovoi-skill` (no groups), `/etc/domovoi` 0750, helper state 0700 with a 0600 key and lock,
+    sockets with mode and group; helper start checks of directory, key and state modes (fail closed
+    with tokens); `selftest` checks ST-01 to ST-20; adoption of the inherited socket from fd 0; the
+    `arch-check` rules of synthesis 02 §5.
+  - **47b, skill runner:** the corrected unit files (synthesis 02 §5.2); `Accept=yes` with runner-side
+    EOF cancel, own process group, exit 0 and `RuntimeMaxSec` on `Type=simple`; `ProtectHome=yes`; no
+    `TemporaryFileSystem=` on a path that may be absent; bind-through of the skills directory;
+    refusal of any `run_as` but `domovoi-skill`; the five-site spelling edit (D-43).
+  - **47c, attestation:** the `04b` encoding and grammars; key lifecycle; state file and recovery; hub
+    verifier with the latest-outcome rule, a persisted high-water mark and issue-time freshness;
+    `expected_safety` required for `Contain`; proto changes (required fields, `deny_unknown_fields`, a
+    closed reason enum, hash encoding); golden vectors C1 to C4 and R1 to R4 frozen; the two RW-37
+    tests the harness excluded.
+  - **47d, read operations:** typed read requests for Docker, SMART, kernel log and listening sockets, replacing the
+    `Read { group }` placeholder of 47a; the widened shared helper unit baseline (owner decision OD-1); the agent
+    cache and rate limit. Without it the checks that need root report errors on a host migrated to separate identities.
+
+Counts: 53 of 53 written (47 is four files, 47a to 47d).
 
 ## 7. Migration numbering
 

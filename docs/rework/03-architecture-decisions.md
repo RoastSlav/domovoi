@@ -189,7 +189,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     from transports (FACT today: `server.link()` is public, G).
   - Plan hash v2 = SHA-256 over a canonical encoding of: `plan:v2`, contract id + version,
     implementation hash (skills: manifest **and** entry-script bytes), canonical target identity
-    (RW-34), canonical args, `execution_id` (RW-36: the ActionId before M3, the step id after).
+    (RW-34; for a unit its `identity_hash`, which carries the version tag `unit-identity:v1`, so a
+    change of identity encoding changes the plan hash), canonical args, `execution_id` (RW-36: the ActionId before M3, the step id after).
   - The approve request carries the plan hash the UI displayed. A mismatch is refused.
   - At dispatch: authorization unexpired; plan hash recomputed and equal; operation `Running`;
     linked incident not `Resolved`/`Dismissed` unless the step says otherwise; contract enabled; agent
@@ -385,13 +386,47 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     are implemented.
   - D-28: a host cannot enable unattended containment until its management paths are
     owner-confirmed and current.
-- **Mechanism (PROPOSAL).**
+- **Mechanism (PROPOSAL).** Evidence and requirements:
+  `investigations/synthesis/04-r2-nftables-containment-synthesis.md`.
   - `firewall.block_source` adds an element with a kernel `timeout` to a set in the dedicated
-    `inet domovoi` table, through the root-owned helper (RW-39).
-  - The element is first added with a 30 s timeout. After the hub's post-apply reachability
-    confirmation it is replaced with the full TTL by an atomic delete + add in one nftables
-    transaction, so the block is never absent (`04` §9.1). Without confirmation it expires by itself.
-  - Production readiness depends on research R-2.
+    `inet domovoi` table, through the root-owned helper (RW-39). The helper creates and maintains only
+    that table (table, sets, one base chain, rules) from fixed script templates and deletes the
+    target's conntrack entries; `nft` itself cannot scope privilege to one table.
+  - **Placement.** One base chain at hook `prerouting`, priority -310 (below every manager's
+    priority; a constant covered by a gate test), with no `ct` rule (conntrack runs at -200, so a
+    `ct established accept` at -310 exempts nothing). A drop at `input` alone misses Docker published
+    ports, and `forward` alone is insufficient.
+  - **Sets.** Plain hash sets per family for single hosts. Interval sets for prefixes only on a
+    platform where the helper's replace leak self-test passed (required at install and on a change
+    of kernel, nft or layout; a failure or inconclusive run blocks that path). Where the interval
+    replace leaks (measured: kernel 6.8 with nft 1.0.9, Ubuntu 24.04's stock pair) the interval path is
+    disabled: single hosts only, prefix targets refused with a clear message. The bootstrap is
+    create-if-absent and never re-sends `add` over a live table.
+  - **Step 1.** `create element ... timeout 30s` (not `add`): a duplicate dispatch fails with
+    `File exists` and cannot change a confirmed TTL on any kernel seen.
+  - **Confirm.** After the hub's post-apply reachability confirmation the element is replaced with the
+    full TTL by `delete element X` plus `add element X timeout T` in one nftables batch. This is
+    packet-atomic for hosts in plain hash sets and for interval sets on the tested kernels 6.18 and 7.0
+    with nft 1.1.x; it leaked packets on interval sets on kernel 6.8 with nft 1.0.9 (kernel versus
+    nft cause not separated). The earlier wording "so the block is never absent" holds only where
+    measured (`04` §9.1). Without confirmation the element expires by itself.
+  - **Rollback.** One batch `add element X timeout 5s` plus `delete element X`, which is idempotent
+    for present, absent and expired targets, with a membership-read fallback for its two failure
+    modes. The earlier claim that a rollback `del element` is idempotent is false: `delete` of an
+    absent element exits 1 and aborts the batch, and `destroy` does not exist before nft 1.0.9 and is
+    not idempotent on interval sets. `destroy` is not used.
+  - **Table loss.** The kernel timeout is independent of processes but not of the table:
+    `systemctl start nftables` with a `flush ruleset` configuration deletes it and no timeout then
+    fires. The helper checks for the table before every request, re-creates the empty table, reports
+    `containment_lost`, and the hub re-requests through a normal request with a fresh safety check.
+  - **Existing flows.** Conntrack entries of the target are deleted only when flowtables exist;
+    coverage is reported on every confirm. Bridge-family coverage is out of v1 (a coverage gap is
+    reported). `max_elements` defaults to 1 000 with a ceiling of 10 000. Reboot semantics:
+    containment does not survive a reboot (permits are invalid by `boot_id`); confirm after the
+    reboot test.
+  - **Support statement.** None is made until the validation matrix passes; tested pairs appear only
+    as "validated on" notes, and Ubuntu 24.04's stock pair is Untested for containment writes (RW-39
+    tier model). Production readiness depends on research R-2, which is not accepted.
 - **Triggering.** Only a deterministic detector's typed signal names the target, and the target must
   be the pinned subject. Model output may investigate and recommend; it never triggers or targets
   automatic containment.
@@ -595,7 +630,9 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       within 24 h);
     - every new rule starts in shadow mode.
   - First L2 contracts (M8): `container.restart` and `unit.restart` of one named target, each with a
-    postcondition check. Docker write access for the former needs its own helper ADR (D-24, RW-39); until then `container.restart` is not available unattended.
+    postcondition check. For `unit.restart` the check is the post-restart process check of RW-34: a
+    wrong start raises an alert, counts toward the circuit breaker above and triggers no automatic
+    restart or stop; a start-limit refusal is reported, never retried. Docker write access for the former needs its own helper ADR (D-24, RW-39); until then `container.restart` is not available unattended.
 
 ## RW-24 Step-up authentication
 
@@ -795,21 +832,49 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   |---|---|---|---|
   | host | `HostId` + enrolled agent key fingerprint | re-enrolment | all |
   | container | `container:{host}/{container_id}` (full id); the name is display only | recreate (new id) | containers visible through the helper |
-  | systemd unit | `unit:{host}/{canonical_id}` + `config_hash` = SHA-256 over the unit's `FragmentPath` contents and every `DropInPaths` file, as (path, content) pairs sorted by path | any change to the fragment or a drop-in; an alias now resolving to a different unit | units whose `FragmentPath` is under `/etc/systemd/system`, `/usr/lib/systemd/system` or `/lib/systemd/system`. Generated (`/run/systemd/generator*`) and transient units are not valid mutation targets in v1 |
+  | systemd unit | `unit:{host}/{canonical_id}` + `identity_hash` = SHA-256 over `UnitIdentityV1` (tag `unit-identity:v1`, length-framed): canonical `Id`, accepted `UnitFileState`, the fragment and each drop-in as (path, content hash) in the order the manager reports them, the disk-side path set (must equal the reported set) and a hash of the loaded properties (`ExecStart` argv, `User`, `Environment` and the like; set-valued ones sorted). The helper reads it over D-Bus plus the files it can read | the loaded configuration or any file of it changes; a drop-in is added in any directory of the search path | plain units whose fragment **and every drop-in** are regular files under `/etc/systemd/system` or `/usr/lib/systemd/system` (`/lib` dropped: never reported on merged hosts). Refused (`target_unsupported` with the reason): masked, transient, generated, linked or symlinked, `enabled-runtime`, `/run`, `/usr/local/lib`, `system.control` and generator drop-ins, `set-property`-only units, unlisted locations; a unit not in the helper allowlist (`target_not_allowlisted`) or in the protected set (`target_protected`) |
   | network source | `ipnet:{canonical}`: IPv4 dotted, IPv6 RFC 5952, host bits zeroed, explicit prefix | — | prefix within ceiling bounds |
 
-- **Not bound.** Files a unit references (`EnvironmentFile=`, `ExecStart` binaries) and container
-  image content. A change to those does not invalidate an approval. The approval card says what is
-  bound.
+- **A restart runs the loaded configuration.** `systemctl restart` runs what systemd has loaded, not
+  what is on disk, and `NeedDaemonReload` misses edits with a restored mtime, generator input changes,
+  `set-property --runtime` and, on systemd 255, drop-ins in a new directory (as does `systemctl cat`).
+  So the identity binds the loaded properties, and only the disk-side enumeration of the whole search
+  path (including `/usr/local/lib`, `/run/systemd/generator*`, `system.control` and dash-prefix
+  directories) is the stale check. `NeedDaemonReload=yes`, or a disk set that differs from the
+  loaded set, refuses the step (`target_stale`); it is not an invalidation. **The helper never runs
+  `daemon-reload`**: the owner reloads, then plans again. Evidence and the algorithm:
+  `investigations/synthesis/01-r8-unit-identity-synthesis.md` §5.
+- **Not bound.** Files a unit references (`EnvironmentFile=` contents, `ExecStart` binaries and the
+  programs a unit runs), dependent units a restart may restart or stop, container image content, and
+  the window between the helper's last read and the manager acting. A change to those does not
+  invalidate an approval. The approval card binds the loaded configuration shown on it and the disk
+  files as read at that moment, and **says what is bound and what is not**, including that a residual
+  race remains. The residual race cannot be closed from the helper (no guard reached zero in any
+  tested row); it is accepted, stated on the card and covered by the post-restart check, which can
+  detect a wrong start but not prevent it. A wrong start is an alert only: the step is marked failed,
+  with no corrective restart or stop.
 - **Name resolution.**
   - Container names are validated against Docker's name grammar (`[a-zA-Z0-9][a-zA-Z0-9_.-]+`)
     before resolution.
   - All later operations use the id.
+  - Unit names are validated against the unit-name grammar (`.service` suffix, no glob, not a bare
+    template) before any manager call, resolved with `LoadUnit` (not `GetUnit`) to the canonical
+    `Id`, and restarted by `Id`; aliases are never bound. Instances are allowed only by exact
+    allowlisted instance string. The protected-unit set and the allowlist match the resolved `Id`
+    **and** every entry of `Names` (`sshd.service` is `ssh.service` on Debian and Ubuntu); the installer
+    writes the host's spelling.
   - Policy rules name targets by name; matching resolves the name at evaluation time; permits and
     plan hashes bind the identity.
-- **Lifecycle.** An inventory refresh never changes an approved plan. If identity no longer resolves
-  to the bound value, the step is refused with `target_changed` and needs new approval. A container
-  restart keeps its id; a rename keeps its id.
+- **Lifecycle.** An inventory refresh never changes an approved plan. If the recomputed
+  identity differs from the bound value, the step is refused with `target_changed` (naming the first
+  differing field) and needs new approval. `target_changed` means only that. Other refusals have their
+  own codes: `target_stale` (above), `target_not_found`, `target_unsupported`, `target_protected`,
+  `target_not_allowlisted` and `read_failed` (an unreadable file, a D-Bus failure or a timeout:
+  nothing is known, so it is not `target_changed`; the helper does not run with a capability that
+  reads foreign-owned files, so a unit with unreadable drop-ins is refused as `read_failed`). A container
+  restart keeps its id; a rename keeps its id. The owner decided that `unit.restart` is `restart`
+  (it starts a stopped unit) guarded by the exact instance allowlist, and that the plan-time identity
+  read lives in a new `systemd.read` helper group enabled by default.
 
 ## RW-35 Effect delivery semantics and lease fencing
 
@@ -882,7 +947,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     Private key `/var/lib/domovoi-helper/attest.key`, root 0600, directory root 0700.
   - The helper never generates a key implicitly, at startup or during operation. A missing key or
     state fails closed. See "Helper state, recovery and concurrency".
-  - It is masked in the agent and skill-runner units.
+  - It is masked in the skill-runner unit only. A mask in the agent unit would remove the agent's own
+    sockets; the agent is kept from the key by file permissions (directory root 0700, key 0600).
   - `public_key` = the raw 32-byte Ed25519 public key.
 - **Fingerprint and key id.**
   - `fingerprint` = lowercase hex SHA-256 of the 32 raw public-key bytes (64 hex characters). It is
@@ -912,10 +978,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
   | Event | Behaviour |
   |---|---|
-  | `domovoi helper rotate-key` (proposed, root on the host) | new key and new state with `generation=1`; the old counter is not carried over |
-  | `domovoi helper recover` after lost or damaged state (proposed, root on the host) | old key and state retired; new key and new state with `generation=1` |
+  | `domovoi helper rotate-key` (proposed, root on the host) | new key and new state, the sequence restarts and the old counter is not carried over; the old **private key is deleted** once the new files are durable (only its public key, fingerprint and state are kept for audit) |
+  | `domovoi helper recover` after lost or damaged state (proposed, root on the host) | old key and state retired the same way; new key and new state, sequence restarts |
   | reinstall | the installer's `domovoi helper init` creates a key only when neither file exists; otherwise the owner runs `recover` |
-  | key received ≠ pinned key | host shows "helper key changed: unverified"; every attestation fails; unattended containment blocked; the old pin is kept and never replaced silently |
+  | key received ≠ pinned key | host shows "helper key changed: unverified"; every attestation fails (latest-outcome rule: the pinned key's next good attestation clears it); unattended containment blocked; the old pin is kept and never replaced silently |
   | owner re-enrollment | owner compares the new fingerprint locally and confirms (step-up); the pin is replaced; audited `helper.key_rotated` with old and new fingerprints |
   | owner unpin | no pinned key; containment blocked; audited |
   | agent re-enrollment or agent upgrade | helper pin unchanged; a different helper key is a key change as above |
@@ -942,7 +1008,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   config_hash=<64 hex: SHA-256 per 04b §3 (effective config incl. mandatory units and defaults)>
   route_state_hash=<64 hex: SHA-256 per 04b §3 (route lines)>
   complete=<true|false>
-  incomplete_reason=<token or empty>
+  incomplete_reason=<token; empty exactly when complete=true>
   computed_at=<RFC 3339 UTC, seconds, Z>
   cidr=<canonical CIDR>*                  configured management CIDRs
   protected_unit=<canonical unit id>*
@@ -957,6 +1023,14 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   endpoint_route=<endpoint IP>|<table>|<gateway IP or ->|<ifname>|<src IP>*
   ```
 
+  - **Incomplete reports.** `incomplete_reason` is empty exactly when `complete=true`; the verifier
+    rejects an empty reason on an incomplete report and a non-empty one on a complete report. A
+    `complete=false` report has one fixed minimal shape (it is signed whenever a usable key exists):
+    `format`, `helper_key_id`, `nonce`, `boot_id`, `generation=0`, `config_hash` and
+    `route_state_hash` all zero (64 `0`), `complete=false`, a non-empty `incomplete_reason`,
+    `computed_at`, `max_ttl_s=0`, `max_active=0`, and no repeated lines. The hub requires exactly that
+    shape, skips hash recomputation and uses only the token and the receipt time. When no usable key
+    exists the helper returns an unsigned closed token and the hub gates on `attestation_missing`.
   - **Field grammar, canonical values and hash inputs:** `04b`. Every field is strictly
     percent-encoded, so `|` and LF cannot occur inside a value. `protected_container` carries the
     configured container name, not an id; ids are resolved at apply time. `config_hash` and
@@ -976,6 +1050,17 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - the signature verifies with the pinned key;
   - the nonce is valid;
   - `complete=true`.
+
+  Freshness and the nonce (owner decision): boundaries are strict (age `< 60 s` for the nonce,
+  `< 300 s` for the report); freshness is measured from the nonce **issue** time on the hub's clock,
+  not from receipt, so the observed state is at most 300 s old from issue (not up to 360 s);
+  `computed_at` is for display and skew alarms only; `helper_key_id` is not cross-checked; the nonce
+  is consumed late, after signature, parse and hash checks, so an unauthenticated message cannot burn
+  it. The verification steps and wire reasons: `investigations/synthesis/03-r10-safety-attestation-synthesis.md` §5.7.
+
+  **Revocation.** The gate uses the **latest** outcome, not a sticky flag. A key mismatch, a signed
+  `complete=false` report from the pinned key, or a generation regression revokes the stored verified
+  state; one later good attestation restores trust. Unauthenticated failures do not revoke.
 
   It stores the report bytes and the safety identity (below). Requests happen on `hello`, on
   `agent_status`, every 15 min, on the owner's Re-check, and before permit issuance.
@@ -1019,7 +1104,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - Adding or removing a containment element in the nft set does **not** change it.
   - It is incremented only when the newly computed hashes differ from the last persisted ones.
   - A new `boot_id` with identical content does not increment it.
-  - Under one key it never decreases and never repeats.
+  - Under one key it never decreases and never repeats. The hub enforces this with a high-water
+    mark (below). `domovoi helper init` writes `generation=0` with zero hashes and needs no valid
+    configuration or observer; the first real attestation is generation 1. A report with generation 0
+    is never accepted as verified.
 - **Where the identity lives:**
 
   | Place | Use |
@@ -1027,13 +1115,14 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   | stored management-path confirmation | the identity it was confirmed against |
   | `PolicyPermit` for `Contain` (new field `safety_identity`) | the identity at issuance |
   | execution detail (`safety_identity`) and approval card | for human-approved containment, the identity shown when approving |
-  | `run_capability.expected_safety` (wire 1.2; required for `Contain`) | the dispatch guard sent to the agent |
+  | `run_capability.expected_safety` (wire 1.2; required for `Contain`, in one validating constructor used by the agent and the helper's request decoder) | the dispatch guard sent to the agent |
   | helper `nft` request field `expected_safety` | the comparison at apply time |
 
 - **`expected_safety` type.** A tagged value. It is required on every `Contain` request; a missing
   or unknown tag is refused (`refused{malformed_safety}`).
   - `verified{ fingerprint, boot_id, generation, config_hash, route_state_hash }`
-  - `unverified{ reason }`, where `reason` ∈ `key_not_pinned | key_mismatch | attestation_missing |
+  - `unverified{ reason }`, a closed enum (no unknown-value preservation, `deny_unknown_fields`;
+    fingerprint and `boot_id` are validated types), where `reason` ∈ `key_not_pinned | key_mismatch | attestation_missing |
     attestation_stale | signature_invalid | report_incomplete | generation_regressed |
     path_uncovered | confirmation_stale`.
 
@@ -1143,24 +1232,29 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 - **Explicit local actions.** These are proposed commands, run as root on the host:
   - `domovoi helper init`: the **only** first-time initialization path, invoked by the installer.
-    It creates the key and `state` with `generation=1` only when neither exists, and refuses to
-    overwrite either.
+    It creates the key and `state` with `generation=0` and zero hashes only when neither exists, and
+    refuses to overwrite either.
   - `domovoi helper recover`: moves the old key and state to `/var/lib/domovoi-helper/retired/<ts>/`,
-    then creates a **new key** and fresh `state` with `generation=1`. Recovery is always a key
+    then creates a **new key** and fresh `state` (the sequence restarts). The old private key is
+    deleted once the new files are durable. Recovery is always a key
     rotation, because generation continuity cannot be proven after state loss.
-  - `domovoi helper rotate-key`: creates a new key and new state with `generation=1`. It never
+  - `domovoi helper rotate-key`: creates a new key and new state (the sequence restarts). It never
     preserves the old counter under the new key.
   - None of these run automatically. Missing, corrupt or mismatched state is never reset or recovered
     without one of these local root actions.
-  - **Generation sequences.** Each key has its own sequence starting at 1. Under one key, the
+  - **Generation sequences.** Each key has its own sequence, whose first real attestation is 1. Under one key, the
     generation never decreases or repeats. Old keys are never restored as trusted: the hub retains
     the old pin, blocks containment, and requires owner re-enrollment of the new key.
 - **Hub view.**
   - A recovered or rotated helper presents a new public key, so the host shows **"helper key
     changed: re-enroll"** and containment stays blocked until owner enrollment.
-  - The hub stores the highest verified `generation` per pinned key. A report with a lower
-    generation under the same key is rejected as `generation_regressed`, for example after an old
-    state file was restored. Containment is blocked and the owner is alerted.
+  - The hub keeps a **high-water mark** per helper: the highest accepted `(generation, config_hash,
+    route_state_hash)`, persisted in the same transaction that stores the accepted report (needs a
+    small hub table and a migration). A report with a lower generation, or with the equal generation
+    and different hashes, is rejected as `generation_regressed`, for example after an old state
+    file was restored. Containment is blocked and the owner is alerted. The repeat of a generation
+    under a restored state file was a detection gap, not an unsafe containment, because permits
+    bind the generation and both hashes.
   - Helper fail-closed reasons show on the host page with the matching local action.
 
 ### Owner workflow, semantics and enforcement
@@ -1186,12 +1280,23 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 - **Helper enforcement at apply time,** independent of anything in the request:
   1. recompute the effective set;
-  2. compare with `expected_safety` when present;
+  2. compare with `expected_safety`, which is required for `Contain`: a missing or malformed value
+     is refused (`malformed_safety`), and absence is never read as "no guard";
   3. canonicalise the target;
   4. refuse overlap;
   5. enforce protected units and containers;
-  6. enforce `max_ttl` and `max_active` (the active count is helper-owned, from its nft set);
-  7. enforce helper mutation limits.
+  6. enforce `max_ttl` and `max_active` (the active count is helper-owned: the element count of its
+     nft sets read as JSON, foreign elements included). A TTL above the maximum is **refused**
+     (`ttl_above_maximum`), not clamped; `max_active=0` means none allowed, so the default
+     configuration refuses all containment; a configuration with no management CIDR also refuses
+     (`no_management_cidrs`);
+  7. enforce helper mutation limits, persisted across a helper restart and reboot.
+
+  The exclusions are computed by the helper for both address families from `[safety]`, hub
+  addresses, link peers, `local_addr`, gateways and fixed ranges (loopback, link-local and the like).
+  The overlap test is symmetric: a target inside an exclusion and a target containing one are both
+  refused. IPv4-mapped targets are refused, not converted. Containment limits include the
+  `max_elements` range (`04` §9.1).
 - **Residual risk.** A compromised control agent can call the helper directly. It still cannot:
   - block an address inside the helper's actual effective set;
   - exceed the helper's maxima;
@@ -1249,6 +1354,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `agent_refuses_unverified_with_policy_label`
   - `exclusion_overlap_refused_even_on_unverified_human_path`
   - `malformed_expected_safety_refused`
+  - `helper_refuses_missing_expected_safety`
+  - `no_management_cidrs_refuses_containment`
 - **Helper state:**
   - `generation_state_missing_with_key_fails_closed`
   - `generation_state_corrupt_with_key_fails_closed`
@@ -1259,6 +1366,15 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `helper_state_recovery_requires_explicit_local_action`
   - `key_rotation_invalidates_previous_pin`
   - `hub_rejects_generation_regression`
+  - `repeated_generation_with_different_hashes_rejected`
+  - `high_water_persisted_across_hub_restart`
+  - `first_attestation_is_generation_one_after_init`
+  - `incomplete_reason_empty_only_when_complete`
+  - `incomplete_report_has_minimal_shape`
+  - `signed_incomplete_revokes_verified_state`
+  - `mismatch_cleared_by_next_verified_attestation`
+  - `freshness_measured_from_nonce_issue_time`
+  - `helper_fails_closed_on_wrong_directory_mode`
   - `containment_membership_change_keeps_generation`
 - **Encoding (04b vectors):**
   - `config_hash_matches_vectors`
@@ -1270,7 +1386,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `confirmation_survives_reboot_only_when_identity_otherwise_equal`
 - **Limits:**
   - `agent_limit_stricter_than_helper_applies`
-  - `agent_limit_above_helper_is_capped`
+  - `agent_limit_above_helper_is_refused` (was `agent_limit_above_helper_is_capped`: the helper
+    refuses an over-maximum TTL, it does not clamp it)
+  - `ttl_above_maximum_refused_not_clamped`
+  - `mutation_limit_survives_helper_restart`
   - `helper_active_count_is_authoritative`
 - **Approval and unrelated work:**
   - `human_approved_containment_shows_uncovered_paths`
@@ -1316,7 +1435,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **FACT** (baseline source).
   - `install.sh` installs the agent unit running as root (`install.sh:97-106`).
   - Skill manifests may set `run_as` (`core/src/skill/manifest.rs:124-126`). The documented example
-    is already `run_as = "domovoi-skills"` (`manifest.rs:79`).
+    is already `run_as = "domovoi-skills"` (`manifest.rs:102`).
   - The runner switches the child to that uid and primary gid, clearing supplementary groups. This
     works only when the agent is root (`runner/src/exec/mod.rs:40-43`, `exec/spawn.rs:19-34,63-64`).
   - `skills_dir` defaults to the root-owned `/etc/domovoi/skills` (`config/src/agent.rs:51,264`).
@@ -1339,28 +1458,52 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
   - **Skill runner service.** It is how an unprivileged agent starts skills under another identity.
     - **Socket.** `domovoi-skill-runner.socket` listens on `/run/domovoi-skill-runner.sock`
-      (`SocketUser=root`, `SocketGroup=domovoi-agent`, `SocketMode=0660`) with `Accept=yes`.
+      (`SocketUser=root`, `SocketGroup=domovoi-agent`, `SocketMode=0660`) with `Accept=yes`. The
+      owner decided `Accept=yes` for the runner and the helper follows. `0660` is a maximum: no unit
+      directive protects a `0666` socket.
     - **Service.** Each connection starts one `domovoi-skill-runner@.service` instance with:
-      - `User=domovoi-skill`, `Group=domovoi-skill`, `SupplementaryGroups=` empty;
-      - `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`,
-        `PrivateDevices=yes`;
+      - `Type=simple`, `User=domovoi-skill`, `Group=domovoi-skill`, `StandardInput=socket` (the
+        connection is fd 0). There is **no** `SupplementaryGroups=` line: an empty value does not
+        drop an account's own groups. The control is the account: `domovoi-skill` has no
+        supplementary group, and the runner start check and `selftest` verify `getgroups()`;
+      - `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes` (required: `strict` leaves
+        `/home`, `/root` and `/run/user/<uid>` writable), `PrivateTmp=yes`, `PrivateDevices=yes`,
+        `ProtectProc=invisible`, `ProcSubset=pid`;
+      - `ExecStart=` is under `/usr/bin`. Nothing may be executed from `/run`, which can be mounted
+        `noexec`;
       - **Filesystem view.** `ProtectSystem=strict` alone makes `/etc` read-only but still readable,
         and `ReadOnlyPaths=` does not hide anything. So the unit masks whole trees with
         `TemporaryFileSystem=` and re-exposes only skill content with `BindReadOnlyPaths=`:
         - `TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro`. These are empty tmpfs mounts:
           the hub, agent and helper config, agent and helper state, and every socket under `/run`
           become invisible and cannot be enumerated.
-        - `BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages`. systemd applies binds
-          after the temporary filesystems, so only these two trees reappear, read-only.
-        - `InaccessiblePaths=/var/lib/domovoi-helper` as a second layer (already hidden by the
-          `/var/lib` tmpfs).
+        - `BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages`, plain (no `-`) binds.
+          systemd applies binds after the temporary filesystems, so only these two trees reappear,
+          read-only. An absent source fails the start (fail closed); never bind a socket.
+        - **Mask rule.** Mask a parent **or** a child, never a child under a masked parent. The
+          earlier `InaccessiblePaths=/var/lib/domovoi-helper` under the `/var/lib` mask fails the
+          start with `226/NAMESPACE` on every run while `systemd-analyze verify` stays silent, so it
+          is removed: the parent mask hides the helper directory. A `-` prefixed child skips an
+          absent path and fails open. `TemporaryFileSystem=` on an absent path succeeds and creates
+          an empty host directory, so the installer creates `/etc/domovoi` and `selftest` checks it.
+        - The corrected form and its evidence: `investigations/synthesis/02-r3-r9-helper-and-skill-runner-synthesis.md`
+          §5.2 (the unit text there supersedes any older text here).
+        - **A mask in the agent's unit is wrong.** The agent must reach the helper and runner
+          sockets under `/run`; a mask there removes its own sockets. The agent is kept from the
+          attestation key by file permissions (`/var/lib/domovoi-helper` root 0700, key 0600), not
+          by a mask.
+        - **Mode of `/etc/domovoi`** (owner decision): `root:domovoi-agent 0750`. The mask and bind
+          are what make `skills/` reachable for the runner, so they are mandatory for function:
+          a drop-in that removes them is an outage, not a leak, and `selftest` reports it as one.
       - `RestrictSUIDSGID=yes`, `CapabilityBoundingSet=` empty, `AmbientCapabilities=` empty,
-        `RuntimeMaxSec=` = the agent's maximum skill timeout + margin.
+        `RuntimeMaxSec=` = the agent's maximum skill timeout + margin. It works with `Type=simple`
+        and is ignored with `Type=oneshot`.
       - **Known limitation.** A static unit exposes **all** owner-placed skills and installed
         packages read-only, not only the invoked one. Skill and package content is code, not
         secret: packages are signed artifacts, and the docs and install checks forbid secrets in
-        skill directories. Per-invocation narrowing (for example template instances started per
-        package with `BindReadOnlyPaths=/var/lib/domovoi-packages/%i`) is part of R-9.
+        skill directories. Per-package narrowing is deferred (owner decision). The `%i` form is not
+        available under `Accept=yes`: the instance name is an opaque counter-pid-uid string. The
+        only measured form is a dispatcher-started template. Per-package narrowing remains part of R-9.
         Unrelated Domovoi config, credentials, agent state and helper config are invisible.
     - **Not root.** The runner itself runs as `domovoi-skill` and never as root, so it cannot raise
       privileges for a skill.
@@ -1380,8 +1523,9 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       redaction. The result frame carries the exit status and the truncation flag.
     - **Cancellation and timeout.**
       - The runner enforces the timeout with the existing group kill.
-      - The agent cancels by closing the connection. On EOF the runner kills the process group and
-        exits.
+      - The agent cancels by closing the connection. systemd does not cancel an `Accept=yes`
+        instance on disconnect, so this is a runner requirement: the skill runs in its own process
+        group, the runner watches fd 0, on EOF it terminates that group and **exits 0**.
       - `RuntimeMaxSec` is the systemd backstop.
     - **Agent restart.** The connection drops, the runner kills the child, and systemd stops the
       instance. No orphan survives. That gives the "process killed, result unknown" outcome of
@@ -1390,6 +1534,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       - The helper socket and skill-runner socket: wrong group, and `/run` is masked.
       - The agent's key, spool, journal and credentials: `state_dir` is 0700, and `/var/lib` is
         masked except the packages tree.
+      - Docker: no Domovoi account is in the `docker` group and no Docker socket is mounted into
+        any Domovoi unit; membership of that group is root on the host.
       - Any file under `/etc/domovoi` other than `skills/`: masked, so it can be neither listed nor
         read.
       - The helper config, helper state and attestation key: masked.
@@ -1405,8 +1551,23 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
       `domovoi-helper@.service`.
     - It checks `SO_PEERCRED` uid == `domovoi-agent` as **one layer only**. The real isolation is
       that skills never run as that uid.
+    - Its unit directive set is measured only as a baseline (`CapabilityBoundingSet=CAP_NET_ADMIN`,
+      `ProtectSystem=strict`, `ReadWritePaths=/var/lib/domovoi-helper`); no operation that starts a
+      unit or touches a container ships without its own measured set (ADR 0031 B5).
+    - **Start checks.** At every start it asserts the modes and owners of `/var/lib/domovoi-helper`
+      (root 0700), `attest.key`, `state` and `state.lock` (root 0600, regular files, no symlinks). A
+      wrong directory, key or state mode **fails closed** with a distinct mode token: it is not
+      `state_corrupt`. The helper never repairs it at start. The report names each path with the
+      found and expected mode and owner, and offers an explicit, owner-confirmed repair action
+      (owner decision). The runner start check verifies `getgroups()`.
+    - **Inherited socket.** Each connection is adopted from fd 0 with std only (no new dependency,
+      no `unsafe`); a non-zero `LISTEN_FDS` is refused (owner decision, `investigations/synthesis/05-socket-adoption-crate-evaluation.md`).
     - Requests are typed. Every spawn goes through `domovoi-runner`.
     - It never offers `run_as`, `sudo`, `systemd-run` or any command execution.
+  - **Account spelling.** The account is `domovoi-skill` (D-31). Five code sites still say
+    `domovoi-skills` and are edited in one commit: `manifest.rs:102`, `tests/manifests.rs:16`, the
+    two sites in `runner/tests/runner/skill_run.rs` (lines 16 and 74) and the snapshot
+    `manifests__skill_manifest_json_snapshot.snap:53` (review it with `cargo insta review`).
   - **Packages directory.** Installed packages live in `packages_dir` (default
     `/var/lib/domovoi-packages`): owned by `domovoi-agent`, directories 0755, files 0644 (entry
     scripts 0755). The agent writes it; `domovoi-skill` can only read it. Owner-placed skills stay
@@ -1424,7 +1585,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - **Helper-enforced constraints.** These do not depend on the caller being honest. They come from
     `/etc/domovoi/helper.toml` (root-owned) and local OS state:
     - enabled operation groups;
-    - allowed targets by canonical identity (container id, canonical unit id + config hash);
+    - allowed targets by canonical identity (container id, canonical unit `Id` + `identity_hash`);
     - protected units and containers;
     - mandatory management-path exclusions and the dynamic set (RW-37);
     - containment `max_ttl` and `max_active`;
@@ -1451,7 +1612,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     |---|---|---|
     | `docker.read` | list, inspect, logs (bounded), stats, resolve name → id | socket access is root-equivalent |
     | `docker.write` | `restart` by allowlisted container id only | D-24 |
-    | `systemd.write` | `restart` by canonical unit id + config hash, allowlisted, never protected | unit control needs root |
+    | `systemd.read` | unit identity read (`unit.identity`: D-Bus properties plus unit files), enabled by default | drop-ins may be unreadable to an unprivileged reader |
+    | `systemd.write` | `restart` by canonical unit `Id` + `identity_hash`, allowlisted, never protected | unit control needs root |
     | `nft` | `add`, `replace_ttl` (atomic delete + add in one transaction), `del`, `list` on `inet domovoi` sets only; exclusions and limits enforced | CAP_NET_ADMIN |
     | `smart.read` | `smartctl -a` on allowlisted devices | raw disk access |
     | `kernel.read` | bounded kernel messages | `dmesg_restrict` |
@@ -1461,7 +1623,7 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
     `docker.pause`/`unpause` and unit stop are **not** v1 operations. They belong to the deferred
     `container.pause` / `unit.stop_temporary` candidates (D-17, `04` §9.3). There is no emergency
     variant either: an owner who needs to pause a container does so directly on the host.
-  - **Fresh-install default.** Only the read groups and `safety.attest` are enabled, with no write
+  - **Fresh-install default.** Only the read groups (including `systemd.read`) and `safety.attest` are enabled, with no write
     targets. `docker.write`, `systemd.write` and `nft` stay unavailable until the owner enables the
     group and its allowlist in `helper.toml` **and** the corresponding milestone prerequisites (M8,
     M9) are met. Examples: `04` §8.3.
@@ -1485,10 +1647,22 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
     Root installs keep working until the owner reruns the installer. The UI labels them
     "privilege boundary not in effect", and they get no unattended execution (hard limit, `04` §7.3).
-  - **Platforms.** systemd with socket activation is required for the skill runner and the helper.
-    Container deployments, Unraid and hosts without systemd are research item R-9; until it
-    concludes, those platforms run without skills, or keep the legacy root agent with the boundary
-    labelled absent.
+  - **Platforms (tier model, owner decision).** There is no hard systemd version floor. The gate
+    is a runtime isolation check (`selftest` ST checks: units start, masks effective, groups empty,
+    modes correct), not a version list:
+
+    | Tier | Skills | Helper read groups | Helper write groups (`unit.restart`, containment) |
+    |---|---|---|---|
+    | Supported (release-tested, after a real-installer pass with the production binaries) | allowed | allowed | allowed |
+    | Untested (systemd host that passes every isolation check) | allowed, with a visible "untested platform" notice and a recorded acknowledgement | allowed | refused unless the owner opts in per host (off by default, recorded in audit) |
+    | Blocked (a check fails, no systemd, or a container without a measured design) | refused | read allowed if its own checks pass | refused |
+
+    Nothing is Supported yet. Measured candidates (stand-in programs, once each): Debian 13 aarch64
+    (systemd 257), Ubuntu 26.04 (259.9), Ubuntu 24.04 LTS (255.4; containment writes Untested, see
+    RW-13). Not covered: Debian 12, Ubuntu 22.04, systemd 258, SELinux hosts. Container deployments,
+    Unraid and hosts without systemd are Blocked until a design exists (R-9): they run without
+    skills, or keep the legacy root agent with the boundary labelled absent. See
+    `investigations/synthesis/00-overview-and-implementation-plan.md` §5b.
 - **Tests.**
   - `skill_cannot_list_or_read_etc_domovoi`
   - `skill_cannot_read_agent_or_helper_state`
@@ -1501,6 +1675,10 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
   - `skill_runner_refuses_impl_hash_mismatch`
   - `skill_runner_refuses_path_outside_skill_roots`
   - `skill_runner_kills_child_on_agent_disconnect`
+  - `skill_runner_exits_zero_after_cancel_and_runs_skill_in_own_process_group`
+  - `skill_account_has_no_supplementary_groups`
+  - `helper_fails_closed_on_wrong_directory_key_or_state_mode`
+  - `selftest_reports_missing_runner_mask_as_outage`
   - `skills_unavailable_without_skill_runner`
   - `helper_rejects_wrong_peer_uid`
   - `helper_refuses_unlisted_container`
