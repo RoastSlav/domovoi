@@ -1,0 +1,7 @@
+---
+source: crates/domovoi-core/src/skill_runner/tests.rs
+expression: "rendered.join(\"\\n\")"
+---
+{"type":"health","protocol":1,"version":"0.1.0","skills_root":"/etc/domovoi/skills","packages_root":"/var/lib/domovoi-packages"}
+{"type":"run","exit_code":0,"signal":null,"stdout":"ok\n","stderr":"","truncated":false,"timed_out":false,"duration_ms":12,"argv_hash":"abababababababababababababababababababababababababababababababab"}
+{"type":"refused","code":"run_as_unsupported","detail":"the manifest names another user"}
