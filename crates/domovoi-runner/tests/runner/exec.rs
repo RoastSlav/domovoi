@@ -58,6 +58,68 @@ async fn environment_is_cleared() {
     assert!(out.stdout.contains("HOME=/nonexistent"));
 }
 
+const LISTEN_INNER: &str = "DOMOVOI_TEST_LISTEN_INNER";
+
+/// A skill never inherits the helper-style socket activation variables or a connection.
+///
+/// Setting the test process's own environment would need `unsafe`, so the test runs itself
+/// again in a child whose environment holds `LISTEN_FDS` and `LISTEN_PID`; the inner run
+/// spawns through the executor and inspects what the skill sees.
+#[tokio::test]
+async fn spawned_skill_gets_no_listen_vars_and_no_connection() {
+    let (Some(env), Some(ls)) = (bin("/usr/bin/env"), bin("/usr/bin/ls")) else {
+        return;
+    };
+    if std::env::var_os(LISTEN_INNER).is_none() {
+        let name = format!(
+            "{}::spawned_skill_gets_no_listen_vars_and_no_connection",
+            module_path!().split_once("::").map_or("", |(_, rest)| rest)
+        );
+        let exe = std::env::current_exe().unwrap();
+        let mut rerun = spec(
+            exe.to_str().unwrap(),
+            &["--exact", &name, "--test-threads=1"],
+        );
+        rerun.timeout = SignedDuration::from_secs(60);
+        rerun.max_output_bytes = 1024 * 1024;
+        rerun.env = BTreeMap::from([
+            (LISTEN_INNER.to_owned(), "1".to_owned()),
+            ("LISTEN_FDS".to_owned(), "1".to_owned()),
+            ("LISTEN_PID".to_owned(), std::process::id().to_string()),
+        ]);
+        let out = executor().run(rerun).await.unwrap();
+        let text = format!("{}{}", out.stdout, out.stderr);
+        assert_eq!(out.exit_code, Some(0), "{text}");
+        assert!(
+            text.contains("1 passed"),
+            "the inner run did not execute: {text}"
+        );
+        return;
+    }
+    assert_eq!(std::env::var("LISTEN_FDS").as_deref(), Ok("1"));
+    assert!(std::env::var_os("LISTEN_PID").is_some());
+    // A connection of the parent's own, open while the skill runs.
+    let (_held, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+
+    let vars = executor().run(spec(&env, &[])).await.unwrap();
+    assert_eq!(vars.exit_code, Some(0), "{vars:?}");
+    assert!(
+        !vars.stdout.contains("LISTEN_"),
+        "the skill sees socket activation variables: {}",
+        vars.stdout
+    );
+    let fds = executor()
+        .run(spec(&ls, &["-l", "/proc/self/fd"]))
+        .await
+        .unwrap();
+    assert_eq!(fds.exit_code, Some(0), "{fds:?}");
+    assert!(
+        !fds.stdout.contains("socket:"),
+        "the skill holds a socket descriptor: {}",
+        fds.stdout
+    );
+}
+
 fn sleepers_alive() -> bool {
     std::fs::read_dir("/proc").unwrap().flatten().any(|entry| {
         std::fs::read(entry.path().join("cmdline"))

@@ -55,6 +55,18 @@ pub struct AgentDeps {
     /// The log lines of the process this agent runs in, served for `get_logs`;
     /// `None` when nothing captures them (tests and one-off runs).
     pub logs: Option<Arc<dyn LogSource>>,
+    /// Whether the privilege boundary is in effect (the agent is the `domovoi-agent` account
+    /// with exactly the expected groups), decided once at start by the binary.
+    pub boundary_in_effect: bool,
+}
+
+impl AgentDeps {
+    /// These deps with the privilege boundary state the binary measured at start.
+    #[must_use]
+    pub fn with_boundary_in_effect(mut self, in_effect: bool) -> Self {
+        self.boundary_in_effect = in_effect;
+        self
+    }
 }
 
 /// A configured agent, ready to run.
@@ -134,7 +146,8 @@ fn open_packages(
         config.agent.state_dir.clone(),
         config.agent.skills_dir.clone(),
     );
-    let package_deps = PackageDeps::production(deps.clock.clone(), runs_as_root());
+    let package_deps =
+        PackageDeps::production(deps.clock.clone(), runs_as_root(), deps.boundary_in_effect);
     let service = PackageService::open(section, dirs, package_deps)?;
     Ok(Some(Arc::new(service)))
 }
@@ -263,13 +276,21 @@ impl AgentRuntime {
             &self.requests.catalog,
             self.requests.package_surface(),
         );
+        let helper = crate::helper_client::HelperClient::default_path();
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
+            helper_status: crate::helper_client::probe_status(&helper, &*self.deps.clock).await,
             catalog_hash: crate::link::handshake::catalog_announcement(&entries),
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
+        let helper_probe = tokio::spawn(crate::helper_client::keep_status(
+            helper,
+            self.deps.clock.clone(),
+            status.clone(),
+            stop.clone(),
+        ));
         let (transfers, receiver) = match (&self.requests.packages, self.transfer_policy) {
             (Some(service), Some((allow_install, compressed_bytes))) => match service.staging() {
                 Some(staging) => {
@@ -325,6 +346,9 @@ impl AgentRuntime {
         let served = tokio::spawn(serve(self.requests, requests, handle, stop.clone()));
         let result = link.run(stop.clone()).await;
         stop.cancel();
+        if let Err(err) = helper_probe.await {
+            tracing::error!(%err, "the helper probe stopped abnormally");
+        }
         if let Err(err) = scheduler.await {
             tracing::error!(%err, "the scheduler stopped abnormally");
         }

@@ -5,12 +5,16 @@ on:
   push:
     branches: [main]
   merge_group:
+  workflow_dispatch:
+  schedule:
+    # Nightly: only the privileged job runs (see the classifier).
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '-scheduled' || '' }}
   cancel-in-progress: true
 
 env:
@@ -38,6 +42,7 @@ jobs:
       installer: ${{ steps.classify.outputs.installer }}
       units: ${{ steps.classify.outputs.units }}
       coverage: ${{ steps.classify.outputs.coverage }}
+      privileged: ${{ steps.classify.outputs.privileged }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -53,13 +58,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          outputs=(rust web embedded_ui architecture openapi config_docs docs_links metadata_only deny msrv musl workflow shell installer units coverage)
+          outputs=(rust web embedded_ui architecture openapi config_docs docs_links metadata_only deny msrv musl workflow shell installer units coverage privileged)
           fail_open() {
             echo "::warning::Could not determine the changed files; running all CI checks."
             for output in "${outputs[@]}"; do
               echo "$output=true" >> "$GITHUB_OUTPUT"
             done
           }
+
+          if [[ "$EVENT_NAME" == schedule || "$EVENT_NAME" == workflow_dispatch ]]; then
+            # Nightly and manual runs only exercise the privileged job.
+            for output in "${outputs[@]}"; do
+              if [[ "$output" == privileged ]]; then
+                echo "$output=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "$output=false" >> "$GITHUB_OUTPUT"
+              fi
+            done
+            exit 0
+          fi
 
           case "$EVENT_NAME" in
             pull_request|merge_group) base="$BASE_SHA" ;;
@@ -93,6 +110,7 @@ jobs:
           installer=false
           units=false
           coverage=false
+          privileged=false
           ci_workflow=false
           cargo_files=false
           release_files_only=true
@@ -123,6 +141,9 @@ jobs:
                     ;;
                   crates/domovoi-config/*)
                     config_docs=true
+                    ;;
+                  crates/domovoi-helper/*)
+                    privileged=true
                     ;;
                   crates/domovoi-hub/src/spa.rs|crates/domovoi-hub/Cargo.toml|crates/domovoi/Cargo.toml)
                     embedded_ui=true
@@ -184,12 +205,20 @@ jobs:
               install.sh|deploy/test/*.sh|deploy/test/*/run|examples/skills/*/run)
                 shell=true
                 release_files_only=false
+                if [[ "$file" == install.sh || "$file" == deploy/* ]]; then
+                  privileged=true
+                fi
                 if [[ "$file" == install.sh || "$file" == deploy/test/installer.sh ]]; then
                   installer=true
                 fi
                 ;;
               deploy/systemd/*)
                 units=true
+                privileged=true
+                release_files_only=false
+                ;;
+              deploy/*)
+                privileged=true
                 release_files_only=false
                 ;;
               *)
@@ -237,6 +266,7 @@ jobs:
             installer=true
             units=true
             coverage=true
+            privileged=true
             metadata_only=false
           fi
 
@@ -262,6 +292,7 @@ jobs:
               installer) value="$installer" ;;
               units) value="$units" ;;
               coverage) value="$coverage" ;;
+              privileged) value="$privileged" ;;
             esac
             echo "$output=$value" >> "$GITHUB_OUTPUT"
           done
@@ -602,7 +633,43 @@ jobs:
           # verify checks that ExecStart exists; a stub stands in for the binary.
           printf '#!/bin/sh\n' | sudo tee /usr/local/bin/domovoi >/dev/null
           sudo chmod 0755 /usr/local/bin/domovoi
-          systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service
+          # The helper service is a template (domovoi-helper@.service); verify takes the file as is.
+          # The agent unit Wants the helper socket, so all four go in one run.
+          systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service deploy/systemd/domovoi-helper.socket deploy/systemd/domovoi-helper@.service
+
+  # Needs a machine that boots with systemd as PID 1. Not in the required `needs:` list of
+  # the gate job until it has run green three times in a row and the owner agrees; until
+  # then its result is recorded in the pull request.
+  privileged:
+    name: Real accounts and systemd units
+    needs: changes
+    if: needs.changes.outputs.privileged == 'true' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Is systemd PID 1 on this runner?
+        run: |
+          systemctl --version | sed -n 1p
+          stat -fc %T /sys/fs/cgroup
+          ps -p 1 -o comm=
+          if [ "$(ps -p 1 -o comm= | tr -d ' ')" != systemd ]; then
+            echo "::error::PID 1 is not systemd on this runner image, so the real-account tests cannot run here. Run deploy/test/identities.sh on a virtual machine that boots with systemd."
+            exit 1
+          fi
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: privileged
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
+      - name: Build the binary
+        run: cargo build --package domovoi --locked
+      - name: Install and migrate with real accounts, run the helper in a real unit
+        run: |
+          sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
+            DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/identities.sh
 
   coverage:
     name: Coverage

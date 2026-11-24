@@ -53,6 +53,7 @@
 - [HTTP API](reference/api.md)
 - [Agent protocol](reference/protocol.md)
 - [Agent runtime](reference/agent.md)
+- [Helper](reference/helper.md)
 - [Data model](reference/data-model.md)
 
 # Security

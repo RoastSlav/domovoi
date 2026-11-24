@@ -85,7 +85,7 @@ impl Rig {
         let mut ctx = fixture.ctx(Vec::new(), None, Vec::new());
         ctx.journal = Some(Arc::new(journal));
         let service = options.section.then(|| {
-            let deps = PackageDeps::production(fixture.clock.clone(), false);
+            let deps = PackageDeps::production(fixture.clock.clone(), false, true);
             let section = section(trusted, options.allow_install);
             Arc::new(PackageService::open(&section, dirs.clone(), deps).unwrap())
         });

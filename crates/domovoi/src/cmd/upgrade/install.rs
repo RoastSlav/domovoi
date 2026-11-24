@@ -6,7 +6,7 @@ use anyhow::Context;
 
 /// The service units `install.sh` creates, hub first, which are present in `unit_dir`.
 pub fn installed_units(unit_dir: &Path) -> Vec<&'static str> {
-    ["domovoi-hub", "domovoi-agent"]
+    ["domovoi-hub", domovoi_core::identity::AGENT_ACCOUNT]
         .into_iter()
         .filter(|unit| unit_dir.join(format!("{unit}.service")).exists())
         .collect()

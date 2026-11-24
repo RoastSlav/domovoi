@@ -101,8 +101,11 @@ impl PackageDirs {
 pub struct PackageDeps {
     /// The time source.
     pub clock: Arc<dyn Clock>,
-    /// Whether the agent runs as root (the privilege boundary is then not in effect).
+    /// Whether the agent runs as root.
     pub runs_as_root: bool,
+    /// Whether the privilege boundary is in effect: the agent is the `domovoi-agent` account
+    /// with exactly the expected groups. Decided once at agent start by the binary.
+    pub boundary_in_effect: bool,
     /// `<os>-<arch>`, matched against a package's `platforms`.
     pub platform: String,
     /// Where audit events go.
@@ -114,10 +117,11 @@ pub struct PackageDeps {
 impl PackageDeps {
     /// Production wiring: tracing events, `statvfs`, and this build's platform.
     #[must_use]
-    pub fn production(clock: Arc<dyn Clock>, runs_as_root: bool) -> Self {
+    pub fn production(clock: Arc<dyn Clock>, runs_as_root: bool, boundary_in_effect: bool) -> Self {
         Self {
             clock,
             runs_as_root,
+            boundary_in_effect,
             platform: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
             events: Arc::new(TracingEvents),
             space: Arc::new(StatvfsSpace),
@@ -260,13 +264,14 @@ impl PackageService {
         self.allow_install && self.fence_error().is_none()
     }
 
-    /// Whether the privilege boundary is in effect (the agent is not root).
+    /// Whether the privilege boundary is in effect: only when the agent runs as the
+    /// `domovoi-agent` account with the expected groups, not merely when it is not root.
     #[must_use]
     pub fn privilege_boundary(&self) -> PrivilegeBoundary {
-        if self.deps.runs_as_root {
-            PrivilegeBoundary::NotInEffect
-        } else {
+        if self.deps.boundary_in_effect {
             PrivilegeBoundary::InEffect
+        } else {
+            PrivilegeBoundary::NotInEffect
         }
     }
 

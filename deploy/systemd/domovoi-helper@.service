@@ -1,0 +1,22 @@
+[Unit]
+Description=Domovoi helper (connection %i)
+
+[Service]
+Type=simple
+# Root: no User= line on purpose.
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/local/bin/domovoi helper serve
+Restart=no
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/domovoi-helper
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+RuntimeMaxSec=60s
+KillMode=control-group
+TimeoutStopSec=5s

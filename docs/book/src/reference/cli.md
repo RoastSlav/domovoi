@@ -56,6 +56,58 @@ domovoi agent status --config /etc/domovoi/agent.toml
 
 Without a status file it prints `no status recorded; the agent has not run yet.`
 
+### `domovoi agent selftest`
+
+Checks the host's identities, modes, units and isolation, and says which platform tier the result gives. It is not `domovoi selftest`, which tests the hub pipeline.
+
+```sh
+domovoi agent selftest --config /etc/domovoi/agent.toml
+sudo domovoi agent selftest --installer --record
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--installer` | Run as root. Runs the root checks itself and the agent's own checks as `domovoi-agent`, then merges both. |
+| `--record` | With `--installer`, write the result to `/var/lib/domovoi-helper/platform.json`. The helper reads that record to decide about write groups. |
+| `--json` | Print the full report as JSON instead of text. |
+| `--config <agent.toml>` | The agent config to read. Default `/etc/domovoi/agent.toml`. |
+
+Without `--installer` it runs the checks the agent's account can run (ST-01, ST-02, ST-12, ST-14, ST-15, ST-16) and reports the rest as not run because they need root. The output has one line per check, such as `ST-10 fail path_mode_wrong`, then each fault with the found and the expected mode and owner, then the privilege-boundary label and the tier decision. It also lists skills whose manifest names a `run_as` other than `domovoi-skill`.
+
+Exit code `0` when no check failed, `1` when any failed. A check that was not run is printed as `nd` and is never counted as a pass. It never repairs anything.
+
+| Check | What it looks at | Token on failure |
+| --- | --- | --- |
+| ST-01 | the agent runs as `domovoi-agent`, not root | `privilege_boundary_not_in_effect` |
+| ST-02 | the agent's groups are its own plus `systemd-journal`, never `docker` or root | `agent_groups_unexpected` |
+| ST-03 | `domovoi-skill` exists, is not root or the agent, has no login shell and no extra group | `skill_account_invalid` |
+| ST-04 | neither account is in the `docker` group | `docker_group_member` |
+| ST-05 to ST-06 | the skill runner's groups and privileges (not run until the runner ships) | `runner_groups_extra`, `runner_privileges` |
+| ST-07 | the helper and agent units are as shipped: no drop-in, no pending reload | `unit_modified`, `unit_not_inspectable` |
+| ST-08 | records the systemd version | none |
+| ST-09 | no numeric ids in units, no `ExecStart` under `/run`, `/tmp` or `/dev/shm` | `unit_hardcoded_id`, `unit_exec_under_run` |
+| ST-10 | every path's mode, owner and type, and no write bit in the skills and packages trees | `path_mode_wrong` |
+| ST-11 | the helper's directory, lock, key, state and record | `helper_state_permissions` |
+| ST-12 | the helper socket is `root:domovoi-agent`, mode 0660 | `socket_mode_wrong` |
+| ST-13 | the skill runner's isolation (not run until the runner ships) | `runner_not_isolated` |
+| ST-14 | the agent can connect to the helper and get `health` | `socket_unreachable` |
+| ST-15 | the agent cannot open the helper's key, directory or lock | `agent_reaches_helper_state` |
+| ST-16 | the agent cannot connect to the Docker socket | `agent_reaches_docker` |
+| ST-17 | container installs only: no risky mounts | `container_escape_surface` |
+| ST-18 | `/etc/domovoi` was not created empty by a unit mask | `host_directory_created_by_mask` |
+| ST-19 | records security modules and mount options | none |
+| ST-20 | state writes are not slow (a warning only) | `state_write_slow` |
+
+### `domovoi helper serve`, `init` and `repair`
+
+The helper is the root part of the three-identities layout. See [Helper](helper.md) for what it answers and how it is configured.
+
+`domovoi helper serve` is started by the helper's socket unit, adopts the connection from standard input, answers one request and exits. It refuses to run when standard input is not a socket, so do not run it by hand.
+
+`sudo domovoi helper init` creates `/var/lib/domovoi-helper` (mode 0700) and its lock file. It prints `created` or `already initialised`, and refuses, changing nothing, when the directory exists with other modes.
+
+`sudo domovoi helper repair` is the only command that changes a wrong mode or owner on a Domovoi path. It prints each path with the found and the expected mode, owner and group and the exact change, then asks you to type `repair` at the terminal. There is no `--yes`: without a terminal it changes nothing. It refuses symlinks and paths of the wrong type, changes only the paths it lists and only their mode and owner, never content, and then re-runs the checks and prints what is left.
+
 ## Enrolling agents
 
 ### `domovoi hub token create <host>`
@@ -68,13 +120,15 @@ domovoi hub token create nas --ttl 30m
 
 ### `domovoi agent enroll`
 
-Run on the new host with the command the hub printed. It trades the token for the agent's identity and pins the hub's certificate. When `agent.toml` does not exist yet, it writes one from `--name` and `--hub` (mode 0640), with defaults for the rest. When `agent.toml` already exists, only its `hub_url` is changed, to `--hub` if they differ; every other setting is kept.
+Run on the new host with the command the hub printed. It trades the token for the agent's identity and pins the hub's certificate. When `agent.toml` does not exist yet, it writes one from `--name` and `--hub` (mode 0644, so the unprivileged agent can read it), with defaults for the rest. When `agent.toml` already exists, only its `hub_url` is changed, to `--hub` if they differ; every other setting is kept.
 
 ```sh
 domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:CD:… --name nas
 ```
 
 The fingerprint may be written with or without colons. The token can also come from `DOMOVOI_ENROLL_TOKEN`.
+
+When it runs as root on a host where the `domovoi-agent` account exists, it hands the files in `state_dir` over to that account after its last write and prints one line saying so. `agent.toml` stays owned by root. `domovoi agent journal init` and `reset` do the same.
 
 ### `domovoi hub agent list` and `domovoi hub agent revoke <host>`
 
@@ -142,7 +196,7 @@ domovoi notify test --config /etc/domovoi/hub.toml
 
 ### `domovoi selftest`
 
-Pushes one synthetic critical signal through the whole pipeline and prints PASS, FAIL or SKIP for each stage: `config`, `store`, `manager` (an incident opens), `triage` (a report comes back), `card` (the card reaches every gateway) and `gateway` (the incident resolves and every update is delivered).
+Tests the hub, not the host (for the host, see `domovoi agent selftest`). It pushes one synthetic critical signal through the whole pipeline and prints PASS, FAIL or SKIP for each stage: `config`, `store`, `manager` (an incident opens), `triage` (a report comes back), `card` (the card reaches every gateway) and `gateway` (the incident resolves and every update is delivered).
 
 ```sh
 domovoi selftest --config /etc/domovoi/hub.toml

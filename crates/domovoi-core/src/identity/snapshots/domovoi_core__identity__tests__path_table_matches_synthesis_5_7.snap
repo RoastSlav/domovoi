@@ -1,0 +1,126 @@
+---
+source: crates/domovoi-core/src/identity/tests.rs
+expression: table
+---
+[
+  {
+    "group": "agent",
+    "id": "etc_domovoi",
+    "kind": "dir",
+    "mode": 488,
+    "owner": "root",
+    "path": "/etc/domovoi",
+    "required": "required",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "skills_dir",
+    "kind": "dir",
+    "mode": 493,
+    "owner": "root",
+    "path": "/etc/domovoi/skills",
+    "required": "required",
+    "tree": "root_owned_read_only"
+  },
+  {
+    "group": "root",
+    "id": "helper_toml",
+    "kind": "file",
+    "mode": 384,
+    "owner": "root",
+    "path": "/etc/domovoi/helper.toml",
+    "required": "required",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "agent_toml",
+    "kind": "file",
+    "mode": 420,
+    "owner": "root",
+    "path": "/etc/domovoi/agent.toml",
+    "required": "if_present",
+    "tree": "none"
+  },
+  {
+    "group": "agent",
+    "id": "agent_state",
+    "kind": "dir",
+    "mode": 448,
+    "owner": "agent",
+    "path": "/var/lib/domovoi-agent",
+    "required": "required",
+    "tree": "none"
+  },
+  {
+    "group": "agent",
+    "id": "packages_dir",
+    "kind": "dir",
+    "mode": 493,
+    "owner": "agent",
+    "path": "/var/lib/domovoi-packages",
+    "required": "required",
+    "tree": "no_group_other_write"
+  },
+  {
+    "group": "root",
+    "id": "helper_dir",
+    "kind": "dir",
+    "mode": 448,
+    "owner": "root",
+    "path": "/var/lib/domovoi-helper",
+    "required": "required",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "helper_lock",
+    "kind": "file",
+    "mode": 384,
+    "owner": "root",
+    "path": "/var/lib/domovoi-helper/state.lock",
+    "required": "required",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "helper_key",
+    "kind": "file",
+    "mode": 384,
+    "owner": "root",
+    "path": "/var/lib/domovoi-helper/attest.key",
+    "required": "if_present",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "helper_state",
+    "kind": "file",
+    "mode": 384,
+    "owner": "root",
+    "path": "/var/lib/domovoi-helper/state",
+    "required": "if_present",
+    "tree": "none"
+  },
+  {
+    "group": "root",
+    "id": "helper_platform",
+    "kind": "file",
+    "mode": 384,
+    "owner": "root",
+    "path": "/var/lib/domovoi-helper/platform.json",
+    "required": "if_present",
+    "tree": "none"
+  },
+  {
+    "group": "agent",
+    "id": "helper_socket",
+    "kind": "socket",
+    "mode": 432,
+    "owner": "root",
+    "path": "/run/domovoi-helper.sock",
+    "required": "required",
+    "tree": "none"
+  }
+]

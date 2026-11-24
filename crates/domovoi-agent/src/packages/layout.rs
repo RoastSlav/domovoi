@@ -7,6 +7,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
+use domovoi_core::identity::HELPER_STATE_DIR;
 use domovoi_core::package::PackageFailureCode;
 
 use super::error::PackageError;
@@ -30,7 +31,7 @@ pub const STAGING_DIR: &str = ".staging";
 /// Roots a package directory may never equal, contain or lie inside.
 const PROTECTED_ROOTS: &[&str] = &[
     "/etc/domovoi",
-    "/var/lib/domovoi-helper",
+    HELPER_STATE_DIR,
     "/run",
     "/proc",
     "/sys",

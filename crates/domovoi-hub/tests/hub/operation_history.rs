@@ -342,8 +342,12 @@ async fn unknown_journal_kinds_pass_through_with_null_fields() {
     a.store.commit(tx).await.unwrap();
 
     let body = history(&a, &login, op).await;
-    let last = events(&body).last().unwrap();
-    assert_eq!(last["kind"], "operation.summary");
-    assert!(last["step"].is_null());
-    assert!(last["state"].is_null());
+    // The injected event carries a fixed past timestamp, so events recorded with the real clock
+    // sort after it; find it by kind instead of assuming it is last.
+    let summary = events(&body)
+        .iter()
+        .find(|e| e["kind"] == "operation.summary")
+        .expect("the injected operation.summary event is in the history");
+    assert!(summary["step"].is_null());
+    assert!(summary["state"].is_null());
 }

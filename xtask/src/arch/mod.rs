@@ -2,14 +2,19 @@
 
 mod alias;
 pub mod ast;
+mod compose;
 mod git;
 mod graph;
+mod identity_rules;
+mod install_script;
 mod lex;
 mod manifest;
 pub mod modules;
 pub mod reach;
 pub mod rules;
 mod scan;
+mod selftest_rule;
+mod units;
 pub mod wiring;
 
 use std::fmt;
@@ -43,6 +48,11 @@ pub fn run(root: &Path, base: Option<&str>) -> anyhow::Result<()> {
     violations.extend(graph::check(&graph::from_metadata(&metadata)));
     violations.extend(manifest::check(&metadata)?);
     violations.extend(scan::check_tree(root, &metadata)?);
+    violations.extend(units::check_deploy(root, units::REQUIRE_CREATED_SET)?);
+    match selftest_rule::check(&selftest_rule::load(root)?) {
+        selftest_rule::Outcome::Skipped(note) => eprintln!("arch-check: {note}"),
+        selftest_rule::Outcome::Ran(found) => violations.extend(found),
+    }
     if let Some(base) = base {
         violations.extend(git::check(root, base)?);
     }

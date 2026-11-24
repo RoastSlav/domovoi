@@ -13,6 +13,8 @@ mod dry_run;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod helper_client;
+#[cfg(test)]
 mod hub;
 #[cfg(test)]
 mod link;

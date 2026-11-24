@@ -21,6 +21,7 @@ pub mod enroll;
 pub mod error;
 pub mod facts;
 pub mod fs_atomic;
+pub mod helper_client;
 pub mod identity;
 pub mod journal;
 pub mod link;
@@ -33,6 +34,7 @@ pub mod requests;
 pub mod runtime;
 pub mod scheduler;
 pub mod spool;
+pub mod state_owner;
 pub mod store;
 pub mod time;
 

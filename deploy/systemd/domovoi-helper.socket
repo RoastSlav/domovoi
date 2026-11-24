@@ -1,0 +1,14 @@
+[Unit]
+Description=Domovoi helper socket
+
+[Socket]
+ListenStream=/run/domovoi-helper.sock
+SocketUser=root
+SocketGroup=domovoi-agent
+SocketMode=0660
+Accept=yes
+MaxConnections=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

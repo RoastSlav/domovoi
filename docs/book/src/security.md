@@ -43,6 +43,35 @@ The hub offers and relays packages; the agent decides. The hub checks an import 
 
 See [Packages](guide/packages.md) for the workflow and what each outcome means.
 
+## Three identities on one host
+
+On a host installed with the three-identities layout, three operating-system identities keep a package or a skill away from privileged operations:
+
+| Identity | Runs | Can reach | Cannot reach |
+| --- | --- | --- | --- |
+| `domovoi-agent` | the agent | the hub link, its own state, the packages directory, the helper socket | the helper's directory and key, `/etc/domovoi/helper.toml` |
+| `domovoi-skill` | skills (when the skill runner ships) | skill and package files, read-only | the agent's state, the helper, both sockets |
+| root | the helper | its own directory and `helper.toml` | nothing outside its request list: it cannot run commands, switch users or use `sudo` |
+
+Three separate layers decide who may connect to a socket, and none replaces another:
+
+1. **Socket mode and group.** The helper socket is `root:domovoi-agent` with mode 0660, never wider. Another user cannot even connect.
+2. **The peer check.** The helper compares the connecting user's id with that of `domovoi-agent`. It tells users apart, not processes: a compromised agent still passes. Root is not accepted either; root diagnostics use `domovoi agent selftest`.
+3. **Mount isolation for skills.** The skill runner's unit hides the sockets and the state directories from `domovoi-skill`. This arrives with the skill runner.
+
+The agent is kept away from the helper's directory and key by file permissions alone: a root-owned 0700 directory. No Domovoi account is in the `docker` group, because that membership is root on a Docker host.
+
+If the agent is compromised it can call the helper, so the helper's list of operations is the bound, not an approval. In this release that list is short: `health`, `groups`, and read groups that answer "unavailable". The helper has no write group: no restart, no firewall change, no container action. Write groups named in `helper.toml` are ignored and reported. The helper does not start any process.
+
+### Boundary and platform tier
+
+Two things are reported separately:
+
+- **Privilege boundary.** In effect only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. Otherwise the host is labelled "privilege boundary not in effect" and gets no unattended execution. A root agent from an earlier install, a container agent and the single-process mode are all in this state.
+- **Platform tier.** `domovoi agent selftest` runs the isolation checks on the host itself and sorts it into Supported, Untested or Blocked. A check that did not run never counts as a pass. **No platform is Supported yet:** nothing has been release-tested. A host whose checks all pass is Untested; any failed or missing required check makes it Blocked. Skills are refused on a Blocked host, and until the skill runner ships every host is Blocked for them. Privileged write operations stay off on an Untested host unless you set `allow_write_groups_on_untested` for that host in [`helper.toml`](reference/helper.md#platform).
+
+A wrong mode or owner on the helper's directory, lock, key or state makes the helper refuse to start and name each path. It never repairs on its own. The only repair is `sudo domovoi helper repair`, a local command that prints what it will change, needs you at a terminal to type the word `repair`, refuses symlinks, and changes only the listed paths and only their mode and owner. Nothing in the agent, the hub or a chat can run it.
+
 ## What could go wrong, and what stops it
 
 | Scenario | What happens |

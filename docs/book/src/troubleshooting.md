@@ -46,7 +46,36 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 **A proposed action is refused when approved.** Look at the action in the web UI. Common reasons: the skill's risk is above the host's `[policy] allow_risk`; the skill or its manifest changed since it was proposed; the proposal expired.
 
-**A skill fails with "permission denied".** Skills run as the agent's user (root with the packaged unit) unless the manifest sets `run_as`. Check the program it calls exists in the agent's `PATH` and on the host.
+**A skill fails with "permission denied".** On an agent that still runs as root, skills run as root unless the manifest sets `run_as`; on the three-identities layout they wait for the skill runner and run as `domovoi-skill`. Check the program it calls exists in the agent's `PATH` and on the host.
+
+## Identities and the helper
+
+Run `sudo domovoi agent selftest --installer` to see every check. [Command line](reference/cli.md#domovoi-agent-selftest) lists them with their tokens.
+
+### The host says "privilege boundary not in effect"
+
+The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: an agent installed before the three-identities layout (it runs as root), a hub on the same host, a container install, or no systemd. For an old root agent, `sudo sh install.sh --role agent --migrate-identity` moves it ([Binary and systemd](install/binary.md#already-installed)). The host gets no unattended execution until the boundary is in effect.
+
+### The helper refuses to start
+
+The helper's own checks failed, and it answers every request with `StartRefused` and the list of paths. The host's helper status on the hub shows the token. Read the exact paths in the journal: `sudo journalctl -u 'domovoi-helper@*' -n 50`.
+
+- `helper_state_permissions`: a mode, owner, group or type is wrong on the helper's directory, lock, key, state, platform record or `helper.toml`, or one of them is a symlink. Each path is listed with the found and the expected values. Nothing was changed. Fix it with `sudo domovoi helper repair`, which shows the plan and asks you to type `repair`. If a path is a symlink or the wrong type, remove or fix it yourself first: repair refuses those.
+- `uninitialized`: `domovoi helper init` has not run. Run it with `sudo`.
+- `helper_config_invalid`: `/etc/domovoi/helper.toml` has an unknown key, an unknown group or a duplicate group. Fix the file.
+- `agent_account_missing`: the `domovoi-agent` account does not exist, so the helper does not know whom to serve.
+
+### A path has the wrong mode or owner
+
+`path_mode_wrong` (check ST-10) names every path whose mode, owner, group or type differs from the layout, or whose skills or packages tree has a group or other write bit. The installer reports the same and stops before it enables the helper socket. Neither changes anything. Run `sudo domovoi helper repair` to apply the listed changes after you confirm; it covers modes and owners only, never file content.
+
+### `unit_modified`
+
+Check ST-07 found a drop-in on the helper socket, the helper service or the agent unit, or a unit change that has not been loaded. Look for the file it lists (usually under `/etc/systemd/system/<unit>.d/`), remove it, run `sudo systemctl daemon-reload` and run the check again. `unit_not_inspectable` means `systemctl show` failed for that unit; check that it is installed. A drop-in can weaken the isolation the units set, so the check cannot accept it, and `systemctl edit` on these units will keep skills blocked once the skill runner ships.
+
+### Skills are unavailable on a new install
+
+On the three-identities layout skills run only through the skill runner, which is not installed yet, so the host is Blocked for skills. That is expected and not a fault.
 
 ## Discord
 

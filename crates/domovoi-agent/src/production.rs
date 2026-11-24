@@ -54,6 +54,7 @@ pub fn deps(
         docker: Some(control),
         redactor,
         logs,
+        boundary_in_effect: false,
     })
 }
 

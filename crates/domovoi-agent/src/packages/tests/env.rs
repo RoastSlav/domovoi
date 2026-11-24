@@ -80,6 +80,7 @@ impl Env {
         PackageDeps {
             clock: self.clock.clone(),
             runs_as_root,
+            boundary_in_effect: !runs_as_root,
             platform: "linux-x86_64".to_owned(),
             events: self.events.clone(),
             space: self.space.clone(),
