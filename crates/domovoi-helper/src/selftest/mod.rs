@@ -45,6 +45,11 @@ pub use units::{
 /// Where `systemctl` lives; the executor runs it by absolute path.
 pub const SYSTEMCTL: &str = "/usr/bin/systemctl";
 
+/// Where `setpriv` lives. It switches to the agent account and initialises that account's
+/// groups (`--init-groups`), which the executor's `run_as` does not: a child started that way has
+/// no supplementary groups, so ST-02 would fail on a correctly set up account.
+pub const SETPRIV: &str = "/usr/bin/setpriv";
+
 /// The arguments that make `domovoi` print the agent-run checks as JSON.
 pub const AGENT_CHECKS_ARGS: [&str; 4] = ["agent", "selftest", "--agent-checks", "--json"];
 
@@ -119,17 +124,30 @@ fn agent_ids() -> impl Iterator<Item = CheckId> {
         .filter(|i| i.run_by() == RunBy::Agent)
 }
 
-/// Starts the agent checks as `domovoi-agent` through the executor and reads their JSON.
+/// Starts the agent checks as `domovoi-agent` (through `setpriv`, by the executor) and reads their JSON.
 async fn agent_checks_as_agent(env: &SelftestEnv<'_>) -> Result<AgentChecksOutput, String> {
+    let mut args: Vec<String> = [
+        "--reuid",
+        AGENT_ACCOUNT,
+        "--regid",
+        AGENT_ACCOUNT,
+        "--init-groups",
+        "--",
+        env.exe,
+    ]
+    .iter()
+    .map(|a| (*a).to_owned())
+    .collect();
+    args.extend(AGENT_CHECKS_ARGS.iter().map(|a| (*a).to_owned()));
     let spec = ProcessSpec {
-        program: env.exe.to_owned(),
-        args: AGENT_CHECKS_ARGS.iter().map(|a| (*a).to_owned()).collect(),
+        program: SETPRIV.to_owned(),
+        args,
         env: BTreeMap::new(),
         cwd: None,
         stdin: None,
         timeout: SignedDuration::from_secs(30),
         max_output_bytes: 1 << 20,
-        run_as: Some(AGENT_ACCOUNT.to_owned()),
+        run_as: None,
     };
     let output = env.executor.run(spec).await.map_err(|e| e.to_string())?;
     if output.exit_code != Some(0) || output.timed_out {

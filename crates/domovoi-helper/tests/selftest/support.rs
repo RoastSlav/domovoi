@@ -205,10 +205,24 @@ pub fn child_json() -> String {
     .expect("json")
 }
 
+pub const CHILD_ARGS: [&str; 11] = [
+    "--reuid",
+    "domovoi-agent",
+    "--regid",
+    "domovoi-agent",
+    "--init-groups",
+    "--",
+    EXE,
+    "agent",
+    "selftest",
+    "--agent-checks",
+    "--json",
+];
+
 pub fn expect_child(exec: &FakeProcessExecutor, stdout: &str) {
     exec.expect(
-        EXE,
-        &["agent", "selftest", "--agent-checks", "--json"],
+        domovoi_helper::selftest::SETPRIV,
+        &CHILD_ARGS,
         ok_output(stdout),
     );
 }

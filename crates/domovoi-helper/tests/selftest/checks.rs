@@ -66,14 +66,15 @@ async fn selftest_installer_obtains_agent_results_by_running_the_agent_checks_as
     let child: Vec<_> = exec
         .calls()
         .into_iter()
-        .filter(|c| c.program == EXE)
+        .filter(|c| c.program == domovoi_helper::selftest::SETPRIV)
         .collect();
     assert_eq!(child.len(), 1);
-    assert_eq!(child[0].run_as.as_deref(), Some(AGENT_ACCOUNT));
     assert_eq!(
-        child[0].args,
-        ["agent", "selftest", "--agent-checks", "--json"]
+        child[0].run_as, None,
+        "setpriv switches to the account itself"
     );
+    assert_eq!(child[0].args, CHILD_ARGS);
+    assert!(child[0].args.iter().any(|a| a == "--init-groups"));
     for id in [
         CheckId::St01,
         CheckId::St02,
@@ -92,8 +93,8 @@ async fn selftest_installer_marks_agent_checks_nd_when_the_child_cannot_run() {
     let host = healthy_host();
     let exec = healthy_executor();
     exec.expect_result(
-        EXE,
-        &["agent", "selftest", "--agent-checks", "--json"],
+        domovoi_helper::selftest::SETPRIV,
+        &CHILD_ARGS,
         Err(ProcessError::UserSwitch("no such user".to_owned())),
     );
     let report = installer_report(&host, &exec).await;
@@ -450,7 +451,8 @@ async fn selftest_spawns_only_through_the_executor() {
     installer_report(&host, &exec).await;
     for call in exec.calls() {
         assert!(
-            call.program == EXE || call.program == domovoi_helper::selftest::SYSTEMCTL,
+            call.program == domovoi_helper::selftest::SETPRIV
+                || call.program == domovoi_helper::selftest::SYSTEMCTL,
             "unexpected program {}",
             call.program
         );
