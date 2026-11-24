@@ -502,7 +502,7 @@ async fn helper_groups_report_the_recorded_tier_when_the_kernel_matches() {
 }
 
 #[test]
-fn write_groups_are_refused_by_record_and_opt_in() {
+fn write_groups_are_refused_on_untested_platforms_without_owner_opt_in() {
     use PlatformRecordState::{Missing, Ok as RecordOk, Stale};
     use PlatformTier::{Blocked, Supported, Untested};
     let reason = |record, tier, opt_in| {

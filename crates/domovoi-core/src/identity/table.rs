@@ -98,7 +98,7 @@ pub fn expected_paths(dirs: &HostDirs) -> Vec<PathSpec> {
             Root,
             Root,
             0o644,
-            Required,
+            IfPresent,
             none,
         ),
         spec(

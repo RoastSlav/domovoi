@@ -83,6 +83,28 @@ mod tests {
     }
 
     #[test]
+    fn agent_selftest_prints_one_line_per_check_and_exits_nonzero_on_a_fail() {
+        let output = domovoi()
+            .args(["agent", "selftest"])
+            .env("DOMOVOI_AGENT_CONFIG", "/nonexistent/agent.toml")
+            .output()
+            .unwrap();
+        let text = String::from_utf8(output.stdout).unwrap();
+        for n in 1..=20 {
+            let id = format!("ST-{n:02} ");
+            assert_eq!(
+                text.lines().filter(|l| l.starts_with(&id)).count(),
+                1,
+                "{id}: {text}"
+            );
+        }
+        // On a host that is not set up as the three identities, at least ST-01 fails.
+        if !text.lines().any(|l| l.starts_with("ST-01 pass")) {
+            assert_eq!(output.status.code(), Some(1), "{text}");
+        }
+    }
+
+    #[test]
     fn installer_selftest_needs_root() {
         if running_as_root() {
             return;

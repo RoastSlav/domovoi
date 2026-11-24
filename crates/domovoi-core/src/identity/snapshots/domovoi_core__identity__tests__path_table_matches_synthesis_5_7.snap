@@ -40,7 +40,7 @@ expression: table
     "mode": 420,
     "owner": "root",
     "path": "/etc/domovoi/agent.toml",
-    "required": "required",
+    "required": "if_present",
     "tree": "none"
   },
   {
