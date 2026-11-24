@@ -383,7 +383,7 @@ row_begin selftest_installer_passes_on_a_clean_host_and_marks_runner_checks_nd
     for check in ST-05 ST-06 ST-13; do
         grep -q "^$check nd" "$work/selftest.out" || die "$check is not reported as nd"
     done
-    grep -qi 'privilege boundary' "$work/selftest.out" || die "the report has no boundary line"
+    grep -q '^boundary: ' "$work/selftest.out" || die "the report has no boundary line"
 )
 row_end $?
 
@@ -471,7 +471,7 @@ row_end $?
 row_begin real_user_skill_cannot_connect_to_helper_socket
 (
     set -e
-    trap 'userdel domovoi-probe-ci-user 2>/dev/null; groupdel domovoi-probe-ci-user 2>/dev/null; true' EXIT
+    trap 'userdel domovoi-probe-ci-user 2>/dev/null || true; groupdel domovoi-probe-ci-user 2>/dev/null || true' EXIT
     probe_user domovoi-probe-ci-user
     accepted="$(systemctl show -p NAccepted --value domovoi-helper.socket)"
     answer="$(helper_call domovoi-probe-ci-user health || true)"
@@ -501,7 +501,7 @@ row_end $?
 row_begin skill_given_agent_group_is_stopped_by_helper_uid_check
 (
     set -e
-    trap 'userdel domovoi-probe-ci-agentgrp 2>/dev/null; groupdel domovoi-probe-ci-agentgrp 2>/dev/null; true' EXIT
+    trap 'userdel domovoi-probe-ci-agentgrp 2>/dev/null || true; groupdel domovoi-probe-ci-agentgrp 2>/dev/null || true' EXIT
     record_user domovoi-probe-ci-agentgrp
     useradd --system --gid domovoi-agent --no-create-home --shell "$nologin" domovoi-probe-ci-agentgrp
     answer="$(helper_call domovoi-probe-ci-agentgrp health || true)"
