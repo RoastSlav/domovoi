@@ -97,6 +97,10 @@ Resolved signals are kept until whole batches go, since losing one would leave a
 
 Requests run beside the link, at most 4 at once. If 32 more are waiting, new ones are answered as busy. Each request stops at its deadline.
 
+### Unit restarts
+
+A `unit.restart` request carries the unit id the hub planned. The agent checks it in this order and stops at the first refusal: the privilege boundary, the platform tier, the helper's `systemd` groups, the unit identity, and, for a request labelled `policy`, the `[unattended]` ceiling. A request labelled `human` skips only the ceiling. The agent counts a policy-labelled restart from its own journal, so `max_per_hour` holds across restarts of the agent, and it refuses a policy-labelled request when `[unattended]` is missing, disabled, does not list the unit or has used its hour. It reports its ceiling to the hub when it connects; the hub cannot set or widen it. See [Restarting a service](../guide/unit-restart.md).
+
 ### Docker and other reads through the helper
 
 When the agent runs as `domovoi-agent` it is not in the `docker` group and cannot open the Docker socket, so it does not look for one. It asks the helper, which reads the socket, and builds the same container checks and tools on the answer. What the hub's Docker switch and `hello.docker` report keeps its shape; the `problem` text depends on the helper's answer:

@@ -17,7 +17,7 @@ Domovoi sits between things you do not fully control (logs, alerts, webhooks, a 
 
 These hold however the model behaves. Each one is enforced by code and by named tests that must never be deleted.
 
-1. **Only a person can approve an action.** The model's tools can only read; there is no approve tool, and nothing a model or a chat message says counts as approval. *(INV-1)*
+1. **Only a person can approve an action.** The model's tools can only read; there is no approve tool, and nothing a model or a chat message says counts as approval. A policy permit is not an approval: only the hub's permit issuer makes one, only for a restart that a published rule allows, and every other change still needs you. *(INV-1)*
 2. **Nothing runs through a shell.** Only the runner starts processes, always as a plain argument list. *(INV-2)*
 3. **Agents decide for themselves.** Each request is checked against the manifests on the agent's own disk and its risk policy. The hub cannot send a script. *(INV-3)*
 4. **You approve exactly what runs.** At dispatch, the plan, the manifest's hash and the arguments must still match what was approved. Editing a skill cancels its pending approvals. *(INV-4)*
@@ -75,6 +75,14 @@ Two things are reported separately:
 - **Platform tier.** `domovoi agent selftest` runs the isolation checks on the host itself and sorts it into Supported, Untested or Blocked. A check that did not run never counts as a pass. **No platform is Supported yet:** nothing has been release-tested. A host whose checks all pass is Untested; any failed or missing required check makes it Blocked. Skills are refused on a Blocked host. Privileged write operations stay off on an Untested host unless you set `allow_write_groups_on_untested` for that host in [`helper.toml`](reference/helper.md#platform).
 
 A wrong mode or owner on the helper's directory, lock, key or state makes the helper refuse to start and name each path. It never repairs on its own. The only repair is `sudo domovoi helper repair`, a local command that prints what it will change, needs you at a terminal to type the word `repair`, refuses symlinks, and changes only the listed paths and only their mode and owner. Nothing in the agent, the hub or a chat can run it.
+
+## The permit path
+
+Unattended action has one door. A step that restarts a service is evaluated against the published rules, and a permit is issued only when the answer is Allow and every guard holds: the pause switch is off, the rule's circuit breaker is closed, no earlier outcome of the step is unknown, the unit's identity still matches the plan, and the rate limits hold. The hub's issuer is the only code that makes a permit. No endpoint accepts a permit or an approval from a client, and no chat message can create one.
+
+Three local files then decide whether the restart runs, and the hub cannot change them: the agent's `[unattended]` ceiling, and the helper's `restart_units` and `protected_units`. Pausing, resuming, resetting a rule and resolving an unknown outcome are human-only. Resuming, resetting and resolving ask for your password; pausing needs only your session so it is always one click away.
+
+Accepted limitation: a compromised hub can mislabel a request as allowed by policy. The agent and the helper still refuse anything outside what you set on that host, and the helper never reloads systemd, never passes a free argument and runs only `systemctl restart -- <unit id>` for an allowlisted, unprotected unit whose identity still matches.
 
 ## Helper attestation
 

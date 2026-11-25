@@ -435,7 +435,7 @@ Helper attestation (ADR 0032): the hub's nonce goes to the helper through the ag
 
 | ID | Invariant | Enforced by |
 | --- | --- | --- |
-| INV-1 | Only a `Human` principal can approve an action. No LLM tool, chat message text, MCP surface or operator can approve. | `MetaTool` closed enum (and `ReadTool` inside `request_evidence`); `HumanApproval::new` and every authorization constructor restricted by a textual `xtask arch-check` scan; `Authorization` has no public variant; gate tests in `domovoi-core/tests/gates.rs` and `domovoi-engine/tests/gates.rs` |
+| INV-1 | Only a `Human` principal can approve an action. No LLM tool, chat message text, MCP surface or operator can approve. A `PolicyPermit` is not an approval: only `HubPermitIssuer` (the hub's `policy` module) calls `PolicyPermit::issue` and `Authorization::policy`, only for `POLICY_DISPATCHABLE` contracts, and only after the guards of ADR 0037. | `MetaTool` closed enum (and `ReadTool` inside `request_evidence`); `HumanApproval::new` and every authorization constructor restricted by a textual `xtask arch-check` scan; `Authorization` has no public variant; gate tests in `domovoi-core/tests/gates.rs` and `domovoi-engine/tests/gates.rs` |
 | INV-2 | Only `domovoi-runner` spawns processes; argv only; never a shell. | clippy `disallowed_methods`, `xtask arch-check` scan, runner tests |
 | INV-3 | The agent re-validates every request against its local manifests and policy. The hub cannot push scripts. | agent request-handler tests |
 | INV-4 | Approved actions are re-validated at dispatch: plan hash, manifest hash and param validation must still match. | engine action tests |
