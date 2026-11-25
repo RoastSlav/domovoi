@@ -28,6 +28,8 @@ mod api_updates;
 #[cfg(test)]
 mod atomic_incidents;
 #[cfg(test)]
+mod autonomy_api;
+#[cfg(test)]
 mod availability;
 #[cfg(test)]
 mod capability;

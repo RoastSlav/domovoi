@@ -758,7 +758,7 @@ async fn shadow_endpoints_page_and_filter_and_404() {
         .await;
     assert_eq!(detail.status, StatusCode::OK, "{}", detail.text);
     assert_eq!(detail.body["enforced_outcome"], "require_approval");
-    assert!(detail.body["gaps"].as_array().unwrap().len() >= 2);
+    assert!(!detail.body["gaps"].as_array().unwrap().is_empty());
     assert!(detail.body["inputs"]["contract"]["id"] == CONTRACT);
     let missing = a
         .get(

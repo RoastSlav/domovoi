@@ -2339,6 +2339,16 @@ export interface components {
             /** @description `recent` or `full`. */
             scope: string;
         };
+        /** @description Who authorized an execution: a person, or a policy permit. */
+        AuthorizationDto: {
+            /** @description Where a person approved: `web`, or `chat:<platform>`. */
+            channel?: string | null;
+            /** @description `human` or `policy`. */
+            kind: string;
+            permit?: components["schemas"]["PolicyAllowDto"] | null;
+            /** @description The approving user, for a person: `user:<id>`. */
+            user?: string | null;
+        };
         /** @description The autonomy switches. */
         AutonomyDto: {
             /** @description Whether autonomy is paused. */
@@ -2960,6 +2970,7 @@ export interface components {
             args: {
                 [key: string]: string;
             };
+            authorization?: components["schemas"]["AuthorizationDto"] | null;
             /** @description The check it is about. */
             check: string;
             /**
@@ -4205,6 +4216,15 @@ export interface components {
             plan_hash: string;
             /** @description Things the owner should know before approving. */
             warnings: string[];
+        };
+        /** @description The policy decision that allowed an execution: shown to the owner, never accepted from a client. */
+        PolicyAllowDto: {
+            /** @description The decision the permit packs. */
+            decision_id: string;
+            /** @description The policy version the decision used. */
+            policy_version: string;
+            /** @description The rules the decision applied. */
+            rules: string[];
         };
         /** @description The capability dimension of a rule. */
         PolicyCapabilityDto: {

@@ -1,0 +1,15 @@
+---
+source: crates/domovoi-core/tests/unit_card.rs
+expression: "render_facts(\"nas\", &facts(), false)"
+---
+Restart example.service on nas.
+This approval binds:
+ - the unit as systemd knows it (example.service); an alias is never bound
+ - the unit file /etc/systemd/system/example.service (sha-256 0123456789ab) and each drop-in: /etc/systemd/system/example.service.d/10-local.conf (sha-256 fedcba987654)
+ - what a restart will run, as loaded now: /usr/bin/example-daemon --serve, user svc, working directory /srv/example; environment values are hidden
+ - that the unit lives in /etc or /usr/lib and is not masked, linked, transient or generated, and that no drop-in exists on disk that systemd has not loaded
+This approval does not bind:
+ - the contents of EnvironmentFile= files, or of the programs the unit runs
+ - other units that restart or stop with this one (none seen)
+ - anything a user with root changes between the last check and the moment systemd acts. A small window remains and cannot be closed from here. After the restart Domovoi checks the new process and raises an alert if it is not running what you approved. It does not restart or stop it again.
+A restart can fail and leave the service stopped (for example when systemd's start limit is hit). Restarting a stopped service starts it.

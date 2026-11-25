@@ -9288,6 +9288,44 @@
           }
         }
       },
+      "AuthorizationDto": {
+        "type": "object",
+        "description": "Who authorized an execution: a person, or a policy permit.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "channel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where a person approved: `web`, or `chat:<platform>`."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`human` or `policy`."
+          },
+          "permit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicyAllowDto",
+                "description": "The permit, for a policy."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The approving user, for a person: `user:<id>`."
+          }
+        }
+      },
       "AutonomyDto": {
         "type": "object",
         "description": "The autonomy switches.",
@@ -10797,6 +10835,17 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "authorization": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuthorizationDto",
+                "description": "Who authorized it, once somebody or a policy did."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "check": {
             "type": "string",
@@ -13891,6 +13940,32 @@
               "type": "string"
             },
             "description": "Things the owner should know before approving."
+          }
+        }
+      },
+      "PolicyAllowDto": {
+        "type": "object",
+        "description": "The policy decision that allowed an execution: shown to the owner, never accepted from a client.",
+        "required": [
+          "decision_id",
+          "rules",
+          "policy_version"
+        ],
+        "properties": {
+          "decision_id": {
+            "type": "string",
+            "description": "The decision the permit packs."
+          },
+          "policy_version": {
+            "type": "string",
+            "description": "The policy version the decision used."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The rules the decision applied."
           }
         }
       },
