@@ -196,7 +196,11 @@ fn compare(found: &BTreeMap<String, String>, name: &str, expect: &Expect) -> Opt
             )),
         },
         Expect::Binds(want) => {
-            let have: Vec<&str> = value.split_whitespace().collect();
+            // systemd prints each entry as `source:destination:options`; the source is what the unit names.
+            let have: Vec<&str> = value
+                .split_whitespace()
+                .map(|entry| entry.split(':').next().unwrap_or(entry))
+                .collect();
             if have == *want {
                 None
             } else {

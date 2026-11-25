@@ -78,7 +78,7 @@ if getent passwd | cut -d: -f1 | grep -q "^$p-"; then
     echo "a $p-* account exists; run this on a clean machine" >&2
     clash=1
 fi
-if ls "$unit_dir" | grep -q "^$p-"; then
+if find "$unit_dir" -maxdepth 1 -name "$p-*" 2>/dev/null | grep -q .; then
     echo "a $p-* unit exists; run this on a clean machine" >&2
     clash=1
 fi
@@ -110,7 +110,7 @@ cleanup() {
         getent group "$name" >/dev/null 2>&1 && groupdel "$name" >/dev/null 2>&1
     done
     rm -rf "$work"
-    if ls "$unit_dir" /var/lib /usr/local/lib /run 2>/dev/null | grep -q "^$p-" ||
+    if find "$unit_dir" /var/lib /usr/local/lib /run -maxdepth 1 -name "$p-*" 2>/dev/null | grep -q . ||
         getent passwd | cut -d: -f1 | grep -q "^$p-" ||
         getent group | cut -d: -f1 | grep -q "^$p-"; then
         echo "a $p-* object is left behind" >&2
@@ -337,7 +337,7 @@ row_end $?
 row_begin polluted_skill_account_fails_start_check_and_is_still_masked
 (
     set -e
-    [ -s "$work/users" ] && grep -qx domovoi-skill "$work/users" || skip_row "domovoi-skill belongs to this host; the test does not add groups to an account it did not create"
+    if [ -s "$work/users" ] && grep -qx domovoi-skill "$work/users"; then :; else skip_row "domovoi-skill belongs to this host; the test does not add groups to an account it did not create"; fi
     groupadd "$p-extra"
     record_group "$p-extra"
     gpasswd -a domovoi-skill "$p-extra" >/dev/null

@@ -25,7 +25,7 @@ fn runner_socket_show() -> String {
 
 fn runner_service_show(skills: &str, packages: &str) -> String {
     format!(
-        "LoadState=loaded\nFragmentPath=/etc/systemd/system/domovoi-skill-runner@.service\nDropInPaths=\nNeedDaemonReload=no\nType=simple\nUser={SKILL_ACCOUNT}\nRuntimeMaxUSec=1h 2min\nExecStart={{ path=/usr/local/bin/domovoi ; argv[]=/usr/local/bin/domovoi skill-runner serve --skills-dir {skills} --packages-dir {packages} ; ignore_errors=no ; status=0/0 }}\nBindReadOnlyPaths={skills} {packages}\n"
+        "LoadState=loaded\nFragmentPath=/etc/systemd/system/domovoi-skill-runner@.service\nDropInPaths=\nNeedDaemonReload=no\nType=simple\nUser={SKILL_ACCOUNT}\nRuntimeMaxUSec=1h 2min\nExecStart={{ path=/usr/local/bin/domovoi ; argv[]=/usr/local/bin/domovoi skill-runner serve --skills-dir {skills} --packages-dir {packages} ; ignore_errors=no ; status=0/0 }}\nBindReadOnlyPaths={skills}:{skills}:rbind {packages}:{packages}:rbind\n"
     )
 }
 
