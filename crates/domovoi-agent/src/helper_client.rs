@@ -126,7 +126,7 @@ impl HelperRelay {
 
     /// The client behind the relay, for the status probe.
     #[must_use]
-    pub fn client(&self) -> &HelperClient {
+    pub(crate) fn client(&self) -> &HelperClient {
         &self.client
     }
 

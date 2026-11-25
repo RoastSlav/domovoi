@@ -83,3 +83,13 @@ fn only_the_ip_source_names_the_ip_program() {
     }
     assert_eq!(namers, ["ip_source.rs"]);
 }
+
+#[test]
+fn no_ip_fixture_contains_a_carriage_return() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ip");
+    for entry in std::fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("entry").path();
+        let bytes = std::fs::read(&path).expect("read");
+        assert!(!bytes.contains(&b'\r'), "{} has a CR", path.display());
+    }
+}
