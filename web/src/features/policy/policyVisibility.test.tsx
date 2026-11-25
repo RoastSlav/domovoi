@@ -68,6 +68,7 @@ function overviewIds(overview: PolicyOverview, tab: Tab): string[] {
   return [
     "policy.state",
     "policy.mode",
+    "policy.autonomy",
     "policy.shadow",
     "policy.active",
     ...(stale ? ["policy.draft-stale"] : []),

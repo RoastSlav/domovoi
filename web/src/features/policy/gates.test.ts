@@ -199,6 +199,7 @@ describe("policy gates", () => {
     const ids = [
       "policy.state",
       "policy.mode",
+      "policy.autonomy",
       "policy.shadow",
       "policy.active",
       "policy.rules",

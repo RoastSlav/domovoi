@@ -6,6 +6,7 @@ export const keys = {
   session: ["session"] as const,
   policy: ["policy"] as const,
   policyOverview: ["policy", "overview"] as const,
+  policyAutonomy: ["policy", "autonomy"] as const,
   policyVersions: (limit: number) => ["policy", "versions", limit] as const,
   policyVersion: (number: number) => ["policy", "version", number] as const,
   policyDraft: ["policy", "draft"] as const,
