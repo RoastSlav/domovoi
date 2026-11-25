@@ -2,8 +2,9 @@
 
 use async_trait::async_trait;
 use domovoi_core::HostId;
-use domovoi_core::knowledge::{CoverageVerdict, UnverifiableReason};
+use domovoi_core::knowledge::{CoverageEvidence, CoverageVerdict, UnverifiableReason};
 use domovoi_core::ports::ManagementCoverage;
+use jiff::Timestamp;
 
 /// Coverage that can never be verified: every check answers "cannot be verified", so no
 /// management path can be confirmed. The helper attestation work replaces this wiring with an
@@ -21,5 +22,14 @@ impl ManagementCoverage for UnavailableCoverage {
         CoverageVerdict::Unverifiable {
             reason: UnverifiableReason::NotAvailable,
         }
+    }
+
+    async fn confirmation_current(
+        &self,
+        _host: HostId,
+        _evidence: &CoverageEvidence,
+        _confirmed_at: Timestamp,
+    ) -> Result<(), UnverifiableReason> {
+        Err(UnverifiableReason::NotAvailable)
     }
 }

@@ -3,7 +3,7 @@
 
 use domovoi_core::knowledge::{
     CoverageVerdict, Fact, FactSource, FactUpdate, KnowledgeStatus, KnowledgeWrite,
-    PathConfirmation, PathState, Predicate, SubjectRef, path_state,
+    PathConfirmation, PathState, Predicate, SubjectRef, UnverifiableReason, path_state,
 };
 use domovoi_core::ports::{AuditDraft, StateWrite, Transaction, Versioned};
 use domovoi_core::{Actor, FactRecordId, HostId, UserId};
@@ -22,6 +22,16 @@ pub struct ManagementPathView {
     pub confirmation: Option<PathConfirmation>,
     /// Where the path stands.
     pub state: PathState,
+}
+
+/// A confirmed management path and whether its confirmation still holds against the helper's
+/// current attestation.
+#[derive(Debug, Clone)]
+pub struct ConfirmedPath {
+    /// The path as listed.
+    pub path: ManagementPathView,
+    /// `Ok` when the confirmation is current; otherwise why it is not.
+    pub currency: Result<(), UnverifiableReason>,
 }
 
 /// Why a network change marks paths stale.
@@ -96,6 +106,31 @@ impl KnowledgeService {
         };
         views.sort_by_key(cidr);
         Ok(views)
+    }
+
+    /// The host's confirmed management paths, each with whether its confirmation is still
+    /// current against the helper's verified attestation. A path that is not confirmed is not
+    /// listed.
+    pub async fn confirmed_paths_with_currency(
+        &self,
+        host: HostId,
+    ) -> Result<Vec<ConfirmedPath>, KnowledgeError> {
+        let mut out = Vec::new();
+        for path in self.management_paths(host).await? {
+            let Some(confirmation) = path.confirmation.as_ref() else {
+                continue;
+            };
+            if path.state != PathState::Confirmed {
+                continue;
+            }
+            let currency = self
+                .deps
+                .coverage
+                .confirmation_current(host, &confirmation.evidence, confirmation.confirmed_at)
+                .await;
+            out.push(ConfirmedPath { path, currency });
+        }
+        Ok(out)
     }
 
     /// Confirms the owner's management path, but only when the helper's verified attestation
