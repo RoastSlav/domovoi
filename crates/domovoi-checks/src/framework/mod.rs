@@ -7,7 +7,7 @@ mod settings;
 mod registry;
 
 use async_trait::async_trait;
-use domovoi_core::ports::{Clock, FsError, HostFs, ProcessError, ProcessExecutor};
+use domovoi_core::ports::{Clock, FsError, HostFs, PrivilegedReads, ProcessError, ProcessExecutor};
 use domovoi_core::{CheckKey, HostId, SignalClass};
 use jiff::SignedDuration;
 
@@ -44,6 +44,9 @@ pub enum CheckError {
         /// What went wrong.
         source: ProcessError,
     },
+    /// A privileged read through the helper failed; the text says why.
+    #[error("reading through the helper: {0}")]
+    Helper(String),
     /// The container runtime could not be read.
     #[error("reading containers: {0}")]
     Container(String),
@@ -95,6 +98,8 @@ pub struct CheckContext<'a> {
     pub clock: &'a dyn Clock,
     /// This check's `[checks.<key>]` settings.
     pub settings: &'a CheckSettings,
+    /// Reads that need the helper (SMART). `None` runs the check's own commands.
+    pub privileged: Option<&'a dyn PrivilegedReads>,
     /// This check's persistent state (cursors, previous boot id, ...), saved by the agent.
     pub state: &'a mut CheckState,
 }

@@ -51,6 +51,7 @@ impl Harness {
             commands: &self.commands,
             clock: &self.clock,
             settings: &self.settings,
+            privileged: None,
             state: &mut self.state,
         };
         check.run(&mut ctx).await.unwrap()
