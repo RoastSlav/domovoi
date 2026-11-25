@@ -63,7 +63,7 @@ A skill never runs as `domovoi-agent` or as root on such a host. The agent has n
 
 The agent is kept away from the helper's directory and key by file permissions alone: a root-owned 0700 directory. No Domovoi account is in the `docker` group, because that membership is root on a Docker host.
 
-If the agent is compromised it can call the helper, so the helper's list of operations is the bound, not an approval. In this release that list is closed and typed: `health`, `groups`, the safety attestation and nine read operations in four groups (Docker containers, SMART, the kernel log and listening sockets; see [Read operations](reference/helper.md#read-operations)). It can read; it cannot write. There is no restart, no firewall change and no container action, and a request carries no command string, path, program or Docker API path, only a container name or a `/dev/` device name checked against a fixed grammar. The helper's Docker client can make five `GET` calls and nothing else. It runs only `ip`, `smartctl`, `dmesg` and `ss`, with fixed arguments. Write groups named in `helper.toml` are ignored and reported.
+If the agent is compromised it can call the helper, so the helper's list of operations is the bound, not an approval. In this release that list is closed and typed: `health`, `groups`, the safety attestation, nine read operations in four groups (Docker containers, SMART, the kernel log and listening sockets; see [Read operations](reference/helper.md#read-operations)), the unit restart and, when you enable it, four firewall operations (see [Firewall operations](reference/helper.md#firewall-operations)). There is no container action, and a request carries no command string, path, program or Docker API path, only a container name or a `/dev/` device name checked against a fixed grammar. The helper's Docker client can make five `GET` calls and nothing else. It runs only `ip`, `smartctl`, `dmesg` and `ss`, and with the `nft` group `nft` and `conntrack`, with fixed arguments. `docker.write` named in `helper.toml` is ignored and reported.
 
 The residual risk is the helper unit. One shared unit serves every request, so every helper process holds the same six capabilities (`CAP_SYS_RAWIO`, `CAP_SYS_ADMIN`, `CAP_SYSLOG`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH` and `CAP_NET_ADMIN`) and read access to disks; turning a read group off in `helper.toml` does not narrow them. That set has not been measured on a real host yet. A compromised agent can read what the helper reads and can bypass the agent's own cache and rate limit, each read being bounded in time and size.
 
@@ -83,6 +83,18 @@ Unattended action has one door. A step that restarts a service is evaluated agai
 Three local files then decide whether the restart runs, and the hub cannot change them: the agent's `[unattended]` ceiling, and the helper's `restart_units` and `protected_units`. Pausing, resuming, resetting a rule and resolving an unknown outcome are human-only. Resuming, resetting and resolving ask for your password; pausing needs only your session so it is always one click away.
 
 Accepted limitation: a compromised hub can mislabel a request as allowed by policy. The agent and the helper still refuse anything outside what you set on that host, and the helper never reloads systemd, never passes a free argument and runs only `systemctl restart -- <unit id>` for an allowlisted, unprotected unit whose identity still matches.
+
+## Containment
+
+`firewall.block_source` is the only containment capability: a timed block of one external address or small network, applied by the helper in an nftables table of its own. Three rules decide who is in charge.
+
+- **The helper decides.** For every caller, the agent and the hub included, the helper recomputes the addresses it must never block, refuses overlap in either direction, enforces its own maxima and the hourly limit, and compares the safety identity the request was authorized against with its own. A compromised agent can call the helper directly, but only within those limits.
+- **Only the hub confirms.** A block starts with a 30 second kernel timeout. Only the hub, after a request has reached the agent and been answered, sends the confirmation that gives the block its lifetime. If the path to the hub is cut by the rule itself, nothing confirms and the kernel removes the block. If a flood from the blocked source keeps the confirmation from arriving in time, the block also expires; that protects the management path and does not contain the source.
+- **Rollback skips the safety checks.** Removing a block is never refused for a safety reason, because refusing could leave a block in place that cuts a management path. Rollback still takes the lock, records the removal and canonicalises its target.
+
+A block needs a human approval of the step, or a policy permit on a host with a verified helper report and passed drills. A permit is never issued for an unverified host. When the report cannot be verified, only you can approve, with your password, by typing the source network and by acknowledging that coverage cannot be verified; the card lists every path that is not protected, and the approval is audited. No model, chat command or background job can create a block.
+
+The helper's leak self-test decides whether blocking is allowed at all on a kernel; see [Containment](guide/containment.md). Neither it nor the drills prove that a block stops every packet.
 
 ## Helper attestation
 
