@@ -21,6 +21,7 @@ pub mod live;
 pub mod llm;
 pub mod logs;
 pub mod package_files;
+mod permit;
 pub mod privileged_reads;
 pub mod process;
 pub mod reconcile;
@@ -28,6 +29,7 @@ pub mod redact;
 pub mod repos;
 pub mod store_health;
 pub mod target;
+mod unit_relay;
 pub mod uow;
 
 pub use agent_link::{
@@ -64,6 +66,9 @@ pub use llm::{
 };
 pub use logs::{LogLine, LogSource};
 pub use package_files::{ArtifactReader, FileError, PackageFiles};
+pub use permit::{
+    NotIssued, PermitGrant, PermitIssuer, PermitOutcome, PermitRefusal, PermitRequest, RateScope,
+};
 pub use privileged_reads::{PrivilegedError, PrivilegedReads};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use reconcile::HostReconciler;
@@ -71,4 +76,5 @@ pub use redact::Redactor;
 pub use repos::*;
 pub use store_health::StoreHealth;
 pub use target::TargetResolver;
+pub use unit_relay::{UnitCaps, UnitRelay};
 pub use uow::*;

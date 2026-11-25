@@ -40,12 +40,12 @@ pub struct AuthorizedStep {
 }
 
 impl AuthorizedStep {
-    /// The one constructor: it refuses a row with no stored human approval. A stored approval
-    /// is always a person's, because [`ExecutionRecord::authorize`] answers a policy
-    /// authorization with [`ExecuteError::NotYetSupported`] (see the `From` impl) before
-    /// anything is stored.
+    /// The one constructor: it refuses a row with neither a stored human approval nor a stored
+    /// policy permit. A stored approval is always a person's. A stored permit exists only when
+    /// the permit issuer built it from an enforced `Allow`, and only for a contract on the
+    /// closed policy-dispatchable list.
     pub(super) fn of(execution: ExecutionRecord) -> Result<Self, ExecuteError> {
-        if execution.approval().is_none() {
+        if !execution.is_authorized() {
             return Err(ExecuteError::NotAuthorized);
         }
         Ok(Self { execution })
@@ -86,9 +86,9 @@ pub enum ExecuteError {
 impl From<ExecutionError> for ExecuteError {
     fn from(err: ExecutionError) -> Self {
         match err {
-            ExecutionError::AlreadyAuthorized | ExecutionError::NeedsTypedConfirmation => {
-                Self::NotAuthorized
-            }
+            ExecutionError::AlreadyAuthorized
+            | ExecutionError::NeedsTypedConfirmation
+            | ExecutionError::PermitNotAllowed => Self::NotAuthorized,
             ExecutionError::Expired => Self::Expired,
             ExecutionError::PlanChanged => Self::PlanChanged,
             ExecutionError::NotYetSupported => Self::NotYetSupported,
@@ -172,28 +172,7 @@ pub(super) async fn execute_step(
         return Err(refuse(shared, held, row, reason).await);
     };
     let wire_hash = PlanHash::compute(&skill.name, skill.manifest_hash, host, &args);
-    let epoch = session.journal_epoch;
-    let (reply, answer) = oneshot::channel();
-    let command = OperationCommand::Dispatch {
-        held,
-        operation,
-        step,
-        plan: approval_hash,
-        session: session.session,
-        epoch,
-        reply,
-    };
-    if shared.writer.send(command).await.is_err() {
-        return Err(ExecuteError::NotDispatched);
-    }
-    match answer.await {
-        Ok(Ok(DispatchAnswer::Dispatched(_))) => {}
-        Ok(Ok(DispatchAnswer::Settled(StepOutcome::Refused))) => {
-            return Err(ExecuteError::PlanChanged);
-        }
-        Ok(Ok(DispatchAnswer::Settled(StepOutcome::NotRun))) => return Err(ExecuteError::Expired),
-        _ => return Err(ExecuteError::NotDispatched),
-    }
+    let epoch = commit_dispatch(shared, held, row, approval_hash, &session).await?;
     // The writer's answer is not proof the step is still dispatched: an outside decision may
     // have settled it while this run held the gate. Read it again before anything is sent.
     if !still_dispatched(shared, row, epoch).await {
@@ -253,6 +232,38 @@ pub(super) async fn execute_step(
         }
     }
     Ok(())
+}
+
+/// Commits the dispatch before anything is sent: the writer checks the plan hash and the window,
+/// stamps the journal epoch and queues the reconcile. The one place the dispatch command is
+/// built; the skill path and the unit path both come through here.
+pub(super) async fn commit_dispatch(
+    shared: &OpShared,
+    held: Held,
+    row: &ExecutionRecord,
+    plan: PlanHash,
+    session: &AgentSnapshot,
+) -> Result<domovoi_core::JournalEpoch, ExecuteError> {
+    let epoch = session.journal_epoch;
+    let (reply, answer) = oneshot::channel();
+    let command = OperationCommand::Dispatch {
+        held,
+        operation: row.operation,
+        step: row.step,
+        plan,
+        session: session.session,
+        epoch,
+        reply,
+    };
+    if shared.writer.send(command).await.is_err() {
+        return Err(ExecuteError::NotDispatched);
+    }
+    match answer.await {
+        Ok(Ok(DispatchAnswer::Dispatched(_))) => Ok(epoch),
+        Ok(Ok(DispatchAnswer::Settled(StepOutcome::Refused))) => Err(ExecuteError::PlanChanged),
+        Ok(Ok(DispatchAnswer::Settled(StepOutcome::NotRun))) => Err(ExecuteError::Expired),
+        _ => Err(ExecuteError::NotDispatched),
+    }
 }
 
 /// Settles the step from the agent's terminal answer.
@@ -327,7 +338,7 @@ async fn recompute(
 }
 
 /// Whether the step is still running under the epoch the writer recorded for the dispatch.
-async fn still_dispatched(
+pub(super) async fn still_dispatched(
     shared: &OpShared,
     row: &ExecutionRecord,
     epoch: domovoi_core::JournalEpoch,

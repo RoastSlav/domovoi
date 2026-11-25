@@ -47,14 +47,14 @@ impl RequestCtx {
     }
 }
 
-fn bad_request(message: impl Into<String>) -> Message {
+pub(super) fn bad_request(message: impl Into<String>) -> Message {
     Message::Error(ErrorMessage {
         code: "bad_request".to_owned(),
         message: message.into(),
     })
 }
 
-fn unavailable(message: &str) -> Message {
+pub(super) fn unavailable(message: &str) -> Message {
     Message::Error(ErrorMessage {
         code: "unavailable".to_owned(),
         message: message.to_owned(),
@@ -120,7 +120,7 @@ fn parse_operation(run: &RunCapability) -> Result<Operation, String> {
     }
 }
 
-fn failed(code: CapabilityFailureCode, message: String) -> CapabilityResult {
+pub(super) fn failed(code: CapabilityFailureCode, message: String) -> CapabilityResult {
     CapabilityResult {
         outcome: CapabilityOutcome::Failed {
             code: Open::new(
@@ -176,8 +176,12 @@ pub async fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
             "the action journal is corrupt; a local owner reset is required",
         );
     }
-    // 2. Only the three package contracts exist.
+    // 2. The unit contracts are served by their own module; only the three package contracts
+    // are served here.
     let contract = run.contract.as_str();
+    if super::unit::is_unit_contract(contract) {
+        return super::unit::run_unit(ctx, run).await;
+    }
     if ![INSTALL, UNINSTALL, LIST].contains(&contract) {
         return refused(
             "contract_unknown",

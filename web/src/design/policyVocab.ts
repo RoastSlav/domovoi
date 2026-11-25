@@ -95,7 +95,7 @@ export const RULE_MARKS: Table<RuleMark> = {
     label: "Not enforced",
     tone: "info",
     icon: "info",
-    hint: "Recorded for comparison. No approval, dispatch or limit reads it.",
+    hint: "This record is for comparison. Only a rule that allows a service restart is acted on, and only through the permit path.",
   },
 };
 

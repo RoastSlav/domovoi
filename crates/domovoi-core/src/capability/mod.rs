@@ -25,6 +25,7 @@ pub mod inventory;
 pub mod package;
 pub mod skill;
 pub mod target;
+pub mod unit;
 
 #[cfg(test)]
 mod tests;
@@ -55,3 +56,4 @@ pub use target::{
     ContainerId, ResolvedTarget, TargetError, TargetQuery, TargetUnresolved,
     canonical_container_identity, canonical_host_identity, validate_container_name,
 };
+pub use unit::{EXECUTABLE_BUILTINS, POLICY_DISPATCHABLE, is_policy_dispatchable, unit_contracts};

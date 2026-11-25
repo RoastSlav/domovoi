@@ -136,29 +136,105 @@ fn authorize_with_another_hash_changes_nothing() {
     assert_eq!(record, before);
 }
 
+#[cfg(test)]
+fn permit_for(plan: PlanHash, expires: Timestamp) -> Authorization {
+    Authorization::policy(
+        PolicyPermit::issue(PolicyPermitParts {
+            decision_id: "d1",
+            rule_ids: vec!["r".to_owned()],
+            policy_version: "1",
+            plan_hash: plan,
+            issued_at: T0,
+            expires_at: expires,
+            ceiling_hash: &"cd".repeat(32),
+            safety_identity: None,
+        })
+        .unwrap(),
+    )
+}
+
 #[test]
-fn authorize_with_a_policy_permit_is_not_yet_supported() {
+fn execution_authorize_by_permit_checks_in_order() {
+    let hour = T0 + SignedDuration::from_hours(1);
+
+    // 1: the stored risk must be exactly write.
+    let mut destructive = proposed();
+    destructive = ExecutionRecord::restore(domovoi_core::ExecutionParts {
+        operation: destructive.operation,
+        step: destructive.step,
+        host: destructive.host,
+        contract: destructive.contract.clone(),
+        contract_version: destructive.contract_version,
+        check: destructive.check.clone(),
+        target: destructive.target.clone(),
+        args: destructive.args.clone(),
+        plan_hash: destructive.plan_hash,
+        expires_at: destructive.expires_at,
+        risk: Some(domovoi_core::Risk::Destructive),
+        chat_token_hash: None,
+        approval: None,
+        permit: None,
+        waiting_since: None,
+        dispatched: None,
+        settled_at: None,
+        created_at: T0,
+        updated_at: T0,
+    });
+    let before = destructive.clone();
+    let result = destructive.authorize_by_permit(&permit_for(hash(0xab), hour), "doc".into(), T0);
+    assert_eq!(result, Err(ExecutionError::PermitNotAllowed));
+    assert_eq!(destructive, before);
+
+    // 2: the permit must name the stored plan hash.
     let mut record = proposed();
     let before = record.clone();
-    let permit = PolicyPermit::issue(PolicyPermitParts {
-        decision_id: "d1",
-        rule_ids: vec!["r".to_owned()],
-        policy_version: "1",
-        plan_hash: hash(0xab),
-        issued_at: T0,
-        expires_at: T0 + SignedDuration::from_hours(1),
-        ceiling_hash: &"cd".repeat(32),
-        safety_identity: None,
-    })
-    .unwrap();
-    let result = record.authorize(
-        Authorization::policy(permit),
-        provenance(),
-        &PlanBinding::Full(hash(0xab)),
-        T0,
-    );
-    assert_eq!(result, Err(ExecutionError::NotYetSupported));
+    let result = record.authorize_by_permit(&permit_for(hash(0xcd), hour), "doc".into(), T0);
+    assert_eq!(result, Err(ExecutionError::PlanChanged));
     assert_eq!(record, before);
+
+    // 3: a second authorization is refused, whichever kind came first.
+    let mut record = proposed();
+    record
+        .authorize(human(), provenance(), &PlanBinding::Full(hash(0xab)), T0)
+        .unwrap();
+    let before = record.clone();
+    let result = record.authorize_by_permit(&permit_for(hash(0xab), hour), "doc".into(), T0);
+    assert_eq!(result, Err(ExecutionError::AlreadyAuthorized));
+    assert_eq!(record, before);
+
+    // 4: an expired permit, or a closed window, is refused.
+    let mut record = proposed();
+    let before = record.clone();
+    let result = record.authorize_by_permit(&permit_for(hash(0xab), hour), "doc".into(), hour);
+    assert_eq!(result, Err(ExecutionError::Expired));
+    assert_eq!(record, before);
+
+    // The permit is stored with its decision document.
+    let mut record = proposed();
+    record
+        .authorize_by_permit(&permit_for(hash(0xab), hour), "doc".into(), T0)
+        .unwrap();
+    assert_eq!(
+        record.authorization_kind(),
+        Some(domovoi_core::AuthorizationKind::Policy)
+    );
+    let stored = record.permit().unwrap();
+    assert_eq!(stored.decision_id(), "d1");
+    assert_eq!(stored.decision(), "doc");
+    assert!(record.approval().is_none());
+}
+
+#[test]
+fn execution_cannot_hold_approval_and_permit() {
+    let hour = T0 + SignedDuration::from_hours(1);
+    let mut record = proposed();
+    record
+        .authorize_by_permit(&permit_for(hash(0xab), hour), "doc".into(), T0)
+        .unwrap();
+    let result = record.authorize(human(), provenance(), &PlanBinding::Full(hash(0xab)), T0);
+    assert_eq!(result, Err(ExecutionError::AlreadyAuthorized));
+    assert!(record.approval().is_none());
+    assert!(record.permit().is_some());
 }
 
 #[test]

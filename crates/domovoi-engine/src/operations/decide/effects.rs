@@ -74,6 +74,15 @@ pub(super) fn collect_key(step: StepId) -> String {
     format!("collect:{step}")
 }
 
+/// Dedup key of the policy evaluation of Execution step `step`.
+pub(crate) fn evaluate_key(step: StepId) -> String {
+    format!("evaluate:{step}")
+}
+
+/// Attempts allowed to consider a step for a policy permit. After the last one the approval
+/// offer simply stands.
+pub(crate) const EVALUATE_ATTEMPTS: u32 = 3;
+
 /// Dedup key of the dispatch of Execution step `step`.
 pub(crate) fn dispatch_key(step: StepId) -> String {
     format!("dispatch:{step}")

@@ -20,8 +20,9 @@ use super::reach::{DiskSource, Roots, explore};
 use super::rules::{
     AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
     AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
-    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_HASH_V2_ALLOWED_PREFIXES,
-    POLICY_PERMIT_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
+    HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_CAPABILITY_ALLOWED_PREFIXES,
+    PLAN_HASH_V2_ALLOWED_PREFIXES, POLICY_PERMIT_ALLOWED_PREFIXES,
+    POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
     PURE_FORBIDDEN_PATHS,
 };
 
@@ -154,6 +155,14 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
         || POLICY_PERMIT_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
+    let permit_restore_ok = test_only
+        || POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
+    let plan_capability_ok = test_only
+        || PLAN_CAPABILITY_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
     let authorization_human_ok = test_only
         || AUTHORIZATION_HUMAN_ALLOWED_PREFIXES
             .iter()
@@ -215,6 +224,20 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
                 "INV-1",
                 &at,
                 "PolicyPermit::issue may only be called in crates/domovoi-hub/src/policy/",
+            ));
+        }
+        if code.contains("PolicyPermit::restore(") && !permit_restore_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "PolicyPermit::restore may only be called in crates/domovoi-store/src/",
+            ));
+        }
+        if literals.contains("plan:capability-v1") && !plan_capability_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "the plan:capability-v1 domain line has one implementation, in crates/domovoi-core/src/action/capability_plan.rs",
             ));
         }
         if code.contains("Authorization::human(") && !authorization_human_ok {

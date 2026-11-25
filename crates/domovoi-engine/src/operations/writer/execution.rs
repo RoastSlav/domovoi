@@ -11,7 +11,7 @@ use jiff::SignedDuration;
 
 use super::OpShared;
 use super::commands::Held;
-use super::commit::{AuthorizeEdit, Change, Edit};
+use super::commit::{AuthorizeEdit, Change, Edit, PolicyEdit};
 use crate::operations::decide::OperationEvent;
 
 /// The actor for what the service does on its own.
@@ -43,6 +43,29 @@ pub(super) fn authorize(
         provenance,
         chat_token,
     }));
+    change
+}
+
+/// The permit issuer authorized the execution. The issuance is the system's, under the
+/// `policy` actor, and the effect that asked for it is completed in the same commit.
+pub(super) fn authorize_by_policy(
+    held: Held,
+    operation: OperationId,
+    step: StepId,
+    authorization: Authorization,
+    decision: String,
+) -> Change {
+    let mut change = Change::new(
+        operation,
+        Actor::System("policy".to_owned()),
+        OperationEvent::ExecutionAuthorizedByPolicy { step },
+    );
+    change.edit = Edit::AuthorizeByPolicy(Box::new(PolicyEdit {
+        step,
+        authorization,
+        decision,
+    }));
+    change.held = Some(held);
     change
 }
 

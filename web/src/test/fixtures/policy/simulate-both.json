@@ -3,7 +3,7 @@
   "truncated": false,
   "notes": [
     "Each decision is re-evaluated with the host state recorded when it was made.",
-    "Nothing here is enforced."
+    "Simulations record and enforce nothing."
   ],
   "summary": {
     "evaluated": 4,

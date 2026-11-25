@@ -27,6 +27,7 @@ pub mod packages;
 mod actions;
 mod audit;
 mod auth;
+mod autonomy;
 mod capability;
 mod capability_ceiling;
 mod events;
@@ -388,6 +389,11 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         ))
         .routes(routes!(policy::preview))
         .routes(routes!(policy::publish))
+        .routes(routes!(autonomy::state))
+        .routes(routes!(autonomy::pause))
+        .routes(routes!(autonomy::resume))
+        .routes(routes!(autonomy::reset_rule))
+        .routes(routes!(autonomy::resolve_unknown))
         .routes(routes!(policy_shadow::simulate))
         .routes(routes!(policy_shadow::list))
         .routes(routes!(policy_shadow::detail))

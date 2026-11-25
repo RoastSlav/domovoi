@@ -41,6 +41,8 @@ pub enum PlanRefusalCode {
     BlindRetry,
     /// The retry claim does not hold.
     BadRetry,
+    /// The helper refused the unit; the refusal's token and sentence say why.
+    UnitRefused,
 }
 
 impl PlanRefusalCode {
@@ -67,6 +69,7 @@ impl PlanRefusalCode {
             Self::DuplicateStep => "duplicate_step",
             Self::BlindRetry => "blind_retry",
             Self::BadRetry => "bad_retry",
+            Self::UnitRefused => "unit_refused",
         }
     }
 

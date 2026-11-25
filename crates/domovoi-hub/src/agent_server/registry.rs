@@ -381,6 +381,10 @@ impl Registry {
                     HelperStatus::Ok { .. } => HelperState::Ready,
                     HelperStatus::Error { .. } => HelperState::Failed,
                 },
+                helper_ops: match &live.helper_status {
+                    HelperStatus::Ok { ops } => ops.clone(),
+                    _ => Vec::new(),
+                },
                 ceiling_summary: live.ceiling_summary.clone(),
                 ceiling_hash: live.ceiling_hash.clone(),
                 container_runtime: live.docker.as_ref().is_some_and(|report| report.available),

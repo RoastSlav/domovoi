@@ -24,6 +24,7 @@ mod health;
 mod helper_trust;
 mod install;
 mod integrity;
+mod permit;
 mod policy;
 mod purge;
 mod repos;

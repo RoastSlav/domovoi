@@ -1365,6 +1365,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations/{id}/steps/{step}/resolve-unknown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clears the unattended block of a step whose outcome is unknown. Needs the admin's password. */
+        post: operations["resolve_unknown_outcome"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/{id}/summary": {
         parameters: {
             query?: never;
@@ -1623,6 +1640,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/policy/autonomy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The pause switch and the suspended rules. */
+        get: operations["autonomy_state"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/autonomy/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pauses autonomy: no new permit and no dispatch of one already issued. */
+        post: operations["autonomy_pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/autonomy/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resumes autonomy. Needs the admin's password. */
+        post: operations["autonomy_resume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/policy/draft": {
         parameters: {
             query?: never;
@@ -1679,6 +1747,23 @@ export interface paths {
          *     a bounded simulation over recent recorded decisions. It writes nothing.
          */
         post: operations["policy_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/rules/{rule}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resets one rule's circuit breaker. Needs the admin's password. */
+        post: operations["policy_rule_reset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2253,6 +2338,29 @@ export interface components {
             recent_limit: number;
             /** @description `recent` or `full`. */
             scope: string;
+        };
+        /** @description Who authorized an execution: a person, or a policy permit. */
+        AuthorizationDto: {
+            /** @description Where a person approved: `web`, or `chat:<platform>`. */
+            channel?: string | null;
+            /** @description `human` or `policy`. */
+            kind: string;
+            permit?: components["schemas"]["PolicyAllowDto"] | null;
+            /** @description The approving user, for a person: `user:<id>`. */
+            user?: string | null;
+        };
+        /** @description The autonomy switches. */
+        AutonomyDto: {
+            /** @description Whether autonomy is paused. */
+            paused: boolean;
+            /** @description When it last changed. */
+            paused_at?: string | null;
+            /** @description Who last changed the switch. */
+            paused_by?: string | null;
+            /** @description Why it was paused. */
+            reason?: string | null;
+            /** @description Rules whose breaker is open. */
+            suspended_rules: components["schemas"]["SuspendedRuleDto"][];
         };
         /** @description One limit to raise when resuming. */
         BudgetExtensionDto: {
@@ -2862,6 +2970,7 @@ export interface components {
             args: {
                 [key: string]: string;
             };
+            authorization?: components["schemas"]["AuthorizationDto"] | null;
             /** @description The check it is about. */
             check: string;
             /**
@@ -3999,6 +4108,11 @@ export interface components {
             /** @description Whether it must be given. */
             required: boolean;
         };
+        /** @description A command that needs the admin's password. */
+        PasswordRequest: {
+            /** @description The admin's password. */
+            password?: string | null;
+        };
         /** @description One finished operation, the shape every list of past operations shares. */
         PastOperationDto: {
             /** @description What was run. */
@@ -4035,6 +4149,11 @@ export interface components {
             step?: string | null;
             /** @description `budget`, `outcome_unknown`, `global_pause` or `error`. */
             type: string;
+        };
+        /** @description Pause autonomy. */
+        PauseRequest: {
+            /** @description Why, 1 to 280 characters. */
+            reason: string;
         };
         /** @description The key the owner pinned. */
         PinDto: {
@@ -4097,6 +4216,15 @@ export interface components {
             plan_hash: string;
             /** @description Things the owner should know before approving. */
             warnings: string[];
+        };
+        /** @description The policy decision that allowed an execution: shown to the owner, never accepted from a client. */
+        PolicyAllowDto: {
+            /** @description The decision the permit packs. */
+            decision_id: string;
+            /** @description The policy version the decision used. */
+            policy_version: string;
+            /** @description The rules the decision applied. */
+            rules: string[];
         };
         /** @description The capability dimension of a rule. */
         PolicyCapabilityDto: {
@@ -4411,6 +4539,13 @@ export interface components {
              *     summary yet, `ready` after.
              */
             state: string;
+        };
+        /** @description Resolve an unknown outcome. */
+        ResolveUnknownRequest: {
+            /** @description What the owner checked, 1 to 280 characters. */
+            note: string;
+            /** @description The admin's password. */
+            password?: string | null;
         };
         /** @description Resuming a paused operation. */
         ResumeOperationRequest: {
@@ -4954,6 +5089,18 @@ export interface components {
             source: string;
             /** @description The value of this revision. */
             value: unknown;
+        };
+        /** @description One rule whose circuit breaker is open. */
+        SuspendedRuleDto: {
+            /**
+             * Format: int32
+             * @description How many failures are counted.
+             */
+            failures: number;
+            /** @description The rule id. */
+            rule: string;
+            /** @description When the earliest counted failure settled. */
+            since: string;
         };
         /** @description Why a host's target did not succeed. */
         TargetFailureDto: {
@@ -9808,6 +9955,96 @@ export interface operations {
             };
         };
     };
+    resolve_unknown_outcome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Execution step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveUnknownRequest"];
+            };
+        };
+        responses: {
+            /** @description Resolved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The note is empty or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such step */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The step has no unresolved unknown outcome */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unattended execution is not set up */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     get_operation_summary: {
         parameters: {
             query?: never;
@@ -10635,6 +10872,155 @@ export interface operations {
             };
         };
     };
+    autonomy_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The switches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unattended execution is not set up */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    autonomy_pause: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseRequest"];
+            };
+        };
+        responses: {
+            /** @description Paused, or already paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyDto"];
+                };
+            };
+            /** @description The reason is empty or too long */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unattended execution is not set up */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    autonomy_resume: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Resumed, or not paused */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unattended execution is not set up */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     policy_draft: {
         parameters: {
             query?: never;
@@ -10901,6 +11287,78 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    policy_rule_reset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Rule id */
+                rule: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Reset */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyDto"];
+                };
+            };
+            /** @description Not a rule id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Password missing or wrong */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Unattended execution is not set up */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

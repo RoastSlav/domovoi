@@ -21,8 +21,8 @@ use domovoi_core::{
 };
 use domovoi_engine::policy::FactState;
 use domovoi_engine::policy_shadow::{
-    AutonomyReading, BATCH, CeilingReading, ContainmentReading, GapReason, HostTarget,
-    ShadowEnvironment, ShadowRecorder,
+    AutonomyFacts, AutonomyReading, BATCH, CeilingReading, ContainmentReading, GapReason,
+    HostTarget, ShadowEnvironment, ShadowRecorder,
 };
 use domovoi_testkit::FakeClock;
 use domovoi_testkit::InMemoryStore;
@@ -54,7 +54,7 @@ impl ShadowEnvironment for Unknown {
         ContainmentReading::Unavailable
     }
     async fn autonomy(&self) -> AutonomyReading {
-        AutonomyReading::NotModelled
+        AutonomyReading::Reported(AutonomyFacts::default())
     }
     async fn publication_index(&self) -> ContractIndex {
         ContractIndex::default()

@@ -183,6 +183,44 @@ impl PolicyPermit {
         })
     }
 
+    /// Rebuilds a permit the store persisted.
+    ///
+    /// Call only in `crates/domovoi-store/src/` and test support. It records no decision and
+    /// grants nothing; it applies the same validation as [`PolicyPermit::issue`].
+    pub fn restore(parts: PolicyPermitParts<'_>) -> Result<Self, PermitError> {
+        Self::issue(parts)
+    }
+
+    /// The rules the decision applied, sorted and deduplicated.
+    #[must_use]
+    pub fn rule_ids(&self) -> &[String] {
+        &self.rule_ids
+    }
+
+    /// The policy version the decision used.
+    #[must_use]
+    pub fn policy_version(&self) -> &str {
+        &self.policy_version
+    }
+
+    /// When the decision was made.
+    #[must_use]
+    pub fn issued_at(&self) -> Timestamp {
+        self.issued_at
+    }
+
+    /// The autonomy ceiling hash the decision stayed under.
+    #[must_use]
+    pub fn ceiling_hash(&self) -> &str {
+        &self.ceiling_hash
+    }
+
+    /// The safety identity a containment decision binds, if any.
+    #[must_use]
+    pub fn safety_identity(&self) -> Option<&str> {
+        self.safety_identity.as_deref()
+    }
+
     /// The plan the decision covered.
     #[must_use]
     pub fn plan_hash(&self) -> PlanHash {

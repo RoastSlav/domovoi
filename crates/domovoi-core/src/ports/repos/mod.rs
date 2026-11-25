@@ -22,6 +22,7 @@ mod install;
 mod knowledge;
 mod notify;
 mod operations;
+mod permit;
 mod policy;
 mod triage;
 
@@ -36,6 +37,7 @@ pub use install::{InstallJobFilter, InstallRepo};
 pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo};
 pub use notify::NotifyStateRepo;
 pub use operations::{OperationFilter, OperationRepo};
+pub use permit::{AutonomyRow, PermitRepo, RuleFailures, UnresolvedUnknown};
 pub use policy::PolicyRepo;
 pub use triage::{CallOutcome, TriageCacheRepo, UsageEntry, UsageRepo, UsageTotal};
 

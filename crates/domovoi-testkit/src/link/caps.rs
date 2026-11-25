@@ -186,6 +186,20 @@ pub fn package_caps(link: Arc<FakeAgentLink>) -> PackageCaps {
     }
 }
 
+/// The capabilities unit identity reads and restarts need: the scripted fake for presence, the
+/// session and the journal, and `relay` for the unit calls themselves.
+pub fn unit_caps(
+    link: Arc<FakeAgentLink>,
+    relay: Arc<crate::unit::FakeUnitRelay>,
+) -> domovoi_core::ports::UnitCaps {
+    domovoi_core::ports::UnitCaps {
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link }),
+        relay,
+    }
+}
+
 /// The capabilities the action services need, all over one scripted fake.
 pub fn action_caps(link: Arc<FakeAgentLink>) -> ActionCaps {
     ActionCaps {

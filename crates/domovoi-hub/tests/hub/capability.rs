@@ -1327,3 +1327,89 @@ async fn the_inventory_reports_the_floored_effect() {
         "the inventory and the effective-effect answer disagree"
     );
 }
+
+/// A host whose helper is `state` and offers `ops`, with a ceiling covering the unit contracts.
+#[cfg(test)]
+fn helper_words(state: HelperState, ops: &[&str]) -> HostWords {
+    HostWords {
+        helper: state,
+        helper_ops: ops.iter().map(|op| (*op).to_owned()).collect(),
+        ceiling_summary: Some(ceiling(&[("unit.restart", 2)])),
+        container_runtime: true,
+        ..HostWords::default()
+    }
+}
+
+#[tokio::test]
+async fn registry_reads_helper_ops() {
+    let fixture = Fixture::new(domovoi_core::capability::unit_contracts()).await;
+    // A ready helper that does not list the operation: not installed here.
+    fixture.link.set_host_words(
+        fixture.host_id(),
+        helper_words(HelperState::Ready, &["systemd.read"]),
+    );
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        Availability::NotInstalled
+    );
+    assert_eq!(
+        fixture.availability("unit.identity").await,
+        Availability::NotInstalled
+    );
+    // Once the helper lists them, they are available.
+    fixture.link.set_host_words(
+        fixture.host_id(),
+        helper_words(HelperState::Ready, &["unit.identity", "unit.restart"]),
+    );
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        Availability::Available
+    );
+    assert_eq!(
+        fixture.availability("unit.identity").await,
+        Availability::Available
+    );
+    // No helper, or a failing one, is said as it is today.
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), helper_words(HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        missing(UnavailableReason::HelperMissing)
+    );
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), helper_words(HelperState::Failed, &[]));
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        missing(UnavailableReason::HelperError)
+    );
+    // The ceiling still matters: no entry for the restart, no availability.
+    let mut no_entry = helper_words(HelperState::Ready, &["unit.restart"]);
+    no_entry.ceiling_summary = Some(ceiling(&[("unit.other", 1)]));
+    fixture.link.set_host_words(fixture.host_id(), no_entry);
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        absent(NotAllowedOnHost::CeilingEntryMissing)
+    );
+}
+
+#[tokio::test]
+async fn container_restart_is_unavailable_for_both_labels() {
+    let fixture = Fixture::new(domovoi_core::capability::unit_contracts()).await;
+    // Whatever the helper reports and whatever the ceiling says, there is no Docker write path.
+    let mut words = helper_words(HelperState::Ready, &["container.restart", "docker.write"]);
+    words.ceiling_summary = Some(ceiling(&[("container.restart", 5)]));
+    fixture.link.set_host_words(fixture.host_id(), words);
+    assert_eq!(
+        fixture.availability("container.restart").await,
+        missing(UnavailableReason::DockerWriteUnsupported)
+    );
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), helper_words(HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("container.restart").await,
+        missing(UnavailableReason::DockerWriteUnsupported)
+    );
+}

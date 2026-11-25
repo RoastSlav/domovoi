@@ -17,6 +17,7 @@ mod knowledge_apply;
 mod knowledge_read;
 mod notify;
 mod operations;
+mod permit;
 mod policy;
 mod triage;
 mod uow;
@@ -84,6 +85,8 @@ struct State {
     install: install::InstallState,
     /// Helper key pins, latest attestation outcomes and high-water marks.
     helper: helper_trust::HelperState,
+    /// The pause switch, circuit-breaker resets and unknown-outcome resolutions.
+    permit: permit::PermitState,
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
     /// The last journal `seq` handed out; unlike `journal.len()` it survives pruning.

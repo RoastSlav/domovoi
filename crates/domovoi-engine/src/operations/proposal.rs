@@ -4,11 +4,11 @@
 //! entry script), the target (host, its enrolled key, check and target), the validated
 //! arguments and the execution's own id, which is its step id.
 
-use domovoi_core::capability::TargetQuery;
+use domovoi_core::capability::{TargetName, TargetQuery};
 use domovoi_core::ports::AgentSnapshot;
 use domovoi_core::{
-    ExecutionId, ImplHash, PlanContract, PlanHash, PlanTarget, Risk, SkillSummary, StepId,
-    ValidatedArgs,
+    CapabilityPlan, ExecutionId, ImplHash, PlanContract, PlanHash, PlanTarget, Risk, SkillSummary,
+    StepId, ValidatedArgs,
 };
 use jiff::Timestamp;
 
@@ -89,6 +89,9 @@ async fn hash_for(
     step: StepId,
     session: &AgentSnapshot,
 ) -> Result<(PlanHash, Risk), String> {
+    if intent.contract.as_str() == "unit.restart" {
+        return unit_hash(shared, intent, step).await;
+    }
     let Some(name) = intent.contract.skill_name() else {
         return Err("only skill contracts can be run".to_owned());
     };
@@ -112,4 +115,34 @@ async fn hash_for(
     );
     let hash = plan_hash(skill, intent.contract_version, &target, &args, step)?;
     Ok((hash, skill.risk))
+}
+
+/// The plan hash of restarting a unit as Execution step `step`, and the risk it carries: the
+/// canonical id and identity hash come from the helper at this moment, so a configuration change
+/// before approval is a different plan.
+async fn unit_hash(
+    shared: &OpShared,
+    intent: &domovoi_core::ExecutionIntent,
+    step: StepId,
+) -> Result<(PlanHash, Risk), String> {
+    let name = intent
+        .args
+        .get("unit")
+        .ok_or_else(|| "a unit restart names its unit".to_owned())?;
+    let name = TargetName::parse(name).map_err(|err| err.reason)?;
+    let unit = shared
+        .deps
+        .resolver
+        .resolve_unit(intent.host, &name)
+        .await
+        .map_err(|err| err.to_string())?;
+    let plan = CapabilityPlan::unit_restart(
+        intent.host,
+        &unit.target.host_key,
+        &unit.target.identity,
+        &unit.identity_hash,
+        &intent.args,
+        ExecutionId::from_step(step),
+    );
+    Ok((plan.hash(), Risk::Write))
 }

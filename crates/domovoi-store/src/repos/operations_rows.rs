@@ -9,8 +9,8 @@ use domovoi_core::ports::{StoreError, Versioned};
 use domovoi_core::{
     ApprovalChannel, ApprovalProvenance, ContractId, EdgeKind, ExecutionApproval, ExecutionParts,
     ExecutionRecord, HumanApproval, JournalEpoch, Operation, OperationKind, OperationStatus,
-    PauseReason, PinnedSubject, Risk, Step, StepEdge, StepIntent, StepKind, StepOutcome,
-    StepProgress, StepRecord,
+    PauseReason, PinnedSubject, PolicyPermit, PolicyPermitParts, Risk, Step, StepEdge, StepIntent,
+    StepKind, StepOutcome, StepProgress, StepRecord, StoredPermit,
 };
 
 use crate::codec::{from_json, from_ms, from_ms_opt, from_name, parse, uint};
@@ -40,7 +40,16 @@ macro_rules! execution_columns {
         "SELECT execution_id, operation_id, host_id, contract, contract_version, check_key, \
          target, args, plan_hash, expires_at, authorization_kind, approved_by, approved_channel, \
          approved_at, approved_plan_hash, approval_session_ref, approval_client, waiting_since, \
-         agent_epoch, dispatched_at, settled_at, created_at, updated_at, version, risk, \n         chat_token_hash FROM executions"
+         agent_epoch, dispatched_at, settled_at, created_at, updated_at, version, risk, \n         chat_token_hash, \
+         (SELECT decision_id FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_decision_id, \
+         (SELECT policy_version FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_policy_version, \
+         (SELECT ceiling_hash FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_ceiling_hash, \
+         (SELECT plan_hash FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_plan_hash, \
+         (SELECT issued_at FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_issued_at, \
+         (SELECT expires_at FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_expires_at, \
+         (SELECT decision FROM execution_permits p WHERE p.execution_id = executions.execution_id) AS permit_decision, \
+         (SELECT group_concat(rule_id, ',') FROM execution_permit_rules r WHERE r.execution_id = executions.execution_id) AS permit_rules \
+         FROM executions"
     };
 }
 pub(super) use execution_columns;
@@ -214,6 +223,14 @@ pub(super) struct ExecutionRow {
     version: i64,
     risk: Option<String>,
     chat_token_hash: Option<Vec<u8>>,
+    permit_decision_id: Option<String>,
+    permit_policy_version: Option<String>,
+    permit_ceiling_hash: Option<String>,
+    permit_plan_hash: Option<String>,
+    permit_issued_at: Option<i64>,
+    permit_expires_at: Option<i64>,
+    permit_decision: Option<String>,
+    permit_rules: Option<String>,
 }
 
 impl ExecutionRow {
@@ -229,6 +246,7 @@ impl ExecutionRow {
     /// The execution record, restoring the stored approval.
     pub(super) fn into_record(self) -> Result<ExecutionRecord, StoreError> {
         let approval = self.approval()?;
+        let permit = self.permit()?;
         let dispatched = match (self.agent_epoch.as_deref(), self.dispatched_at) {
             (Some(epoch), Some(at)) => Some((
                 from_name::<JournalEpoch>(epoch, "agent epoch")?,
@@ -267,6 +285,7 @@ impl ExecutionRow {
                 })
                 .transpose()?,
             approval,
+            permit,
             waiting_since: from_ms_opt(self.waiting_since)?,
             dispatched,
             settled_at: from_ms_opt(self.settled_at)?,
@@ -299,8 +318,58 @@ impl ExecutionRow {
                     ApprovalProvenance::new(self.approval_session_ref.clone(), client),
                 )))
             }
+            // A policy authorization stores its permit in `execution_permits`, not here.
+            (Some("policy"), None, None, None, None, None)
+                if self.approval_session_ref.is_none() =>
+            {
+                Ok(None)
+            }
             (Some(other), ..) if other != "human" => Err(corrupt("authorization kind", other)),
             _ => Err(partial()),
         }
+    }
+}
+
+impl ExecutionRow {
+    /// The stored permit: all of its columns or none. Restored with `PolicyPermit::restore`,
+    /// the only place besides tests that may call it.
+    fn permit(&self) -> Result<Option<StoredPermit>, StoreError> {
+        let partial = || corrupt("execution permit", "partially stored");
+        let Some(decision_id) = self.permit_decision_id.as_deref() else {
+            if self.authorization_kind.as_deref() == Some("policy") {
+                return Err(corrupt(
+                    "execution permit",
+                    "authorized by policy without a permit",
+                ));
+            }
+            return Ok(None);
+        };
+        let (Some(version), Some(ceiling), Some(plan), Some(issued), Some(expires), Some(decision)) = (
+            self.permit_policy_version.as_deref(),
+            self.permit_ceiling_hash.as_deref(),
+            self.permit_plan_hash.as_deref(),
+            self.permit_issued_at,
+            self.permit_expires_at,
+            self.permit_decision.clone(),
+        ) else {
+            return Err(partial());
+        };
+        let rules: Vec<String> = self
+            .permit_rules
+            .as_deref()
+            .map(|text| text.split(',').map(str::to_owned).collect())
+            .unwrap_or_default();
+        let permit = PolicyPermit::restore(PolicyPermitParts {
+            decision_id,
+            rule_ids: rules,
+            policy_version: version,
+            plan_hash: from_name(plan, "permit plan hash")?,
+            issued_at: from_ms(issued)?,
+            expires_at: from_ms(expires)?,
+            ceiling_hash: ceiling,
+            safety_identity: None,
+        })
+        .map_err(|e| corrupt("execution permit", e))?;
+        Ok(Some(StoredPermit::new(permit, decision)))
     }
 }

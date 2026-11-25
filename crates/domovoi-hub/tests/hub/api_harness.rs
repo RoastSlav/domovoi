@@ -542,6 +542,12 @@ async fn assemble(
         auth: auth.clone(),
         clock: clock.clone(),
         shadow_enabled: true,
+    })
+    .with_autonomy(domovoi_hub::services::AutonomyDeps {
+        permits: store.clone(),
+        operations: store.clone(),
+        circuit_failures: 2,
+        circuit_window: jiff::SignedDuration::from_hours(24),
     });
     let coverage = Arc::new(domovoi_testkit::FakeCoverage::unavailable());
     let knowledge = Arc::new(domovoi_engine::knowledge::KnowledgeService::new(

@@ -8,4 +8,5 @@ mod packages;
 mod parsing;
 mod schema;
 mod secrets;
+mod unattended;
 mod validation;

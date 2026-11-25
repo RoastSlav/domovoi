@@ -643,6 +643,86 @@ expression: spec
         ],
         "type": "object"
       },
+      "AuthorizationDto": {
+        "description": "Who authorized an execution: a person, or a policy permit.",
+        "properties": {
+          "channel": {
+            "description": "Where a person approved: `web`, or `chat:<platform>`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`human` or `policy`.",
+            "type": "string"
+          },
+          "permit": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicyAllowDto",
+                "description": "The permit, for a policy."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "description": "The approving user, for a person: `user:<id>`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AutonomyDto": {
+        "description": "The autonomy switches.",
+        "properties": {
+          "paused": {
+            "description": "Whether autonomy is paused.",
+            "type": "boolean"
+          },
+          "paused_at": {
+            "description": "When it last changed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paused_by": {
+            "description": "Who last changed the switch.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "Why it was paused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "suspended_rules": {
+            "description": "Rules whose breaker is open.",
+            "items": {
+              "$ref": "#/components/schemas/SuspendedRuleDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "paused",
+          "suspended_rules"
+        ],
+        "type": "object"
+      },
       "BudgetExtensionDto": {
         "description": "One limit to raise when resuming.",
         "properties": {
@@ -2096,6 +2176,17 @@ expression: spec
               "type": "string"
             },
             "type": "object"
+          },
+          "authorization": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuthorizationDto",
+                "description": "Who authorized it, once somebody or a policy did."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "check": {
             "description": "The check it is about.",
@@ -4905,6 +4996,19 @@ expression: spec
         ],
         "type": "object"
       },
+      "PasswordRequest": {
+        "description": "A command that needs the admin's password.",
+        "properties": {
+          "password": {
+            "description": "The admin's password.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "PastOperationDto": {
         "description": "One finished operation, the shape every list of past operations shares.",
         "properties": {
@@ -5011,6 +5115,19 @@ expression: spec
         },
         "required": [
           "type"
+        ],
+        "type": "object"
+      },
+      "PauseRequest": {
+        "description": "Pause autonomy.",
+        "properties": {
+          "reason": {
+            "description": "Why, 1 to 280 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -5178,6 +5295,32 @@ expression: spec
           "availability",
           "availability_text",
           "warnings"
+        ],
+        "type": "object"
+      },
+      "PolicyAllowDto": {
+        "description": "The policy decision that allowed an execution: shown to the owner, never accepted from a client.",
+        "properties": {
+          "decision_id": {
+            "description": "The decision the permit packs.",
+            "type": "string"
+          },
+          "policy_version": {
+            "description": "The policy version the decision used.",
+            "type": "string"
+          },
+          "rules": {
+            "description": "The rules the decision applied.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "decision_id",
+          "rules",
+          "policy_version"
         ],
         "type": "object"
       },
@@ -6050,6 +6193,26 @@ expression: spec
           "history",
           "history_truncated",
           "label"
+        ],
+        "type": "object"
+      },
+      "ResolveUnknownRequest": {
+        "description": "Resolve an unknown outcome.",
+        "properties": {
+          "note": {
+            "description": "What the owner checked, 1 to 280 characters.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The admin's password.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "note"
         ],
         "type": "object"
       },
@@ -7440,6 +7603,31 @@ expression: spec
           "actor",
           "created_at",
           "value"
+        ],
+        "type": "object"
+      },
+      "SuspendedRuleDto": {
+        "description": "One rule whose circuit breaker is open.",
+        "properties": {
+          "failures": {
+            "description": "How many failures are counted.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rule": {
+            "description": "The rule id.",
+            "type": "string"
+          },
+          "since": {
+            "description": "When the earliest counted failure settled.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "failures",
+          "since"
         ],
         "type": "object"
       },
@@ -14253,6 +14441,120 @@ expression: spec
         ]
       }
     },
+    "/api/v1/operations/{id}/steps/{step}/resolve-unknown": {
+      "post": {
+        "operationId": "resolve_unknown_outcome",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Execution step id",
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveUnknownRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Resolved"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The note is empty or too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such step"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The step has no unresolved unknown outcome"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unattended execution is not set up"
+          }
+        },
+        "summary": "Clears the unattended block of a step whose outcome is unknown. Needs the admin's password.",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/api/v1/operations/{id}/summary": {
       "get": {
         "operationId": "get_operation_summary",
@@ -15329,6 +15631,179 @@ expression: spec
         ]
       }
     },
+    "/api/v1/policy/autonomy": {
+      "get": {
+        "operationId": "autonomy_state",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyDto"
+                }
+              }
+            },
+            "description": "The switches"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unattended execution is not set up"
+          }
+        },
+        "summary": "The pause switch and the suspended rules.",
+        "tags": [
+          "policy"
+        ]
+      }
+    },
+    "/api/v1/policy/autonomy/pause": {
+      "post": {
+        "operationId": "autonomy_pause",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyDto"
+                }
+              }
+            },
+            "description": "Paused, or already paused"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The reason is empty or too long"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unattended execution is not set up"
+          }
+        },
+        "summary": "Pauses autonomy: no new permit and no dispatch of one already issued.",
+        "tags": [
+          "policy"
+        ]
+      }
+    },
+    "/api/v1/policy/autonomy/resume": {
+      "post": {
+        "operationId": "autonomy_resume",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyDto"
+                }
+              }
+            },
+            "description": "Resumed, or not paused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unattended execution is not set up"
+          }
+        },
+        "summary": "Resumes autonomy. Needs the admin's password.",
+        "tags": [
+          "policy"
+        ]
+      }
+    },
     "/api/v1/policy/draft": {
       "delete": {
         "operationId": "policy_discard_draft",
@@ -15641,6 +16116,98 @@ expression: spec
           }
         },
         "summary": "What a candidate rule set would do: validation, the publication review, locked changes and\na bounded simulation over recent recorded decisions. It writes nothing.",
+        "tags": [
+          "policy"
+        ]
+      }
+    },
+    "/api/v1/policy/rules/{rule}/reset": {
+      "post": {
+        "operationId": "policy_rule_reset",
+        "parameters": [
+          {
+            "description": "Rule id",
+            "in": "path",
+            "name": "rule",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutonomyDto"
+                }
+              }
+            },
+            "description": "Reset"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a rule id"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Password missing or wrong"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unattended execution is not set up"
+          }
+        },
+        "summary": "Resets one rule's circuit breaker. Needs the admin's password.",
         "tags": [
           "policy"
         ]

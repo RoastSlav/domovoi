@@ -18,7 +18,7 @@
     }
   },
   "notes": [
-    "Nothing here is enforced. Approvals and limits do not read these rules yet.",
+    "Published rules that name a service restart are enforced, within the pause switch, the circuit breaker and the limits. Every other rule is recorded for comparison only.",
     "Decisions are recorded for comparison only."
   ]
 }

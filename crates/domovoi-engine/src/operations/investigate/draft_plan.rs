@@ -187,6 +187,7 @@ mod tests {
             identity: TargetIdentity::parse("container:nginx").expect("an identity"),
             retry_of: None,
             note: None,
+            unit: None,
         }
     }
 

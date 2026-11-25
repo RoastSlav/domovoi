@@ -89,6 +89,9 @@ pub(super) async fn dispatch(
         HelperRequest::Groups => groups(ctx),
         HelperRequest::SafetyAttest { nonce } => attest(*nonce, ctx).await,
         HelperRequest::SafetyPublicKey => attest_public_key(ctx),
+        HelperRequest::UnitIdentity { .. } | HelperRequest::UnitRestart { .. } => {
+            crate::systemd::serve(request, ctx, peer_uid).await
+        }
         read => crate::reads::serve(read, ctx, peer_uid).await,
     }
 }

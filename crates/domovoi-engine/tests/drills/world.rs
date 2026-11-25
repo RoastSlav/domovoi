@@ -425,6 +425,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
                     triage: triage.clone(),
                     settings: InvestigateSettings::default(),
                 }),
+                autonomy: None,
             },
             OperationSettings::default(),
         );

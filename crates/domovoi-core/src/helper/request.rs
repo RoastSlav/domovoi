@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use super::group::HelperGroup;
 use super::read::{ContainerRef, DeviceRef};
+use crate::unit::{IdentityHash, UnitId, UnitName};
 
 /// A challenge for `safety.attest`: 32 random bytes, written as 64 lowercase hex characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -114,6 +115,18 @@ pub enum HelperRequest {
     },
     /// The helper's public attestation key. Read-only: it carries no secret and changes nothing.
     SafetyPublicKey,
+    /// The loaded configuration and files of one systemd service, as one identity hash.
+    UnitIdentity {
+        /// The unit as typed.
+        name: UnitName,
+    },
+    /// Restarts one service, if it still has the identity that was approved.
+    UnitRestart {
+        /// The canonical id the manager reports for the unit.
+        id: UnitId,
+        /// The identity hash that was approved.
+        identity_hash: IdentityHash,
+    },
 }
 
 /// One request on the wire.
@@ -143,6 +156,8 @@ impl HelperRequest {
             Self::KernelLog { .. } => Some(HelperGroup::KernelRead),
             Self::NetListeners => Some(HelperGroup::NetRead),
             Self::SafetyAttest { .. } | Self::SafetyPublicKey => Some(HelperGroup::SafetyAttest),
+            Self::UnitIdentity { .. } => Some(HelperGroup::SystemdRead),
+            Self::UnitRestart { .. } => Some(HelperGroup::SystemdWrite),
         }
     }
 }

@@ -55,4 +55,18 @@ pub struct OperationDeps {
     pub shutdown: CancellationToken,
     /// Runs investigations when present; without it `TriageRequested` is ignored.
     pub investigate: Option<super::InvestigateDeps>,
+    /// Unit restarts and unattended permits; without it a `unit.restart` step cannot be
+    /// dispatched and no permit is ever considered.
+    pub autonomy: Option<AutonomyDeps>,
+}
+
+/// What bounded unattended execution needs beyond a person's approval.
+#[derive(Clone)]
+pub struct AutonomyDeps {
+    /// Reads unit identities and hands a restart to its host's agent.
+    pub relay: Arc<dyn domovoi_core::ports::UnitRelay>,
+    /// The pause switch, the circuit breaker's inputs and the unknown-outcome block.
+    pub permits: Arc<dyn domovoi_core::ports::PermitRepo>,
+    /// Turns an enforced policy `Allow` into a stored permit; the only way one is made.
+    pub issuer: Arc<dyn domovoi_core::ports::PermitIssuer>,
 }

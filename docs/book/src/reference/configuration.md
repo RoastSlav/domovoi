@@ -248,7 +248,11 @@ Policy rules the hub evaluates without enforcing them.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `shadow` | boolean | Record, for every Execution step, what the active policy and its shadow rules would decide. Nothing is enforced. Default `false`. |
+| `circuit_failures` | integer | How many `Failed` or `OutcomeUnknown` results of permit-authorized steps suspend a rule within `circuit_window`. 1 to 20. Default 2. |
+| `circuit_window` | duration | The window the circuit breaker counts failures in. 1 hour to 30 days. Default `24h`. |
+| `max_permits_per_hour` | integer | How many permits the hub issues per rolling hour, all rules together. 0 to 120; `0` means no permit is ever issued. Default 12. |
+| `permit_ttl` | duration | How long a policy permit stays valid, capped by the step's own approval window. 30 seconds to 1 hour. Default `5m`. |
+| `shadow` | boolean | Record, for every Execution step, what the active policy and its shadow rules would decide. Nothing is enforced by this switch. Default `false`. |
 
 ### `[[probes]]`
 
@@ -447,3 +451,24 @@ What skills this agent is willing to run.
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `allow_risk` | list of `"read"` or `"write"` or `"destructive"` | Risk classes of skills this agent runs. Default `["read", "write"]`; add `"destructive"` to opt in. |
+
+### `[unattended]`
+
+The ceiling on what a policy-labelled request may do. Omit to accept none.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `enabled` | boolean | Master switch. When `false` every policy-labelled request is refused. |
+
+#### `[[unattended.allow]]`
+
+What may run unattended, one entry per contract.
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `args` | map of list of string | Constrained argument values. Not accepted for `unit.restart`. |
+| `capability` | string | The exact contract id, such as `unit.restart`. No wildcard. |
+| `max_active` | integer | For contracts that bound concurrent runs. Not accepted for `unit.restart`. |
+| `max_per_hour` | integer | How many policy-labelled executions of this contract per rolling hour. At least 1. |
+| `max_ttl` | duration | For contracts that bound a lifetime. Not accepted for `unit.restart`. |
+| `targets` | list of string | Canonical targets (unit ids for `unit.restart`). `"*"` must be written explicitly. |

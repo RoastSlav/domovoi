@@ -56,7 +56,6 @@ async fn build_records_every_unavailable_input_as_a_gap() {
         vec![
             gap(GapInput::Ceiling, GapReason::NotProducedYet),
             gap(GapInput::Facts, GapReason::NotProducedYet),
-            gap(GapInput::Autonomy, GapReason::NotProducedYet),
         ]
     );
     let request = built.request.unwrap();
@@ -163,9 +162,10 @@ async fn reported_ceiling_and_known_facts_are_used_as_given() {
         ..rule("needs-fact", Outcome::Allow)
     };
     let built = build(&skill_candidate(), &[requires], &env, t(1)).await;
-    assert_eq!(
-        built.gaps,
-        vec![gap(GapInput::Autonomy, GapReason::NotProducedYet)]
+    assert!(
+        built.gaps.is_empty(),
+        "every input was supplied: {:?}",
+        built.gaps
     );
     let mut request = built.request.unwrap();
     assert_eq!(request.ceiling, Some(summary));

@@ -14,7 +14,7 @@ mod tests;
 
 pub use attestation::{SignedAttestation, UnsignedToken};
 pub use frame::{FrameError, decode_request, decode_response, encode_frame, frame_len};
-pub use group::{HelperGroup, ReadGroup};
+pub use group::{HelperGroup, ReadGroup, write_tier_gate};
 pub use request::{HelperRequest, HelperRequestFrame, Nonce, NonceError};
 pub use response::{HelperResponse, HelperResponseFrame, UnavailableReason};
 
@@ -45,4 +45,6 @@ pub(crate) const OPERATIONS: &[&str] = &[
     "net_listeners",
     "safety_attest",
     "safety_public_key",
+    "unit_identity",
+    "unit_restart",
 ];

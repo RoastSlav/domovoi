@@ -371,6 +371,7 @@ fn spawn_ops(
                 triage,
                 settings: InvestigateSettings::default(),
             }),
+            autonomy: None,
         },
         OperationSettings::default(),
     );

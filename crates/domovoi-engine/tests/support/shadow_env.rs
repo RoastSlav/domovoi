@@ -17,7 +17,8 @@ use domovoi_core::ports::TargetResolver;
 use domovoi_core::{HostId, SkillSummary};
 use domovoi_engine::policy::FactState;
 use domovoi_engine::policy_shadow::{
-    AutonomyReading, CeilingReading, ContainmentReading, GapReason, HostTarget, ShadowEnvironment,
+    AutonomyFacts, AutonomyReading, CeilingReading, ContainmentReading, GapReason, HostTarget,
+    ShadowEnvironment,
 };
 use domovoi_testkit::FakeTargetResolver;
 
@@ -144,7 +145,7 @@ impl ShadowEnvironment for FakeShadowEnvironment {
     }
 
     async fn autonomy(&self) -> AutonomyReading {
-        AutonomyReading::NotModelled
+        AutonomyReading::Reported(AutonomyFacts::default())
     }
 
     async fn publication_index(&self) -> ContractIndex {

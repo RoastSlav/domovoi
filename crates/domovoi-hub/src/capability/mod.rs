@@ -16,6 +16,7 @@ mod ceiling;
 mod enablement;
 mod floors;
 mod host;
+mod host_rules;
 mod inventory;
 mod registry;
 

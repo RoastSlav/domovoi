@@ -21,7 +21,10 @@ mod report_keys;
 
 pub use codec::{CodecError, decode_rule, decode_rules, encode_rule, rules_hash, stored_rules};
 pub use doc::{ConstraintsDoc, DecisionDoc, DecisionEnvelope, FactUse, error_code, outcome_text};
-pub use env::{AutonomyReading, CeilingReading, ContainmentReading, HostTarget, ShadowEnvironment};
+pub use env::{
+    AutonomyFacts, AutonomyReading, CeilingReading, ContainmentReading, HostTarget,
+    ShadowEnvironment,
+};
 pub use inputs::{Built, Verdict, build};
 pub use recorded::{
     CandidateDoc, ConstrainableArgDoc, ContractDoc, GapInput, GapReason, InputGap, InputsEnvelope,

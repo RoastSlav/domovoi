@@ -28,6 +28,8 @@ mod api_updates;
 #[cfg(test)]
 mod atomic_incidents;
 #[cfg(test)]
+mod autonomy_api;
+#[cfg(test)]
 mod availability;
 #[cfg(test)]
 mod capability;
@@ -72,6 +74,8 @@ mod ops_harness;
 mod packages;
 #[cfg(test)]
 mod packages_import;
+#[cfg(test)]
+mod permit;
 #[cfg(test)]
 mod plan_binding;
 #[cfg(test)]

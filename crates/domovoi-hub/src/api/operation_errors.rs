@@ -29,6 +29,9 @@ pub(crate) fn operation_error(err: OperationError) -> ApiError {
         OperationError::Execution(ExecutionError::NotYetSupported) => ApiError::Conflict(
             "policy authorizations are not supported yet; a person must approve".to_owned(),
         ),
+        OperationError::Execution(ExecutionError::PermitNotAllowed) => ApiError::Conflict(
+            "a policy permit can authorize only a write; a person must approve".to_owned(),
+        ),
         OperationError::Decide(refused) => ApiError::Conflict(refused.to_string()),
         OperationError::Conflict | OperationError::StaleEffect => {
             ApiError::Conflict("another change landed first; reload and try again".to_owned())

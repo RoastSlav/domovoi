@@ -1,6 +1,8 @@
 //! The helper's answers.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
 use uuid::Uuid;
 
 use super::attestation::{SignedAttestation, UnsignedToken};
@@ -138,6 +140,19 @@ pub enum HelperResponse {
     SafetyPublicKey {
         /// 32 bytes as 64 lowercase hex characters.
         public_key: String,
+    },
+    /// A unit operation succeeded: named string outputs, at most 16 KiB in all.
+    Outputs {
+        /// The outputs.
+        outputs: BTreeMap<String, String>,
+    },
+    /// A unit was refused or a restart did not complete; carries the token of the unit
+    /// refusal table and an optional detail (a path, a field name).
+    UnitRefused {
+        /// The token, such as `target_stale`.
+        token: String,
+        /// At most 200 printable characters.
+        detail: Option<String>,
     },
     /// The request was refused before it was understood.
     Refused {

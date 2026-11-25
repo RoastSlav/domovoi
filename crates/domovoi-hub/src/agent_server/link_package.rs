@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use domovoi_core::install::MAX_CHUNK_BYTES;
 use domovoi_core::ports::LinkError;
+use domovoi_core::unit::{UnitCall, UnitDispatch, UnitOutputs, keys};
 use domovoi_core::{
     AgentSessionId, CapabilityHandoff, HostId, JournalEpoch, PackageDispatch, PackageOutputs,
     TargetKey, TransferAnswer, TransferFrame, TransferKind,
@@ -105,10 +106,25 @@ impl WsAgentLink {
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<CapabilityHandoff, LinkError> {
+        let run = run_capability_of(&req)?;
+        self.queue_capability(host, run, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    /// Queues one `run_capability` frame, to exactly the session and journal epoch given. Failing
+    /// means nothing was queued; every later failure belongs to [`Self::capability_answer`].
+    pub(super) async fn queue_capability(
+        &self,
+        host: HostId,
+        run: RunCapability,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
         if self.clock.now() >= deadline {
             return Err(LinkError::Timeout);
         }
-        let message = Message::RunCapability(run_capability_of(&req)?);
+        let message = Message::RunCapability(run);
         let (id, answer, _facts) = match self.registry.dispatch(
             host,
             &message,
@@ -246,6 +262,73 @@ fn run_capability_of(req: &PackageDispatch) -> Result<RunCapability, LinkError> 
         args,
         plan_hash: req.plan_hash,
         authorization_kind: AuthorizationKind::Human,
+        expires_at: req.expires_at,
+        expected_safety: None,
+    })
+}
+
+impl WsAgentLink {
+    /// Queues one unit capability request, to exactly the session and journal epoch given.
+    pub(super) async fn unit_dispatch(
+        &self,
+        host: HostId,
+        req: UnitDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        let run = unit_run_capability_of(&req)?;
+        self.queue_capability(host, run, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    /// Waits for the terminal answer to a request queued by [`Self::unit_dispatch`].
+    pub(super) async fn unit_answer(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<UnitOutputs, LinkError> {
+        self.capability_answer(host, handoff, deadline)
+            .await
+            .map(|outputs| UnitOutputs(outputs.0))
+    }
+}
+
+/// The `run_capability` request of one unit call: contract, target and arguments come from the
+/// closed call; the authorization kind is the one the execution was authorized with.
+fn unit_run_capability_of(req: &UnitDispatch) -> Result<RunCapability, LinkError> {
+    let (contract, unit, args) = match &req.call {
+        UnitCall::Identity { name } => (
+            "unit.identity",
+            name.to_string(),
+            BTreeMap::from([(keys::ARG_UNIT.to_owned(), name.to_string())]),
+        ),
+        UnitCall::Restart { id, identity_hash } => (
+            "unit.restart",
+            id.to_string(),
+            BTreeMap::from([
+                (keys::ARG_UNIT.to_owned(), id.to_string()),
+                (
+                    keys::ARG_IDENTITY_HASH.to_owned(),
+                    identity_hash.to_string(),
+                ),
+            ]),
+        ),
+    };
+    let target = TargetKey::parse(&unit)
+        .map_err(|err| LinkError::Rejected(format!("the unit target is invalid: {err}")))?;
+    Ok(RunCapability {
+        execution_id: req.execution.as_uuid(),
+        contract: contract.to_owned(),
+        version: CONTRACT_VERSION,
+        target,
+        args,
+        plan_hash: req.plan_hash,
+        authorization_kind: match req.authorization_kind {
+            domovoi_core::AuthorizationKind::Human => AuthorizationKind::Human,
+            domovoi_core::AuthorizationKind::Policy => AuthorizationKind::Policy,
+        },
         expires_at: req.expires_at,
         expected_safety: None,
     })

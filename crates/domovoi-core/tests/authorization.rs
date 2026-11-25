@@ -122,3 +122,22 @@ fn policy_permit_refuses_an_empty_identifier_or_a_bad_window() {
         Err(PermitError::ExpiresNotAfterIssued)
     );
 }
+
+#[test]
+fn policy_permit_restore_matches_issue() {
+    let now = Timestamp::UNIX_EPOCH;
+    let issued = permit("dec-1", "7", now, now + SignedDuration::from_hours(1));
+    let restored = PolicyPermit::restore(PolicyPermitParts {
+        decision_id: issued.decision_id(),
+        rule_ids: issued.rule_ids().to_vec(),
+        policy_version: issued.policy_version(),
+        plan_hash: issued.plan_hash(),
+        issued_at: issued.issued_at(),
+        expires_at: issued.expires_at(),
+        ceiling_hash: issued.ceiling_hash(),
+        safety_identity: issued.safety_identity(),
+    })
+    .unwrap();
+    assert_eq!(restored, issued);
+    assert_eq!(restored.rule_ids(), ["a", "b"]);
+}

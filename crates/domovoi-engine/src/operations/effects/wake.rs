@@ -118,7 +118,7 @@ async fn approval_expiry(
     let awaiting = pending_execution(snapshot, step)
         && snapshot
             .execution_of(step)
-            .is_some_and(|stored| stored.value.approval().is_none());
+            .is_some_and(|stored| !stored.value.is_authorized());
     let Some(row) = snapshot.execution_of(step).filter(|_| awaiting) else {
         return finish(shared, held).await;
     };

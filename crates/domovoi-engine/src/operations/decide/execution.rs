@@ -11,8 +11,9 @@ use serde_json::json;
 
 use super::DecideError;
 use super::effects::{
-    DISPATCH_ATTEMPTS, RECONCILE_ATTEMPTS, VERIFY_ATTEMPTS, WAKE_ATTEMPTS, dispatch_key,
-    expiry_key, reconcile_key, step_payload, verify_key, verify_payload, wake_payload,
+    DISPATCH_ATTEMPTS, EVALUATE_ATTEMPTS, RECONCILE_ATTEMPTS, VERIFY_ATTEMPTS, WAKE_ATTEMPTS,
+    dispatch_key, evaluate_key, expiry_key, reconcile_key, step_payload, verify_key,
+    verify_payload, wake_payload,
 };
 use super::events::ExecutionProposal;
 use super::status::{Allow, gate, gate_settle};
@@ -174,6 +175,17 @@ fn accept(
         WAKE_ATTEMPTS,
         expiry_key(step),
     );
+    // A policy-dispatchable step is also offered to the permit issuer in this commit; if
+    // nothing is issued the approval offer stands.
+    if domovoi_core::capability::is_policy_dispatchable(&intent.contract) {
+        work.effect(
+            EffectKind::EvaluatePolicy,
+            step_payload(operation, step),
+            work.now,
+            EVALUATE_ATTEMPTS,
+            evaluate_key(step),
+        );
+    }
     work.transition(
         step,
         ExecutionState::Proposed,
@@ -189,7 +201,10 @@ fn accept(
 }
 
 /// The Execution step and its Approval step, when both are still pending.
-fn awaiting(work: &Work<'_>, step: StepId) -> Result<(StepRecord, StepRecord), DecideError> {
+pub(super) fn awaiting(
+    work: &Work<'_>,
+    step: StepId,
+) -> Result<(StepRecord, StepRecord), DecideError> {
     let execution = work.find(step)?;
     if execution.step.kind != StepKind::Execution {
         return Err(DecideError::Invalid("not an execution step".into()));
@@ -312,7 +327,7 @@ pub(super) fn waiting_for_agent(work: &mut Work<'_>, step: StepId) -> Result<(),
         .iter_mut()
         .find(|row| row.value.step == step)
         .ok_or_else(|| DecideError::Invalid("the execution has no row".into()))?;
-    if row.value.approval().is_none() {
+    if !row.value.is_authorized() {
         return Err(DecideError::Invalid("the execution has no approval".into()));
     }
     row.value.waiting_since.get_or_insert(now);
@@ -333,7 +348,7 @@ pub(super) fn dispatched(
     }
     let progress = record.progress.clone();
     match work.snap.execution_of(step) {
-        Some(row) if row.value.approval().is_some() => {}
+        Some(row) if row.value.is_authorized() => {}
         _ => {
             return Err(DecideError::Invalid("the execution has no approval".into()));
         }

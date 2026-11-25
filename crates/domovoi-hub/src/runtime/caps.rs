@@ -12,11 +12,13 @@ use domovoi_core::ports::{
     ActionAnswers, ActionCaps, AgentSnapshot, AttestationReply, AvailabilityProbe, CheckRecheck,
     CheckRerun, EvidenceCaps, HandoffRunner, HelperRelay, HelperReport, HostAvailability,
     HostObservation, HostRead, HostView, JournalStatus, LinkError, PackageCaps, PackageRelay,
-    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnitCaps, UnitRelay,
 };
+use domovoi_core::unit::{UnitCall, UnitDispatch, UnitName, UnitOutputs};
 use domovoi_core::{
-    ActionId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch, PackageDispatch,
-    PackageOutputs, ReadToolCall, SkillSummary, TargetKey, TransferAnswer, TransferFrame,
+    ActionId, AgentSessionId, AuthorizationKind, CapabilityHandoff, CheckKey, ExecutionId, HostId,
+    JournalEpoch, PackageDispatch, PackageOutputs, PlanHash, ReadToolCall, SkillSummary, StepId,
+    TargetKey, TransferAnswer, TransferFrame,
 };
 use jiff::Timestamp;
 
@@ -205,6 +207,76 @@ pub fn package_caps(link: Arc<dyn AgentLink>) -> PackageCaps {
         observer: Arc::new(ObserverOf { link: link.clone() }),
         journal: Arc::new(JournalOf { link: link.clone() }),
         relay: Arc::new(RelayOf { link }),
+    }
+}
+
+struct UnitRelayOf {
+    link: Arc<dyn AgentLink>,
+}
+
+#[async_trait]
+impl UnitRelay for UnitRelayOf {
+    async fn read_identity(
+        &self,
+        host: HostId,
+        name: &UnitName,
+        session: AgentSessionId,
+        deadline: Timestamp,
+    ) -> Result<UnitOutputs, LinkError> {
+        // A read has no approval: it is dispatched to the live session and journal epoch under a
+        // fresh execution id, labelled human, and bound to nothing.
+        let epoch = self
+            .link
+            .journal_epoch(host)
+            .ok_or(LinkError::NotConnected)?;
+        // A read binds nothing, so its plan hash is a fixed placeholder the agent only journals.
+        let plan_hash: PlanHash = "00".repeat(32).parse().map_err(|_| {
+            LinkError::Rejected("the read's plan placeholder is invalid".to_owned())
+        })?;
+        let request = UnitDispatch {
+            execution: ExecutionId::from_step(StepId::new()),
+            call: UnitCall::Identity { name: name.clone() },
+            plan_hash,
+            authorization_kind: AuthorizationKind::Human,
+            expires_at: deadline,
+        };
+        let handoff = self
+            .link
+            .start_unit_call(host, request, session, epoch, deadline)
+            .await?;
+        self.link.unit_call_result(host, handoff, deadline).await
+    }
+
+    async fn dispatch_restart(
+        &self,
+        host: HostId,
+        req: UnitDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.link
+            .start_unit_call(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn restart_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<UnitOutputs, LinkError> {
+        self.link.unit_call_result(host, handoff, deadline).await
+    }
+}
+
+/// The capabilities unit identity reads and restarts need, all over the one link.
+pub fn unit_caps(link: Arc<dyn AgentLink>) -> UnitCaps {
+    UnitCaps {
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link: link.clone() }),
+        relay: Arc::new(UnitRelayOf { link }),
     }
 }
 

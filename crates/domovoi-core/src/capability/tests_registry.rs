@@ -91,6 +91,10 @@ fn availability_reasons_have_codes() {
             UnavailableReason::ContainerRuntimeUnavailable,
             "container_runtime_unavailable",
         ),
+        (
+            UnavailableReason::DockerWriteUnsupported,
+            "docker_write_unsupported",
+        ),
     ];
     for (reason, code) in unavailable {
         let state = Availability::Unavailable { reason };

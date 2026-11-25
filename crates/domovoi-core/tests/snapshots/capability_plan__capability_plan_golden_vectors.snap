@@ -1,0 +1,12 @@
+---
+source: crates/domovoi-core/tests/capability_plan.rs
+expression: "text.replace(&key(1).to_string(), \"<key>\")"
+---
+plan:capability-v1
+contract:14:unit.restart@1
+host:106:host:01234567-89ab-cdef-0123-456789abcdef/<key>
+target:122:unit:01234567-89ab-cdef-0123-456789abcdef/<key>/example.service
+identity_hash:64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+args:24:unit:15:example.service
+
+execution:00000000-0000-0000-0000-000000000007

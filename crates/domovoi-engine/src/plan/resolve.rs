@@ -99,6 +99,10 @@ pub(super) fn map_error(error: &TargetError, label: &str) -> Refuse {
         TargetError::InvalidName { reason, .. } => {
             (PlanRefusalCode::TargetInvalid, reason.reason.clone())
         }
+        TargetError::UnitRefused { refusal, .. } => (
+            PlanRefusalCode::UnitRefused,
+            format!("{refusal}: {}", refusal.describe()),
+        ),
         TargetError::HostUnavailable { state, .. } => {
             (PlanRefusalCode::HostOffline, state.describe())
         }

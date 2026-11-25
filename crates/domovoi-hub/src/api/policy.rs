@@ -69,6 +69,9 @@ pub(super) fn command_error(err: PolicyCommandError) -> ApiError {
             ApiError::BadRequest(err.to_string())
         }
         PolicyCommandError::NoDraft | PolicyCommandError::NotFound => ApiError::NotFound,
+        PolicyCommandError::BadRequest(_) => ApiError::BadRequest(err.to_string()),
+        PolicyCommandError::Conflict(_) => ApiError::Conflict(err.to_string()),
+        PolicyCommandError::Unavailable => ApiError::Unavailable(err.to_string()),
         PolicyCommandError::DraftExists
         | PolicyCommandError::StaleDraft { .. }
         | PolicyCommandError::StaleActive { .. }

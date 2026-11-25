@@ -90,6 +90,9 @@ pub enum UnavailableReason {
     /// A container-targeted contract on a host whose agent reports no usable container
     /// runtime.
     ContainerRuntimeUnavailable,
+    /// `container.restart`: Docker write access needs its own helper decision and has no
+    /// dispatch path, for either authorization kind.
+    DockerWriteUnsupported,
 }
 
 impl Availability {
@@ -204,6 +207,7 @@ impl UnavailableReason {
             Self::CatalogueStale => "catalogue_stale",
             Self::CatalogueInconsistent => "catalogue_inconsistent",
             Self::ContainerRuntimeUnavailable => "container_runtime_unavailable",
+            Self::DockerWriteUnsupported => "docker_write_unsupported",
         }
     }
 
@@ -223,6 +227,9 @@ impl UnavailableReason {
             Self::CatalogueStale => "the catalogue read for this host is out of date",
             Self::CatalogueInconsistent => "the agent's skill list and its catalogue disagree",
             Self::ContainerRuntimeUnavailable => "this host has no usable container runtime",
+            Self::DockerWriteUnsupported => {
+                "Docker write access needs its own helper decision and is not available"
+            }
         }
     }
 }

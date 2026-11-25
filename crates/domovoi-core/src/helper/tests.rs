@@ -6,6 +6,7 @@ use super::read::{ContainerRef, DeviceRef};
 use super::*;
 use crate::identity::{FaultKind, PathFacts, PathFault, PathId, PathKind, RefusalToken};
 use crate::isolation::{PlatformRecordState, PlatformTier};
+use crate::unit::{UnitId, UnitName};
 
 fn id() -> Uuid {
     Uuid::from_u128(0x0123_4567_89ab_cdef_0123_4567_89ab_cdef)
@@ -45,6 +46,13 @@ fn every_request() -> Vec<HelperRequest> {
         nonce: Nonce::from_bytes([0xab; 32]),
     });
     out.push(HelperRequest::SafetyPublicKey);
+    out.push(HelperRequest::UnitIdentity {
+        name: UnitName::parse("example.service").expect("valid"),
+    });
+    out.push(HelperRequest::UnitRestart {
+        id: UnitId::parse("example.service").expect("valid"),
+        identity_hash: "ab".repeat(32).parse().expect("valid"),
+    });
     out
 }
 
@@ -235,7 +243,9 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "kernel_log",
             "net_listeners",
             "safety_attest",
-            "safety_public_key"
+            "safety_public_key",
+            "unit_identity",
+            "unit_restart"
         ],
         "request variants changed"
     );
@@ -254,7 +264,9 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "kernel_log",
             "net_listeners",
             "safety_attest",
-            "safety_public_key"
+            "safety_public_key",
+            "unit_identity",
+            "unit_restart"
         ]
     );
     // No operation of the old placeholder shape or of any write verb exists.
@@ -274,13 +286,30 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "{op}"
         );
     }
-    for variant in ops.iter() {
+    // The one write operation is `unit_restart`; it belongs to `systemd.write` and to nothing
+    // else, and every other operation names no write verb.
+    for variant in ops.iter().filter(|v| *v != "unit_restart") {
         for bad in [
             "restart", "stop", "kill", "create", "exec", "remove", "write", "post",
         ] {
             assert!(!variant.contains(bad), "{variant} names a write verb");
         }
     }
+    let writes: Vec<String> = every_request()
+        .iter()
+        .filter(|r| r.group().is_some_and(HelperGroup::is_write))
+        .map(|r| {
+            serde_json::to_value(r).expect("serialises")["op"]
+                .as_str()
+                .expect("op")
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        writes,
+        ["unit_restart"],
+        "exactly one request reaches a write group"
+    );
     // No free-form field type appears in the request definitions.
     let source = include_str!("request.rs");
     for needle in [

@@ -42,12 +42,20 @@ pub enum ContainmentReading {
     Unavailable,
 }
 
+/// The autonomy switches as the hub reads them now.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AutonomyFacts {
+    /// Whether the owner paused autonomy: no new permit, no dispatch of an issued one.
+    pub paused: bool,
+    /// The rules whose circuit breaker is open, derived from the executions and the resets.
+    pub suspended_rules: BTreeSet<String>,
+}
+
 /// What the hub knows of the autonomy switches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AutonomyReading {
-    /// Neither the pause nor the circuit breaker exists yet, so neither is in effect.
-    /// A real state arrives with the permit issuer.
-    NotModelled,
+    /// The state read from the store.
+    Reported(AutonomyFacts),
 }
 
 /// Read-only view of the hub used to build evaluator inputs. The engine never imports the
@@ -66,6 +74,23 @@ pub trait ShadowEnvironment: Send + Sync {
 
     /// The host's own target. Host-level contracts (every skill) use it.
     async fn host_target(&self, host: HostId) -> Result<HostTarget, GapReason>;
+
+    /// The unit the owner or the model typed as `typed`, as the helper reports it: the name
+    /// rules match on and the canonical identity a permit binds. An environment with no helper
+    /// path answers that the unit cannot be resolved.
+    async fn unit_target(
+        &self,
+        _host: HostId,
+        _typed: &TargetName,
+    ) -> Result<HostTarget, GapReason> {
+        Err(GapReason::Unresolvable)
+    }
+
+    /// The canonical identity of the unit a pinned subject names by its target key, or `None`
+    /// when it cannot be built.
+    async fn unit_identity(&self, _host: HostId, _unit: &str) -> Option<TargetIdentity> {
+        None
+    }
 
     /// The host's unattended ceiling.
     async fn ceiling(&self, host: HostId) -> CeilingReading;

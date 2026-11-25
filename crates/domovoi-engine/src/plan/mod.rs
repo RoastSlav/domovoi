@@ -10,6 +10,7 @@ mod refusal;
 mod resolve;
 mod schema;
 mod scope;
+mod unit;
 mod validate;
 
 #[cfg(test)]
@@ -19,4 +20,5 @@ pub use refusal::{PlanRefusal, PlanRefusalCode};
 pub use resolve::resolve_named_target;
 pub use schema::{SchemaProblem, check_schema};
 pub use scope::{PlanScope, PriorRun};
+pub use unit::UnitBinding;
 pub use validate::{PlanValidator, PlanVerdict, PlannedStep, is_executable};

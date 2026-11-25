@@ -12,6 +12,7 @@ mod deps;
 mod effects;
 mod error;
 mod execute;
+mod execute_unit;
 mod handle;
 pub mod investigate;
 pub mod journal;
@@ -34,7 +35,7 @@ pub use decide::{
     AuditNote, DecideError, Decision, EffectSpec, ExecutionProposal, IdSource, JournalNote,
     NewEdge, NewStep, OperationEvent, ProgressChange, RecordedStep, derive_status,
 };
-pub use deps::OperationDeps;
+pub use deps::{AutonomyDeps, OperationDeps};
 pub use error::OperationError;
 pub use handle::{ExecutionRequest, OperationHandle, OperationSeed, StepFinish};
 pub use investigate::{APPROVAL_POINTER, InvestigateDeps, InvestigateError, InvestigateSettings};

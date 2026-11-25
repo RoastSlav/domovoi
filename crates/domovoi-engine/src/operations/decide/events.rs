@@ -135,6 +135,11 @@ pub enum OperationEvent {
         /// The Execution step.
         step: StepId,
     },
+    /// A policy permit authorized an execution. The execution row already holds the permit.
+    ExecutionAuthorizedByPolicy {
+        /// The Execution step.
+        step: StepId,
+    },
     /// A person denied an execution.
     ExecutionDenied {
         /// The Execution step.

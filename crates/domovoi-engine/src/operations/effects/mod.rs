@@ -8,6 +8,7 @@
 
 mod dispatch;
 mod evidence;
+mod policy;
 mod reconcile;
 mod verify;
 mod wake;
@@ -34,6 +35,10 @@ pub(super) fn register(runner: &mut EffectRunner, shared: &Arc<OpShared>) {
     runner.register(
         EffectKind::Dispatch,
         Arc::new(dispatch::DispatchHandler::new(shared.clone())),
+    );
+    runner.register(
+        EffectKind::EvaluatePolicy,
+        Arc::new(policy::PolicyHandler::new(shared.clone())),
     );
     runner.register(
         EffectKind::Wake,

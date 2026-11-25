@@ -1,6 +1,6 @@
 # Policy
 
-A **policy** is the set of rules that says what Domovoi may do on its own and what needs you. Every step of an operation that runs a capability is checked against it. Today the rules are only recorded, not enforced: a person still approves every step that changes a host, and nothing a rule says can run a step by itself.
+A **policy** is the set of rules that says what Domovoi may do on its own and what needs you. Every step of an operation that runs a capability is checked against it. Rules are enforced for one thing only: restarting a service with `unit.restart`. For that, a rule that says Allow can let the restart run without you, inside hard limits. For everything else a person still approves every step that changes a host, and nothing a rule says can run it by itself.
 
 ## What a rule is
 
@@ -45,16 +45,32 @@ Some changes need more than a click:
 
 The simulator takes a description of a step (a capability, a host and its arguments) and shows what the draft and the published version would decide for it. It records nothing and enforces nothing. Use it to check a rule before you publish it, and to understand a row from shadow mode.
 
+## Enforcement
+
+A rule is acted on in one place: when a step asks to restart a service, the hub evaluates the published rules and, only if the answer is **Allow automatically** and every guard below holds, issues a **permit**. The permit names the decision, the rules that applied, the policy version and the exact plan, and it expires after `[policy] permit_ttl` (never later than the step's own window). The permit goes to the agent, which checks it against its own `[unattended]` ceiling before it asks the helper to restart anything. A permit cannot be made by any API call or by a chat message: only the hub's issuer makes one, and the web UI has no control that does.
+
+The guards run in this order, and the first one that fails withholds the permit. Each is recorded in the audit log with its reason:
+
+1. The **pause switch** is off. Pausing needs only your session; resuming needs your password.
+2. The capability can be allowed at all: only `unit.restart` can. Skills and `container.restart` never get a permit.
+3. The rule is not **suspended** by its circuit breaker. A rule is suspended when it has `[policy] circuit_failures` failed restarts inside `circuit_window`. Resetting a rule needs your password.
+4. No earlier restart of the same step has an **unknown outcome**. Resolve it yourself first, with your password.
+5. The hub and the agent agree on what will be restarted: the helper's identity of the unit still matches the plan.
+6. The permit rate limits hold: `[policy] max_permits_per_hour` for the whole hub and the agent's `max_per_hour` for the unit.
+
+Anything else is the ordinary path: you approve in the web UI. A withheld permit never blocks that path.
+
+What stays true when a permit exists: the agent's `[unattended]` section and the helper's `restart_units` and `protected_units` are local files that the hub cannot change. A compromised hub could label a request as allowed by policy, and the agent would still refuse it unless it is inside what you set on that host. That is the accepted limit of this design.
+
 ## What is not yet available
 
-Two kinds of input are not produced yet, so every decision made today uses the safe value for them:
+One kind of input is not produced yet, so every decision made today uses the safe value for it:
 
-- **The unattended ceiling.** The limit a host sets on what may run without you is not reported to the hub yet, so a rule that depends on it is evaluated as if the ceiling does not cover the step.
 - **Safety facts.** The hub does not produce any facts yet, so every fact is unknown and is treated as not met.
 
-Other inputs are also modelled conservatively for now: the root account of the agent is assumed to be root unless the hub knows otherwise, contracts that need the containment helper are marked incomplete, and the pause and the circuit breaker are not modelled, so neither is in effect. Each of these shows as a gap in the decision rows.
+The unattended ceiling is now reported by each agent, and the pause switch and the circuit breaker are read from the hub's own records, so none of those shows as a gap. Other inputs are still modelled conservatively: the root account of the agent is assumed to be root unless the hub knows otherwise, and contracts that need the containment helper are marked incomplete. Each of these shows as a gap in the decision rows.
 
-Until the ceiling and the facts arrive, a policy cannot tell you that a step is safe to run unattended. Shadow rows show what would change once they do.
+Until facts exist, a rule cannot depend on one.
 
 ## The Policy pages
 
@@ -111,7 +127,7 @@ Open a row in **Decisions** to see one recorded decision. It shows:
 - **Hard limits**: the limits that applied after the rules, in their own card. They are not rules and cannot be edited on this page. When the answer with the limits differs from the answer with the rules alone, both are shown.
 - **Missing inputs**: any input the decision could not read is listed as a gap. The result then uses the safe reading of that input, so it can be stricter than the real answer. Read it as "at least this strict".
 - **Part of this explanation could not be read**: if the hub recorded something this page does not know, a warning says so and **Unread details** lists what was skipped. Do not treat that explanation as complete.
-- **Not enforced**: every answer on this page carries this mark. It is recorded, not applied.
+- **Not enforced**: the answer on this page is a record. It is never applied itself. A rule that allows a service restart is acted on only when a new permit is issued for a live request, as described under Enforcement above.
 
 **Simulate this step** opens the simulator for the same step.
 

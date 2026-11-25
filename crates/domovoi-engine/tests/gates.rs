@@ -103,7 +103,14 @@ const OP_EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, 
 
 /// The fixture's `operations/effects/dispatch.rs`: the one authorizing constructor and the one
 /// dispatch of the operation service.
-const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\n";
+const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\nexecute_unit::execute_unit_restart(shared, held, authorized, session).await?;\n";
+
+/// The fixture's `operations/execute_unit.rs`: the one hand-off of a unit restart and the one wait
+/// for its answer.
+const OP_UNIT: &str = "relay.dispatch_restart(host, request, session, epoch, deadline).await;\nrelay.restart_result(host, handoff, deadline).await;\n";
+
+/// The fixture's `targets/mod.rs`: the one read of a unit's identity.
+const TARGETS: &str = "units.relay.read_identity(host, name, session, deadline).await;\n";
 
 /// The fixture's `packages/worker.rs`: the one authorizing constructor and the one relay call
 /// of the install service.
@@ -152,6 +159,8 @@ fn boundary_tree() -> Vec<(String, String)> {
             crate_path("operations/effects/dispatch.rs"),
             OP_DISPATCH.to_owned(),
         ),
+        (crate_path("operations/execute_unit.rs"), OP_UNIT.to_owned()),
+        (crate_path("targets/mod.rs"), TARGETS.to_owned()),
         (crate_path("operations/writer/mod.rs"), OP_WRITER.to_owned()),
         (crate_path("packages/worker.rs"), PKG_WORKER.to_owned()),
     ]

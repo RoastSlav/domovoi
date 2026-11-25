@@ -12,6 +12,7 @@
 //! [`Caller`], and returns domain or engine types, never a DTO or an HTTP error.
 //! `cargo xtask arch-check` enforces the import rules.
 
+mod autonomy;
 mod briefing;
 mod caller;
 mod conversations;
@@ -38,6 +39,7 @@ use domovoi_engine::ManagerHandle;
 use domovoi_engine::operations::OperationHandle;
 use domovoi_engine::triage::TriageHandle;
 
+pub use autonomy::{AutonomyDeps, AutonomyView, SuspendedRule};
 pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
 pub use conversations::ConversationCommands;

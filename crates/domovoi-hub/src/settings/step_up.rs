@@ -15,7 +15,8 @@
 //!
 //! Cancelling, pausing, resuming and answering an operation are deliberately not on that
 //! list: an owner session is enough, as for approving an offered step. `autonomy.resume` is
-//! the future global pause switch, not the resume of one operation.
+//! the global pause switch, not the resume of one operation; pausing it needs only a session
+//! because it narrows what the hub may do.
 
 /// How a rule picks settings paths. Paths are dotted leaf paths such as
 /// `llm.primary.cli.args`.
@@ -75,6 +76,22 @@ pub const STEP_UP_SETTINGS: &[StepUpRule] = &[
         why: "lowering the pre-upgrade backup count can remove recovery points",
     },
     StepUpRule {
+        path: PathRule::Exact("policy.permit_ttl"),
+        why: "a longer permit lifetime widens how long an unattended action stays authorized",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.circuit_failures"),
+        why: "raising the failure count delays the circuit breaker that suspends a rule",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.circuit_window"),
+        why: "shrinking the window lets the circuit breaker forget failures sooner",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.max_permits_per_hour"),
+        why: "raising the permit rate widens how much runs unattended",
+    },
+    StepUpRule {
         path: PathRule::Under("packages"),
         why: "package installation can put code on hosts",
     },
@@ -99,7 +116,8 @@ pub struct EnforcedStepUp {
 }
 
 /// Actions that ask for the password again today: publishing a policy version, changing a
-/// locked prohibition in a policy draft, and pinning or unpinning a helper key (which also
+/// locked prohibition in a policy draft, resuming autonomy, resetting a rule's circuit breaker,
+/// resolving an unknown outcome, and pinning or unpinning a helper key (which also
 /// needs the full fingerprint typed out).
 pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
     EnforcedStepUp {
@@ -108,6 +126,18 @@ pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
     },
     EnforcedStepUp {
         id: "policy.lock_changed",
+        enforced_by: "PolicyService",
+    },
+    EnforcedStepUp {
+        id: "autonomy.resume",
+        enforced_by: "PolicyService",
+    },
+    EnforcedStepUp {
+        id: "policy.rule_reset",
+        enforced_by: "PolicyService",
+    },
+    EnforcedStepUp {
+        id: "execution.unknown_resolved",
         enforced_by: "PolicyService",
     },
     EnforcedStepUp {
@@ -132,10 +162,6 @@ pub const STEP_UP_ACTIONS: &[StepUpAction] = &[
     StepUpAction {
         id: "installation.start",
         applies_once: "enforced by the package job endpoints (create and retry), before any approval is made",
-    },
-    StepUpAction {
-        id: "autonomy.resume",
-        applies_once: "autonomy (the pause switch) exists",
     },
 ];
 

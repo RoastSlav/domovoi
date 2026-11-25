@@ -313,3 +313,7 @@ export type AuditRow = Schemas["AuditRowDto"];
 export type AuditVerification = Schemas["AuditVerificationDto"];
 /** The retention periods in force. */
 export type RetentionSettings = Schemas["RetentionSettings"];
+/** Whether unattended action is paused, and the rules whose breaker is open. */
+export type Autonomy = Schemas["AutonomyDto"];
+/** One rule whose circuit breaker is open. */
+export type SuspendedRule = Schemas["SuspendedRuleDto"];

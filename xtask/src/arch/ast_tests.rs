@@ -16,7 +16,7 @@ fn has(violations: &[Violation], rule: &str) -> bool {
 }
 
 const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
-const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized)\n}\n";
+const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized.clone())?;\n    execute_unit::execute_unit_restart(authorized)\n}\n";
 const PKG_WORKER: &str = "fn run(t: Target) -> R {\n    let authorized = AuthorizedPackageTarget::of(t, a)?;\n    crate::packages::execute::execute_package(authorized)\n}\n";
 const PKG_WORKER_PATH: &str = "crates/domovoi-engine/src/packages/worker.rs";
 const OP_WRITER: &str =
@@ -28,16 +28,22 @@ fn engine_sites() -> Vec<(String, String)> {
         (OP_EXECUTE_PATH, OP_EXECUTE),
         (OP_DISPATCH_PATH, OP_DISPATCH),
         (OP_WRITER_PATH, OP_WRITER),
+        (OP_UNIT_PATH, OP_UNIT),
+        (TARGETS_PATH, TARGETS),
         (PKG_WORKER_PATH, PKG_WORKER),
     ])
 }
 
+const OP_UNIT_PATH: &str = "crates/domovoi-engine/src/operations/execute_unit.rs";
+const OP_UNIT: &str = "fn run() { relay.dispatch_restart(a, b); relay.restart_result(c); }\n";
+const TARGETS_PATH: &str = "crates/domovoi-engine/src/targets/mod.rs";
+const TARGETS: &str = "fn read() { relay.read_identity(a, b); }\n";
 const OP_EXECUTE_PATH: &str = "crates/domovoi-engine/src/operations/execute.rs";
 const OP_DISPATCH_PATH: &str = "crates/domovoi-engine/src/operations/effects/dispatch.rs";
 const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs";
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .unit_call_result(a, b, c);\n    self.link\n        .unit_call_result(a, b, c);
     self.link
         .attest_safety(a, b, c);\n}\n";
 

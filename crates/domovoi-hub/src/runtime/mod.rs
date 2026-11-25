@@ -211,12 +211,11 @@ impl HubRuntime {
             })
             .await?,
         );
-        // The one read boundary and the narrow catalogue view are built once here, from
-        // the same link the engine dispatches through; each handle receives only
-        // the capabilities it needs, never the link itself (ADR 0023).
+        // Built once, from the one link; each handle gets only its capabilities (ADR 0023).
         let evidence = Evidence::new(evidence_caps(link.clone()), clock.clone(), registry.clone());
         let catalog = HostCatalog::new(observer_of(link.clone()));
         let package_caps = caps::package_caps(link.clone());
+        let unit_caps = caps::unit_caps(link.clone());
         let caps_bundle = action_caps(link);
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
@@ -231,6 +230,7 @@ impl HubRuntime {
             executor: deps.process_executor,
             shutdown: &worker_shutdown,
             overrides: &overrides,
+            units: unit_caps.clone(),
         })
         .await?;
         let (operations, operations_task) =
@@ -245,6 +245,7 @@ impl HubRuntime {
                 clock: &clock,
                 shutdown: &worker_shutdown,
                 bus: &bus,
+                units: unit_caps.clone(),
             }) {
                 Some((handle, task)) => (Some(handle), Some(task)),
                 None => (None, None),
@@ -253,6 +254,7 @@ impl HubRuntime {
             config: &config,
             store: &store,
             caps: package_caps,
+            units: unit_caps.clone(),
             registry: &registry,
             evidence: &evidence,
             triage: triage.0.as_ref(),
@@ -278,15 +280,16 @@ impl HubRuntime {
             clock.clone(),
             identity,
         ));
-        let policy = policy::wire(
-            &store,
-            &registry,
-            &evidence,
-            &config,
-            &clock,
-            &auth,
-            &worker_shutdown,
-        );
+        let policy = policy::wire(policy::PolicyWire {
+            store: &store,
+            registry: &registry,
+            evidence: &evidence,
+            config: &config,
+            clock: &clock,
+            auth: &auth,
+            shutdown: &worker_shutdown,
+            units: &unit_caps,
+        });
         let settings = settings.map(|(key, sources)| {
             server.use_check_overrides(store.clone());
             crate::settings::SettingsService::new(crate::settings::SettingsDeps {

@@ -12,7 +12,7 @@ use jiff::Timestamp;
 
 use super::OpShared;
 use super::commands::{DispatchAnswer, Held};
-use super::commit::{apply, release};
+use super::commit::{apply, queue_reconcile, release};
 use super::execution::{Settled, dispatched, settle};
 use crate::operations::decide::DecideError;
 use crate::operations::error::OperationError;
@@ -129,8 +129,19 @@ async fn judge(
     Ok(Verdict::Go)
 }
 
-/// A stored human approval that names this plan, or the execution is refused.
+/// A stored human approval or permit that names this plan, or the execution is refused.
 fn authorization(row: &ExecutionRecord) -> Option<Verdict> {
+    // A stored permit is checked against the plan it names; its expiry and the pause switch are
+    // checked by the dispatch itself, which reads them fresh.
+    if let Some(stored) = row.permit() {
+        if stored.permit().plan_hash() != row.plan_hash {
+            return stop(
+                StepOutcome::Refused,
+                "the stored permit contradicts the plan",
+            );
+        }
+        return None;
+    }
     let Some(approval) = row.approval() else {
         return stop(
             StepOutcome::Refused,
@@ -189,10 +200,10 @@ async fn freshness(
     Ok(None)
 }
 
-/// Only a `skill.<name>` contract runs, and only while the owner enables it and the hub
-/// says it is available on the host.
+/// Only an executable contract runs (a `skill.<name>`, or `unit.restart`), and only while the owner
+/// enables it and the hub says it is available on the host.
 async fn capability(shared: &OpShared, row: &ExecutionRecord) -> Option<Verdict> {
-    if !row.contract.is_skill() {
+    if !crate::plan::is_executable(&row.contract) {
         return stop(StepOutcome::Unavailable, "contract_not_executable");
     }
     let registry = &shared.deps.registry;
@@ -239,4 +250,20 @@ async fn agent(
         ));
     }
     Ok(None)
+}
+
+/// Queues a reconcile for each execution dispatched to `host`.
+pub(super) async fn reconcile_host(shared: &OpShared, host: domovoi_core::HostId) {
+    let rows = match shared.deps.operations.dispatched_on(host).await {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::warn!(%err, %host, "could not list the executions dispatched to a host");
+            return;
+        }
+    };
+    for row in rows {
+        if let Err(err) = queue_reconcile(shared, row.operation, row.step).await {
+            tracing::warn!(%err, step = %row.step, "could not queue a reconcile");
+        }
+    }
 }

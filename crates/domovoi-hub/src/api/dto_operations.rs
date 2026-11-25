@@ -151,6 +151,61 @@ pub struct ExecutionDto {
     pub approved_at: Option<String>,
     /// Why it was refused, not run, unavailable or failed.
     pub reason: Option<String>,
+    /// Who authorized it, once somebody or a policy did.
+    pub authorization: Option<AuthorizationDto>,
+}
+
+/// Who authorized an execution: a person, or a policy permit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct AuthorizationDto {
+    /// `human` or `policy`.
+    pub kind: String,
+    /// The approving user, for a person: `user:<id>`.
+    pub user: Option<String>,
+    /// Where a person approved: `web`, or `chat:<platform>`.
+    pub channel: Option<String>,
+    /// The permit, for a policy.
+    pub permit: Option<PolicyAllowDto>,
+}
+
+/// The policy decision that allowed an execution: shown to the owner, never accepted from a client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct PolicyAllowDto {
+    /// The decision the permit packs.
+    pub decision_id: String,
+    /// The rules the decision applied.
+    pub rules: Vec<String>,
+    /// The policy version the decision used.
+    pub policy_version: String,
+}
+
+impl AuthorizationDto {
+    /// The authorization stored on `row`, if there is one.
+    #[must_use]
+    pub fn of(row: &ExecutionRecord) -> Option<Self> {
+        if let Some(approval) = row.approval() {
+            let channel = match approval.approval().channel() {
+                domovoi_core::ApprovalChannel::Web { .. } => "web".to_owned(),
+                domovoi_core::ApprovalChannel::Chat { platform, .. } => format!("chat:{platform}"),
+            };
+            return Some(Self {
+                kind: "human".to_owned(),
+                user: Some(format!("user:{}", approval.approval().user())),
+                channel: Some(channel),
+                permit: None,
+            });
+        }
+        row.permit().map(|stored| Self {
+            kind: "policy".to_owned(),
+            user: None,
+            channel: None,
+            permit: Some(PolicyAllowDto {
+                decision_id: stored.decision_id().to_owned(),
+                rules: stored.permit().rule_ids().to_vec(),
+                policy_version: stored.permit().policy_version().to_owned(),
+            }),
+        })
+    }
 }
 
 impl ExecutionDto {
@@ -192,6 +247,7 @@ impl ExecutionDto {
             approved_by: approval.map(|a| format!("user:{}", a.approval().user())),
             approved_at: approval.map(|a| a.approval().at().to_string()),
             reason: step.progress.reason.clone(),
+            authorization: AuthorizationDto::of(row),
         }
     }
 }

@@ -30,6 +30,10 @@ pub enum Tool {
     Dmesg,
     /// `ss`, for `net.read`.
     Ss,
+    /// `busctl`, for `systemd.read` and the reads a unit restart makes.
+    Busctl,
+    /// `systemctl`, run only as `restart -- <Id>`.
+    Systemctl,
 }
 
 impl Tool {
@@ -40,6 +44,8 @@ impl Tool {
             Self::Smartctl => &["/usr/sbin/smartctl", "/usr/bin/smartctl", "/sbin/smartctl"],
             Self::Dmesg => &["/usr/bin/dmesg", "/bin/dmesg"],
             Self::Ss => &["/usr/bin/ss", "/bin/ss", "/usr/sbin/ss"],
+            Self::Busctl => &["/usr/bin/busctl", "/bin/busctl"],
+            Self::Systemctl => &["/usr/bin/systemctl", "/bin/systemctl"],
         }
     }
 }

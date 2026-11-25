@@ -8,9 +8,9 @@ use domovoi_core::ports::{
     Transaction,
 };
 use domovoi_core::{
-    Actor, ApprovalChannel, ApprovalProvenance, Authorization, EffectId, ExecutionId,
-    ExecutionRecord, IncidentId, JournalEpoch, OperationId, OperationSnapshot, PlanBinding, StepId,
-    StepOutcome,
+    Actor, ApprovalChannel, ApprovalProvenance, Authorization, EffectId, ExecutionError,
+    ExecutionId, ExecutionRecord, IncidentId, JournalEpoch, OperationId, OperationSnapshot,
+    PlanBinding, StepId, StepOutcome,
 };
 use jiff::Timestamp;
 
@@ -47,6 +47,13 @@ pub(crate) struct AuthorizeEdit {
     pub(crate) chat_token: Option<String>,
 }
 
+/// A policy permit to record on an execution row.
+pub(crate) struct PolicyEdit {
+    pub(crate) step: StepId,
+    pub(crate) authorization: Authorization,
+    pub(crate) decision: String,
+}
+
 /// A change to an execution row that is the writer's to make, not the decision's. Applied to
 /// the loaded snapshot before `decide` runs, so `decide` sees the row as it will be stored.
 pub(crate) enum Edit {
@@ -54,6 +61,8 @@ pub(crate) enum Edit {
     None,
     /// Records a person's approval on the row.
     Authorize(Box<AuthorizeEdit>),
+    /// Records a policy permit on the row.
+    AuthorizeByPolicy(Box<PolicyEdit>),
     /// Refuses the change unless the step's outstanding chat token matches. A chat denial
     /// carries one; the decision then clears it in the same commit.
     CheckChatToken(StepId, String),
@@ -75,6 +84,7 @@ impl Edit {
         let step = match self {
             Self::None => return Ok(Vec::new()),
             Self::Authorize(edit) => edit.step,
+            Self::AuthorizeByPolicy(edit) => edit.step,
             Self::CheckChatToken(step, _) => *step,
             Self::Waiting(step) | Self::Dispatched(step, _) | Self::Settled(step) => *step,
         };
@@ -93,6 +103,11 @@ impl Edit {
         match self {
             Self::None | Self::CheckChatToken(..) => {}
             Self::Authorize(edit) => {
+                // This edit is the human path. A policy permit enters only through its own
+                // crate-private command, so a caller of the public handle can never use it.
+                if edit.authorization.human_approval().is_none() {
+                    return Err(ExecutionError::NotYetSupported.into());
+                }
                 let chat = edit
                     .authorization
                     .human_approval()
@@ -106,6 +121,10 @@ impl Edit {
                     &edit.binding,
                     now,
                 )?;
+                record.clear_chat_token_hash();
+            }
+            Self::AuthorizeByPolicy(edit) => {
+                record.authorize_by_permit(&edit.authorization, edit.decision.clone(), now)?;
                 record.clear_chat_token_hash();
             }
             Self::Waiting(_) => {

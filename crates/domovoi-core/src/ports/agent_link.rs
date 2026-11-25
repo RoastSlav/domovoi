@@ -15,6 +15,7 @@ use crate::ports::helper_trust::HelperReport;
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
+use crate::unit::{UnitDispatch, UnitOutputs};
 
 /// What a read tool returned.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,61 +95,6 @@ pub struct CheckRecheck {
     pub evidence: Evidence,
     /// When the check ran.
     pub observed_at: Timestamp,
-}
-
-/// What an agent's journal says about a run id.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ActionAnswer {
-    /// The run finished; `detail` is the agent's failure message when it failed.
-    Finished {
-        /// Whether the run's recorded result is a success.
-        succeeded: bool,
-        /// The agent's failure message, when the run failed.
-        detail: Option<String>,
-    },
-    /// Still running in the agent instance that started it.
-    Running,
-    /// Positive evidence the request never reached the journal.
-    NotFound,
-    /// The journal cannot establish what happened.
-    Unknown {
-        /// Why.
-        reason: UnknownReason,
-    },
-}
-
-/// Why an outcome is unknown. The first three come from the agent's answer; the hub
-/// decides the last two.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnknownReason {
-    /// The journal recorded acceptance but never a start record.
-    NoStartRecord,
-    /// The agent restarted while the execution was recorded as started.
-    AgentRestarted,
-    /// The journal lost the record, or the hub's epoch is stale.
-    JournalLost,
-    /// The journal epoch the hub recorded at dispatch is not the live one.
-    EpochChanged,
-    /// The run was dispatched before the hub recorded an epoch.
-    EpochUnknown,
-}
-
-/// One answer, keyed by the id that was asked about.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionAnswerEntry {
-    /// The run the answer is about.
-    pub execution: ActionId,
-    /// What the journal knows.
-    pub answer: ActionAnswer,
-}
-
-/// The agent's answers and the epoch it answered under.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionAnswers {
-    /// The journal's actual epoch.
-    pub epoch: JournalEpoch,
-    /// One answer per requested id that the agent recognised.
-    pub answers: Vec<ActionAnswerEntry>,
 }
 
 /// The coherent view of one authenticated agent session that a v2 plan is calculated from.
@@ -415,6 +361,34 @@ pub trait AgentLink: Send + Sync {
         Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
     }
 
+    /// Hands one unit capability request to `host`'s live session, which must still be
+    /// `expected_session` with the journal `expected_epoch` names, and returns once the frame
+    /// is in that session's outgoing queue.
+    ///
+    /// Same contract as [`AgentLink::start_capability`]: failing means nothing was queued.
+    async fn start_unit_call(
+        &self,
+        _host: HostId,
+        _req: UnitDispatch,
+        _expected_session: AgentSessionId,
+        _expected_epoch: JournalEpoch,
+        _deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Waits for the terminal answer to a request handed over by
+    /// [`AgentLink::start_unit_call`]. [`LinkError::Rejected`] is the agent's confirmed
+    /// refusal or failure; every other error leaves the outcome unknown.
+    async fn unit_call_result(
+        &self,
+        _host: HostId,
+        _handoff: CapabilityHandoff,
+        _deadline: Timestamp,
+    ) -> Result<UnitOutputs, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
     /// Asks `host`'s helper, through its agent, for a signed safety report bound to `nonce`,
     /// waiting until `deadline`.
     ///
@@ -487,6 +461,10 @@ pub trait SignalSink: Send + Sync {
     /// Accepts a batch, in order. Either the whole batch is accepted or none of it.
     async fn submit(&self, signals: Vec<Signal>) -> Result<(), IngestError>;
 }
+
+mod answers;
+
+pub use answers::{ActionAnswer, ActionAnswerEntry, ActionAnswers, UnknownReason};
 
 #[cfg(test)]
 mod tests;

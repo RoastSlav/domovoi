@@ -7,6 +7,7 @@ mod container_source;
 mod privileged;
 mod reads;
 mod selection;
+mod unit;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -56,6 +57,35 @@ pub struct GroupsInfo {
     pub enabled: Vec<HelperGroup>,
     /// Groups named in its configuration but ignored.
     pub ignored: Vec<HelperGroup>,
+    /// Whether the owner switched write groups on for untested platforms.
+    pub write_opt_in: bool,
+    /// The tier recorded by the last installer self-test.
+    pub platform_tier: domovoi_core::isolation::PlatformTier,
+    /// Whether that record exists and matches the running kernel.
+    pub platform_record: domovoi_core::isolation::PlatformRecordState,
+}
+
+impl GroupsInfo {
+    /// The operation names this helper offers beyond its group names: `unit.identity` when
+    /// `systemd.read` is served, and `unit.restart` when `systemd.write` is configured and the
+    /// platform tier gate passes.
+    #[must_use]
+    pub fn unit_ops(&self) -> Vec<&'static str> {
+        let mut ops = Vec::new();
+        if self.enabled.contains(&HelperGroup::SystemdRead) {
+            ops.push("unit.identity");
+        }
+        let write_named = self.ignored.contains(&HelperGroup::SystemdWrite);
+        let gate = domovoi_core::helper::write_tier_gate(
+            self.platform_record,
+            self.platform_tier,
+            self.write_opt_in,
+        );
+        if write_named && gate.is_ok() {
+            ops.push("unit.restart");
+        }
+        ops
+    }
 }
 
 /// Why a helper exchange failed.
@@ -197,8 +227,18 @@ impl HelperClient {
     pub async fn groups(&self, clock: &dyn Clock) -> Result<GroupsInfo, HelperClientError> {
         match self.exchange(HelperRequest::Groups, clock).await? {
             HelperResponse::Groups {
-                enabled, ignored, ..
-            } => Ok(GroupsInfo { enabled, ignored }),
+                enabled,
+                ignored,
+                write_opt_in,
+                platform_tier,
+                platform_record,
+            } => Ok(GroupsInfo {
+                enabled,
+                ignored,
+                write_opt_in,
+                platform_tier,
+                platform_record,
+            }),
             other => Err(refusal(other)),
         }
     }
@@ -312,6 +352,7 @@ pub async fn probe_status(client: &HelperClient, clock: &dyn Clock) -> HelperSta
                 .enabled
                 .iter()
                 .map(|group| group_name(*group))
+                .chain(groups.unit_ops().into_iter().map(str::to_owned))
                 .collect(),
         },
         Err(err) => failure(&err),

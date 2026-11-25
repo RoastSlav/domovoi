@@ -189,6 +189,11 @@ export function ApprovalCard({
                 </Text>
               </Visible>
             )}
+            {plan.authorizedBy && plan.approvedBy === null && (
+              <Text muted size="sm">
+                {plan.authorizedBy}
+              </Text>
+            )}
             {plan.approvedBy && (
               <Text muted size="sm">
                 Approved by {plan.approvedBy}

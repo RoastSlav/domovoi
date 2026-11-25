@@ -231,6 +231,10 @@ impl AgentRuntime {
             packages,
             helper: crate::helper_client::HelperRelay::default_path(),
             privileged: deps.privileged.clone(),
+            ceiling: config
+                .unattended
+                .as_ref()
+                .map(|section| Arc::new(crate::unattended::Ceiling::from_section(section))),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -313,6 +317,12 @@ impl AgentRuntime {
                 .as_ref()
                 .map_or_else(Default::default, |route| route.state().status()),
             catalog_hash: crate::link::handshake::catalog_announcement(&entries),
+            ceiling_hash: self.requests.ceiling.as_ref().map(|c| c.hash()),
+            ceiling_summary: self
+                .requests
+                .ceiling
+                .as_ref()
+                .map(|c| c.summary().to_owned()),
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());

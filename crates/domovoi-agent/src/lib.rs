@@ -38,6 +38,7 @@ pub mod spool;
 pub mod state_owner;
 pub mod store;
 pub mod time;
+pub mod unattended;
 
 pub use boot::{BootSnapshot, BootSnapshotError, boot_snapshot};
 pub use docker::DockerControl;

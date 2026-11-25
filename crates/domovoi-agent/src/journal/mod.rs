@@ -348,6 +348,40 @@ impl Journal {
         Ok(AcceptOutcome::Accepted)
     }
 
+    /// How many policy-labelled executions of `contract` were accepted inside the last hour,
+    /// counted by distinct execution id from the durable `accepted` records, so a crash cannot
+    /// desynchronise the count. Used for the unattended ceiling's `max_per_hour`.
+    pub fn policy_accepted(
+        &self,
+        contract: &str,
+        now_mono_ns: u64,
+        boot_id: &str,
+    ) -> Result<u32, JournalError> {
+        let state = self.lock()?;
+        let first_load = state.meta.boot.first_load_mono_ns;
+        let ids: std::collections::BTreeSet<Uuid> = state
+            .records
+            .iter()
+            .filter_map(|record| match record {
+                Record::Accepted {
+                    execution_id,
+                    contract: accepted,
+                    authorization_kind: domovoi_proto::messages::AuthorizationKind::Policy,
+                    boot_id: entry_boot,
+                    mono_ns,
+                    ..
+                } if accepted == contract
+                    && limiter::active_until(entry_boot, *mono_ns, boot_id, first_load)
+                        > now_mono_ns =>
+                {
+                    Some(*execution_id)
+                }
+                _ => None,
+            })
+            .collect();
+        Ok(u32::try_from(ids.len()).unwrap_or(u32::MAX))
+    }
+
     /// Writes a durable `started` record and marks the execution as running here.
     pub fn started(
         &self,

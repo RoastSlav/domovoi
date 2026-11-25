@@ -17,6 +17,7 @@ import {
 } from "../../components";
 import { ActiveRules } from "./ActiveRules";
 import { ActiveSummary } from "./ActiveSummary";
+import { AutonomyPanel } from "./AutonomyPanel";
 import { DecisionsTab } from "./DecisionsTab";
 import { DraftCard, DraftStale } from "./DraftCard";
 import { PolicyNotes } from "./PolicyNotes";
@@ -115,6 +116,9 @@ export function PolicyPage() {
               </Grid>
               <Visible category="P0" id="policy.shadow">
                 <ShadowCard overview={data} />
+              </Visible>
+              <Visible category="P0" id="policy.autonomy">
+                <AutonomyPanel />
               </Visible>
               <Visible category="P0" id="policy.mode">
                 <PolicyNotes notes={data.notes} />

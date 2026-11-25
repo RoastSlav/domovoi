@@ -12,7 +12,7 @@ use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
     AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
-    EffectReschedule, HelperTrustWrite, InstallWrite, JournalDraft, OperationWrite,
+    EffectReschedule, HelperTrustWrite, InstallWrite, JournalDraft, OperationWrite, PermitWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -309,6 +309,8 @@ pub enum StateWrite {
     Install(InstallWrite),
     /// One change to a host's helper key pin, latest attestation outcome or high-water mark.
     HelperTrust(HelperTrustWrite),
+    /// One change to the pause switch, a rule's circuit breaker or an unknown-outcome block.
+    Permit(PermitWrite),
 }
 
 /// Everything one business event changes.
