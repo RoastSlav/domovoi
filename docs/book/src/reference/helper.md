@@ -2,9 +2,9 @@
 
 The helper is a small root program that sits behind a socket on hosts installed with the three-identities layout (see [Security model](../security.md#three-identities-on-one-host)). The agent asks it for the few things that need root. It answers one request per connection and exits.
 
-In this release it answers `health`, `groups`, the read groups, `safety.attest` and the read-only `safety.public_key`. Every read group is answered as unavailable, because the operations behind them are not built yet. `safety.attest` answers a challenge with a report of the effective safety set (`[safety]` in `helper.toml`, the mandatory units, and the routes to the hub and the management networks as read from the kernel with `ip -j`), signed with the helper's attestation key; `safety.public_key` answers the public half of that key and nothing else. It has no write group: it cannot restart a unit, change the firewall, act on a container or run a command. The only program it ever runs is `ip`, with fixed arguments and the environment `LC_ALL=C`, to read routes. Platform support is not claimed for any system.
+In this release it answers `health`, `groups`, the Docker, SMART, kernel-log and listening-socket reads described under [Read operations](#read-operations), `safety.attest` and the read-only `safety.public_key`. `systemd.read` is answered as not implemented. `safety.attest` answers a challenge with a report of the effective safety set (`[safety]` in `helper.toml`, the mandatory units, and the routes to the hub and the management networks as read from the kernel with `ip -j`), signed with the helper's attestation key; `safety.public_key` answers the public half of that key and nothing else. It has no write group: it cannot restart a unit, change the firewall, act on a container or run a command. The only programs it ever runs are `ip` (to read routes), `smartctl`, `dmesg` and `ss`, each with fixed arguments, an empty environment (`LC_ALL=C` for `ip`) and never through a shell. It reads Docker through a client that can only make five `GET` calls. Platform support is not claimed for any system.
 
-Who is served: only the `domovoi-agent` account. The helper looks up that account's user id each time a connection arrives. Root is not served; use `domovoi agent selftest` for root diagnostics. A request is one length-prefixed JSON frame of at most 64 KiB, with a closed set of operations and no free-form field, so there is nothing to carry a path, a command or a unit name. If the helper's own checks fail at start it answers every request with `StartRefused` and the list of faulty paths. See [Troubleshooting](../troubleshooting.md#the-helper-refuses-to-start).
+Who is served: only the `domovoi-agent` account. The helper looks up that account's user id each time a connection arrives. Root is not served; use `domovoi agent selftest` for root diagnostics. A request is one length-prefixed JSON frame of at most 64 KiB, with a closed set of operations and no free-form field (a container name and a `/dev/` device name are checked against a fixed grammar), so there is nothing to carry a path, a command or a unit name. An answer may be up to 4 MiB and is cut, with a `truncated` flag, rather than sent larger. If the helper's own checks fail at start it answers every request with `StartRefused` and the list of faulty paths. See [Troubleshooting](../troubleshooting.md#the-helper-refuses-to-start).
 
 ## `helper.toml`
 
@@ -15,6 +15,9 @@ groups = ["docker.read", "systemd.read", "smart.read", "kernel.read", "net.read"
 
 [platform]
 allow_write_groups_on_untested = false
+
+[docker]
+endpoint = "unix:///var/run/docker.sock"
 
 [smart]
 devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
@@ -35,17 +38,47 @@ mutations_per_hour = 0
 
 | Key | Meaning |
 | --- | --- |
-| `groups` | The operation groups to enable. No file, or an empty list, gives the set shown above. Write groups (`docker.write`, `systemd.write`, `nft`) are accepted by the parser but ignored in this release, and reported in the answer to `groups`. No write group is ever enabled by default. |
+| `groups` | The operation groups to enable. No file, or an empty list, gives the set shown above. Remove `docker.read`, `smart.read`, `kernel.read` or `net.read` to turn that read group off; its requests are then answered as disabled. Write groups (`docker.write`, `systemd.write`, `nft`) are accepted by the parser but ignored in this release, and reported in the answer to `groups`. No write group is ever enabled by default. |
 | `[platform] allow_write_groups_on_untested` | The per-host switch for write groups on an Untested platform. Off by default; you edit it yourself. It has no effect in this release, because no write group exists, but while it is on the helper logs a warning at every start and reports it. |
-| `[smart] devices` | Device patterns for the SMART read group. Read, not used yet. |
+| `[docker] endpoint` | Optional. A `unix:///absolute/path` socket for the Docker read group. A `tcp://` or `http://` value, or a relative path, makes the file invalid: the root helper opens no network connection. Without it the helper tries `/var/run/docker.sock`, then `/run/podman/podman.sock`. |
+| `[smart] devices` | Device patterns for the SMART read group. A device is read only when the whole name matches one pattern; an empty list means no device. The grammar is literal `a-z`, `0-9` and `/` characters plus single-character classes `[a-z]` and `[0-9]`. Any other character (`*`, `?`, `{`, `..`) makes the file invalid. |
 | `[safety]` and `[safety.containment]` | Management networks, protected units and containers and the containment limits. Read, not used yet. |
 | `[limits]` | Request timeout and the mutation budget. Read, not used yet. |
 
-`[docker]`, `[systemd]` and `[nft]` sections are accepted with their documented keys and are not used yet.
+`[systemd]` and `[nft]` sections are accepted with their documented keys and are not used yet. `[docker] write_containers` is still accepted and not interpreted.
 
 ### Platform
 
 The helper never trusts a tier a caller claims. `sudo domovoi agent selftest --installer --record` writes the result of the checks to `/var/lib/domovoi-helper/platform.json`, and the helper reads that file. If it is missing, or was written under a different kernel, write groups are refused with `platform_record_missing` or `platform_record_stale`. Nothing is Supported yet; a host whose checks all pass is Untested, and write groups on it need `allow_write_groups_on_untested = true`. The notice shown for an Untested host reads: "This platform has not been release-tested. Skills run here after you acknowledge that; privileged write operations stay off unless you enable them for this host in helper.toml."
+
+## Read operations
+
+Each operation belongs to one group. The group is the unit of enablement: there is no per-operation switch.
+
+| Group | Operations | What it reads |
+| --- | --- | --- |
+| `docker.read` | probe, list, events, inspect, logs | The container engine, through five `GET` calls: the container list (500 at most), one container's `inspect` (every `Config.Env` value is removed, 1 MiB at most), the container events of a window of up to 24 hours (1,000 at most) and the last 1 to 500 log lines (256 KiB at most). The helper holds the socket; the agent never does. |
+| `smart.read` | scan, report | `smartctl --scan-open --json` filtered by `[smart] devices` (64 devices at most) and `smartctl --all --json --nocheck=standby <device>` for one allowed device. A non-zero exit with JSON output is a normal report. |
+| `kernel.read` | kernel log | `dmesg --kernel --time-format=iso`, cut to a window of 1 to 1,440 minutes and the last 1 to 500 lines. The agent asks only when `journalctl --dmesg` cannot open the journal. |
+| `net.read` | listening sockets | `ss --listening --tcp --udp --processes`, at most 1,000 sockets, with the owning process name and pid. |
+| `systemd.read` | none | Answered as not implemented. |
+
+Every operation has a timeout (2 to 15 seconds), an output cap and an item cap; `[limits] timeout` bounds the whole request when it is smaller. The helper writes nothing for a read and keeps no cache; the agent caches the container list and listening sockets for 5 seconds, the SMART scan for 5 minutes and a SMART report for 1 minute per device, and sends at most 20 read requests in 10 seconds. A read that cannot be done is answered with a token:
+
+| Token | Meaning |
+| --- | --- |
+| `tool_missing` | `smartctl`, `dmesg` or `ss` is not installed at a fixed path as a root-owned file that others cannot write. |
+| `engine_absent` | No Docker or Podman socket exists. |
+| `engine_denied` | The socket exists and the helper may not open it. |
+| `engine_error` | The engine answered a transport error or an unexpected status. |
+| `engine_api_refused` | The engine, or a proxy in front of it, answered 403 or 405. The helper does not try another way. |
+| `target_not_found` | The engine has no such container. |
+| `device_not_allowed` | The device does not match `[smart] devices`. Nothing was run. |
+| `command_failed` | The tool exited without usable output; the answer carries the first line of its error, cut short. A missing capability shows here. |
+| `output_malformed` | The tool's output was not in the expected shape. |
+| `timed_out` | The per-call timeout or the request deadline passed. |
+
+A request for a group that is not enabled is answered as disabled. Reads are refused only when the platform record for this kernel lists a failed helper isolation check (ST-10, ST-11, ST-12 or ST-15); a missing or stale record, an Untested platform and a host where only the skill-runner checks fail still allow reads. See [Troubleshooting](../troubleshooting.md#the-helper-answers-a-read-with-a-token).
 
 ## The units
 
@@ -87,8 +120,17 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/domovoi-helper
 ProtectHome=yes
 PrivateTmp=yes
-PrivateDevices=yes
-CapabilityBoundingSet=CAP_NET_ADMIN
+# Disks and /dev/kmsg are needed by the read operations (smartctl, dmesg); every other
+# device stays closed. The capability set is the widened baseline of ADR 0036: the
+# privileged rows of deploy/test/identities.sh measure it (decision OD-1 is unmeasured
+# until they have run on a real host).
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=block-nvme r
+DeviceAllow=char-nvme r
+DeviceAllow=char-sg r
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_SYSLOG CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 AmbientCapabilities=
 RuntimeMaxSec=60s
 KillMode=control-group
@@ -104,12 +146,13 @@ TimeoutStopSec=5s
 | no `User=` | The helper is root. The user check is its first layer, not the isolation. |
 | `StandardInput=socket`, `StandardOutput=journal`, `StandardError=journal` | The connection is the helper's standard input and carries the requests; its output goes to the journal, not to the connection. |
 | `ExecStart=` outside `/run` | `/run` can be mounted `noexec`, which stops a program there from starting. |
-| `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, `PrivateDevices=yes` | A read-only system for a root process; `strict` leaves `/home` writable, so `ProtectHome` is needed too. |
+| `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes` | A read-only system for a root process; `strict` leaves `/home` writable, so `ProtectHome` is needed too. |
+| `PrivateDevices=no`, `DevicePolicy=closed`, four `DeviceAllow=` lines | `PrivateDevices=yes` hides the block devices, so `smartctl` would find none. `closed` keeps every other device out of reach except the always-allowed pseudo devices; the four lines give read access to SATA and SCSI disks, NVMe disks and controllers, and SCSI generic nodes. |
 | `ReadWritePaths=/var/lib/domovoi-helper` | The only writable path. If it is missing the unit fails to start, which is why the installer creates it first. |
-| `CapabilityBoundingSet=CAP_NET_ADMIN`, `AmbientCapabilities=` | The value that was measured. This release's operations need none of it. Narrowing it per operation is not done yet. |
+| `CapabilityBoundingSet=` (six capabilities), `AmbientCapabilities=` | `CAP_SYS_RAWIO` for SMART commands on SATA and SCSI disks; `CAP_SYS_ADMIN` for NVMe admin commands (the largest single addition); `CAP_SYSLOG` for `dmesg` when `kernel.dmesg_restrict=1`; `CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` so `ss --processes` can name the owner of another user's listener; `CAP_NET_ADMIN` is kept from the first baseline and nothing uses it now. The set is shared by every request and is not narrowed when you turn a group off. It has not been measured on a real host yet. |
 | `RuntimeMaxSec=60s`, `KillMode=control-group`, `TimeoutStopSec=5s` | A time bound on one request, written out so a test can check it. |
 
-The helper unit carries no other hardening setting on purpose: the rest have not been measured with the helper's later operations. Do not add a drop-in; see [Hardening](../guide/hardening.md#units-and-drop-ins).
+The helper unit carries no other hardening setting on purpose: the rest have not been measured with the helper's operations. An already migrated host keeps its old unit when it differs; replace it with the file the installer saved under `<prefix>/share/domovoi/` (then `systemctl daemon-reload`) to get SMART, kernel-log and listening-socket reads. Docker reads need no unit change. Do not add a drop-in; see [Hardening](../guide/hardening.md#units-and-drop-ins).
 
 ## Files
 

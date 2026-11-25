@@ -138,3 +138,7 @@ Brought up to date with the measurements on four hosts and the maintainer's deci
 ## Revision (2026-11-23)
 
 Open question A2 is decided: the helper code lives in a new crate, `domovoi-helper`, with edges to `domovoi-core` and `domovoi-config` only, and the rules of Decision 8 listed as proposed are given their enforced form in [0033](0033-helper-crate-and-isolation-rules.md). The runner's own rules (`RUNNER-1`, `RUNNER-2`) stay proposed. Status stays proposed.
+
+## Revision (2026-11-25)
+
+Decision 8 ("every spawn goes through `domovoi-runner`") is amended for the helper as [0036](0036-helper-read-operations.md) records: the helper may spawn the three fixed programs `smartctl`, `dmesg` and `ss`, only through the injected `ProcessExecutor` and never from a request-supplied path. It still contains no process-spawning code of its own. Status unchanged.

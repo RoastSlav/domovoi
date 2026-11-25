@@ -53,7 +53,7 @@ sudo systemctl enable --now domovoi-agent
 
 The host shows as connected within a few seconds. The agent dials the hub on port 7421; nothing connects to the agent.
 
-The helper and the skill runner start on demand when the agent connects to their sockets, so you never enable them by hand. This release's helper answers only `health` and `groups`, so skills that need privileged access (restarting a container or a unit, vacuuming the journal) report errors on a fresh install. See [What a skill can reach](../guide/skills.md#what-a-skill-can-reach).
+The helper and the skill runner start on demand when the agent connects to their sockets, so you never enable them by hand. The helper reads Docker, SMART, the kernel log and listening sockets for the agent, so those checks and tools work on a fresh install. It has no write operation, so skills that need privileged access (restarting a container or a unit, vacuuming the journal) report errors. See [What a skill can reach](../guide/skills.md#what-a-skill-can-reach).
 
 ### Already installed
 
@@ -65,7 +65,7 @@ sudo sh install.sh --role agent --migrate-identity
 
 The migration is never done by a routine rerun, because it takes root access away from checks you may rely on. It needs a terminal, shows the full plan first (accounts to create, every path whose owner or mode will change, the new unit, and what stops working) and asks you to type `migrate`. There is no `--yes`. It then saves the old unit and the old owners and modes under `/etc/domovoi/identity-migration/`, stops the agent, applies the layout, starts the agent and checks that it runs as `domovoi-agent`.
 
-What loses root access: checks that need it (Docker through its socket, SMART, the journal of every unit) report errors on a migrated host until the helper carries them, and skills run as `domovoi-skill` through the skill runner, so a skill that names another `run_as` is refused until you edit its manifest. If the migration fails midway it rolls itself back. To roll back later:
+What changes: Docker, SMART, the kernel-log fallback and the owning process names of listening ports are read through the helper's read groups and keep working. The check `security.fail2ban` reads a root-only socket and reports an error until a later release. Skills run as `domovoi-skill` through the skill runner, so a skill that names a `run_as` user has no runner until the skill runner is installed, or until you edit its manifest. The journal needs only the `systemd-journal` group, which the agent keeps. If the migration fails midway it rolls itself back. To roll back later:
 
 ```sh
 sudo sh install.sh --role agent --rollback-identity

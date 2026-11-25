@@ -261,6 +261,7 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
     }
 
     out.extend(super::identity_rules::check_file(rel, text, test_only));
+    out.extend(super::identity_rules::check_read_file(rel, text, test_only));
     out.extend(super::runner_scan::check_file(rel, text, test_only));
 
     let lines = text.lines().count();

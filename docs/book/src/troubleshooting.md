@@ -73,6 +73,20 @@ The helper's own checks failed, and it answers every request with `StartRefused`
 
 Check ST-07 found a drop-in on the helper socket, the helper service, the skill runner socket or service, or the agent unit, or a unit change that has not been loaded, or a runner unit whose directories (`bind_paths`) no longer match `agent.toml`. Look for the file it lists (usually under `/etc/systemd/system/<unit>.d/`), remove it, run `sudo systemctl daemon-reload` and run the check again. `unit_not_inspectable` means `systemctl show` failed for that unit; check that it is installed. A drop-in can weaken the isolation the units set, so the check cannot accept it, and `systemctl edit` on these units will keep skills blocked.
 
+### The helper answers a read with a token
+
+A check or tool that reads through the helper shows the helper's token. Each one means:
+
+| Token | What to do |
+| --- | --- |
+| `tool_missing` | Install `smartmontools` (`smartctl`), `util-linux` (`dmesg`) or `iproute2` (`ss`). The helper looks only at fixed paths such as `/usr/sbin/smartctl`, and only accepts a root-owned file that others cannot write. |
+| `engine_absent` | No Docker or Podman socket at `/var/run/docker.sock` or `/run/podman/podman.sock`. Set `[docker] endpoint = "unix:///your/socket"` in `/etc/domovoi/helper.toml`, or ignore it on a host without containers. A rootless Podman socket cannot be read by the helper. |
+| `engine_denied` | The socket exists but the helper may not open it. Check the socket's owner and any security module (SELinux, AppArmor) that confines the helper. |
+| `engine_api_refused` | The engine or a proxy in front of it answered 403 or 405 to a read. Allow `GET` on containers, images, events and logs. |
+| `device_not_allowed` | The device is not in `[smart] devices` in `helper.toml`. Add a pattern such as `/dev/sd[a-z]` and restart nothing: the helper reads the file at every request. |
+| `command_failed` | The tool failed; the detail shows the first line of its error. `Operation not permitted` or `Permission denied` on an already migrated host usually means the helper unit is the old one; see [Upgrading](install/upgrading.md). |
+| `group_disabled` (shown as "switched off") | The group is not in `groups` in `helper.toml`. Add it back to use that read. |
+
 ### Skills are unavailable: the skill runner
 
 On the three-identities layout skills run only through the skill runner, one process per connection to `/run/domovoi-skill-runner.sock`. The host's skill runner status on the hub, and the agent's log, show one of these:

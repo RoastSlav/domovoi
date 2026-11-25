@@ -356,3 +356,7 @@ Brought up to date with the measurements on four hosts and four systemd builds a
 ## Revision (2026-11-23)
 
 Decision 6 now exists as code: the installer creates the accounts and directories in the order given, runs `domovoi helper init`, enables the helper socket and runs `domovoi agent selftest --installer --record`; `domovoi helper repair` is the owner-confirmed repair command. Open question B2: the published list of supported platforms is an empty constant and the untested-platform notice is "This platform has not been release-tested. Skills run here after you acknowledge that; privileged write operations stay off unless you enable them for this host in helper.toml." The rules `UNIT-2` (docker clause), `UNIT-3` (helper unit), `UNIT-4`, `UNIT-5`, `UNIT-7`, `UNIT-8`, `UNIT-9`, `INSTALL-1` and `SELFTEST-1` are decided in [0033](0033-helper-crate-and-isolation-rules.md); the runner clauses and `UNIT-1` and `UNIT-6` stay proposed. Status stays proposed.
+
+## Revision (2026-11-25)
+
+B5 (helper unit directive set): the baseline is widened by [0036](0036-helper-read-operations.md) for the read groups (`PrivateDevices=no` with `DevicePolicy=closed`, four read-only `DeviceAllow=` lines and six capabilities). The set is still unmeasured per group; the privileged rows of `deploy/test/identities.sh` measure it. Status unchanged.

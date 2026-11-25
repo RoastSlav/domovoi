@@ -145,6 +145,8 @@ pub const CRATES: &[CrateRule] = &[
             "nix",
             "ed25519-dalek",
             "rand",
+            "bollard",
+            "futures",
         ]),
     },
     CrateRule {
@@ -677,8 +679,13 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     },
     RuleCard {
         id: "UNIT-3",
-        message: "domovoi-helper@.service and domovoi-skill-runner@.service carry every directive of the measured baseline with its value, and neither has SupplementaryGroups=; the helper has no User=, and the runner's bind sources equal its ExecStart directories",
+        message: "domovoi-helper@.service and domovoi-skill-runner@.service carry every directive of the measured baseline with its value, and neither has SupplementaryGroups=; the helper has no User=, has PrivateDevices=no with DevicePolicy=closed and exactly the four read-only DeviceAllow= lines, and its capability set is exactly the six of ADR 0036; the runner's bind sources equal its ExecStart directories",
         backs: "F-PRT-2, F-ACT-2",
+    },
+    RuleCard {
+        id: "READ-1",
+        message: "the bollard crate is named only by domovoi-checks/src/containers/docker.rs and the helper's reads/docker/ module; the helper's Docker client is the one place that holds the engine socket and it calls five read endpoints",
+        backs: "ADR 0036, D-24",
     },
     RuleCard {
         id: "UNIT-4",
@@ -749,6 +756,7 @@ pub const HELPER_SOCKET_ALLOWED: &[&str] = &[
     "crates/domovoi-core/src/helper/",
     "crates/domovoi-core/src/identity/table.rs",
     "crates/domovoi-helper/",
+    "crates/domovoi-agent/src/helper_client/",
     "crates/domovoi-agent/src/helper_client.rs",
     "crates/domovoi-agent/src/runtime.rs",
     "crates/domovoi/src/cmd/helper.rs",
@@ -804,6 +812,7 @@ pub const IDENTITY_ALLOWED: &[&str] = &[
 /// Source trees where ID-3 forbids parsing systemd instance names.
 pub const INSTANCE_NAME_SCOPE: &[&str] = &[
     "crates/domovoi-helper/",
+    "crates/domovoi-agent/src/helper_client/",
     "crates/domovoi-agent/src/helper_client.rs",
     "crates/domovoi-runner/",
 ];
@@ -844,12 +853,28 @@ pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("ReadWritePaths", "/var/lib/domovoi-helper"),
     ("ProtectHome", "yes"),
     ("PrivateTmp", "yes"),
-    ("PrivateDevices", "yes"),
-    ("CapabilityBoundingSet", "CAP_NET_ADMIN"),
+    ("PrivateDevices", "no"),
+    ("DevicePolicy", "closed"),
+    (
+        "CapabilityBoundingSet",
+        "CAP_NET_ADMIN CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_SYSLOG CAP_SYS_PTRACE CAP_DAC_READ_SEARCH",
+    ),
     ("AmbientCapabilities", ""),
     ("RuntimeMaxSec", "60s"),
     ("KillMode", "control-group"),
     ("TimeoutStopSec", "5s"),
+];
+
+/// The `DeviceAllow=` lines of the helper unit, in order (UNIT-3): read-only access to disks.
+pub const HELPER_UNIT_DEVICE_ALLOW: &[&str] =
+    &["block-sd r", "block-nvme r", "char-nvme r", "char-sg r"];
+
+/// Files and directories where the `bollard` crate may be named (READ-1): the checks' direct
+/// Docker source and the helper's read-only Docker client. An entry ending in `/` is a
+/// directory, any other entry is one file; test sources are always allowed.
+pub const BOLLARD_ALLOWED: &[&str] = &[
+    "crates/domovoi-checks/src/containers/docker.rs",
+    "crates/domovoi-helper/src/reads/docker/",
 ];
 
 /// Self-test token sources, workspace-relative (SELFTEST-1): the files that define
