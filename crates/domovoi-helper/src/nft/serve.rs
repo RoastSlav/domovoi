@@ -36,7 +36,9 @@ fn op_name(request: &HelperRequest) -> &'static str {
     }
 }
 
-fn exclusions_of(current: &Current) -> Result<Vec<Net>, Refusal> {
+/// The effective exclusion set from what the helper observed, or the refusal that says why none
+/// can be computed.
+pub fn exclusions_of(current: &Current) -> Result<Vec<Net>, Refusal> {
     let incomplete = || {
         Refusal::new(
             Token::ExclusionsIncomplete,

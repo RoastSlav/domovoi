@@ -244,18 +244,27 @@ impl Journal {
         let existed = self.path.exists();
         let mut file = std::fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
             .mode(0o600)
             .custom_flags(OFlag::O_NOFOLLOW.bits())
             .open(&self.path)?;
-        let torn_tail = existed
-            && std::fs::read(&self.path)
-                .map(|bytes| bytes.last().is_some_and(|b| *b != b'\n'))
-                .unwrap_or(false);
-        let mut bytes = Vec::with_capacity(line.len() + 2);
-        if torn_tail {
-            bytes.push(b'\n');
-        }
+        // A torn final line is dropped before the next record, so it never becomes a corrupt
+        // line in the middle of the file.
+        let mut current = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut current)?;
+        let keep = if current.last().is_none_or(|b| *b == b'\n') {
+            current.len()
+        } else {
+            current
+                .iter()
+                .rposition(|b| *b == b'\n')
+                .map_or(0, |i| i + 1)
+        };
+        file.set_len(keep as u64)?;
+        std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(keep as u64))?;
+        let mut bytes = Vec::with_capacity(line.len() + 1);
         bytes.extend_from_slice(line.as_bytes());
         bytes.push(b'\n');
         file.write_all(&bytes)?;

@@ -39,7 +39,7 @@ use crate::state::LockGuard;
 use exec::Runner;
 use journal_file::{Journal, Loaded};
 
-pub use serve::serve;
+pub use serve::{exclusions_of, serve};
 
 /// The name of the file that holds the stored self-test result.
 pub const SELFTEST_FILE: &str = "nft-selftest.json";
