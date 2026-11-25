@@ -414,6 +414,60 @@ expression: spec
         ],
         "type": "object"
       },
+      "AttestationDto": {
+        "description": "Where the attestation stands.",
+        "properties": {
+          "checked_at": {
+            "description": "When the hub last recorded an outcome or asked.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "helper_reason": {
+            "description": "The token of a validly signed incomplete report. Display only.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UnverifiedReasonDto",
+                "description": "Why it is not verified, when it is not."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/AttestationStateDto",
+            "description": "The verdict."
+          },
+          "unsigned_hint": {
+            "description": "The unsigned token an agent relayed. Unverified: the agent can invent it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "AttestationStateDto": {
+        "description": "The verdict on the attestation.",
+        "enum": [
+          "verified",
+          "stale",
+          "unverified"
+        ],
+        "type": "string"
+      },
       "AuditAnchorDto": {
         "description": "The anchor over the history written before the chain.",
         "properties": {
@@ -2347,6 +2401,104 @@ expression: spec
         ],
         "type": "object"
       },
+      "HelperDto": {
+        "description": "What the hub shows about a host's helper.",
+        "properties": {
+          "attestation": {
+            "$ref": "#/components/schemas/AttestationDto",
+            "description": "Where the attestation stands."
+          },
+          "helper": {
+            "$ref": "#/components/schemas/HelperStateDto",
+            "description": "What the agent said about the helper. Unverified."
+          },
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "key_state": {
+            "$ref": "#/components/schemas/KeyStateDto",
+            "description": "Where the key stands."
+          },
+          "pin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PinDto",
+                "description": "The owner's pin."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "received_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReceivedKeyDto",
+                "description": "The key the helper's session relayed."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verified": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VerifiedDto",
+                "description": "The verified effective set, only while the attestation passes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "host",
+          "helper",
+          "key_state",
+          "attestation"
+        ],
+        "type": "object"
+      },
+      "HelperStateDto": {
+        "description": "What the agent said about the helper. Unverified text.",
+        "properties": {
+          "ops": {
+            "description": "The operations the helper offers, as the agent reported.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reason": {
+            "description": "What the agent said went wrong, when the state is `error`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HelperStateWord",
+            "description": "`absent`, `ok` or `error`, as the agent reported."
+          }
+        },
+        "required": [
+          "state",
+          "ops"
+        ],
+        "type": "object"
+      },
+      "HelperStateWord": {
+        "description": "The agent's word for the helper's state.",
+        "enum": [
+          "absent",
+          "ok",
+          "error"
+        ],
+        "type": "string"
+      },
       "HistoryEventDto": {
         "description": "One journal row of the operation, reduced to what replay needs. It never carries intent,\nsummary, reason, output or any free text.",
         "properties": {
@@ -3436,6 +3588,16 @@ expression: spec
           "items"
         ],
         "type": "object"
+      },
+      "KeyStateDto": {
+        "description": "Where the key stands.",
+        "enum": [
+          "no_helper",
+          "not_pinned",
+          "pinned",
+          "changed"
+        ],
+        "type": "string"
       },
       "KnowledgeFactAction": {
         "additionalProperties": false,
@@ -4852,6 +5014,49 @@ expression: spec
         ],
         "type": "object"
       },
+      "PinDto": {
+        "description": "The key the owner pinned.",
+        "properties": {
+          "fingerprint": {
+            "description": "64 lowercase hex characters.",
+            "type": "string"
+          },
+          "pinned_at": {
+            "description": "When it was pinned.",
+            "type": "string"
+          },
+          "pinned_by": {
+            "description": "Who pinned it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "pinned_at",
+          "pinned_by"
+        ],
+        "type": "object"
+      },
+      "PinKeyRequest": {
+        "description": "The owner's request to pin the key the hub holds from the helper.",
+        "properties": {
+          "fingerprint": {
+            "description": "The full fingerprint printed by `domovoi helper fingerprint` on the host; spaces and\ncase are ignored.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The account password, asked for again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "fingerprint"
+        ],
+        "type": "object"
+      },
       "PinnedSubjectDto": {
         "description": "A host, check and target an operation may act on.",
         "properties": {
@@ -5496,6 +5701,29 @@ expression: spec
         "required": [
           "ready",
           "failing"
+        ],
+        "type": "object"
+      },
+      "ReceivedKeyDto": {
+        "description": "A key the helper's session relayed, with the fingerprint the hub computed.",
+        "properties": {
+          "fingerprint": {
+            "description": "64 lowercase hex characters.",
+            "type": "string"
+          },
+          "fingerprint_groups": {
+            "description": "The same, in groups of four, as `domovoi helper fingerprint` prints it.",
+            "type": "string"
+          },
+          "key_id": {
+            "description": "The first 16 characters of the fingerprint: a label, never trusted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "fingerprint_groups",
+          "key_id"
         ],
         "type": "object"
       },
@@ -7706,6 +7934,34 @@ expression: spec
         ],
         "type": "object"
       },
+      "UnpinKeyRequest": {
+        "description": "The owner's request to unpin the helper key.",
+        "properties": {
+          "password": {
+            "description": "The account password, asked for again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "UnverifiedReasonDto": {
+        "description": "Why the helper's attestation is not verified: the closed set the wire and the gate use.",
+        "enum": [
+          "key_not_pinned",
+          "key_mismatch",
+          "attestation_missing",
+          "attestation_stale",
+          "signature_invalid",
+          "report_incomplete",
+          "generation_regressed",
+          "path_uncovered",
+          "confirmation_stale"
+        ],
+        "type": "string"
+      },
       "UpdateDto": {
         "description": "The newest release this hub knows about, with commands ready to copy.",
         "properties": {
@@ -7850,6 +8106,111 @@ expression: spec
         },
         "required": [
           "message"
+        ],
+        "type": "object"
+      },
+      "VerifiedDto": {
+        "description": "The verified effective set. Present only while the attestation is verified and fresh.",
+        "properties": {
+          "age_seconds": {
+            "description": "Seconds since then.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "boot_id": {
+            "description": "The boot the report was made in.",
+            "type": "string"
+          },
+          "cidrs": {
+            "description": "The configured management networks.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "computed_at": {
+            "description": "When the helper computed the report. Display only.",
+            "type": "string"
+          },
+          "config_hash": {
+            "description": "Hash of the effective configuration.",
+            "type": "string"
+          },
+          "fresh": {
+            "description": "Whether the report is within the freshness window.",
+            "type": "boolean"
+          },
+          "generation": {
+            "description": "The report generation.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hub_addrs": {
+            "description": "The hub addresses the helper found.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "link_peers": {
+            "description": "The link peers the helper found, as `address:port`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "max_active": {
+            "description": "How many containments may be active; zero allows none.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_ttl_s": {
+            "description": "The longest a containment may last, in seconds.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce_issued_at": {
+            "description": "When the hub issued the nonce the report answers.",
+            "type": "string"
+          },
+          "protected_containers": {
+            "description": "The protected container names.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "protected_units": {
+            "description": "The protected unit names.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "route_state_hash": {
+            "description": "Hash of the observed route state.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "generation",
+          "boot_id",
+          "config_hash",
+          "route_state_hash",
+          "nonce_issued_at",
+          "age_seconds",
+          "fresh",
+          "computed_at",
+          "max_ttl_s",
+          "max_active",
+          "cidrs",
+          "protected_units",
+          "protected_containers",
+          "hub_addrs",
+          "link_peers"
         ],
         "type": "object"
       },
@@ -9867,6 +10228,285 @@ expression: spec
         "summary": "A one-time enrollment invite for host `name`, creating the host if it is new. The\ntoken is shown only in this response.",
         "tags": [
           "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/helper": {
+      "get": {
+        "operationId": "get_host_helper",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelperDto"
+                }
+              }
+            },
+            "description": "The helper's key and attestation state"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "What the hub knows about host `name`'s helper.",
+        "tags": [
+          "helper"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/helper/key": {
+      "delete": {
+        "operationId": "unpin_host_helper_key",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnpinKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelperDto"
+                }
+              }
+            },
+            "description": "Unpinned"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in, or the password is missing or wrong (wrong_password)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Removes the pin of host `name`'s helper key. Containment is blocked until it is pinned\nagain. Asks for the password again.",
+        "tags": [
+          "helper"
+        ]
+      },
+      "put": {
+        "operationId": "pin_host_helper_key",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelperDto"
+                }
+              }
+            },
+            "description": "Pinned"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in, or the password is missing or wrong (wrong_password)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The hub holds no key from this host's helper (no_helper_key)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The typed text is not the full fingerprint of the held key (fingerprint_mismatch)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Pins the key the hub holds from host `name`'s helper. Asks for the password again and for\nthe key's full fingerprint, typed from `domovoi helper fingerprint` on the host.",
+        "tags": [
+          "helper"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/helper/recheck": {
+      "post": {
+        "operationId": "recheck_host_helper",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Asked; read the helper again for the outcome"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The host is not connected"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The helper was asked less than ten seconds ago (recheck_too_soon)"
+          }
+        },
+        "summary": "Asks host `name`'s helper for a fresh attestation now.",
+        "tags": [
+          "helper"
         ]
       }
     },
@@ -16058,6 +16698,10 @@ expression: spec
     {
       "description": "Signed packages: import, install jobs and what hosts report",
       "name": "packages"
+    },
+    {
+      "description": "A host's privileged helper: its key, the owner's pin and the verified attestation",
+      "name": "helper"
     },
     {
       "description": "The signed-in person's own preferences",

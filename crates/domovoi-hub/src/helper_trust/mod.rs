@@ -112,7 +112,7 @@ impl HelperTrustHub {
             .in_flight
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        set.insert(host).then_some(InFlight { hub: self, host })
+        set.insert(host).then(|| InFlight { hub: self, host })
     }
 }
 

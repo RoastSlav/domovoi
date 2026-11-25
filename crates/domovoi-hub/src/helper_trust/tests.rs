@@ -3,10 +3,11 @@
 
 use domovoi_core::HostId;
 use domovoi_core::attest::{
-    LatestOutcome, NONCE_TTL, Nonce32, PinnedKey, UnverifiedReason, render_complete,
+    FRESHNESS, LatestOutcome, NONCE_TTL, Nonce32, PinnedKey, UnverifiedReason, gate,
+    render_complete,
 };
 use domovoi_core::ports::{AttestationReply, HighWater};
-use domovoi_testkit::helper_attest::{TestHelper, complete_report};
+use domovoi_testkit::helper_attest::{TestHelper, complete_report, verified_view};
 use jiff::{SignedDuration, Timestamp};
 
 use super::nonce::{NonceError, NonceStore};
@@ -236,7 +237,7 @@ fn nonce_is_consumed_only_after_signature_parse_and_hash_checks() {
 }
 
 #[test]
-fn nonce_boundaries_are_strict_at_60_seconds() {
+fn nonce_boundaries_are_strict_at_60_and_300_seconds() {
     let nonces = NonceStore::new();
     let host = HostId::new();
     let just_under = NONCE_TTL - SignedDuration::from_millis(1);
@@ -251,6 +252,15 @@ fn nonce_boundaries_are_strict_at_60_seconds() {
         nonces.take(host, &nonce, t0()),
         Err(NonceError::Unknown),
         "an expired nonce is consumed too"
+    );
+    // Freshness is strict at 300 seconds, measured from the issue time.
+    let helper = TestHelper::new(1);
+    let view = verified_view(&helper, 1, 0, t0()).unwrap();
+    let almost = FRESHNESS - SignedDuration::from_millis(1);
+    assert!(gate(t0() + almost, &view).is_ok());
+    assert_eq!(
+        gate(t0() + FRESHNESS, &view).unwrap_err(),
+        UnverifiedReason::AttestationStale
     );
 }
 
@@ -356,7 +366,7 @@ fn generation_rules_follow_the_high_water_mark() {
 }
 
 #[test]
-fn helper_key_id_is_never_used_for_verification() {
+fn key_id_never_used_for_verification() {
     let rig = rig();
     let nonce = rig.nonce();
     let reply = rig.helper.complete(nonce, 1, 0).unwrap();
@@ -407,4 +417,138 @@ fn computed_at_never_decides_anything() {
         "computed_at=2099-01-01T00:00:00Z",
     ));
     assert!(matches!(rig.run(&far_future, None), Verdict::Accepted(_)));
+}
+
+mod schedule {
+    use std::sync::Arc;
+
+    use domovoi_core::ports::{
+        Clock, HelperLive, HelperReport, HelperTrustRepo, HostReconciler, HostRepo, Presence,
+    };
+    use domovoi_core::{Actor, UserId};
+    use domovoi_testkit::build::host;
+    use domovoi_testkit::{FakeAgentLink, FakeClock, InMemoryStore};
+
+    use super::*;
+    use crate::helper_trust::{Attempt, AttestOnEvent, HelperTrustHub};
+
+    struct Rig {
+        hub: Arc<HelperTrustHub>,
+        agent: Arc<FakeAgentLink>,
+        store: Arc<InMemoryStore>,
+        helper: Arc<TestHelper>,
+    }
+
+    async fn rig(host_name: &str) -> (Rig, HostId) {
+        let store = Arc::new(InMemoryStore::new());
+        let link = Arc::new(FakeAgentLink::new());
+        let clock = Arc::new(FakeClock::new(t0()));
+        let registered = host(host_name).unwrap();
+        store.upsert_host(&registered).await.unwrap();
+        let hub = Arc::new(HelperTrustHub::new(
+            store.clone(),
+            store.clone(),
+            link.clone(),
+            clock.clone(),
+        ));
+        let helper = Arc::new(TestHelper::new(1));
+        link.set_presence(
+            registered.id,
+            Presence::Connected {
+                since: t0(),
+                version: "0.1.0".to_owned(),
+            },
+        );
+        link.set_helper_report(
+            registered.id,
+            HelperReport {
+                live: HelperLive::Ok {
+                    ops: vec!["safety.attest".to_owned()],
+                },
+                public_key: Some(helper.public_key()),
+            },
+        );
+        let signer = helper.clone();
+        link.script_attestation(
+            registered.id,
+            Arc::new(move |_, nonce| Ok(signer.complete(nonce, 1, 0).unwrap())),
+        );
+        let actor = Actor::User(UserId::new());
+        hub.pin_key(actor, registered.id, helper.public_key())
+            .await
+            .unwrap();
+        (
+            Rig {
+                hub,
+                agent: link,
+                store,
+                helper,
+            },
+            registered.id,
+        )
+    }
+
+    #[tokio::test]
+    async fn the_periodic_pass_asks_connected_hosts_whose_helper_is_present() {
+        let (rig, id) = rig("nas").await;
+        rig.hub.request_all(rig.store.as_ref()).await;
+        assert_eq!(rig.agent.attestation_requests().len(), 1);
+        let stored = rig.store.stored(id).await.unwrap();
+        assert!(stored.view.verified.is_some());
+        // Not connected, or no helper reported: not asked.
+        rig.agent.set_presence(
+            id,
+            Presence::Disconnected {
+                last_seen: Some(t0()),
+            },
+        );
+        rig.hub.request_all(rig.store.as_ref()).await;
+        rig.agent.set_presence(
+            id,
+            Presence::Connected {
+                since: t0(),
+                version: "0.1.0".to_owned(),
+            },
+        );
+        rig.agent.set_helper_report(
+            id,
+            HelperReport {
+                live: HelperLive::Absent,
+                public_key: None,
+            },
+        );
+        rig.hub.request_all(rig.store.as_ref()).await;
+        assert_eq!(rig.agent.attestation_requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn authenticating_or_reporting_status_asks_the_helper() {
+        let (rig, id) = rig("nas").await;
+        let on_event = AttestOnEvent::new(rig.hub.clone());
+        on_event.reconcile_host(id).await;
+        assert_eq!(rig.agent.attestation_requests().len(), 1);
+        assert!(rig.store.stored(id).await.unwrap().view.verified.is_some());
+        let _ = &rig.helper;
+    }
+
+    #[tokio::test]
+    async fn one_request_per_host_runs_at_a_time() {
+        let (rig, id) = rig("nas").await;
+        let slot = rig.hub.begin(id).expect("the first request takes the slot");
+        assert_eq!(rig.hub.request(id).await.unwrap(), Attempt::Busy);
+        assert!(rig.agent.attestation_requests().is_empty());
+        drop(slot);
+        assert_eq!(rig.hub.request(id).await.unwrap(), Attempt::Verified);
+    }
+
+    #[tokio::test]
+    async fn a_host_without_a_pin_is_not_asked() {
+        let (rig, id) = rig("nas").await;
+        rig.hub
+            .unpin_key(Actor::User(UserId::new()), id)
+            .await
+            .unwrap();
+        assert_eq!(rig.hub.request(id).await.unwrap(), Attempt::NotPinned);
+        assert!(rig.agent.attestation_requests().is_empty());
+    }
 }
