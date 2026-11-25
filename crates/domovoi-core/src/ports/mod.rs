@@ -48,7 +48,8 @@ pub use clock::Clock;
 pub use context::ContextSource;
 pub use experience::ExperienceRead;
 pub use helper_trust::{
-    HelperLive, HelperReport, HelperTrustRead, HelperTrustRepo, LastOutcome, StoredTrust,
+    HelperLive, HelperRelay, HelperReport, HelperTrustRead, HelperTrustRepo, LastOutcome,
+    StoredTrust,
 };
 pub use host_inspect::{Access, HostInspect, InspectError, Probe, TreeEntry};
 pub use hostfs::{FsError, HostFs};

@@ -4,9 +4,10 @@ use async_trait::async_trait;
 
 use jiff::Timestamp;
 
-use crate::attest::{LatestOutcome, TrustView, UnverifiedReason};
+use crate::attest::{LatestOutcome, Nonce32, TrustView, UnverifiedReason};
 use crate::host::KeyFingerprint;
 use crate::id::HostId;
+use crate::ports::agent_link::{AttestationReply, LinkError};
 use crate::ports::repos::StoreError;
 use crate::ports::uow::HighWater;
 
@@ -85,4 +86,25 @@ pub struct HelperReport {
     /// The 32 raw public-key bytes the agent relayed, if any. Never trusted: compared with
     /// the pin and shown for enrolment.
     pub public_key: Option<[u8; 32]>,
+}
+
+/// The narrow capability the helper trust code has over a host's agent link (ADR 0023): ask
+/// for a signed report, read what the session says about its helper, and know whether the
+/// host is connected. It holds nothing else the link can do.
+#[async_trait]
+pub trait HelperRelay: Send + Sync {
+    /// Asks `host`'s helper, through its agent, for a signed safety report bound to `nonce`,
+    /// waiting until `deadline`. The reply is unverified.
+    async fn ask(
+        &self,
+        host: HostId,
+        nonce: Nonce32,
+        deadline: Timestamp,
+    ) -> Result<AttestationReply, LinkError>;
+
+    /// What `host`'s live session says about its helper; `None` without a live session.
+    fn report(&self, host: HostId) -> Option<HelperReport>;
+
+    /// Whether `host`'s agent is connected now.
+    fn connected(&self, host: HostId) -> bool;
 }
