@@ -129,6 +129,8 @@ See [Control room, attention and search](../guide/control-room.md) for how the p
 
 `GET /api/v1/hosts/{name}/ceiling` returns what the host's agent reported as its unattended limits: `reporting` is `reported`, `not_reported` or `unreadable`, and only a reported answer carries `unattended_enabled`, `hash` and `entries` (per capability: targets, `max_per_hour`, `max_active`, `max_ttl_secs`, argument bounds), sorted by contract. `connected` says whether the host has a live agent. The endpoint is read-only: the host owns these limits and the hub cannot change them.
 
+`GET /api/v1/hosts/{name}/helper` returns what the hub knows about a host's helper: its key, the owner's pin and the verified attestation. `POST /api/v1/hosts/{name}/helper/recheck` asks the helper again. `PUT` and `DELETE` on `/api/v1/hosts/{name}/helper/key` pin and unpin its key and need the account password again. See [Helper trust](hub.md#helper-trust).
+
 ## Asking about an incident
 
 `POST /api/v1/incidents/{id}/ask` asks the triage model one question about an incident. It reads with the same read-only tools triage has, answers in plain text, and never proposes or runs actions.
@@ -295,7 +297,7 @@ The knowledge store is under `/api/v1/knowledge`. Every request needs a logged-i
 
 Step-up rule: `POST /facts`, `accept` and `verify` on `management_path` or `trusted_cidr` need the admin password. Every `confirm` needs it too. Retract never does.
 
-Confirmation is not available yet. `confirm` fails with the message `the helper's coverage cannot be verified yet` until the helper attestation feature ships, because a confirmation needs a verified, fresh attestation that shows the path covered.
+A confirmation needs a verified, fresh helper attestation that shows the path covered. `confirm` fails with `the helper's coverage cannot be verified yet` when the host's helper is not attested, and with the unverified reason (such as `key_not_pinned` or `attestation_stale`) otherwise. A confirmation also stops being current when the helper's configuration or routes change, or after 30 days. See [Helper trust](hub.md#helper-trust).
 
 ## Events
 

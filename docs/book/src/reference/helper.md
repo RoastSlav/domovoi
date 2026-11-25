@@ -125,3 +125,33 @@ The helper unit carries no other hardening setting on purpose: the rest have not
 | `/run/domovoi-helper.sock` | `root:domovoi-agent`, 0660 | Created by the socket unit. |
 
 A wrong mode, owner, group or type on any of these, or a symlink at one of these paths, stops the helper at start and is reported path by path. The helper never repairs it; `sudo domovoi helper repair` does, after you confirm (see [Command line](cli.md#domovoi-helper-serve-init-and-repair)).
+
+## Safety attestation
+
+`safety.attest` takes the hub's 32-byte nonce and returns a report of the effective safety set, signed with `attest.key`. The report names the key id, the nonce, the boot id, a generation, two hashes (one over the effective `[safety]` configuration, one over the route state), the configured networks, protected units and containers, the containment limits and the routes to the management endpoints. The generation rises by exactly one whenever either hash changes; a new boot with the same content does not change it. The helper holds the lock in `state.lock` for the whole request, writes the new state durably before it signs, and does not sign a report over 64 KiB.
+
+The management endpoints are the hub's address and every address in `management_cidrs`. The hub's address is the literal IP in `[agent] hub_url` of `agent.toml`. **If `hub_url` names a host, the helper finds no hub address.** It does not resolve names, because a name the agent controls must not decide what is protected. Cover the hub with a `management_cidrs` entry. There are no link-peer lines in this release.
+
+Routes are read by running `ip -N -j` with the environment `LC_ALL=C`: the policy rules, the tables they name plus `main` and `local`, the interface addresses and, for each endpoint, `ip -N -j -d route get <address>`. If the report cannot say what is true, the helper signs an incomplete report that names the reason, and nothing is claimed:
+
+| Reason | Meaning |
+| --- | --- |
+| `route_unrepresentable` | A policy rule that is not a table lookup, a selected route that is a blackhole, multipath or local route, or an interface name that is not UTF-8. A hub on the same host (a loopback hub URL, as in single-box mode) is reached through the local table and lands here. |
+| `rules_unreadable`, `table_unreadable`, `addresses_unreadable`, `lookup_failed`, `route_read_partial` | `ip` was missing, failed, timed out, printed too much or printed something that could not be read completely. |
+| `config_unreadable`, `config_invalid` | `helper.toml` or `agent.toml` could not be read, or a value breaks its grammar. |
+| `state_missing`, `state_corrupt`, `state_key_mismatch` | The state file is absent, fails its checksum or format, or belongs to another key. Run `sudo domovoi helper recover`. |
+| `state_write_failed` | The new state could not be written, so no generation change is visible. |
+| `report_too_large` | The report would exceed 64 KiB. |
+
+When the helper has no usable key it cannot sign, and answers with an unsigned token instead. The agent relays it; the hub shows it as a hint and treats the host as unverified.
+
+| Token | Cause | What to do |
+| --- | --- | --- |
+| `uninitialized` | Neither key nor state exists. | `sudo domovoi helper init`. |
+| `key_missing` | The state exists and the key does not. The helper never makes a key itself. | `sudo domovoi helper recover`, then enrol the new key. |
+| `key_corrupt` | `attest.key` is not a 32-byte seed. | `sudo domovoi helper recover`. |
+| `helper_state_permissions` | A mode, owner or type is wrong on the directory, key, state or lock. | `sudo domovoi helper repair`. |
+| `lock_unavailable` | `state.lock` cannot be opened or locked. | Check the file and what holds it, then retry. |
+| `helper_unavailable` | Sent by the agent: the helper is absent, unreachable or does not serve the operation. | Check the socket and the helper units. |
+
+None of these changes state by itself. The helper never resets state or creates a key implicitly.

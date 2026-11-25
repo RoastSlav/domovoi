@@ -42,6 +42,7 @@
 - [Audit log](guide/audit.md)
 - [Detail level](guide/display.md)
 - [Packages](guide/packages.md)
+- [Helper key and attestation](guide/helper.md)
 
 # Reference
 

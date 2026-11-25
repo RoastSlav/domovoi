@@ -48,6 +48,12 @@ A helper that starts after the agent turns `Absent` into `Ok` within one probe i
 
 The agent also decides whether the privilege boundary is in effect when it starts. It is only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. A root agent, a container agent and the single-process mode are labelled "not in effect", and package results say so.
 
+## Safety attestation relay
+
+When the hub sends `attest_safety`, the agent opens the helper socket, passes the nonce on and returns the helper's public key, report and signature as the opaque byte strings it received. It does not parse them, so it cannot make or alter a report: a report it touched would fail the hub's signature check. If the helper cannot sign, the agent answers with an `error` whose code is the helper's own token (for example `uninitialized` or `helper_state_permissions`). If the helper is absent or unreachable the code is `helper_unavailable`. See [Helper](helper.md#safety-attestation) and the [protocol](protocol.md#safety-attestation).
+
+The helper's public key rides in `hello.helper_identity` and `agent_status.helper_identity`. The agent reports it and nothing more: the hub never pins it from there.
+
 ## State directory
 
 Everything lives under `[agent] state_dir` (default `/var/lib/domovoi-agent`, owned by `domovoi-agent` with mode 0700 on the three-identities layout). Every file is written to a temporary file and renamed, so a crash never leaves half a file. Files are mode `0600`.

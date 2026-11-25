@@ -94,12 +94,33 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `run_check` | hub → agent | Re-run one check now. |
 | `check_result` | agent → hub | One fresh observation per target. |
 | `config_update` | hub → agent | New hub-managed settings, replacing the previous ones. |
+| `attest_safety` | hub → agent | A challenge: 32 random bytes the helper must sign into a safety report. |
+| `safety_attestation` | agent → hub | The helper's public key, the report bytes and the signature, relayed unchanged. |
 | `transfer_begin` | hub → agent | Start a file transfer for a package archive or signature. |
 | `transfer_chunk` | hub → agent | One piece of a transfer. |
 | `transfer_end` | hub → agent | End of a transfer. The agent answers with `transfer_result`. |
 | `transfer_result` | agent → hub | Whether the transfer was stored, or why it was refused. Sent as the reply to `transfer_end`. |
 | `error` | both | A structured error, as a reply or on its own. |
 | `unsupported` | both | Reply to a frame whose kind the receiver does not know. |
+
+## Safety attestation
+
+On a host with a helper, the hub can ask for a signed report of what the helper enforces. The agent is only a relay: it cannot make, change or sign a report.
+
+1. **Challenge.** The hub sends `attest_safety` with a `nonce` of exactly 32 random bytes (base64). The nonce is issued for one host, valid for under 60 seconds and usable once. The hub refuses to run two exchanges for one host at the same time.
+2. **Answer.** The agent passes the nonce to the helper and sends back `safety_attestation`: `public_key` (32 raw bytes, base64), `report` (the report bytes, base64, at most 64 KiB) and `signature` (64 bytes, base64). The agent does not parse, re-encode or filter any of the three.
+3. **Verification.** The hub checks that `public_key` is the key the owner pinned, then verifies the signature over `"domovoi-safety-attest-v1
+"` followed by the report bytes, then parses those same bytes strictly (a report that does not re-render to the identical text is refused) and checks the nonce, the hashes and the generation. Only then is the report accepted. See [How a safety report is trusted](../security.md#helper-attestation).
+4. **Error reply.** When the helper cannot sign, the agent answers with an `error` whose `code` is the helper's own token: `uninitialized`, `key_missing`, `key_corrupt`, `helper_state_permissions` or `lock_unavailable`. A helper that is absent, unreachable or not serving the operation is `helper_unavailable`. These are unsigned hints. The hub records and shows them but gives them no weight: the host stays unverified (`attestation_missing`).
+
+`hello.helper_identity` and `agent_status.helper_identity` are now filled in: `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.
+
+`run_capability` carries `expected_safety`, a closed tagged value the helper compares against what it computes:
+
+- `{"state": "verified", "fingerprint": ..., "boot_id": ..., "generation": ..., "config_hash": ..., "route_state_hash": ...}`: the full identity of the verified report the request was authorized against.
+- `{"state": "unverified", "reason": <one of nine tokens>}`: only for a human-approved run. The nine are `key_not_pinned`, `key_mismatch`, `attestation_missing`, `attestation_stale`, `signature_invalid`, `report_incomplete`, `generation_regressed`, `path_uncovered` and `confirmation_stale`.
+
+The form is strict. A missing tag, an unknown tag, an unknown reason, an extra or repeated field, a field that belongs to the other tag, upper-case hex and a wrong length are each refused. It is required on every containment request, and the helper refuses one without it. The wire version stays 1.2.
 
 ## Agent safety on requests
 
