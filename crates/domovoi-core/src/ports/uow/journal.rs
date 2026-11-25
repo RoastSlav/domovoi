@@ -51,6 +51,8 @@ pub enum JournalKind {
     ConversationDeleted,
     /// An install target changed status.
     InstallTarget,
+    /// A containment block moved to another phase.
+    Containment,
 }
 
 impl JournalKind {
@@ -77,6 +79,7 @@ impl JournalKind {
             Self::ConversationUpdated => "conversation.updated",
             Self::ConversationDeleted => "conversation.deleted",
             Self::InstallTarget => "install.target",
+            Self::Containment => "containment.phase",
         }
     }
 
@@ -103,6 +106,7 @@ impl JournalKind {
             "conversation.updated" => Some(Self::ConversationUpdated),
             "conversation.deleted" => Some(Self::ConversationDeleted),
             "install.target" => Some(Self::InstallTarget),
+            "containment.phase" => Some(Self::Containment),
             _ => None,
         }
     }
@@ -268,6 +272,7 @@ mod tests {
             JournalKind::ConversationUpdated,
             JournalKind::ConversationDeleted,
             JournalKind::InstallTarget,
+            JournalKind::Containment,
         ] {
             assert_eq!(JournalKind::parse(kind.as_str()), Some(kind));
         }

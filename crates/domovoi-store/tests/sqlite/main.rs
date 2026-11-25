@@ -22,6 +22,8 @@ mod compat;
 #[cfg(test)]
 mod concurrency;
 #[cfg(test)]
+mod containment;
+#[cfg(test)]
 mod contracts;
 #[cfg(test)]
 mod conversations;

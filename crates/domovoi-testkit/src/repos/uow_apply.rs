@@ -60,6 +60,7 @@ pub(super) fn apply(
         StateWrite::Install(write) => super::uow_install::apply(state, write),
         StateWrite::HelperTrust(write) => super::helper_trust::apply(state, write),
         StateWrite::Permit(write) => super::permit::apply(state, write),
+        StateWrite::Containment(write) => super::containment::apply(state, write),
     }
 }
 

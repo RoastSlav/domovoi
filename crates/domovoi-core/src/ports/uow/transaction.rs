@@ -11,8 +11,9 @@ use crate::ports::repos::IncidentTimelineEntry;
 use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
-    AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
-    EffectReschedule, HelperTrustWrite, InstallWrite, JournalDraft, OperationWrite, PermitWrite,
+    AuditDraft, ContainmentWrite, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath,
+    EffectDraft, EffectReschedule, HelperTrustWrite, InstallWrite, JournalDraft, OperationWrite,
+    PermitWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -40,6 +41,8 @@ pub enum AggregateKind {
     InstallJob,
     /// A host's helper key pin and attestation state.
     HelperTrust,
+    /// A containment block: one timed firewall block of one source on one host.
+    ContainmentBlock,
 }
 
 impl AggregateKind {
@@ -63,6 +66,7 @@ impl AggregateKind {
             Self::Conversation => "conversation",
             Self::InstallJob => "install_job",
             Self::HelperTrust => "helper_trust",
+            Self::ContainmentBlock => "containment_block",
         }
     }
 
@@ -81,6 +85,7 @@ impl AggregateKind {
             "conversation" => Some(Self::Conversation),
             "install_job" => Some(Self::InstallJob),
             "helper_trust" => Some(Self::HelperTrust),
+            "containment_block" => Some(Self::ContainmentBlock),
             _ => None,
         }
     }
@@ -165,6 +170,17 @@ impl AggregateRef {
         Self {
             kind: AggregateKind::HelperTrust,
             id: host.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// A containment block reference: the aggregate of every phase journal entry of a block.
+    #[must_use]
+    pub fn containment_block(block: crate::id::ExecutionId) -> Self {
+        Self {
+            kind: AggregateKind::ContainmentBlock,
+            id: block.to_string(),
         }
     }
 }
@@ -311,6 +327,8 @@ pub enum StateWrite {
     HelperTrust(HelperTrustWrite),
     /// One change to the pause switch, a rule's circuit breaker or an unknown-outcome block.
     Permit(PermitWrite),
+    /// One change to a containment block: its creation or a guarded phase move.
+    Containment(ContainmentWrite),
 }
 
 /// Everything one business event changes.
