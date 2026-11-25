@@ -27,7 +27,7 @@ use std::path::Path;
 
 use serde::de::DeserializeOwned;
 
-pub use agent::{AgentConfig, DockerMode, MutationLimits};
+pub use agent::{AgentConfig, DockerMode, MutationLimits, UnattendedAllow, UnattendedSection};
 pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
 pub use helper::{
