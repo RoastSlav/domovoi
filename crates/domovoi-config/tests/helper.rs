@@ -186,3 +186,86 @@ fn helper_config_loads_from_a_file() {
     let missing = load_helper(&dir.path().join("absent.toml")).expect_err("no file");
     assert!(missing[0].message.contains("cannot read"));
 }
+
+#[test]
+fn helper_config_accepts_docker_endpoint_and_smart_patterns() {
+    let config = parse_helper(
+        "[docker]\nendpoint = \"unix:///run/podman/podman.sock\"\n[smart]\ndevices = [\"/dev/sd[a-z]\", \"/dev/nvme[0-9]n1\", \"/dev/sda\", \"/dev/hd[a-z][0-9]\"]\n",
+    )
+    .expect("loads")
+    .0;
+    assert_eq!(
+        config.docker_socket(),
+        Some(std::path::PathBuf::from("/run/podman/podman.sock"))
+    );
+    assert_eq!(config.smart_device_patterns().len(), 4);
+    assert_eq!(HelperConfig::default().docker_socket(), None);
+    assert_eq!(
+        HelperConfig::default().smart_device_patterns(),
+        ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
+    );
+    assert!(
+        parse_helper("[smart]\ndevices = []")
+            .expect("an empty list means no device")
+            .0
+            .smart_device_patterns()
+            .is_empty()
+    );
+}
+
+#[test]
+fn helper_config_rejects_tcp_docker_endpoint() {
+    for bad in [
+        "tcp://127.0.0.1:2375",
+        "http://localhost:2375",
+        "unix://relative/docker.sock",
+        "unix://",
+        "unix:///",
+        "unix:///var/../etc/passwd",
+        "/var/run/docker.sock",
+        "",
+    ] {
+        let issues = errors(&format!("[docker]\nendpoint = \"{bad}\"\n"));
+        assert!(
+            issues.iter().any(|i| i.path == "docker.endpoint"),
+            "{bad}: {issues:?}"
+        );
+    }
+}
+
+#[test]
+fn helper_config_rejects_smart_pattern_outside_the_grammar() {
+    for bad in [
+        "/dev/sd*",
+        "/dev/sd?",
+        "/dev/sd{a,b}",
+        "/dev/sd[a-c]",
+        "/dev/sd[abc]",
+        "/dev/sd[A-Z]",
+        "/dev/sd[a-z",
+        "/dev/../etc/passwd",
+        "/dev/sd.a",
+        "/dev/SDA",
+        "/dev/sd a",
+        "",
+    ] {
+        let issues = errors(&format!("[smart]\ndevices = [\"{bad}\"]\n"));
+        assert!(
+            issues.iter().any(|i| i.path == "smart.devices[0]"),
+            "{bad}: {issues:?}"
+        );
+    }
+}
+
+#[test]
+fn helper_config_keeps_read_groups_on_by_default() {
+    let groups = parse_helper("").expect("loads").0.effective_groups();
+    for group in [
+        HelperGroup::DockerRead,
+        HelperGroup::SmartRead,
+        HelperGroup::KernelRead,
+        HelperGroup::NetRead,
+    ] {
+        assert!(groups.contains(&group), "{group}");
+    }
+}
