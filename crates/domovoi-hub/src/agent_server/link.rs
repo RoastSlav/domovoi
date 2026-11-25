@@ -438,6 +438,27 @@ impl AgentLink for WsAgentLink {
         self.unit_answer(host, handoff, deadline).await
     }
 
+    async fn start_contain(
+        &self,
+        host: HostId,
+        req: domovoi_core::containment::ContainDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.contain_dispatch(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn contain_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<domovoi_core::containment::ContainOutputs, LinkError> {
+        self.contain_answer(host, handoff, deadline).await
+    }
+
     async fn attest_safety(
         &self,
         host: HostId,
@@ -488,6 +509,8 @@ impl AgentLink for WsAgentLink {
         }
     }
 }
+#[path = "link_contain.rs"]
+mod contain;
 #[path = "link_logs.rs"]
 mod logs;
 #[path = "link_package.rs"]

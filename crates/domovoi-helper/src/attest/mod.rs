@@ -16,6 +16,8 @@ pub mod observe;
 pub mod state;
 
 #[cfg(unix)]
+pub mod current;
+#[cfg(unix)]
 pub mod lifecycle;
 #[cfg(unix)]
 mod lock;

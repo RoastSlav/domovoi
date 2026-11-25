@@ -247,6 +247,10 @@ pub const RAW_OPS: &[&str] = &[
     "capability_result",
     "start_unit_call",
     "unit_call_result",
+    "start_contain",
+    "contain_result",
+    "dispatch_phase",
+    "phase_result",
     "dispatch_restart",
     "restart_result",
     "read_identity",
@@ -426,6 +430,42 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 2,
         }],
         message: "a unit capability's answer is awaited only through `UnitRelay::read_identity` or `UnitRelay::restart_result`; the raw `unit_call_result` belongs to the runtime capability (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("start_contain"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a containment request is started only through `ContainRelay::dispatch_phase`; the raw `start_contain` belongs to the runtime capability (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("contain_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a containment answer is awaited only through `ContainRelay::phase_result`; the raw `contain_result` belongs to the runtime capability (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("dispatch_phase"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/containment/phases.rs",
+            count: 1,
+        }],
+        message: "a containment phase is handed to an agent only through `ContainRelay::dispatch_phase`, once, in containment/phases.rs (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("phase_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/containment/phases.rs",
+            count: 1,
+        }],
+        message: "a containment phase's answer is awaited only through `ContainRelay::phase_result`, once, in containment/phases.rs (ADR 0038)",
     },
     BoundaryCard {
         id: "EXEC-2",

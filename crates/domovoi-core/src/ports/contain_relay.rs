@@ -1,7 +1,7 @@
 //! Dispatching the phases of a containment block through the host's agent.
 //!
-//! Like `UnitRelay`: `dispatch` failing is proof nothing was handed over, and an error from
-//! `result` after the hand-off is never proof of either outcome. The one engine caller is
+//! Like `UnitRelay`: `dispatch_phase` failing is proof nothing was handed over, and an error from
+//! `phase_result` after the hand-off is never proof of either outcome. The one engine caller is
 //! `domovoi_engine::containment::phases` (ADR 0038).
 
 use std::sync::Arc;
@@ -20,7 +20,7 @@ use crate::install::CapabilityHandoff;
 #[async_trait]
 pub trait ContainRelay: Send + Sync {
     /// Hands one request to `host`'s live session and returns once the frame is queued.
-    async fn dispatch(
+    async fn dispatch_phase(
         &self,
         host: HostId,
         req: ContainDispatch,
@@ -29,10 +29,10 @@ pub trait ContainRelay: Send + Sync {
         deadline: Timestamp,
     ) -> Result<CapabilityHandoff, LinkError>;
 
-    /// Waits for the terminal answer to a request handed over by [`ContainRelay::dispatch`].
+    /// Waits for the terminal answer to a request handed over by [`ContainRelay::dispatch_phase`].
     /// [`LinkError::Rejected`] carries the agent's confirmed refusal or failure, as
     /// `"<token>: <detail>"`; every other error leaves the outcome unknown.
-    async fn result(
+    async fn phase_result(
         &self,
         host: HostId,
         handoff: CapabilityHandoff,

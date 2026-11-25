@@ -98,7 +98,7 @@ fn state_exists(dir: &Path) -> bool {
     std::fs::symlink_metadata(dir.join(STATE_FILE)).is_ok()
 }
 
-fn open_key(dir: &Path) -> Result<Key, UnsignedToken> {
+pub(super) fn open_key(dir: &Path) -> Result<Key, UnsignedToken> {
     load_key(dir).map_err(|fault| match fault {
         KeyFault::Missing if state_exists(dir) => UnsignedToken::KeyMissing,
         KeyFault::Missing => UnsignedToken::Uninitialized,
@@ -106,7 +106,7 @@ fn open_key(dir: &Path) -> Result<Key, UnsignedToken> {
     })
 }
 
-fn boot_id(env: &AttestEnv) -> Result<BootId, UnsignedToken> {
+pub(super) fn boot_id(env: &AttestEnv) -> Result<BootId, UnsignedToken> {
     let text = env
         .inspect
         .read_text(Path::new(BOOT_ID_PATH))
@@ -127,7 +127,7 @@ fn signed(key: &Key, report: Vec<u8>) -> SignedAttestation {
     }
 }
 
-fn config_lines(env: &AttestEnv) -> Result<ConfigLines, &'static str> {
+pub(super) fn config_lines(env: &AttestEnv) -> Result<ConfigLines, &'static str> {
     let text = env
         .inspect
         .read_text(&env.dirs.etc_dir.join("helper.toml"))
@@ -135,7 +135,7 @@ fn config_lines(env: &AttestEnv) -> Result<ConfigLines, &'static str> {
     effective_config_lines(&text).map_err(|err| err.reason())
 }
 
-async fn route_lines(env: &AttestEnv, config: &ConfigLines) -> Result<RouteLines, ReadError> {
+pub(super) async fn route_lines(env: &AttestEnv, config: &ConfigLines) -> Result<RouteLines, ReadError> {
     let source = AgentTomlEndpoints::load(&*env.inspect, &env.dirs.etc_dir.join("agent.toml"));
     let endpoints = Endpoints {
         hub_addrs: source.hub_addrs()?,
@@ -216,7 +216,7 @@ async fn attest(env: &AttestEnv, nonce: Nonce32) -> Result<SignedAttestation, Un
     Ok(attestation)
 }
 
-fn commit(
+pub(super) fn commit(
     env: &AttestEnv,
     guard: &crate::state::LockGuard<'_>,
     next: &StateFile,
