@@ -141,6 +141,7 @@ pub(super) async fn apply(
         StateWrite::Knowledge(write) => crate::facts::apply(conn, write, receipt).await,
         StateWrite::Conversation(write) => super::conversations::apply(conn, write, receipt).await,
         StateWrite::Install(write) => crate::install::apply(conn, write).await,
+        StateWrite::HelperTrust(write) => crate::helper_trust::apply(conn, write).await,
     }
 }
 

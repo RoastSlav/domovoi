@@ -21,6 +21,7 @@ mod experience;
 mod facts;
 mod fts;
 mod health;
+mod helper_trust;
 mod install;
 mod integrity;
 mod policy;
