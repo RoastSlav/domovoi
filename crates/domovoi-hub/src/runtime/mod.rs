@@ -280,16 +280,16 @@ impl HubRuntime {
             clock.clone(),
             identity,
         ));
-        let policy = policy::wire(
-            &store,
-            &registry,
-            &evidence,
-            &config,
-            &clock,
-            &auth,
-            &worker_shutdown,
-            &unit_caps,
-        );
+        let policy = policy::wire(policy::PolicyWire {
+            store: &store,
+            registry: &registry,
+            evidence: &evidence,
+            config: &config,
+            clock: &clock,
+            auth: &auth,
+            shutdown: &worker_shutdown,
+            units: &unit_caps,
+        });
         let settings = settings.map(|(key, sources)| {
             server.use_check_overrides(store.clone());
             crate::settings::SettingsService::new(crate::settings::SettingsDeps {

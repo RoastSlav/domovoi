@@ -40,17 +40,31 @@ pub(crate) struct PolicyParts {
     pub(crate) task: Option<JoinHandle<()>>,
 }
 
+/// What the policy service is built from: values the runtime already holds.
+pub(crate) struct PolicyWire<'a> {
+    pub(crate) store: &'a Arc<Store>,
+    pub(crate) registry: &'a Arc<HubRegistry>,
+    pub(crate) evidence: &'a Evidence,
+    pub(crate) config: &'a HubConfig,
+    pub(crate) clock: &'a Arc<dyn Clock>,
+    pub(crate) auth: &'a Arc<AuthState>,
+    pub(crate) shutdown: &'a CancellationToken,
+    /// How a unit is resolved through the host's helper.
+    pub(crate) units: &'a domovoi_core::ports::UnitCaps,
+}
+
 /// Builds the policy service, and starts the recorder only when `config.policy.shadow` is set.
-pub(crate) fn wire(
-    store: &Arc<Store>,
-    registry: &Arc<HubRegistry>,
-    evidence: &Evidence,
-    config: &HubConfig,
-    clock: &Arc<dyn Clock>,
-    auth: &Arc<AuthState>,
-    shutdown: &CancellationToken,
-    units: &domovoi_core::ports::UnitCaps,
-) -> PolicyParts {
+pub(crate) fn wire(input: PolicyWire<'_>) -> PolicyParts {
+    let PolicyWire {
+        store,
+        registry,
+        evidence,
+        config,
+        clock,
+        auth,
+        shutdown,
+        units,
+    } = input;
     let resolver = Arc::new(
         TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units.clone()),
     );
