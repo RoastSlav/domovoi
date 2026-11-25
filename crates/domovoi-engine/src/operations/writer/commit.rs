@@ -8,9 +8,9 @@ use domovoi_core::ports::{
     Transaction,
 };
 use domovoi_core::{
-    Actor, ApprovalChannel, ApprovalProvenance, Authorization, EffectId, ExecutionId,
-    ExecutionRecord, IncidentId, JournalEpoch, OperationId, OperationSnapshot, PlanBinding, StepId,
-    StepOutcome,
+    Actor, ApprovalChannel, ApprovalProvenance, Authorization, EffectId, ExecutionError,
+    ExecutionId, ExecutionRecord, IncidentId, JournalEpoch, OperationId, OperationSnapshot,
+    PlanBinding, StepId, StepOutcome,
 };
 use jiff::Timestamp;
 
@@ -93,6 +93,11 @@ impl Edit {
         match self {
             Self::None | Self::CheckChatToken(..) => {}
             Self::Authorize(edit) => {
+                // This edit is the human path. A policy permit enters only through its own
+                // crate-private command, so a caller of the public handle can never use it.
+                if edit.authorization.human_approval().is_none() {
+                    return Err(ExecutionError::NotYetSupported.into());
+                }
                 let chat = edit
                     .authorization
                     .human_approval()
