@@ -616,6 +616,7 @@ allow the operation.
 groups = ["docker.read", "docker.write", "systemd.read", "systemd.write", "nft", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [docker]
+endpoint = "unix:///var/run/docker.sock"   # optional, unix:// only; absent: the two system sockets are tried
 write_containers = ["plex"]           # resolved to container ids by the helper
 
 [systemd]
@@ -626,7 +627,7 @@ table = "domovoi"
 max_elements = 1000                   # 1 to 10 000 (default 1 000); config load refuses 2^32 and above; max_active must not exceed it
 
 [smart]
-devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]
+devices = ["/dev/sd[a-z]", "/dev/nvme[0-9]n1"]   # patterns are interpreted: literal [a-z0-9/] and single [a-z] or [0-9] classes
 
 [safety]
 management_cidrs = ["192.168.1.0/24", "100.64.0.0/10"]

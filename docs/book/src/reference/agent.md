@@ -97,17 +97,32 @@ Resolved signals are kept until whole batches go, since losing one would leave a
 
 Requests run beside the link, at most 4 at once. If 32 more are waiting, new ones are answered as busy. Each request stops at its deadline.
 
+### Docker and other reads through the helper
+
+When the agent runs as `domovoi-agent` it is not in the `docker` group and cannot open the Docker socket, so it does not look for one. It asks the helper, which reads the socket, and builds the same container checks and tools on the answer. What the hub's Docker switch and `hello.docker` report keeps its shape; the `problem` text depends on the helper's answer:
+
+| Helper answer | `problem` text |
+| --- | --- |
+| no helper socket | the helper is not installed; Docker is read through it |
+| unreachable, protocol error or start refused | the helper is not usable (the token, or unreachable) |
+| `docker.read` off in `helper.toml` | docker.read is switched off in helper.toml |
+| the platform's isolation checks failed | this platform's isolation checks failed; run domovoi agent selftest |
+| no engine socket | no Docker or Podman socket was found |
+| engine socket denied or erroring | the helper cannot use the container engine socket |
+
+An `endpoint` in `agent.toml` that starts with `tcp://` or `http://` (a socket proxy, as container installs use) stays a direct connection, because it is not root-equivalent access. On an agent that still runs as root, in a container or in single-box mode, every read keeps its direct path. The agent never falls back to a privileged operation of its own when the helper is missing; the container checks report that the runtime is unavailable.
+
 ### Read tools
 
 Tool output is redacted, then capped at 64 KiB.
 
 | Tool | Source |
 | --- | --- |
-| `docker_ps`, `docker_logs`, `docker_inspect` | The Docker Engine API. Inspect output lists environment variable names only, never their values. |
+| `docker_ps`, `docker_logs`, `docker_inspect` | The Docker Engine API. Inspect output lists environment variable names only, never their values. On a migrated host the agent does not hold the socket: it asks the helper's `docker.read` group (see below). |
 | `docker_events` | The last 24 hours of container events kept by `container.expected_down`. |
 | `host_overview` | Uptime, load, memory, swap and disks from `/proc` and `statvfs`. |
-| `journal`, `smart_report` | `journalctl` and `smartctl` through the fixed command templates. |
-| `listening_ports` | `/proc/1/net/*`, loopback excluded. |
+| `journal`, `smart_report` | `journalctl` and `smartctl` through the fixed command templates. On a migrated host `smart_report` asks the helper, and `journal` with the kernel option asks the helper's kernel log when `journalctl --dmesg` cannot open the journal. |
+| `listening_ports` | `/proc/1/net/*`, loopback excluded. On a migrated host each listener also shows its owning process when the helper's `net.read` group answers; if it does not, the list is shown without it. |
 | `run_read_skill` | A skill from the local catalogue whose risk is `read`; any other risk is refused. |
 
 `incident_history` and `notes_search` are answered by the hub, so the agent replies `unknown_tool`.

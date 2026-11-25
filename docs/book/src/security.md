@@ -63,7 +63,9 @@ A skill never runs as `domovoi-agent` or as root on such a host. The agent has n
 
 The agent is kept away from the helper's directory and key by file permissions alone: a root-owned 0700 directory. No Domovoi account is in the `docker` group, because that membership is root on a Docker host.
 
-If the agent is compromised it can call the helper, so the helper's list of operations is the bound, not an approval. In this release that list is short: `health`, `groups`, and read groups that answer "unavailable". The helper has no write group: no restart, no firewall change, no container action. Write groups named in `helper.toml` are ignored and reported. The helper does not start any process.
+If the agent is compromised it can call the helper, so the helper's list of operations is the bound, not an approval. In this release that list is closed and typed: `health`, `groups`, the safety attestation and nine read operations in four groups (Docker containers, SMART, the kernel log and listening sockets; see [Read operations](reference/helper.md#read-operations)). It can read; it cannot write. There is no restart, no firewall change and no container action, and a request carries no command string, path, program or Docker API path, only a container name or a `/dev/` device name checked against a fixed grammar. The helper's Docker client can make five `GET` calls and nothing else. It runs only `ip`, `smartctl`, `dmesg` and `ss`, with fixed arguments. Write groups named in `helper.toml` are ignored and reported.
+
+The residual risk is the helper unit. One shared unit serves every request, so every helper process holds the same six capabilities (`CAP_SYS_RAWIO`, `CAP_SYS_ADMIN`, `CAP_SYSLOG`, `CAP_SYS_PTRACE`, `CAP_DAC_READ_SEARCH` and `CAP_NET_ADMIN`) and read access to disks; turning a read group off in `helper.toml` does not narrow them. That set has not been measured on a real host yet. A compromised agent can read what the helper reads and can bypass the agent's own cache and rate limit, each read being bounded in time and size.
 
 ### Boundary and platform tier
 
