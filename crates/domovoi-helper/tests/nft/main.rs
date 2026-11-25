@@ -3,9 +3,11 @@
 
 mod checks;
 mod fake;
+mod fixtures;
 mod gates;
 mod journal;
 mod lifecycle;
 mod probe;
+mod selftest;
 mod table;
 mod world;

@@ -1,0 +1,8 @@
+1 create_exists
+1 delete_absent
+1 delete_interval_absent
+1 add_interval_overlap
+1 create_table_exists
+1 set_full
+1 missing_table_script
+1 missing_table
