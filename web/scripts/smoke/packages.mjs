@@ -125,6 +125,19 @@ export function packageRoute(state, method, pathname, body) {
     const ok = (payload, status = 200) => ({ status, payload });
     const key = `${method} ${pathname}`;
     const jobPath = `/api/v1/packages/jobs/${JOB_ID}`;
+    const other = /^\/api\/v1\/hosts\/([^/]+)\/helper$/.exec(pathname);
+    if (method === "GET" && other && other[1] !== "nas") {
+        // A host with no helper: its card renders the absent state.
+        return ok({
+            host: other[1],
+            helper: { state: "absent", ops: [] },
+            key_state: "no_helper",
+            received_key: null,
+            pin: null,
+            attestation: { state: "unverified", reason: "attestation_missing", checked_at: null },
+            verified: null,
+        });
+    }
     switch (key) {
         case "GET /api/v1/hosts/nas/helper":
             return ok(helperView(state.helperPinned !== false));
