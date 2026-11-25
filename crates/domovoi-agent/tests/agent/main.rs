@@ -15,7 +15,15 @@ mod dry_run;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod helper_cache;
+#[cfg(test)]
 mod helper_client;
+#[cfg(test)]
+mod helper_reads;
+#[cfg(test)]
+mod helper_stub;
+#[cfg(test)]
+mod helper_switch;
 #[cfg(test)]
 mod hub;
 #[cfg(test)]
