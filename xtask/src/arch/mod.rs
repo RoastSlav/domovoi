@@ -12,6 +12,8 @@ mod manifest;
 pub mod modules;
 pub mod reach;
 pub mod rules;
+mod runner_rules;
+mod runner_scan;
 mod scan;
 mod selftest_rule;
 mod units;

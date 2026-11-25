@@ -1,6 +1,7 @@
 //! One module per subcommand. Each parses nothing itself and calls library APIs.
 
 mod agent;
+mod agent_dirs;
 mod agent_selftest;
 mod audit;
 mod check;
@@ -14,6 +15,7 @@ mod notify;
 mod package;
 mod restore;
 mod selftest;
+mod skill_runner;
 mod upgrade;
 mod version;
 
@@ -46,6 +48,9 @@ pub enum Command {
     /// Serve, initialise or repair the root helper (runs as root).
     #[command(subcommand)]
     Helper(helper::HelperCommand),
+    /// Serve the socket-activated skill runner (runs as the skill account).
+    #[command(subcommand)]
+    SkillRunner(skill_runner::SkillRunnerCommand),
     /// Validate configuration and skills, or run checks once.
     #[command(subcommand)]
     Check(check::CheckCommand),
@@ -121,6 +126,7 @@ pub fn run(command: Command, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> {
         Command::Hub(command) => block_on(hub::run(command, logs)),
         Command::Agent(command) => block_on(agent::run(command, logs)),
         Command::Helper(command) => block_on(helper::run(command)),
+        Command::SkillRunner(command) => block_on(skill_runner::run(command)),
         Command::Notify(command) => block_on(notify::run(command)),
         Command::Selftest(args) => block_on(selftest::run(args)),
         Command::Digest(command) => block_on(digest::run(command)),

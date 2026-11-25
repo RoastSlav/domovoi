@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_agent::requests::RequestCtx;
 use domovoi_agent::scheduler::CheckEnv;
+use domovoi_agent::skill_runner::SkillRoute;
 use domovoi_agent::store::CheckStore;
 use domovoi_checks::commands::Commands;
 use domovoi_checks::containers::ContainerSource;
@@ -97,6 +98,7 @@ impl Fixture {
             catalog: Arc::new(catalog),
             allow_risk,
             exec: self.exec.clone(),
+            skills: SkillRoute::Legacy(self.exec.clone()),
             redactor: Arc::new(ListRedactor::new(vec![SECRET.to_owned()])),
             clock: self.clock.clone(),
             fs,

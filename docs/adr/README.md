@@ -50,4 +50,5 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0031](0031-helper-and-skill-runner-delivery.md) | Helper and skill-runner delivery and isolation: socket-activated units, platform tiers and self-test checks | Proposed |
 | [0032](0032-helper-safety-attestation.md) | Helper safety attestation: a signed report of what the helper enforces, verified by the hub before unattended containment | Proposed |
 | [0033](0033-helper-crate-and-isolation-rules.md) | The helper crate, its edges and the isolation rules enforced by `arch-check` | Proposed |
-| [0034](0034-helper-attestation-boundary.md) | The helper attestation boundary: the hub trust module, the helper relay capability and the rules that guard them | Proposed |
+| [0034](0034-skill-runner-process.md) | The skill runner process: crate placement, protocol decisions, wire-neutral `run_as_unsupported` and the runner rules | Proposed |
+| [0035](0035-helper-attestation-boundary.md) | The helper attestation boundary: the hub trust module, the helper relay capability and the rules that guard them | Proposed |

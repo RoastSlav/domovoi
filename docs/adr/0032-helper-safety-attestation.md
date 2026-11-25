@@ -105,7 +105,7 @@ Nothing in this record is enforced yet. Today the repository only has the proto 
 
 ## Open questions
 
-Decided items are in the Decision section. Settled by the implementation record [0034](0034-helper-attestation-boundary.md), without changing this record's status (the maintainer accepts the open question on safety attestation, not these choices):
+Decided items are in the Decision section. Settled by the implementation record [0035](0035-helper-attestation-boundary.md), without changing this record's status (the maintainer accepts the open question on safety attestation, not these choices):
 
 | # | Question | Notes |
 |---|---|---|

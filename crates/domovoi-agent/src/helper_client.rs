@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 use crate::link::STATUS_PROBE_INTERVAL;
 use crate::link::handshake::AgentStatusSource;
+use crate::skill_runner::RunnerRoute;
 use crate::time::{sleep, within};
 
 /// How long one exchange with the helper may take, measured on the injected clock.
@@ -349,23 +350,53 @@ pub async fn keep_status(
     status: AgentStatusSource,
     stop: CancellationToken,
 ) {
+    keep_status_with(client, None, clock, status, stop).await;
+}
+
+/// [`keep_status`] that also probes the skill runner in the same loop: every interval, and at
+/// once after the route reports a transport failure. The runner's answer goes into the route's
+/// shared state and into `status`, next to the helper's, keeping every other field.
+pub async fn keep_status_with(
+    client: HelperClient,
+    runner: Option<Arc<RunnerRoute>>,
+    clock: Arc<dyn Clock>,
+    status: AgentStatusSource,
+    stop: CancellationToken,
+) {
     loop {
         tokio::select! {
             () = stop.cancelled() => return,
             () = sleep(&*clock, STATUS_PROBE_INTERVAL) => {}
+            () = async {
+                match &runner {
+                    Some(route) => route.state().woken().await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
         let helper_status = probe_status(&client, &*clock).await;
         let helper_identity = match helper_status {
             HelperStatus::Ok { .. } => probe_identity(&client, &*clock).await,
             _ => None,
         };
-        if let Some(mut current) = status.current()
-            && (current.helper_status != helper_status
-                || current.helper_identity != helper_identity)
-        {
+        let runner_status = match &runner {
+            Some(route) => Some(route.refresh().await),
+            None => None,
+        };
+        if let Some(mut current) = status.current() {
+            let mut changed = current.helper_status != helper_status
+                || current.helper_identity != helper_identity;
             current.helper_status = helper_status;
             current.helper_identity = helper_identity;
-            status.set(current);
+            if let Some(runner_status) = runner_status
+                && current.skill_runner_status != runner_status
+            {
+                current.skill_runner_status = runner_status;
+                changed = true;
+            }
+            if changed {
+                status.set(current);
+            }
         }
     }
 }

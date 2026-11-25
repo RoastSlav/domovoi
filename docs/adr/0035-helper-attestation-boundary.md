@@ -1,4 +1,4 @@
-# 0034 The helper attestation boundary
+# 0035 The helper attestation boundary
 
 - Status: proposed
 - Date: 2026-11-25

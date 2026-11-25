@@ -40,7 +40,7 @@ WSL notes:
 ## Hard rules (CI enforces these; do not work around them)
 
 1. **Dependency direction** (R1, R2). Only the internal edges in `ARCHITECTURE.md` §4. `domovoi-core`, `domovoi-proto` and `domovoi-engine` do no I/O. If you think you need a new edge, stop and propose an ADR instead.
-2. **Processes** (R3, R4). Only `domovoi-runner` spawns processes, with argv vectors. Never `sh -c`. Other crates use the `ProcessExecutor` port.
+2. **Processes** (R3, R4). Only `domovoi-runner` spawns processes, with argv vectors (the skill-runner process serves skills through it). Never `sh -c`. Other crates use the `ProcessExecutor` port.
 3. **Approvals** (INV-1, ADR 0007). `HumanApproval::new` is called only in `crates/domovoi-hub/src/auth/`. The LLM tool catalogue is the closed `MetaTool` enum (its `request_evidence` takes only `ReadTool` names). Never add a tool, endpoint, chat command or code path that lets anything but an authenticated human approve an action.
 4. **Dependencies** (R11). Add versions only to `[workspace.dependencies]` in the root `Cargo.toml`; crates use `{ workspace = true }`. rustls only, never OpenSSL. Prefer crates already in the workspace.
 5. **Lints** (R7). Do not add `#[allow(...)]` to silence clippy except where a prompt explicitly says so. No `unwrap`, `expect` (outside tests), `panic!`, `todo!`, `unimplemented!`, `dbg!` in library code.

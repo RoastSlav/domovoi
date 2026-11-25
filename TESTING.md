@@ -285,7 +285,21 @@ sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
 
 It also needs `python3`, `curl`, `useradd`, `userdel`, `groupadd`, `groupdel`, `gpasswd`, `runuser`, `script` (the migration asks for the typed word on a terminal), `systemctl` and `journalctl`. The release is a fake one served on `127.0.0.1:18734`, as in the installer test. Each check prints `ok`, `FAIL` or `skip` with its name; the row that needs a `docker` group is skipped on a machine without one. A trap deletes only what the script recorded, and the last check fails when a `domovoi-probe-ci-*` account or one of the real names is left behind.
 
-CI runs it in the `Real accounts and systemd units` job on `ubuntu-24.04`, which first prints `systemctl --version`, the cgroup filesystem and the name of PID 1 and fails with a clear message when PID 1 is not systemd. The job runs on pull requests that touch `install.sh`, `deploy/` or `crates/domovoi-helper/`, nightly, and on demand (`workflow_dispatch`). It is not in the required checks yet.
+### Privileged skill runner test
+
+`deploy/test/skill-runner.sh` tests the skill runner with real accounts and real systemd. It renders the socket and service units of `deploy/systemd` under `domovoi-probe-ci-*` names, runs the built binary behind the socket, and measures the systemd behaviours the unit design relies on: the mount mask, the read-only binds, the private `/tmp`, the cgroup kill, `226/NAMESPACE` for an absent bind source. It has the same needs as the identity test: a disposable machine with systemd as PID 1 and cgroup v2, root, and a built binary. It uses the existing `domovoi-agent` and `domovoi-skill` accounts as found and creates, then deletes, one that is missing. It exits 2 unless `DOMOVOI_PRIVILEGED_TESTS=1` is set.
+
+```sh
+cargo build --package domovoi
+sudo env "PATH=$PATH" DOMOVOI_PRIVILEGED_TESTS=1 \
+  DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/skill-runner.sh
+```
+
+It also needs `python3`, `useradd`, `userdel`, `groupadd`, `groupdel`, `gpasswd`, `runuser`, `systemctl`, `journalctl` and `findmnt`. The rows that run a skill through the runner need `DOMOVOI_IMPL_HASH_CMD`, a command that takes a skill folder and prints its implementation hash; without it they are skipped and say so. The unprivileged runner tests (the protocol, the serve loop, the cancel and the client) are ordinary `cargo nextest run -p domovoi-runner -p domovoi-agent` tests.
+
+The installer test also covers the runner steps without systemd: the rendering of the unit for custom directories, the refusal of a `--prefix` the runner cannot execute from, the `agent dirs` helper and the order of the sockets. `shellcheck install.sh deploy/test/*.sh examples/skills/*/run` covers `skill-runner.sh` as well.
+
+CI runs both privileged scripts in the `Real accounts and systemd units` job on `ubuntu-24.04`, which first prints `systemctl --version`, the cgroup filesystem and the name of PID 1 and fails with a clear message when PID 1 is not systemd. The job runs on pull requests that touch `install.sh`, `deploy/` or `crates/domovoi-helper/`, nightly, and on demand (`workflow_dispatch`). It is not in the required checks yet.
 
 ### systemd units
 

@@ -72,7 +72,7 @@ sudo domovoi agent selftest --installer --record
 | `--json` | Print the full report as JSON instead of text. |
 | `--config <agent.toml>` | The agent config to read. Default `/etc/domovoi/agent.toml`. |
 
-Without `--installer` it runs the checks the agent's account can run (ST-01, ST-02, ST-12, ST-14, ST-15, ST-16) and reports the rest as not run because they need root. The output has one line per check, such as `ST-10 fail path_mode_wrong`, then each fault with the found and the expected mode and owner, then the privilege-boundary label and the tier decision. It also lists skills whose manifest names a `run_as` other than `domovoi-skill`.
+Without `--installer` it runs the checks the agent's account can run (ST-01, ST-02, ST-12, ST-14, ST-15, ST-16) and reports the rest as not run because they need root. The output has one line per check, such as `ST-10 fail path_mode_wrong`, then each fault with the found and the expected mode and owner, then the privilege-boundary label and the tier decision. It also lists skills whose manifest names a `run_as` other than `domovoi-skill`: one `SK-01` row each, a warning with the token `run_as_unsupported` on a migrated host, and information on a root agent, which still honours it. `SK-01` never affects the platform tier.
 
 Exit code `0` when no check failed, `1` when any failed. A check that was not run is printed as `nd` and is never counted as a pass. It never repairs anything.
 
@@ -82,15 +82,15 @@ Exit code `0` when no check failed, `1` when any failed. A check that was not ru
 | ST-02 | the agent's groups are its own plus `systemd-journal`, never `docker` or root | `agent_groups_unexpected` |
 | ST-03 | `domovoi-skill` exists, is not root or the agent, has no login shell and no extra group | `skill_account_invalid` |
 | ST-04 | neither account is in the `docker` group | `docker_group_member` |
-| ST-05 to ST-06 | the skill runner's groups and privileges (not run until the runner ships) | `runner_groups_extra`, `runner_privileges` |
-| ST-07 | the helper and agent units are as shipped: no drop-in, no pending reload | `unit_modified`, `unit_not_inspectable` |
+| ST-05 to ST-06 | the skill runner's groups and privileges, as the runner reports them | `runner_groups_extra`, `runner_privileges` |
+| ST-07 | the helper, skill runner and agent units are as shipped: no drop-in, no pending reload, and the runner unit's directories equal `skills_dir` and `packages_dir` | `unit_modified`, `unit_not_inspectable` |
 | ST-08 | records the systemd version | none |
 | ST-09 | no numeric ids in units, no `ExecStart` under `/run`, `/tmp` or `/dev/shm` | `unit_hardcoded_id`, `unit_exec_under_run` |
 | ST-10 | every path's mode, owner and type, and no write bit in the skills and packages trees | `path_mode_wrong` |
 | ST-11 | the helper's directory, lock, key, state and record | `helper_state_permissions` |
-| ST-12 | the helper socket is `root:domovoi-agent`, mode 0660 | `socket_mode_wrong` |
-| ST-13 | the skill runner's isolation (not run until the runner ships) | `runner_not_isolated` |
-| ST-14 | the agent can connect to the helper and get `health` | `socket_unreachable` |
+| ST-12 | the helper and skill runner sockets are `root:domovoi-agent`, mode 0660 | `socket_mode_wrong` |
+| ST-13 | the skill runner's isolation: what a skill can see of the host (not run when the runner cannot be reached) | `runner_not_isolated` |
+| ST-14 | the agent can connect to the helper and the runner and get `health` | `socket_unreachable` |
 | ST-15 | the agent cannot open the helper's key, directory or lock | `agent_reaches_helper_state` |
 | ST-16 | the agent cannot connect to the Docker socket | `agent_reaches_docker` |
 | ST-17 | container installs only: no risky mounts | `container_escape_surface` |
@@ -117,6 +117,14 @@ These commands change or read the attestation key. They are run by hand as root 
 `sudo domovoi helper recover` is for lost or damaged state. It needs at least one of the key and the state file, retires whatever can be read of them the same way, and always makes a new key, because continuity cannot be proven after state loss. A helper whose state is missing, damaged or belongs to another key keeps answering with a signed report that says so (`state_missing`, `state_corrupt`, `state_key_mismatch`) until you run it; nothing resets the state automatically.
 
 `sudo domovoi helper fingerprint` computes the fingerprint from the private key file and prints it in groups of four with the key id.
+
+### `domovoi skill-runner serve`
+
+```sh
+domovoi skill-runner serve --skills-dir /etc/domovoi/skills --packages-dir /var/lib/domovoi-packages
+```
+
+The skill runner's socket unit starts this, one process per connection, as `domovoi-skill`. It adopts the connection from standard input, serves one request, and exits. Both directories are absolute and are the ones the unit binds read-only; it reads no config file. It refuses to run when standard input is not a socket, so do not run it by hand. The installer writes the two paths into the unit from `agent.toml`.
 
 ## Enrolling agents
 

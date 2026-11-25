@@ -10,6 +10,10 @@ use std::path::PathBuf;
 
 use super::DEFAULT_AGENT_CONFIG;
 
+#[cfg(unix)]
+#[path = "agent_selftest_runner.rs"]
+mod runner;
+
 /// `agent selftest`.
 #[derive(Debug, Args)]
 pub struct SelftestArgs {
@@ -45,17 +49,21 @@ pub fn run(_args: SelftestArgs) -> std::future::Ready<anyhow::Result<ExitCode>> 
 #[cfg(unix)]
 mod unix {
     use super::SelftestArgs;
+    use super::runner;
     use crate::ExitCode;
     use crate::init::SystemClock;
     use std::sync::Arc;
 
+    use domovoi_agent::skill_runner::RunnerClient;
     use domovoi_core::identity::HostDirs;
     use domovoi_core::isolation::WriteOptIn;
+    use domovoi_core::ports::HostInspect;
     use domovoi_helper::inspect::UnixHostInspect;
     use domovoi_helper::platform::record_platform;
     use domovoi_helper::selftest::{
-        AffectedSkill, Mode, SYSTEMCTL, SelftestEnv, UnixHealthProbe, affected_skills,
-        agent_checks_json, decide, exit_code, render_json, render_text, run_selftest,
+        AffectedSkill, Mode, RunnerHealth, RunnerObservation, SYSTEMCTL, SelftestEnv,
+        affected_skills, agent_checks_json, decide, exit_code, render_json, render_text,
+        run_selftest_observed,
     };
     use domovoi_hub::PatternRedactor;
     use domovoi_runner::{SandboxExecutor, SkillCatalog};
@@ -105,7 +113,15 @@ mod unix {
         let executor = SandboxExecutor::new(Arc::new(PatternRedactor::new(Vec::new())));
         let exe = std::env::current_exe()?;
         let exe = exe.to_string_lossy().into_owned();
-        let health = UnixHealthProbe;
+        let client = RunnerClient::default_path(Arc::new(SystemClock));
+        let is_root = inspect.euid() == 0;
+        // Root asks for the isolation probe; the agent account only for `health` (ST-14).
+        let (observation, runner_health) = if is_root {
+            (runner::observe(&client).await, RunnerHealth::NotInstalled)
+        } else {
+            (RunnerObservation::NotAsked, runner::health(&client).await)
+        };
+        let health = runner::RunnerAwareProbe::new(runner_health);
         let env = SelftestEnv {
             inspect: &inspect,
             executor: &executor,
@@ -123,7 +139,7 @@ mod unix {
         } else {
             Mode::Local
         };
-        let report = run_selftest(&env, mode, None).await?;
+        let report = run_selftest_observed(&env, mode, &observation).await?;
         let decision = decide(&report, write_opt_in());
         if args.record {
             let record =

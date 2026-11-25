@@ -14,6 +14,9 @@ mod error;
 pub mod exec;
 pub mod skill_run;
 
-pub use catalog::{LoadedSkill, SkillCatalog};
+#[cfg(unix)]
+pub mod serve;
+
+pub use catalog::{CancellableRun, LoadedSkill, RunCaps, SkillCatalog};
 pub use error::{CatalogIssue, RunError};
-pub use exec::SandboxExecutor;
+pub use exec::{RunEnd, SandboxExecutor};

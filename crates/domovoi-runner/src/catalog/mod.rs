@@ -1,6 +1,6 @@
 //! The skills installed on this host, loaded from `<dir>/<name>/skill.toml`.
 
-mod checks;
+pub(crate) mod checks;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -9,8 +9,10 @@ use domovoi_core::ports::{ProcessExecutor, SkillOutput};
 use domovoi_core::{
     ManifestHash, ScriptDigest, SkillManifest, SkillName, SkillSummary, ValidatedArgs,
 };
+use jiff::SignedDuration;
 
 use crate::error::{CatalogIssue, RunError};
+use crate::exec::{RunEnd, SandboxExecutor};
 use crate::skill_run;
 
 /// A skill that passed every load check. Only the catalogue creates one.
@@ -88,6 +90,25 @@ impl SkillCatalog {
         (catalog, issues)
     }
 
+    /// Loads exactly `<root>/<name>` into a catalogue of one.
+    ///
+    /// The folder is canonicalised and refused when it does not resolve to a direct child of
+    /// the canonical `root` (a symlinked folder); every other check of [`SkillCatalog::load`]
+    /// applies.
+    ///
+    /// # Errors
+    /// A [`CatalogIssue`] saying why the folder is missing, outside the root or invalid.
+    pub fn load_one(root: &Path, name: &SkillName) -> Result<(Self, LoadedSkill), CatalogIssue> {
+        let folder = checks::resolve_in_root(root, name.as_str())
+            .map_err(|why| checks::missing_issue(root, name.as_str(), why))?;
+        let skill = checks::load_folder(&folder)?;
+        let catalog = Self {
+            dir: root.to_path_buf(),
+            skills: BTreeMap::from([(skill.manifest.name.clone(), skill.clone())]),
+        };
+        Ok((catalog, skill))
+    }
+
     /// Loads the directory again, replacing the current skills.
     pub fn reload(&mut self) -> Vec<CatalogIssue> {
         let (skills, issues) = checks::load_dir(&self.dir);
@@ -157,6 +178,59 @@ impl SkillCatalog {
         }
         Ok(skill_output)
     }
+
+    /// Runs `skill` like [`SkillCatalog::run_skill`], but for the skill runner: the checks and
+    /// the spec are the same, `caps` can only lower the manifest's limits, the spec never
+    /// switches user, and `cancel` ends the run early.
+    ///
+    /// # Errors
+    /// [`RunError::UnknownSkill`], [`RunError::EntryChanged`] or [`RunError::Process`]. A
+    /// timeout is a normal [`RunEnd::Finished`] with `timed_out` set.
+    pub async fn run_skill_cancellable<C>(
+        &self,
+        skill: &LoadedSkill,
+        args: &ValidatedArgs,
+        executor: &SandboxExecutor,
+        caps: RunCaps,
+        cancel: C,
+    ) -> Result<CancellableRun, RunError>
+    where
+        C: std::future::Future<Output = ()> + Send,
+    {
+        if self.get(&skill.manifest.name) != Some(skill) {
+            return Err(RunError::UnknownSkill(skill.manifest.name.to_string()));
+        }
+        checks::recheck_entry(skill).map_err(RunError::EntryChanged)?;
+        let mut spec = skill_run::build_spec(&skill.manifest, &skill.entry_path, &skill.dir, args);
+        spec.run_as = None;
+        if let Some(timeout) = caps.timeout {
+            spec.timeout = spec.timeout.min(timeout);
+        }
+        if let Some(cap) = caps.max_output_bytes {
+            spec.max_output_bytes = spec.max_output_bytes.min(cap);
+        }
+        let argv_hash = skill_run::argv_hash(&spec);
+        let end = executor.run_cancellable(spec, cancel).await?;
+        Ok(CancellableRun { end, argv_hash })
+    }
+}
+
+/// Limits a caller may lower for one run; a cap above the manifest's value changes nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunCaps {
+    /// Upper bound on the wall-clock limit.
+    pub timeout: Option<SignedDuration>,
+    /// Upper bound on captured bytes per stream.
+    pub max_output_bytes: Option<u32>,
+}
+
+/// The result of [`SkillCatalog::run_skill_cancellable`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancellableRun {
+    /// How the process ended.
+    pub end: RunEnd,
+    /// SHA-256 of the argv that was run.
+    pub argv_hash: [u8; 32],
 }
 
 impl LoadedSkill {

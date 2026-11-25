@@ -79,8 +79,10 @@ pub struct RequestCtx {
     pub catalog: Arc<SkillCatalog>,
     /// `[policy] allow_risk`.
     pub allow_risk: Vec<Risk>,
-    /// Runs skills and commands (the runner's sandbox in production).
+    /// Runs tools and check commands (the runner crate's sandbox in production).
     pub exec: Arc<dyn ProcessExecutor>,
+    /// Where skills run: the runner, or the agent's own process for a root agent.
+    pub skills: crate::skill_runner::SkillRoute,
     /// Scrubs secrets from output.
     pub redactor: Arc<dyn Redactor>,
     /// Time, for deadlines.

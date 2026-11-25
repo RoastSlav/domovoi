@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use domovoi_agent::AgentDeps;
 use domovoi_agent::dry_run::{run_checks_once, summary};
+use domovoi_agent::skill_runner::SkillRoute;
 use domovoi_config::MapEnv;
 use domovoi_testkit::{FakeProcessExecutor, ListRedactor};
 
@@ -32,6 +33,7 @@ async fn journal_checks_are_unavailable_in_a_container() {
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
         boundary_in_effect: false,
+        skills: SkillRoute::Legacy(executor.clone()),
     };
 
     for check in ["kernel.errors", "security.ssh_login"] {

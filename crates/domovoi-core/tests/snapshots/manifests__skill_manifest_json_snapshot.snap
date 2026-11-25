@@ -50,7 +50,7 @@ expression: sample()
     }
   ],
   "timeout": "1m 30s",
-  "run_as": "domovoi-skills",
+  "run_as": "domovoi-skill",
   "hosts": [
     "nas"
   ],

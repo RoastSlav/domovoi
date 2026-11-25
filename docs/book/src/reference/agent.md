@@ -46,6 +46,21 @@ The agent asks the root helper about itself at start and then every 60 seconds, 
 
 A helper that starts after the agent turns `Absent` into `Ok` within one probe interval. The probe sends nothing but `health` and `groups`. Nothing falls back to doing a privileged operation inside the agent when the helper is absent or in error.
 
+## Skill runner probe
+
+On an agent that does not run as root, skills run in a separate process, the skill runner, reached through `/run/domovoi-skill-runner.sock`. The agent asks it for `health` at start and then every 60 seconds, and reports the answer to the hub as `skill_runner_status`. It probes again at once after a transport error.
+
+| Value | Meaning |
+| --- | --- |
+| `Absent` | No runner socket exists on this host. Skills are unavailable. |
+| `Ok` | The runner answered, speaks the same protocol, and serves the same `skills_dir` and `packages_dir` as `agent.toml`. The value carries its version. |
+| `Unsupported` | The runner refuses every request because its own start check failed. The reason is `runner_groups_extra` or `runner_privileges`. |
+| `Error` | The runner is there but cannot be used. The reason is `runner_socket_permission`, `runner_protocol_mismatch`, `runner_roots_differ` or `runner_unreachable`. |
+
+The reasons and what to do about each are in [Troubleshooting](../troubleshooting.md#skills-are-unavailable-the-skill-runner). The runner takes both directories from its unit, not from `agent.toml`, so a changed `skills_dir` or `packages_dir` shows up as `runner_roots_differ` until the installer renders the unit again.
+
+An agent running as root does not probe the runner and runs skills itself, as before.
+
 The agent also decides whether the privilege boundary is in effect when it starts. It is only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. A root agent, a container agent and the single-process mode are labelled "not in effect", and package results say so.
 
 ## Safety attestation relay
@@ -108,9 +123,17 @@ Before an approved skill reaches the runner, the agent checks, in order:
 
 Logs name the skill and the step that refused it, never argument values.
 
+The approved skill then goes to the runner, which has the final say:
+
+- The agent refuses a `run_as` other than `domovoi-skill` before it connects, and does not connect at all while the runner status is not `Ok`. The failure message starts with `skill_runner_unavailable` or `run_as_unsupported`.
+- One request travels on one connection and carries the skill name, the validated arguments, the skill's implementation hash, and caps for time and output. It carries no path, environment or user.
+- The runner finds the skill folder itself, recomputes the hash and refuses on a difference, validates the arguments again and runs the entry as `domovoi-skill`. It sends back one reply: the exit code or signal, both streams, and whether it was cut off or timed out. The agent redacts and caps the reply again.
+- Closing the connection before the reply cancels the run: the runner stops the whole process group and exits. That is what happens when the agent restarts or the hub's deadline passes, and the outcome is then "result unknown".
+- At most 8 skills run at once.
+
 ## Packages
 
-The hub can send the agent a signed package: an archive of skills. The agent checks the signature, then installs or removes it. Installing a package never enables it or runs anything. Package skills are not added to the skill catalogue, and they cannot run until the skill runner exists.
+The hub can send the agent a signed package: an archive of skills. The agent checks the signature, then installs or removes it. Installing a package never enables it or runs anything. Package skills are not added to the skill catalogue, and they cannot run yet; enabling them is a later step.
 
 Packages are off unless `agent.toml` has a `[packages]` section. Without it the agent installs nothing and advertises no package capabilities. Listing installed packages works whenever the section is present.
 

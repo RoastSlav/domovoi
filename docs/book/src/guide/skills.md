@@ -87,7 +87,7 @@ delay = "30s"
 | `entry` | The program, relative to the folder. It is executed directly, never through a shell. |
 | `timeout` | 1 second to 1 hour. The whole process group is killed when it runs out. |
 | `max_output_bytes` | 1 KiB to 1 MiB of captured output. |
-| `run_as` | A system user to run as instead of the agent's user (root). Optional. |
+| `run_as` | A system user to run as instead of the agent's user. Optional. On an agent that runs as root, any user. On a migrated agent only `domovoi-skill` is accepted, and a skill that names another user is refused. See [What a skill can reach](#what-a-skill-can-reach). |
 | `hosts` | Host names it may run on. Empty means any. |
 | `applies_to` | Check keys whose incidents it can be proposed for. Empty means any. |
 | `[[params]]` | The arguments, in the order they are passed. |
@@ -114,6 +114,28 @@ Make patterns as narrow as the skill needs. Start them with a letter or digit, s
 - It runs in its own process group, with the skill's folder as its working directory.
 - Output past `max_output_bytes` is cut off, and secrets the agent knows are redacted before it leaves the host.
 - Exit status 0 is success. Anything else, or a timeout, marks the action failed.
+
+### What a skill can reach
+
+On a host with the three-identities layout (the agent runs as `domovoi-agent`), every skill runs through the skill runner, as the `domovoi-skill` account. The agent never runs a skill itself there. If the runner is missing or not healthy, skills are unavailable; nothing falls back to running them as the agent or as root.
+
+A skill can:
+
+- read its own folder, and the rest of the skills and packages directories, read-only;
+- write to a private `/tmp` that exists only for that run;
+- read what any unprivileged account can read on the host.
+
+A skill cannot reach the agent's state, the helper's directory or key, `/etc/domovoi/agent.toml` and `helper.toml`, or either socket. They do not exist in its view. It has no `docker` group and no root. A skill that needs more asks the helper, which this release does not offer for writes.
+
+Because of this, three things differ from a root agent:
+
+- The working directory is the skill's own folder, **read-only**. Write scratch files under `/tmp`.
+- `HOME` points to a directory that does not exist. Do not rely on `~`.
+- `run_as` other than `domovoi-skill` stops working. The runner refuses it with `run_as_unsupported`, and `domovoi agent selftest` lists the skill. Remove the `run_as` line, or move the privileged part to the helper when it supports it.
+
+Skills in an agent that still runs as root keep the old behaviour, labelled "privilege boundary not in effect", including `run_as`.
+
+The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a migrated host they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
 
 POSIX `sh` is fine for the script itself, as long as it starts with a shebang. Quote every argument (`"$1"`), and pass it after `--` where the tool supports that.
 

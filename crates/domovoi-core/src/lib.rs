@@ -41,6 +41,7 @@ pub mod severity;
 mod sha256;
 pub mod signal;
 pub mod skill;
+pub mod skill_runner;
 pub mod triage;
 pub mod user;
 pub mod verdict;

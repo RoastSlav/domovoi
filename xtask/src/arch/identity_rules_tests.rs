@@ -185,3 +185,16 @@ fn declarations_and_unit_names_are_not_calls_or_socket_paths() {
     let socket_unit = "let unit = \"domovoi-helper.socket\";\n";
     assert!(scan("crates/domovoi-hub/src/a.rs", socket_unit).is_empty());
 }
+
+#[test]
+fn runner_start_checks_may_call_group_membership_but_no_other_runner_file_may() {
+    let call = "let groups = inspect.supplementary_groups();\n";
+    assert!(scan("crates/domovoi-runner/src/serve/start_checks.rs", call).is_empty());
+    for rel in [
+        "crates/domovoi-runner/src/serve/connection.rs",
+        "crates/domovoi-runner/src/exec/mod.rs",
+        "crates/domovoi-agent/src/runtime.rs",
+    ] {
+        assert_eq!(rules(&scan(rel, call)), ["ID-2"], "{rel}");
+    }
+}
