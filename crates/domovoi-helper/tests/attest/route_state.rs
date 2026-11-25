@@ -467,3 +467,50 @@ async fn ip_is_run_with_argv_and_a_fixed_environment() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_capture_from_a_stock_host_observes_end_to_end() {
+    // Real `ip -N -j` output of an ordinary host with one interface and a default gateway
+    // (addresses scrubbed to documentation ranges).
+    let mut script = Script::stock();
+    script.rules4 = fixture("stock_rules_v4");
+    script.rules6 = fixture("stock_rules_v6");
+    script.tables.clear();
+    script.tables.insert(
+        254,
+        (
+            fixture("stock_routes_main_v4"),
+            fixture("stock_routes_main_v6"),
+        ),
+    );
+    script
+        .tables
+        .insert(255, (fixture("stock_routes_local_v4"), "[]".to_owned()));
+    script.addresses = fixture("stock_addresses");
+    script.lookups.clear();
+    for endpoint in ["192.0.2.77", "198.51.100.0"] {
+        script.lookups.insert(
+            endpoint.to_owned(),
+            fixture("stock_get_v4").replace("1.1.1.1", endpoint),
+        );
+    }
+    let lines = observe_script(&script).await.expect("observed");
+    assert_eq!(
+        lines.endpoint_route,
+        [
+            "192.0.2.77|254|198.51.100.1|eth0|198.51.100.5",
+            "198.51.100.0|254|198.51.100.1|eth0|198.51.100.5"
+        ]
+    );
+    assert!(
+        lines
+            .route
+            .contains(&"inet|254|0.0.0.0/0|198.51.100.1|eth0|0".to_owned())
+    );
+    assert_eq!(
+        lines.local_addr,
+        ["198.51.100.5/24|eth0", "fe80::200:5eff:fe00:5301/64|eth0"],
+        "every address of the interface an endpoint route names"
+    );
+    assert_eq!(lines.rule.len(), 5);
+}

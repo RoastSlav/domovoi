@@ -247,3 +247,44 @@ async fn a_hub_url_that_names_a_host_yields_a_complete_report_without_hub_addr()
     assert!(!text.contains("hub_addr="));
     assert!(parse_report(&attestation.report).is_ok());
 }
+
+#[tokio::test]
+async fn state_file_has_exact_format_checksum_and_modes() {
+    let world = World::new();
+    world.init();
+    let attestation = world.signed(1).await;
+    assert_eq!(generation(&attestation), 1);
+    let text = std::fs::read_to_string(world.path("state")).expect("state");
+    let keys: Vec<&str> = text
+        .lines()
+        .map(|line| line.split('=').next().unwrap_or(""))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "format",
+            "key_fingerprint",
+            "generation",
+            "config_hash",
+            "route_state_hash",
+            "boot_id",
+            "checksum"
+        ]
+    );
+    assert!(text.ends_with('\n') && !text.contains('\r'));
+    let (body, checksum) = text.split_at(text.rfind("checksum=").expect("checksum line"));
+    assert_eq!(
+        checksum.trim_end(),
+        format!(
+            "checksum={}",
+            domovoi_core::attest::Hash32::of(body.as_bytes())
+        )
+    );
+    for name in ["state", "attest.key", "state.lock"] {
+        assert_eq!(world.mode(name), 0o600, "{name}");
+    }
+    assert!(
+        !world.path(".state.tmp").exists(),
+        "the temporary file is renamed away"
+    );
+}
