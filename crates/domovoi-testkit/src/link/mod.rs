@@ -20,6 +20,7 @@ use jiff::Timestamp;
 
 mod agent;
 mod any_caps;
+mod attest;
 mod caps;
 mod catalog;
 mod holds;
@@ -29,6 +30,7 @@ mod request;
 mod script;
 
 pub use any_caps::{action_caps_of, evidence_caps_of, observer_of_any};
+pub use attest::AttestHandler;
 pub use caps::{action_caps, evidence_caps, observer_of, package_caps};
 pub use package_link::{CapabilityHandler, CapabilityHook, PackageEvent};
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
@@ -93,6 +95,8 @@ pub struct FakeAgentLink {
     sent_skills: Mutex<BTreeMap<domovoi_core::RequestId, SkillDispatch>>,
     /// Scripted transfers and package capabilities, and the ordered record of both.
     package: package_link::PackageState,
+    /// Scripted helper attestation answers and the helper facts sessions announced.
+    attest: attest::AttestState,
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
     snapshot_calls: std::sync::atomic::AtomicUsize,
@@ -123,6 +127,7 @@ impl FakeAgentLink {
             avail_gates: Mutex::new(BTreeMap::new()),
             sent_skills: Mutex::new(BTreeMap::new()),
             package: package_link::PackageState::default(),
+            attest: attest::AttestState::default(),
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
             snapshot_calls: std::sync::atomic::AtomicUsize::new(0),

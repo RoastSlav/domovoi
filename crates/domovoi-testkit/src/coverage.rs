@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use domovoi_core::HostId;
 use domovoi_core::knowledge::{CoverageEvidence, CoverageVerdict, UnverifiableReason};
 use domovoi_core::ports::ManagementCoverage;
+use jiff::Timestamp;
 
 use crate::lock;
 
@@ -17,9 +18,13 @@ enum Mode {
     Covering(BTreeSet<String>),
 }
 
+/// How `confirmation_current` answers.
+type CurrencyAnswer = Result<(), UnverifiableReason>;
+
 struct Inner {
     mode: Mode,
     calls: Vec<(HostId, String)>,
+    currency: Option<CurrencyAnswer>,
 }
 
 /// A coverage check whose answers the test chooses. The mode can change at run time.
@@ -33,6 +38,7 @@ impl FakeCoverage {
             inner: Mutex::new(Inner {
                 mode,
                 calls: Vec::new(),
+                currency: None,
             }),
         }
     }
@@ -66,6 +72,12 @@ impl FakeCoverage {
         lock(&self.inner).mode = Mode::Unavailable;
     }
 
+    /// Makes `confirmation_current` answer `answer`. Without this it fails closed with
+    /// `NotAvailable`, as the trait's default does.
+    pub fn set_currency(&self, answer: Result<(), UnverifiableReason>) {
+        lock(&self.inner).currency = Some(answer);
+    }
+
     /// The `(host, cidr)` pairs asked about so far.
     #[must_use]
     pub fn calls(&self) -> Vec<(HostId, String)> {
@@ -95,5 +107,16 @@ impl ManagementCoverage for FakeCoverage {
             }
             Mode::Covering(_) => CoverageVerdict::Uncovered,
         }
+    }
+
+    async fn confirmation_current(
+        &self,
+        _host: HostId,
+        _evidence: &CoverageEvidence,
+        _confirmed_at: Timestamp,
+    ) -> Result<(), UnverifiableReason> {
+        lock(&self.inner)
+            .currency
+            .unwrap_or(Err(UnverifiableReason::NotAvailable))
     }
 }
