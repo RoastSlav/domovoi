@@ -202,6 +202,7 @@ helper_socket_unit() {
     cat <<'EOF'
 [Unit]
 Description=Domovoi helper socket
+After=nftables.service
 
 [Socket]
 ListenStream=/run/domovoi-helper.sock
@@ -221,6 +222,7 @@ helper_service_unit() {
     cat <<'EOF'
 [Unit]
 Description=Domovoi helper (connection %i)
+After=nftables.service
 
 [Service]
 Type=simple
@@ -235,6 +237,7 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/domovoi-helper
 ProtectHome=yes
 PrivateTmp=yes
+RestrictNamespaces=yes
 # Disks and /dev/kmsg are needed by the read operations (smartctl, dmesg); every other
 # device stays closed. The capability set is the widened baseline of ADR 0036: the
 # privileged rows of deploy/test/identities.sh measure it (decision OD-1 is unmeasured
@@ -250,6 +253,37 @@ AmbientCapabilities=
 RuntimeMaxSec=60s
 KillMode=control-group
 TimeoutStopSec=5s
+EOF
+}
+
+helper_selftest_unit() {
+    cat <<'EOF'
+[Unit]
+Description=Domovoi helper firewall leak self-test
+# Runs at every boot and after the installer; `--if-changed` exits at once unless the kernel, the
+# nft version or the layout changed since the stored result. The helper's socket waits for it.
+Before=domovoi-helper.socket
+After=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Root: no User= line on purpose. This unit and `domovoi helper containment-drill` are the only
+# places that create a network namespace; the long-lived helper units never do.
+ExecStart=/usr/local/bin/domovoi helper nft-selftest --if-changed
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/domovoi-helper
+ProtectHome=yes
+PrivateTmp=yes
+# Namespaces and mounts need exactly these two; [validate] on a real host and record the
+# result as the privilege statement.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target
 EOF
 }
 
@@ -707,6 +741,7 @@ install_identities() {
     done
     place_unit domovoi-helper.socket helper_socket_unit 0
     place_unit domovoi-helper@.service helper_service_unit 0
+    place_unit domovoi-helper-selftest.service helper_selftest_unit 0
     place_unit domovoi-skill-runner.socket runner_socket_unit 0
     place_unit domovoi-skill-runner@.service render_runner_service 0
     if [ "$ii_mode" = "migrate" ]; then
@@ -725,6 +760,11 @@ install_identities() {
 # results; a failure there stops the socket again and names the check. This function stays
 # textually after the code that creates the directories and places the units.
 start_sockets() {
+    # The leak self-test judges the firewall write group. It takes minutes, so it starts without
+    # blocking; the helper socket is ordered after it. A failure leaves the firewall group
+    # refused and never stops the install.
+    systemctl enable domovoi-helper-selftest.service || true
+    systemctl start --no-block domovoi-helper-selftest.service || say "The firewall self-test did not start; run: sudo $bin helper nft-selftest"
     systemctl enable --now domovoi-helper.socket
     say "Started domovoi-helper.socket"
     if "$bin" agent selftest --installer --record >"$tmp/selftest.out" 2>&1; then

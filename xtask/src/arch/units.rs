@@ -14,7 +14,7 @@ use super::identity_rules::violation;
 use super::install_script::{self, InstallScript};
 use super::rules::{
     COMPOSE_DIR, HELPER_UNIT, HELPER_UNIT_DEVICE_ALLOW, HELPER_UNIT_DIRECTIVES, INSTALL_SCRIPT,
-    SOCKET_GROUP, SOCKET_LISTEN_STREAMS, UNITS_DIR,
+    SELFTEST_UNIT, SELFTEST_UNIT_DIRECTIVES, SOCKET_GROUP, SOCKET_LISTEN_STREAMS, UNITS_DIR,
 };
 
 /// Whether a missing created-set block in the real `install.sh` is a violation. The unit rules
@@ -131,6 +131,7 @@ pub fn check_units(
         }
     }
     out.extend(check_helper_unit(units));
+    out.extend(check_selftest_unit(units));
     out.extend(check_agent_user(units));
     out.extend(check_masks(units, created, require_created_set));
     out.extend(super::runner_rules::check_runner_units(units));
@@ -200,6 +201,75 @@ fn check_helper_unit(units: &[UnitFile]) -> Vec<Violation> {
                 "UNIT-3",
                 &at(unit, entry.line),
                 &format!("the helper unit must have no `{key}=` line"),
+            ));
+        }
+    }
+    out
+}
+
+/// UNIT-3, self-test clause: the one-shot self-test unit carries its directives, runs before the
+/// helper socket and after `nftables.service`, has no `User=` and no `RestrictNamespaces=`; and
+/// the helper's own socket and template run after `nftables.service` too, so a reload cannot race
+/// the table they guard.
+fn check_selftest_unit(units: &[UnitFile]) -> Vec<Violation> {
+    let after_nft = |unit: &UnitFile| {
+        unit.values("Unit", "After")
+            .iter()
+            .any(|v| v.split_whitespace().any(|name| name == "nftables.service"))
+    };
+    let mut out = Vec::new();
+    for name in ["domovoi-helper.socket", HELPER_UNIT] {
+        if let Some(unit) = units.iter().find(|u| u.name == name)
+            && !after_nft(unit)
+        {
+            out.push(violation(
+                "UNIT-3",
+                &unit_at(unit),
+                "[Unit] After must name nftables.service",
+            ));
+        }
+    }
+    let Some(unit) = units.iter().find(|u| u.name == SELFTEST_UNIT) else {
+        return vec![violation(
+            "UNIT-3",
+            &format!("{UNITS_DIR}/{SELFTEST_UNIT}"),
+            "the self-test unit is missing",
+        )];
+    };
+    for (key, want) in SELFTEST_UNIT_DIRECTIVES {
+        let found = unit.values("Service", key);
+        if found != [*want] {
+            out.push(violation(
+                "UNIT-3",
+                &unit_at(unit),
+                &format!("[Service] {key} must be exactly `{want}`, found {found:?}"),
+            ));
+        }
+    }
+    let before = unit.values("Unit", "Before");
+    if !before
+        .iter()
+        .any(|v| v.split_whitespace().any(|n| n == "domovoi-helper.socket"))
+    {
+        out.push(violation(
+            "UNIT-3",
+            &unit_at(unit),
+            "[Unit] Before must name domovoi-helper.socket",
+        ));
+    }
+    if !after_nft(unit) {
+        out.push(violation(
+            "UNIT-3",
+            &unit_at(unit),
+            "[Unit] After must name nftables.service",
+        ));
+    }
+    for key in ["User", "RestrictNamespaces"] {
+        for entry in unit.keyed(key) {
+            out.push(violation(
+                "UNIT-3",
+                &at(unit, entry.line),
+                &format!("the self-test unit must have no `{key}=` line"),
             ));
         }
     }
