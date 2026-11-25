@@ -2,12 +2,12 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::attest::ExpectedSafety;
 use domovoi_core::{PlanHash, TargetKey};
 use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::Open;
-use crate::bytes::Sha256Bytes;
 
 /// Run one approved capability and reply `capability_result` before the agent's own timeout.
 ///
@@ -46,33 +46,6 @@ pub enum AuthorizationKind {
     Human,
     /// A policy approved the run.
     Policy,
-}
-
-/// The safety state a containment run expects.
-///
-/// Authority-bearing, so it is strict: an unknown tag or a malformed field is refused rather
-/// than preserved. Verifying the claim is the containment backend's job, not the wire layer's.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum ExpectedSafety {
-    /// The caller claims the helper is verified with these facts.
-    Verified {
-        /// Lowercase hex SHA-256 of the helper public key, 64 characters.
-        fingerprint: String,
-        /// The helper's boot id, as reported in its report.
-        boot_id: String,
-        /// The helper's configuration generation.
-        generation: u64,
-        /// Hash of the helper's configuration.
-        config_hash: Sha256Bytes,
-        /// Hash of the helper's route state.
-        route_state_hash: Sha256Bytes,
-    },
-    /// The caller says the helper is not verified.
-    Unverified {
-        /// Why the caller treats it as unverified.
-        reason: String,
-    },
 }
 
 /// The answer to `run_capability`.

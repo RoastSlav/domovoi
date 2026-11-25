@@ -13,6 +13,8 @@ fn every_message_kind_round_trips() {
         "samples must cover every kind, in order"
     );
     messages.push(samples::skill_success());
+    messages.push(samples::contain_verified());
+    messages.push(samples::contain_unverified());
 
     for (n, message) in messages.into_iter().enumerate() {
         let id = request_id(n as u128);

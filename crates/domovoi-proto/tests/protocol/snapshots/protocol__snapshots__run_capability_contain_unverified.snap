@@ -1,0 +1,25 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&samples::contain_unverified(), false)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "source": "203.0.113.9/32"
+    },
+    "authorization_kind": "human",
+    "contract": "firewall.block_source",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": {
+      "reason": "key_not_pinned",
+      "state": "unverified"
+    },
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "host:nas",
+    "version": 1
+  },
+  "v": 1
+}
