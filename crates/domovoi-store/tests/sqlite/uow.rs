@@ -73,6 +73,10 @@ impl UowSubject for SqliteSubject {
         &self.0
     }
 
+    fn permits(&self) -> &dyn domovoi_core::ports::PermitRepo {
+        &self.0
+    }
+
     async fn force_claim(
         &self,
         id: EffectId,
@@ -171,6 +175,10 @@ uow_contract_tests! {
     sqlite_failed_operation_commit_rolls_back_every_stage => failed_operation_commit_rolls_back_every_stage,
     sqlite_operation_listing_filters_and_pages_newest_first => operation_listing_filters_and_pages_newest_first,
     sqlite_policy_draft_create_replace_discard_round_trip => draft_create_replace_discard_round_trip,
+    sqlite_permit_row_is_written_with_the_authorization_atomically => permit_row_is_written_with_the_authorization_atomically,
+    sqlite_autonomy_row_is_single_and_defaults_to_not_paused => autonomy_row_is_single_and_defaults_to_not_paused,
+    sqlite_circuit_failures_query_counts_by_rule_and_window => circuit_failures_query_counts_by_rule_and_window,
+    sqlite_unknown_resolution_is_unique_per_execution => unknown_resolution_is_unique_per_execution,
     sqlite_policy_second_draft_is_refused => second_draft_is_refused,
     sqlite_policy_stale_draft_revision_is_refused => stale_draft_revision_is_refused,
     sqlite_policy_publish_assigns_consecutive_numbers_and_freezes_rules => publish_assigns_consecutive_numbers_and_freezes_rules,

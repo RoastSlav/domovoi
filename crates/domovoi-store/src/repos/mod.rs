@@ -14,6 +14,7 @@ mod notes;
 mod notify;
 mod operations;
 mod operations_rows;
+mod permit;
 mod policy;
 mod triage;
 

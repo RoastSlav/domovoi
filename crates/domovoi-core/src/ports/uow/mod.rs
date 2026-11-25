@@ -8,6 +8,7 @@ mod journal;
 mod knowledge_refs;
 mod lifecycle;
 mod operations;
+mod permit;
 mod topic;
 mod transaction;
 
@@ -24,6 +25,7 @@ pub use lifecycle::{
     ClaimBatch, ClaimedEffect, EffectCancel, EffectDeath, EffectQueue, EffectReschedule,
 };
 pub use operations::{ExecutionGuard, OperationWrite, SummaryFieldWrite};
+pub use permit::{PermitWrite, UnknownResolution};
 pub use topic::{Topic, TopicError, TopicSet, topics_of};
 pub use transaction::{
     ActionGuard, AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected,

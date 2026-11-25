@@ -100,7 +100,7 @@ fn encode_execution(execution: &ExecutionRecord) -> Result<ExecutionColumns, Com
     Ok(ExecutionColumns {
         args: json(&execution.args).map_err(map_store)?,
         plan_hash: name(&execution.plan_hash).map_err(map_store)?,
-        authorization_kind: approval.map(|_| "human"),
+        authorization_kind: execution.authorization_kind().map(|kind| kind.name()),
         approved_by: approval.map(|a| a.approval().user().to_string()),
         approved_channel: approval
             .map(|a| json(a.approval().channel()))
@@ -169,7 +169,7 @@ async fn insert_execution(
         .execute(&mut *conn)
         .await
         .map_err(backend)?;
-    Ok(())
+    write_permit(conn, execution).await
 }
 
 async fn update_execution(
@@ -190,5 +190,52 @@ async fn update_execution(
         .execute(&mut *conn)
         .await
         .map_err(backend)?;
+    write_permit(conn, execution).await
+}
+
+/// Writes the permit that authorized the execution, in the same transaction as the row. A
+/// permit is immutable: once stored it is never rewritten, and a second permit for the same
+/// execution is a primary-key conflict.
+async fn write_permit(
+    conn: &mut SqliteConnection,
+    execution: &ExecutionRecord,
+) -> Result<(), CommitError> {
+    let Some(stored) = execution.permit() else {
+        return Ok(());
+    };
+    let id = execution.step.to_string();
+    let exists: Option<(i64,)> =
+        sqlx::query_as("SELECT 1 FROM execution_permits WHERE execution_id = ?")
+            .bind(&id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(backend)?;
+    if exists.is_some() {
+        return Ok(());
+    }
+    let permit = stored.permit();
+    sqlx::query(
+        "INSERT INTO execution_permits (execution_id, decision_id, policy_version, \
+         ceiling_hash, plan_hash, issued_at, expires_at, decision) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(permit.decision_id())
+    .bind(permit.policy_version())
+    .bind(permit.ceiling_hash())
+    .bind(name(&permit.plan_hash()).map_err(map_store)?)
+    .bind(ms(permit.issued_at()))
+    .bind(ms(permit.expires_at()))
+    .bind(stored.decision())
+    .execute(&mut *conn)
+    .await
+    .map_err(backend)?;
+    for rule in permit.rule_ids() {
+        sqlx::query("INSERT INTO execution_permit_rules (execution_id, rule_id) VALUES (?, ?)")
+            .bind(&id)
+            .bind(rule)
+            .execute(&mut *conn)
+            .await
+            .map_err(backend)?;
+    }
     Ok(())
 }

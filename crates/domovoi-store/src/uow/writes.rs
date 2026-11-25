@@ -142,6 +142,7 @@ pub(super) async fn apply(
         StateWrite::Conversation(write) => super::conversations::apply(conn, write, receipt).await,
         StateWrite::Install(write) => crate::install::apply(conn, write).await,
         StateWrite::HelperTrust(write) => crate::helper_trust::apply(conn, write).await,
+        StateWrite::Permit(write) => crate::permit::apply(conn, write).await,
     }
 }
 

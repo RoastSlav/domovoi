@@ -1,6 +1,7 @@
 //! Contracts for the operation aggregate: its writes through the unit of work and its
 //! repository reads, run against the in-memory store and SQLite.
 
+mod permits;
 mod reads;
 mod structure;
 mod writes;
@@ -17,6 +18,12 @@ use domovoi_core::{
 use super::{ContractError, UowSubject};
 use crate::build::at;
 
+pub use permits::{
+    autonomy_row_is_single_and_defaults_to_not_paused,
+    circuit_failures_query_counts_by_rule_and_window,
+    permit_row_is_written_with_the_authorization_atomically,
+    unknown_resolution_is_unique_per_execution,
+};
 pub use reads::{
     dispatched_on_lists_only_running_executions_of_the_host,
     dispatched_since_counts_by_host_contract_and_time,

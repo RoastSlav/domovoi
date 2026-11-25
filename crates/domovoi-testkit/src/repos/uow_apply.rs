@@ -59,6 +59,7 @@ pub(super) fn apply(
         StateWrite::Conversation(write) => super::uow_conversations::apply(state, write, receipt),
         StateWrite::Install(write) => super::uow_install::apply(state, write),
         StateWrite::HelperTrust(write) => super::helper_trust::apply(state, write),
+        StateWrite::Permit(write) => super::permit::apply(state, write),
     }
 }
 
