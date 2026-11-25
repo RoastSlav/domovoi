@@ -169,3 +169,27 @@ fn route_family_must_match_its_addresses() {
     assert!(Route::parse("inet6|254|0.0.0.0/0|-|eth0|1").is_err());
     assert!(Route::parse("inet|254|0.0.0.0/0|-|eth0|1").is_ok());
 }
+
+#[test]
+fn config_hash_matches_vectors() {
+    for (name, input, digest) in [
+        ("C1", c1_input(), C1),
+        ("C2", c2_input(), C1),
+        ("C3", c3_input(), C3),
+    ] {
+        let config = ConfigLines::effective(&input).expect("a valid configuration");
+        assert_eq!(config.hash(), hash(digest), "{name}");
+    }
+}
+
+#[test]
+fn route_state_hash_matches_vectors() {
+    for (name, lines, digest) in [
+        ("R1", r1_lines("10.8.0.1"), R1),
+        ("R2", r1_lines("10.8.0.254"), R2),
+        ("R3", RouteLines::default(), R3),
+        ("R4", r4_lines(), R4),
+    ] {
+        assert_eq!(lines.hash(), hash(digest), "{name}");
+    }
+}
