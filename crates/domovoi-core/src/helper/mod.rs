@@ -45,4 +45,6 @@ pub(crate) const OPERATIONS: &[&str] = &[
     "net_listeners",
     "safety_attest",
     "safety_public_key",
+    "unit_identity",
+    "unit_restart",
 ];

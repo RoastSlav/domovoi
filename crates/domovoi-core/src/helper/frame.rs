@@ -91,6 +91,8 @@ pub fn decode_request(body: &[u8]) -> Result<HelperRequestFrame, RefusalToken> {
         "smart_report" => &["device"],
         "kernel_log" => &["since_minutes", "lines"],
         "safety_attest" => &["nonce"],
+        "unit_identity" => &["name"],
+        "unit_restart" => &["id", "identity_hash"],
         _ => &[],
     };
     if request

@@ -258,6 +258,26 @@ impl HelperConfig {
         &self.smart.devices
     }
 
+    /// Every group named in `helper.toml` (the fresh-install set when none), write groups
+    /// included. A write operation is served only when its group is here **and** the platform
+    /// tier allows it.
+    #[must_use]
+    pub fn configured_groups(&self) -> Vec<HelperGroup> {
+        self.configured()
+    }
+
+    /// The units no write may target: the file's `protected_units` unioned with the installer's
+    /// defaults, which an edit of the file cannot remove.
+    #[must_use]
+    pub fn protected_unit_set(&self) -> std::collections::BTreeSet<String> {
+        self.safety
+            .protected_units
+            .iter()
+            .cloned()
+            .chain(default_protected_units())
+            .collect()
+    }
+
     /// Whether the owner switched write groups on for untested platforms.
     #[must_use]
     pub fn write_opt_in(&self) -> bool {

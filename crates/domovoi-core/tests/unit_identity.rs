@@ -436,6 +436,7 @@ fn unit_refusal_tokens_round_trip() {
         UnitRefusal::symlink("/etc/systemd/system/x.service"),
         UnitRefusal::TargetUnsupported(UnsupportedReason::Masked),
         UnitRefusal::TargetUnsupported(UnsupportedReason::EnabledRuntime),
+        UnitRefusal::TargetUnsupported(UnsupportedReason::Instance),
     ];
     for refusal in all {
         let text = refusal.to_string();
@@ -447,4 +448,19 @@ fn unit_refusal_tokens_round_trip() {
         assert!(!refusal.describe().is_empty());
     }
     assert_eq!(UnitRefusal::from_message("something_else"), None);
+}
+
+#[cfg(test)]
+#[test]
+fn template_instances_are_refused_because_their_dropin_directory_cannot_be_checked() {
+    let (mut sys, fs, mut policy) = setup();
+    sys.props.id = "worker@one.service".into();
+    sys.props.names = BTreeSet::from(["worker@one.service".to_owned()]);
+    policy
+        .allow
+        .insert(UnitId::parse("worker@one.service").unwrap());
+    assert_eq!(
+        block(run(&sys, &fs, &policy)),
+        Err(UnitRefusal::TargetUnsupported(UnsupportedReason::Instance))
+    );
 }

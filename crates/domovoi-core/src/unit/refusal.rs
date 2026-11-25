@@ -19,6 +19,9 @@ pub enum UnsupportedReason {
     EnabledRuntime,
     /// The unit file state is an alias.
     Alias,
+    /// The unit is a template instance. The helper never parses an instance name, so it cannot
+    /// enumerate the template's drop-in directory; instances are refused.
+    Instance,
     /// Any other unit file state.
     UnitFileState,
     /// A path holds a control character.
@@ -41,6 +44,7 @@ impl UnsupportedReason {
             Self::Generated => "generated",
             Self::EnabledRuntime => "enabled_runtime",
             Self::Alias => "alias",
+            Self::Instance => "instance",
             Self::UnitFileState => "unit_file_state",
             Self::ControlCharacter => "control_character",
             Self::Location(_) => "location",
@@ -158,6 +162,10 @@ impl UnitRefusal {
                     "The unit is enabled for this boot only.".to_owned()
                 }
                 UnsupportedReason::Alias => "The unit is an alias.".to_owned(),
+                UnsupportedReason::Instance => {
+                    "Template instances are not supported: their drop-in directory cannot be checked."
+                        .to_owned()
+                }
                 UnsupportedReason::UnitFileState => {
                     "The unit's file state is not supported.".to_owned()
                 }
@@ -239,6 +247,7 @@ impl UnitRefusal {
                 "generated" => UnsupportedReason::Generated,
                 "enabled_runtime" => UnsupportedReason::EnabledRuntime,
                 "alias" => UnsupportedReason::Alias,
+                "instance" => UnsupportedReason::Instance,
                 "control_character" => UnsupportedReason::ControlCharacter,
                 d if d.starts_with("location: ") => {
                     UnsupportedReason::Location(d["location: ".len()..].to_owned())

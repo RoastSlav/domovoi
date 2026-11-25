@@ -18,7 +18,7 @@ fn permit_auth(
     rules: &[&str],
     issued: i64,
 ) -> Result<Authorization, ContractError> {
-    let permit = PolicyPermit::issue(PolicyPermitParts {
+    let permit = PolicyPermit::restore(PolicyPermitParts {
         decision_id: "decision-1",
         rule_ids: rules.iter().map(|r| (*r).to_owned()).collect(),
         policy_version: "3",

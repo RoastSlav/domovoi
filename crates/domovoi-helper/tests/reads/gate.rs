@@ -12,12 +12,12 @@ use domovoi_core::helper::{
 };
 use domovoi_core::identity::HostDirs;
 use domovoi_core::isolation::{
-    CheckId, PLATFORM_RECORD_FORMAT, PlatformId, PlatformRecord, PlatformRecordState, PlatformTier,
+    CheckId, PLATFORM_RECORD_FORMAT, PlatformId, PlatformRecord, PlatformTier,
 };
 use domovoi_core::ports::{
     DockerReadError, ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec,
 };
-use domovoi_helper::serve::{ServeContext, unavailable_reason};
+use domovoi_helper::serve::ServeContext;
 use domovoi_testkit::{
     DockerReadCall, DockerReadScript, FakeClock, FakeDockerReadApi, FakeHostInspect,
     FakeProcessExecutor, InspectCall,
@@ -147,29 +147,73 @@ async fn a_disabled_group_is_group_disabled_for_every_operation_of_the_group() {
     assert!(exec.calls().is_empty());
 }
 
-#[test]
-fn systemd_read_stays_not_implemented() {
-    let enabled = [HelperGroup::SystemdRead];
-    assert_eq!(
-        unavailable_reason(
-            HelperGroup::SystemdRead,
-            &enabled,
-            PlatformRecordState::Ok,
-            PlatformTier::Untested,
-            false
-        ),
-        UnavailableReason::NotImplemented
+#[tokio::test]
+async fn unit_identity_is_served_when_systemd_read_is_enabled() {
+    let name = || domovoi_core::unit::UnitName::parse("example.service").expect("name");
+    // Enabled: the request reaches the unit operation. With no manager answering it is refused
+    // as unreadable, never as `not_implemented` and never as a guess.
+    let busctl = crate::support::tool_facts();
+    let on = context(
+        healthy(&dirs()).path("/usr/bin/busctl", busctl),
+        "",
+        clock(),
+        Arc::new(FakeProcessExecutor::new()),
+    );
+    let answer = ask(&on, HelperRequest::UnitIdentity { name: name() }).await;
+    assert!(
+        matches!(&answer, HelperResponse::UnitRefused { token, .. } if token == "read_failed"),
+        "{answer:?}"
+    );
+
+    // Disabled: the group gate answers before any program runs.
+    let exec = Arc::new(FakeProcessExecutor::new());
+    let off = context(
+        healthy(&dirs()),
+        "groups = [\"docker.read\"]\n",
+        clock(),
+        exec.clone(),
     );
     assert_eq!(
-        unavailable_reason(
-            HelperGroup::SystemdRead,
-            &[],
-            PlatformRecordState::Ok,
-            PlatformTier::Untested,
-            false
-        ),
-        UnavailableReason::GroupDisabled
+        ask(&off, HelperRequest::UnitIdentity { name: name() }).await,
+        HelperResponse::Unavailable {
+            group: HelperGroup::SystemdRead,
+            reason: UnavailableReason::GroupDisabled
+        }
     );
+    assert!(exec.calls().is_empty());
+}
+
+#[tokio::test]
+async fn unit_restart_is_gated_before_any_program_runs() {
+    let exec = Arc::new(FakeProcessExecutor::new());
+    let request = || HelperRequest::UnitRestart {
+        id: domovoi_core::unit::UnitId::parse("example.service").expect("id"),
+        identity_hash: "ab".repeat(32).parse().expect("hash"),
+    };
+    // A fresh install has no write group.
+    let fresh = context(healthy(&dirs()), "", clock(), exec.clone());
+    assert_eq!(
+        ask(&fresh, request()).await,
+        HelperResponse::Unavailable {
+            group: HelperGroup::SystemdWrite,
+            reason: UnavailableReason::GroupDisabled
+        }
+    );
+    // The group is named but there is no platform record for this kernel: blocked.
+    let named = context(
+        healthy(&dirs()),
+        "groups = [\"systemd.write\"]\n",
+        clock(),
+        exec.clone(),
+    );
+    assert_eq!(
+        ask(&named, request()).await,
+        HelperResponse::Unavailable {
+            group: HelperGroup::SystemdWrite,
+            reason: UnavailableReason::PlatformBlocked
+        }
+    );
+    assert!(exec.calls().is_empty());
 }
 
 fn net_ok() -> Arc<FakeProcessExecutor> {

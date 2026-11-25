@@ -26,3 +26,5 @@ pub mod serve;
 pub mod start_check;
 #[cfg(unix)]
 pub mod state;
+#[cfg(unix)]
+pub mod systemd;

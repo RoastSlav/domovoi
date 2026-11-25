@@ -177,6 +177,11 @@ fn read_op_group_mapping_is_exact() {
             "docker_logs" => r#"{"op":"docker_logs","container":"a","lines":1}"#.to_owned(),
             "smart_report" => r#"{"op":"smart_report","device":"/dev/sda"}"#.to_owned(),
             "kernel_log" => r#"{"op":"kernel_log","since_minutes":1,"lines":1}"#.to_owned(),
+            "unit_identity" => r#"{"op":"unit_identity","name":"example.service"}"#.to_owned(),
+            "unit_restart" => format!(
+                r#"{{"op":"unit_restart","id":"example.service","identity_hash":"{}"}}"#,
+                "ab".repeat(32)
+            ),
             other => format!(r#"{{"op":"{other}"}}"#),
         };
         decode_request(&frame_of(&body))
@@ -201,6 +206,38 @@ fn read_op_group_mapping_is_exact() {
     assert_eq!(ask("health"), None);
     assert_eq!(ask("groups"), None);
     assert_eq!(ask("safety_public_key"), Some(HelperGroup::SafetyAttest));
+    assert_eq!(ask("unit_identity"), Some(HelperGroup::SystemdRead));
+    assert_eq!(ask("unit_restart"), Some(HelperGroup::SystemdWrite));
+}
+
+#[test]
+fn unit_requests_carry_only_validated_fields() {
+    let hash = "ab".repeat(32);
+    let good =
+        format!(r#"{{"op":"unit_restart","id":"example.service","identity_hash":"{hash}"}}"#);
+    assert!(decode_request(&frame_of(&good)).is_ok());
+    for bad in [
+        // A field outside the closed set.
+        format!(
+            r#"{{"op":"unit_restart","id":"example.service","identity_hash":"{hash}","argv":"x"}}"#
+        ),
+        r#"{"op":"unit_identity","name":"example.service","extra":1}"#.to_owned(),
+        // A name or id the grammar refuses: option-like, glob, bare template, wrong suffix.
+        r#"{"op":"unit_identity","name":"-rf.service"}"#.to_owned(),
+        r#"{"op":"unit_identity","name":"a*.service"}"#.to_owned(),
+        r#"{"op":"unit_identity","name":"worker@.service"}"#.to_owned(),
+        r#"{"op":"unit_identity","name":"example.socket"}"#.to_owned(),
+        format!(r#"{{"op":"unit_restart","id":"x y.service","identity_hash":"{hash}"}}"#),
+        // A hash that is not 64 lowercase hex characters.
+        r#"{"op":"unit_restart","id":"example.service","identity_hash":"zz"}"#.to_owned(),
+        r#"{"op":"unit_restart","id":"example.service"}"#.to_owned(),
+    ] {
+        assert_eq!(
+            decode_request(&frame_of(&bad)),
+            Err(RefusalToken::FrameMalformed),
+            "{bad}"
+        );
+    }
 }
 
 #[test]

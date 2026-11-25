@@ -17,7 +17,7 @@ pub const READ_BLOCKING_CHECKS: [CheckId; 4] =
 
 /// Why `group` is not served right now, or `None` when the read may run.
 ///
-/// Order: a group that is not enabled is `GroupDisabled`; `systemd.read` is `NotImplemented`; a
+/// Order: a group that is not enabled is `GroupDisabled`; a
 /// record for this kernel that blocks on a helper isolation check is `PlatformBlocked`. A missing
 /// or stale record, an untested platform and a runner-blocked platform all allow reads.
 #[must_use]
@@ -29,9 +29,6 @@ pub fn refusal(
 ) -> Option<UnavailableReason> {
     if !config.effective_groups().contains(&group) {
         return Some(UnavailableReason::GroupDisabled);
-    }
-    if group == HelperGroup::SystemdRead {
-        return Some(UnavailableReason::NotImplemented);
     }
     let (_, record) = read_platform_record(inspect, dirs);
     let blocked = record.is_some_and(|record| {

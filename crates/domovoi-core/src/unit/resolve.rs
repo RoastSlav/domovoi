@@ -83,6 +83,11 @@ pub async fn resolve_identity(
         return Err(UnitRefusal::TargetUnsupported(UnsupportedReason::Transient));
     }
     let unit_file_state = file_state(&props)?;
+    // The drop-in directory of a template cannot be enumerated without parsing the instance
+    // name, which the helper never does; an instance is refused rather than half-checked.
+    if props.id.contains('@') || props.names.iter().any(|n| n.contains('@')) {
+        return Err(UnitRefusal::TargetUnsupported(UnsupportedReason::Instance));
+    }
     let id = UnitId::parse(&props.id).map_err(|_| UnitRefusal::ReadFailed)?;
     // 5, 6
     if protected(&props, policy) {
