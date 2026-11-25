@@ -17,7 +17,9 @@ use std::sync::Arc;
 use domovoi_checks::commands::Commands;
 use domovoi_checks::containers::ContainerSource;
 use domovoi_checks::system::FsStats;
-use domovoi_core::ports::{Clock, HostFs, LogLine, LogSource, ProcessExecutor, Redactor};
+use domovoi_core::ports::{
+    Clock, HostFs, LogLine, LogSource, PrivilegedReads, ProcessExecutor, Redactor,
+};
 use domovoi_core::{HostId, RequestId, Risk, SignalStatus};
 use domovoi_proto::Message;
 use domovoi_proto::Open;
@@ -109,6 +111,9 @@ pub struct RequestCtx {
     pub packages: Option<Arc<crate::packages::PackageService>>,
     /// The helper's socket, for `attest_safety`.
     pub helper: crate::helper_client::HelperRelay,
+    /// Kernel-log and listening-socket reads served by the helper when the privilege boundary
+    /// is in effect; `None` keeps the direct paths.
+    pub privileged: Option<Arc<dyn PrivilegedReads>>,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.

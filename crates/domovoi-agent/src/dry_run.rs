@@ -101,6 +101,7 @@ pub async fn run_checks_once(
             commands: &commands,
             clock: &*deps.clock,
             settings: &check_settings,
+            privileged: deps.privileged.as_deref(),
             state: &mut state,
         };
         let run = match run_bounded(check, &mut ctx).await {

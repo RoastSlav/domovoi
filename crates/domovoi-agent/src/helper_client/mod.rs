@@ -2,6 +2,12 @@
 //! helper's closed set. This is the only agent module that names the helper socket or builds
 //! a helper request.
 
+mod cache;
+mod container_source;
+mod privileged;
+mod reads;
+mod selection;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +28,12 @@ use crate::link::STATUS_PROBE_INTERVAL;
 use crate::link::handshake::AgentStatusSource;
 use crate::skill_runner::RunnerRoute;
 use crate::time::{sleep, within};
+
+pub use self::cache::ReadCache;
+pub use self::container_source::{HelperContainerSource, docker_problem};
+pub use self::privileged::HelperPrivilegedReads;
+pub use self::reads::ReadClientError;
+pub use self::selection::HelperReads;
 
 /// How long one exchange with the helper may take, measured on the injected clock.
 const EXCHANGE_DEADLINE: SignedDuration = SignedDuration::from_secs(10);
@@ -146,6 +158,7 @@ impl HelperRelay {
 #[derive(Debug, Clone)]
 pub struct HelperClient {
     socket: PathBuf,
+    cache: Arc<ReadCache>,
 }
 
 impl HelperClient {
@@ -154,6 +167,7 @@ impl HelperClient {
     pub fn new(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),
+            cache: Arc::new(ReadCache::default()),
         }
     }
 

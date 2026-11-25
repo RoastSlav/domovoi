@@ -8,7 +8,7 @@ use domovoi_checks::containers::{ContainerDeps, ContainerPolicy, ContainerSource
 use domovoi_checks::framework::{HostDeps, Registry};
 use domovoi_checks::system::FsStats;
 use domovoi_config::AgentConfig;
-use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
+use domovoi_core::ports::{Clock, HostFs, LogSource, PrivilegedReads, ProcessExecutor, Redactor};
 use domovoi_proto::messages::HelperStatus;
 use domovoi_runner::SkillCatalog;
 use tokio::sync::mpsc;
@@ -60,6 +60,9 @@ pub struct AgentDeps {
     /// Whether the privilege boundary is in effect (the agent is the `domovoi-agent` account
     /// with exactly the expected groups), decided once at start by the binary.
     pub boundary_in_effect: bool,
+    /// SMART, kernel-log and listening-socket reads served by the helper; `Some` only when the
+    /// boundary is in effect, `None` keeps the checks' and tools' own commands.
+    pub privileged: Option<Arc<dyn PrivilegedReads>>,
     /// How skills are executed: through the skill runner, or in the agent's own process for
     /// an agent running as root. Built by [`crate::production::skill_route`].
     pub skills: SkillRoute,
@@ -206,6 +209,7 @@ impl AgentRuntime {
             commands: commands.clone(),
             clock: deps.clock.clone(),
             settings: effective.view(),
+            privileged: deps.privileged.clone(),
         };
         let requests = Arc::new(RequestCtx {
             host_id: identity.host_id,
@@ -226,6 +230,7 @@ impl AgentRuntime {
             journal: Some(journal.clone()),
             packages,
             helper: crate::helper_client::HelperRelay::default_path(),
+            privileged: deps.privileged.clone(),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(

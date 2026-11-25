@@ -4,9 +4,12 @@ use std::fmt::Write;
 
 use domovoi_checks::commands::{CommandError, DevicePath, UnitName};
 use domovoi_checks::containers::{ContainerSource, EventLog, RunState};
-use domovoi_checks::security::ports::listeners;
+use domovoi_checks::security::ports::{Listener, listeners};
 use domovoi_core::ReadToolCall;
-use domovoi_core::ports::ProcessSpec;
+use domovoi_core::helper::read::{
+    DeviceRef, ListenerWire, MAX_KERNEL_MINUTES, MAX_LOG_LINES, WireProto,
+};
+use domovoi_core::ports::{ProcessOutput, ProcessSpec};
 use domovoi_proto::messages::ToolFailureCode;
 use jiff::SignedDuration;
 
@@ -44,7 +47,7 @@ fn invalid(err: impl std::fmt::Display) -> ToolFail {
     ToolFail::new(ToolFailureCode::InvalidArgs, err.to_string())
 }
 
-async fn command(ctx: &RequestCtx, spec: ProcessSpec) -> Result<(String, bool), ToolFail> {
+async fn execute(ctx: &RequestCtx, spec: ProcessSpec) -> Result<ProcessOutput, ToolFail> {
     let output = ctx
         .exec
         .run(spec)
@@ -56,12 +59,74 @@ async fn command(ctx: &RequestCtx, spec: ProcessSpec) -> Result<(String, bool), 
             "the command timed out",
         ));
     }
+    Ok(output)
+}
+
+fn render(output: ProcessOutput) -> (String, bool) {
     let mut text = output.stdout;
     if output.exit_code != Some(0) && !output.stderr.is_empty() {
         text.push_str("\n[stderr]\n");
         text.push_str(&output.stderr);
     }
-    Ok((text, output.truncated))
+    (text, output.truncated)
+}
+
+async fn command(ctx: &RequestCtx, spec: ProcessSpec) -> Result<(String, bool), ToolFail> {
+    Ok(render(execute(ctx, spec).await?))
+}
+
+/// Whether `journalctl --dmesg` could not read the journal, so the kernel ring buffer may be
+/// read through the helper instead.
+fn journal_unreadable(output: &ProcessOutput) -> bool {
+    output.exit_code != Some(0) || output.stderr.contains("could not be opened")
+}
+
+/// The kernel log: `journalctl --dmesg` first, and once through the helper when that cannot
+/// read the journal and the helper serves `kernel.read`. A failed helper read keeps the direct
+/// result.
+async fn kernel_journal(
+    ctx: &RequestCtx,
+    spec: ProcessSpec,
+    since_minutes: u32,
+    lines: u16,
+) -> Result<(String, bool), ToolFail> {
+    let output = execute(ctx, spec).await?;
+    if let Some(port) = &ctx.privileged
+        && journal_unreadable(&output)
+    {
+        let minutes = since_minutes.clamp(1, MAX_KERNEL_MINUTES);
+        let lines = lines.clamp(1, MAX_LOG_LINES);
+        if let Ok(log) = port.kernel_log(minutes, lines).await {
+            return Ok((log.text, log.truncated));
+        }
+    }
+    Ok(render(output))
+}
+
+/// One listener line, with the owning process when the helper saw it.
+fn listener_line(listener: &Listener, owners: &[ListenerWire]) -> String {
+    let proto = listener.proto.as_str();
+    let addr = listener.addr.to_string();
+    let same_socket = |o: &&ListenerWire| {
+        o.process.is_some() && o.port == listener.port && wire_proto(o.proto) == proto
+    };
+    let owner = owners
+        .iter()
+        .filter(same_socket)
+        .find(|o| o.addr == addr)
+        .or_else(|| owners.iter().find(same_socket));
+    match owner.and_then(|o| o.process.as_deref().map(|name| (name, o.pid))) {
+        Some((name, Some(pid))) => format!("{listener} {name} (pid {pid})"),
+        Some((name, None)) => format!("{listener} {name}"),
+        None => listener.to_string(),
+    }
+}
+
+fn wire_proto(proto: WireProto) -> &'static str {
+    match proto {
+        WireProto::Tcp => "tcp",
+        WireProto::Udp => "udp",
+    }
 }
 
 /// Runs one read tool and returns its text and whether the source cut it short.
@@ -136,12 +201,23 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
                 .commands
                 .journal(unit.as_ref(), *since_minutes, *lines, *kernel)
                 .map_err(template)?;
-            command(ctx, spec).await
+            if *kernel && unit.is_none() {
+                kernel_journal(ctx, spec, *since_minutes, *lines).await
+            } else {
+                command(ctx, spec).await
+            }
         }
         ReadToolCall::ListeningPorts => {
+            let direct = listeners(&*ctx.fs).await;
+            // Owning processes come from the helper only; a failed helper read leaves the
+            // direct result as it is.
+            let owners = match &ctx.privileged {
+                Some(port) if !direct.is_empty() => port.net_listeners().await.unwrap_or_default(),
+                _ => Vec::new(),
+            };
             let mut out = String::new();
-            for listener in listeners(&*ctx.fs).await {
-                _ = writeln!(out, "{listener}");
+            for listener in &direct {
+                _ = writeln!(out, "{}", listener_line(listener, &owners));
             }
             if out.is_empty() {
                 out.push_str("no listeners outside loopback\n");
@@ -150,6 +226,13 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
         }
         ReadToolCall::SmartReport { device } => {
             let device = DevicePath::parse(device).map_err(invalid)?;
+            if let Some(port) = &ctx.privileged {
+                let slot = DeviceRef::parse(device.as_str()).map_err(invalid)?;
+                let report = port.smart_report(&slot).await.map_err(|err| {
+                    ToolFail::new(ToolFailureCode::Unavailable, format!("SMART: {err}"))
+                })?;
+                return Ok((report.json, report.truncated));
+            }
             let spec = ctx.commands.smartctl_all(&device).map_err(template)?;
             command(ctx, spec).await
         }

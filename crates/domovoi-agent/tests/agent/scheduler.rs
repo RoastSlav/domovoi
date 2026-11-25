@@ -44,6 +44,7 @@ fn start(checks: Vec<Box<dyn Check>>) -> Running {
         commands: Arc::new(Commands::default()),
         clock: clock.clone(),
         settings: domovoi_agent::overrides::fixed(BTreeMap::new()),
+        privileged: None,
     };
     let (handle, outbox) = LinkHandle::channel(16);
     let checks: Arc<dyn CheckSet> = Arc::new(checks);
@@ -327,6 +328,7 @@ async fn config_update_applies_check_overrides_live() {
         commands: Arc::new(Commands::default()),
         clock: clock.clone(),
         settings: effective.view(),
+        privileged: None,
     };
     let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
     let store = Arc::new(CheckStore::open(dir.path()).unwrap());

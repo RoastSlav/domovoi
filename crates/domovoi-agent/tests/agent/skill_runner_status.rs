@@ -279,6 +279,7 @@ async fn hello_carries_the_real_runner_status() {
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
         boundary_in_effect: true,
+        privileged: None,
         skills: SkillRoute::Runner(route),
     };
     let runtime = AgentRuntime::new(config, deps).await.unwrap();
