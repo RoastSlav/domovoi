@@ -40,6 +40,7 @@ pub struct PolicyService {
     auth: Arc<AuthState>,
     pub(super) clock: Arc<dyn Clock>,
     shadow_enabled: bool,
+    pub(super) autonomy: Option<super::autonomy::AutonomyDeps>,
 }
 
 /// The rules a change is measured against.
@@ -71,6 +72,7 @@ impl PolicyService {
             auth: deps.auth,
             clock: deps.clock,
             shadow_enabled: deps.shadow_enabled,
+            autonomy: None,
         }
     }
 

@@ -32,7 +32,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::auth::AuthState;
 use crate::capability::{CeilingParse, HubRegistry, parse_ceiling};
-use crate::services::{PolicyDeps, PolicyService};
+use crate::services::{AutonomyDeps, PolicyDeps, PolicyService};
 
 /// The policy service and, when shadow recording is on, the task that runs the recorder.
 pub(crate) struct PolicyParts {
@@ -70,11 +70,14 @@ pub(crate) fn wire(input: PolicyWire<'_>) -> PolicyParts {
     let resolver = Arc::new(
         TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units.clone()),
     );
-    let env: Arc<dyn ShadowEnvironment> = Arc::new(HubShadowEnvironment::new(
-        registry.clone(),
-        resolver,
-        store.clone(),
-    ));
+    let env: Arc<dyn ShadowEnvironment> = Arc::new(
+        HubShadowEnvironment::new(registry.clone(), resolver, store.clone()).with_autonomy(
+            store.clone(),
+            clock.clone(),
+            config.policy.circuit_failures,
+            config.policy.circuit_window.as_signed(),
+        ),
+    );
     let shadow = config.policy.shadow;
     let task = shadow.then(|| {
         let recorder =
@@ -88,6 +91,12 @@ pub(crate) fn wire(input: PolicyWire<'_>) -> PolicyParts {
         auth: auth.clone(),
         clock: clock.clone(),
         shadow_enabled: shadow,
+    })
+    .with_autonomy(AutonomyDeps {
+        permits: store.clone(),
+        operations: store.clone(),
+        circuit_failures: config.policy.circuit_failures,
+        circuit_window: config.policy.circuit_window.as_signed(),
     });
     PolicyParts { service, task }
 }

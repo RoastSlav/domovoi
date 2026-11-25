@@ -73,6 +73,8 @@ mod packages;
 #[cfg(test)]
 mod packages_import;
 #[cfg(test)]
+mod permit;
+#[cfg(test)]
 mod plan_binding;
 #[cfg(test)]
 mod policy_api;

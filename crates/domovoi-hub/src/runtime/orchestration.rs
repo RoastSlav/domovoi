@@ -7,8 +7,10 @@ use domovoi_core::ports::{ActionCaps, Clock, TargetResolver};
 use domovoi_engine::TriageHandle;
 use domovoi_engine::events::DomainEvent;
 use domovoi_engine::operations::{
-    InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle, OperationService,
+    AutonomyDeps, InvestigateDeps, InvestigateSettings, OperationDeps, OperationHandle,
+    OperationService,
 };
+use domovoi_engine::policy_shadow::ShadowEnvironment;
 use domovoi_engine::targets::TargetService;
 use domovoi_engine::{Evidence, PatternRedactor};
 use domovoi_store::Store;
@@ -16,8 +18,10 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use super::policy::HubShadowEnvironment;
 use super::settings;
 use crate::capability::HubRegistry;
+use crate::policy::{HubPermitIssuer, IssuerDeps, PermitSettings};
 
 /// What the operation service is built from: values the runtime already holds.
 pub(super) struct OperationBuild<'a> {
@@ -62,6 +66,44 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         }
         return None;
     }
+    // One resolver per runtime: the one triage already built, or a new one without it.
+    let resolver: Arc<dyn TargetResolver> = triage.map_or_else(
+        || -> Arc<dyn TargetResolver> {
+            Arc::new(
+                TargetService::new(Arc::new(evidence.clone()), store.clone())
+                    .with_units(units.clone()),
+            )
+        },
+        TriageHandle::resolver,
+    );
+    // Unattended restarts: the relay to the agents, the permit store and the one issuer, which
+    // reads the live inputs through the same environment the policy pages use.
+    let policy = &config.policy;
+    let env: Arc<dyn ShadowEnvironment> = Arc::new(
+        HubShadowEnvironment::new(registry.clone(), resolver.clone(), store.clone()).with_autonomy(
+            store.clone(),
+            clock.clone(),
+            policy.circuit_failures,
+            policy.circuit_window.as_signed(),
+        ),
+    );
+    let issuer = HubPermitIssuer::new(IssuerDeps {
+        policy: store.clone(),
+        permits: store.clone(),
+        resolver: resolver.clone(),
+        env,
+        uow: store.clone(),
+        clock: clock.clone(),
+        settings: PermitSettings {
+            ttl: policy.permit_ttl.as_signed(),
+            max_per_hour: policy.max_permits_per_hour,
+        },
+    });
+    let autonomy = AutonomyDeps {
+        relay: units.relay.clone(),
+        permits: store.clone(),
+        issuer: Arc::new(issuer),
+    };
     let deps = OperationDeps {
         bus: bus.clone(),
         operations: store.clone(),
@@ -74,15 +116,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         hosts: store.clone(),
         evidence: evidence.clone(),
         registry: registry.clone(),
-        // One resolver per runtime: the one triage already built, or a new one without it.
-        resolver: triage.map_or_else(
-            || -> Arc<dyn TargetResolver> {
-                Arc::new(
-                    TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units),
-                )
-            },
-            TriageHandle::resolver,
-        ),
+        resolver,
         observer: caps.observer,
         journal: caps.journal,
         handoff: caps.handoff,
@@ -98,7 +132,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
                 ..InvestigateSettings::default()
             },
         }),
-        autonomy: None,
+        autonomy: Some(autonomy),
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

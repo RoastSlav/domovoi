@@ -34,7 +34,7 @@ pub const PACKAGE_PREFIX: &str = "agent.package.";
 pub const STANDING_NOTES: [&str; 3] = [
     "No agent reports an unattended ceiling yet, so every recorded decision treats the ceiling as unavailable.",
     "Package installs are standalone jobs and are never evaluated by policy.",
-    "Nothing here is enforced: decisions are recorded for comparison only.",
+    "Published rules that name a service restart are enforced, within the pause switch, the circuit breaker and the limits. Every other rule is recorded for comparison only.",
 ];
 
 /// What the policy service is built from.
@@ -179,6 +179,15 @@ pub enum PolicyCommandError {
     /// The version does not exist.
     #[error("not found")]
     NotFound,
+    /// The request is not valid; the text says why.
+    #[error("{0}")]
+    BadRequest(String),
+    /// The state does not allow this now; the text says why.
+    #[error("{0}")]
+    Conflict(String),
+    /// This hub does not run unattended execution.
+    #[error("unattended execution is not set up on this hub")]
+    Unavailable,
     /// A read failed.
     #[error(transparent)]
     Store(#[from] StoreError),
