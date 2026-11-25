@@ -4,6 +4,7 @@
 //! algorithm; the hub uses the same functions to compute what a block would overlap, so the two
 //! cannot drift. See ADR 0038.
 
+mod dispatch;
 mod exclusion;
 mod gate;
 mod ip;
@@ -13,6 +14,7 @@ mod net;
 pub mod templates;
 mod tokens;
 
+pub use dispatch::{BlockSpec, ContainCall, ContainDispatch, ContainOutputs, DispatchError};
 pub use exclusion::{
     ExclusionInputs, ExclusionRefusal, TargetPolicy, TargetRefusal, check_target, coalesce,
     effective_exclusions, fixed_exclusions,
@@ -30,5 +32,7 @@ pub use tokens::{
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_dispatch;
 #[cfg(test)]
 mod tests_templates;
