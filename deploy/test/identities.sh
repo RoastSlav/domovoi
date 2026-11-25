@@ -194,7 +194,10 @@ except OSError as e:
 if op == "hold":
     time.sleep(float(sys.argv[2]))
     sys.exit(0)
-body = json.dumps({"v": 1, "id": str(uuid.uuid4()), "request": {"op": op}}).encode()
+request = {"op": op}
+if len(sys.argv) > 2:
+    request.update(json.loads(sys.argv[2]))
+body = json.dumps({"v": 1, "id": str(uuid.uuid4()), "request": request}).encode()
 try:
     s.sendall(struct.pack(">I", len(body)) + body)
 except OSError:
@@ -219,7 +222,8 @@ except OSError as e:
     sys.exit(4)
 print(json.dumps(json.loads(buf)["response"], sort_keys=True, separators=(",", ":")))
 PY
-helper_call() { runuser -u "$1" -- python3 "$work/client.py" "$2" 2>&1; }
+# The optional third argument is a JSON object of the request's other fields.
+helper_call() { runuser -u "$1" -- python3 "$work/client.py" "$2" ${3:+"$3"} 2>&1; }
 
 case "$(uname -m)" in
 x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;
@@ -470,6 +474,140 @@ row_begin helper_unit_starts_under_the_shipped_directives
 )
 row_end $?
 
+# The read operations (ADR 0036): the widened unit, SMART, the kernel log, listening sockets and
+# Docker through the real socket. These rows change a sysctl value and start a listener under a
+# probe account; both are put back by the row that changed them.
+row_begin helper_unit_starts_under_the_widened_directives
+(
+    set -e
+    answer="$(helper_call domovoi-agent health || true)"
+    case "$answer" in *'"result":"health"'*) ;; *) die "no health answer: $answer" ;; esac
+    # A connection that sends nothing keeps one instance alive, so its capabilities can be read.
+    runuser -u domovoi-agent -- python3 "$work/client.py" hold 4 >/dev/null 2>&1 &
+    hold_pid=$!
+    sleep 1
+    instance="$(systemctl list-units --plain --no-legend 'domovoi-helper@*.service' | awk 'NR==1 {print $1}')"
+    [ -n "$instance" ] || die "no helper instance is running while a connection is open"
+    main_pid="$(systemctl show -p MainPID --value "$instance")"
+    cap_eff="$(awk '/^CapEff:/ {print $2}' "/proc/$main_pid/status")"
+    want="$(python3 -c 'print("%016x" % sum(1 << n for n in (2, 12, 17, 19, 21, 34)))')"
+    wait "$hold_pid" 2>/dev/null || true
+    expect_eq "CapEff of a helper instance" "$cap_eff" "$want"
+    if journalctl --no-pager -u 'domovoi-helper@*' 2>/dev/null | grep -Eq '226/NAMESPACE|status=226'; then die "an instance failed to set up its namespace"; fi
+    if systemctl list-units --failed --plain --no-legend 'domovoi-helper@*' | grep -q .; then die "a helper instance is left failed"; fi
+)
+row_end $?
+
+row_begin helper_smart_report_runs_in_the_shipped_unit
+(
+    set -e
+    answer="$(helper_call domovoi-agent smart_scan || true)"
+    case "$answer" in
+    *'"result":"smart_scan"'*) ;;
+    *'"token":"tool_missing"'*) printf '    note: smartctl is not installed here\n' >&2 ;;
+    *) die "smart_scan was neither a scan nor tool_missing: $answer" ;;
+    esac
+    if systemctl list-units --failed --plain --no-legend 'domovoi-helper@*' | grep -q .; then die "a helper instance failed"; fi
+    device="$(printf '%s' "$answer" | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin).get("devices", [])
+except ValueError:
+    d = []
+print(d[0] if d else "")')"
+    [ -n "$device" ] || skip_row "no SMART device is visible here; run it on a host with a disk that answers smartctl"
+    report="$(helper_call domovoi-agent smart_report "{\"device\":\"$device\"}" || true)"
+    case "$report" in *'"result":"smart_report"'*) ;; *) die "smart_report for $device: $report" ;; esac
+    printf '%s' "$report" | python3 -c 'import json,sys; json.loads(json.load(sys.stdin)["json"])' || die "the report is not smartctl JSON"
+    # Record whether this device also answers without CAP_SYS_ADMIN (decision OD-1).
+    dropin=/etc/systemd/system/domovoi-helper@.service.d
+    trap 'rm -rf "$dropin"; systemctl daemon-reload' EXIT
+    mkdir -p "$dropin"
+    printf '[Service]\nCapabilityBoundingSet=\nCapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_RAWIO CAP_SYSLOG CAP_SYS_PTRACE CAP_DAC_READ_SEARCH\n' >"$dropin/zz-nosysadmin.conf"
+    systemctl daemon-reload
+    without="$(helper_call domovoi-agent smart_report "{\"device\":\"$device\"}" || true)"
+    case "$without" in
+    *'"result":"smart_report"'*) printf '    measured: %s answers smartctl without CAP_SYS_ADMIN\n' "$device" >&2 ;;
+    *) printf '    measured: %s needs CAP_SYS_ADMIN (%s)\n' "$device" "$without" >&2 ;;
+    esac
+)
+row_end $?
+
+row_begin helper_kernel_log_reads_with_dmesg_restrict_on
+(
+    set -e
+    command -v dmesg >/dev/null 2>&1 || skip_row "dmesg is not installed"
+    old="$(sysctl -n kernel.dmesg_restrict 2>/dev/null)" || skip_row "kernel.dmesg_restrict is not readable here"
+    trap 'sysctl -qw kernel.dmesg_restrict="$old"' EXIT
+    sysctl -qw kernel.dmesg_restrict=1
+    if runuser -u domovoi-agent -- dmesg >/dev/null 2>&1; then die "the agent account can read the ring buffer itself"; fi
+    answer="$(helper_call domovoi-agent kernel_log '{"since_minutes":1440,"lines":50}' || true)"
+    case "$answer" in *'"result":"kernel_log"'*) ;; *) die "no kernel log answer: $answer" ;; esac
+)
+row_end $?
+
+row_begin helper_net_listeners_show_the_owning_process_of_another_user
+(
+    set -e
+    probe_user domovoi-probe-ci-listen
+    listener=""
+    trap '[ -z "$listener" ] || kill "$listener" 2>/dev/null || true' EXIT
+    runuser -u domovoi-probe-ci-listen -- python3 -c 'import socket,time
+s = socket.socket()
+s.bind(("127.0.0.1", 18791))
+s.listen(1)
+time.sleep(30)' >/dev/null 2>&1 &
+    listener=$!
+    sleep 1
+    answer="$(helper_call domovoi-agent net_listeners || true)"
+    case "$answer" in *'"result":"net_listeners"'*) ;; *) die "no listener answer: $answer" ;; esac
+    printf '%s' "$answer" | python3 -c 'import json,sys
+rows = json.load(sys.stdin)["listeners"]
+sys.exit(0 if any(r["port"] == 18791 and r.get("process", "").startswith("python") for r in rows) else 1)' || die "the helper did not name the process listening on 18791: $answer"
+)
+row_end $?
+
+row_begin helper_docker_read_works_through_the_real_socket_as_domovoi_agent
+(
+    set -e
+    sock=/var/run/docker.sock
+    [ -S "$sock" ] || skip_row "no Docker socket on this host; run it where Docker is installed"
+    if runuser -u domovoi-agent -- python3 -c 'import socket,sys
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])' "$sock" 2>/dev/null; then die "the agent account can open the Docker socket (ST-16)"; fi
+    answer="$(helper_call domovoi-agent docker_list || true)"
+    case "$answer" in *'"result":"docker_containers"'*) ;; *) die "no container list: $answer" ;; esac
+)
+row_end $?
+
+row_begin agent_with_boundary_in_effect_reads_docker_and_smart_through_the_helper
+(
+    set -e
+    "$installed_bin" agent selftest --installer >"$work/selftest.out" 2>&1 || true
+    grep -q '^ST-01 pass' "$work/selftest.out" || die "ST-01 did not pass"
+    grep -q '^boundary: ' "$work/selftest.out" || die "the report has no boundary line"
+    answer="$(helper_call domovoi-agent smart_scan || true)"
+    case "$answer" in *'"result":"smart_scan"'* | *'"token":"tool_missing"'*) ;; *) die "no typed smart answer: $answer" ;; esac
+    answer="$(helper_call domovoi-agent docker_probe || true)"
+    case "$answer" in *'"result":"docker_engine"'* | *'"token":"engine_absent"'*) ;; *) die "no typed docker answer: $answer" ;; esac
+)
+row_end $?
+
+row_begin selftest_still_passes_on_a_clean_host_with_the_widened_unit
+(
+    set -e
+    "$installed_bin" agent selftest --installer >"$work/selftest.out" 2>&1 || true
+    for check in ST-01 ST-02 ST-07 ST-12 ST-15; do
+        grep -q "^$check pass" "$work/selftest.out" || {
+            sed 's/^/    | /' "$work/selftest.out" >&2
+            die "$check did not pass with the widened unit"
+        }
+    done
+    for check in ST-10 ST-11 ST-16; do
+        grep -Eq "^$check (nd|pass)" "$work/selftest.out" || die "$check is neither nd nor pass"
+    done
+)
+row_end $?
+
 row_begin real_user_skill_cannot_connect_to_helper_socket
 (
     set -e
@@ -566,6 +704,16 @@ row_begin privileged_rust_tests
     command -v cargo >/dev/null 2>&1 || skip_row "cargo is not on root's PATH; run with sudo env PATH=\$PATH"
     cd "$root"
     DOMOVOI_BIN="$bin_src" cargo test -p domovoi-helper --test privileged -- --ignored
+)
+row_end $?
+
+row_begin privileged_read_rust_tests
+(
+    set -e
+    [ -f "$root/crates/domovoi-helper/tests/privileged_reads.rs" ] || skip_row "crates/domovoi-helper/tests/privileged_reads.rs does not exist"
+    command -v cargo >/dev/null 2>&1 || skip_row "cargo is not on root's PATH; run with sudo env PATH=\$PATH"
+    cd "$root"
+    DOMOVOI_BIN="$bin_src" cargo test -p domovoi-helper --test privileged_reads -- --ignored
 )
 row_end $?
 wipe_host
