@@ -24,6 +24,8 @@ mod parse;
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
+use domovoi_core::helper::read::DeviceRef;
+use domovoi_core::ports::PrivilegedError;
 use domovoi_core::{CheckKey, Severity, SignalClass, ValidationError};
 use jiff::SignedDuration;
 
@@ -225,6 +227,37 @@ pub fn evaluate(device: &str, report: &Report, baselines: &mut Baselines) -> Vec
     out
 }
 
+/// The device names to check: from the helper's allowlisted scan when a privileged port is
+/// present, else from `smartctl --scan-open`.
+async fn scan_devices(ctx: &mut CheckContext<'_>) -> Result<Vec<String>, CheckError> {
+    if let Some(port) = ctx.privileged {
+        let devices = port.smart_scan().await.map_err(helper_error)?;
+        return Ok(devices.iter().map(|d| d.as_str().to_owned()).collect());
+    }
+    let scan_output = run_command(ctx, ctx.commands.smartctl_scan()?).await?;
+    let scan = parse_scan(&scan_output.stdout).ok_or_else(|| CheckError::Parse {
+        what: "smartctl --scan-open",
+        reason: "not the expected JSON".to_owned(),
+    })?;
+    Ok(scan.devices.into_iter().map(|d| d.name).collect())
+}
+
+/// The `smartctl --all` JSON of `path`, through the helper when a privileged port is present.
+async fn report_text(ctx: &mut CheckContext<'_>, path: &DevicePath) -> Result<String, CheckError> {
+    if let Some(port) = ctx.privileged {
+        let device =
+            DeviceRef::parse(path.as_str()).map_err(|err| CheckError::Helper(err.to_string()))?;
+        let output = port.smart_report(&device).await.map_err(helper_error)?;
+        return Ok(output.json);
+    }
+    let output = run_command(ctx, ctx.commands.smartctl_all(path)?).await?;
+    Ok(output.stdout)
+}
+
+fn helper_error(err: PrivilegedError) -> CheckError {
+    CheckError::Helper(err.to_string())
+}
+
 #[async_trait]
 impl Check for SmartHealth {
     fn key(&self) -> CheckKey {
@@ -240,21 +273,17 @@ impl Check for SmartHealth {
     }
 
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
-        let scan_output = run_command(ctx, ctx.commands.smartctl_scan()?).await?;
-        let scan = parse_scan(&scan_output.stdout).ok_or_else(|| CheckError::Parse {
-            what: "smartctl --scan-open",
-            reason: "not the expected JSON".to_owned(),
-        })?;
+        let names = scan_devices(ctx).await?;
         let now = ctx.clock.now();
         let mut baselines: Baselines = load_json(ctx.state, COUNTERS_STATE);
         let mut out = CheckReport::default();
-        for device in scan.devices.iter().take(MAX_DEVICES) {
-            let Ok(path) = DevicePath::parse(&device.name) else {
-                tracing::warn!(device = device.name, "skipping a device with an odd name");
+        for name in names.iter().take(MAX_DEVICES) {
+            let Ok(path) = DevicePath::parse(name) else {
+                tracing::warn!(device = name, "skipping a device with an odd name");
                 continue;
             };
-            let output = run_command(ctx, ctx.commands.smartctl_all(&path)?).await?;
-            let Some(report) = parse_report(&output.stdout).filter(Report::has_data) else {
+            let text = report_text(ctx, &path).await?;
+            let Some(report) = parse_report(&text).filter(Report::has_data) else {
                 tracing::debug!(
                     device = path.as_str(),
                     "no SMART data (standby or unreadable)"

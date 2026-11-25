@@ -201,6 +201,7 @@ mod common {
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
             logs: None,
             boundary_in_effect: false,
+            privileged: None,
             skills: SkillRoute::Legacy(Arc::new(FakeProcessExecutor::new())),
         };
         let runtime = AgentRuntime::new(config, deps).await.unwrap();

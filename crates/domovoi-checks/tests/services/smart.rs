@@ -1,7 +1,13 @@
 //! SMART counters fire on increase, device conditions fire on state.
 
+use std::sync::Arc;
+
+use domovoi_checks::framework::CheckError;
 use domovoi_checks::smart::{SmartHealth, acknowledge};
+use domovoi_core::helper::read::{DeviceRef, ReadToken, SmartReportOutput};
+use domovoi_core::ports::PrivilegedError;
 use domovoi_core::{FactValue, Severity};
+use domovoi_testkit::{FakePrivilegedReads, PrivilegedCall, PrivilegedScript};
 
 use crate::harness::{
     Harness, assert_firing, assert_ok, find, firing_targets, number, output, read_fixture, text,
@@ -147,4 +153,93 @@ async fn standby_disk_is_skipped() {
             .is_some_and(|t| t.as_str().starts_with("/dev/sda"))
     }));
     assert_ok(&report, "/dev/nvme0");
+}
+
+const ONE_DISK: &str = r#"{"devices":[{"name":"/dev/sda","protocol":"ATA"}]}"#;
+
+fn port(report: Result<SmartReportOutput, PrivilegedError>) -> Arc<FakePrivilegedReads> {
+    Arc::new(FakePrivilegedReads::new(PrivilegedScript {
+        scan: Ok(vec![DeviceRef::parse("/dev/sda").unwrap()]),
+        report,
+        ..PrivilegedScript::default()
+    }))
+}
+
+#[tokio::test]
+async fn smart_check_observations_are_identical_through_the_helper_port() {
+    let check = SmartHealth::new().unwrap();
+    let json = read_fixture("smart/ata.json");
+
+    let mut direct = Harness::new("proc/ports_base").await;
+    direct
+        .exec
+        .expect(SMARTCTL, &["--scan-open", "--json"], output(ONE_DISK));
+    direct
+        .exec
+        .expect(SMARTCTL, &all("/dev/sda"), output(&json));
+    let expected = direct.run(&check).await;
+
+    let mut helped = Harness::new("proc/ports_base").await;
+    let fake = port(Ok(SmartReportOutput {
+        json,
+        exit_code: Some(0),
+        truncated: false,
+    }));
+    helped.privileged = Some(fake.clone());
+    let actual = helped.run(&check).await;
+
+    assert_eq!(
+        format!("{:?}", actual.observations),
+        format!("{:?}", expected.observations)
+    );
+    assert_eq!(
+        format!("{:?}", actual.facts),
+        format!("{:?}", expected.facts)
+    );
+    assert_eq!(
+        helped.exec.calls().len(),
+        0,
+        "no smartctl on the helper path"
+    );
+    assert_eq!(
+        fake.calls(),
+        vec![
+            PrivilegedCall::SmartScan,
+            PrivilegedCall::SmartReport("/dev/sda".to_owned())
+        ]
+    );
+}
+
+#[tokio::test]
+async fn smart_check_without_a_privileged_port_runs_the_existing_commands() {
+    let check = SmartHealth::new().unwrap();
+    let mut h = harness("ata", "nvme").await;
+    assert!(h.privileged.is_none());
+    let report = h.run(&check).await;
+    assert_ok(&report, "/dev/sda");
+    assert_eq!(
+        h.exec.calls().len(),
+        3,
+        "one scan and one report per device"
+    );
+}
+
+#[tokio::test]
+async fn smart_check_maps_helper_errors_to_a_check_error() {
+    let check = SmartHealth::new().unwrap();
+    let mut h = Harness::new("proc/ports_base").await;
+    h.privileged = Some(port(Err(PrivilegedError::Failed(ReadToken::ToolMissing))));
+    let err = h.try_run(&check).await.unwrap_err();
+    assert_eq!(
+        err,
+        CheckError::Helper("the read failed: tool_missing".to_owned())
+    );
+    assert!(h.exec.calls().is_empty());
+
+    h.privileged = Some(Arc::new(FakePrivilegedReads::new(PrivilegedScript {
+        scan: Err(PrivilegedError::HelperMissing),
+        ..PrivilegedScript::default()
+    })));
+    let err = h.try_run(&check).await.unwrap_err();
+    assert!(matches!(err, CheckError::Helper(text) if text.contains("not installed")));
 }

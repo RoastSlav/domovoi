@@ -17,7 +17,7 @@ use domovoi_checks::framework::{
     Check, CheckContext, CheckError, CheckReport, CheckSettings, CheckState, number_fact,
     run_bounded,
 };
-use domovoi_core::ports::{Clock, HostFs, ProcessExecutor};
+use domovoi_core::ports::{Clock, HostFs, PrivilegedReads, ProcessExecutor};
 use domovoi_core::{CheckKey, DigestFact, HostId, Signal, SourceKind, TargetKey};
 use domovoi_proto::Message;
 use domovoi_proto::messages::DigestFacts;
@@ -52,6 +52,9 @@ pub struct CheckEnv {
     /// Per-check settings in effect, which change when the hub sends overrides; a check
     /// without an entry uses the defaults.
     pub settings: crate::overrides::SettingsView,
+    /// Reads served by the helper when the privilege boundary is in effect; `None` runs the
+    /// checks' own commands.
+    pub privileged: Option<Arc<dyn PrivilegedReads>>,
 }
 
 impl CheckEnv {
@@ -79,6 +82,7 @@ impl CheckEnv {
             commands: &self.commands,
             clock: &*self.clock,
             settings: &settings,
+            privileged: self.privileged.as_deref(),
             state: &mut state,
         };
         let report = run_bounded(check, &mut ctx).await;

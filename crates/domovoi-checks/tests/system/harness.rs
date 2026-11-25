@@ -60,6 +60,7 @@ impl Harness {
             commands: &self.commands,
             clock: &*self.clock,
             settings: &self.settings,
+            privileged: None,
             state: &mut self.state,
         };
         run_bounded(check, &mut ctx).await

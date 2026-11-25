@@ -82,14 +82,15 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             logs.set_redactor(redactor.clone());
             // INV-2: the runner's sandbox is the agent's only way to start a process.
             let executor = Arc::new(SandboxExecutor::new(redactor.clone()));
-            let deps = production::deps(
+            let deps = production::deps_with_boundary(
                 &config,
                 executor,
                 Arc::new(SystemClock),
                 redactor,
                 Some(logs),
-            )?
-            .with_boundary_in_effect(boundary_in_effect());
+                boundary_in_effect(),
+            )
+            .await?;
             let agent = AgentRuntime::new(config, deps).await?;
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)

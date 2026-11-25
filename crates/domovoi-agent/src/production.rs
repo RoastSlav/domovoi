@@ -7,27 +7,25 @@ use domovoi_checks::containers::{ContainerSource, Detection, detect};
 use domovoi_checks::hostfs::RealHostFs;
 use domovoi_checks::system::RealFsStats;
 use domovoi_config::{AgentConfig, DockerMode};
-use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
+use domovoi_core::ports::{Clock, HostFs, LogSource, PrivilegedReads, ProcessExecutor, Redactor};
 
 use crate::docker::{self, DockerControl};
 use crate::error::AgentError;
+use crate::helper_client::HelperReads;
 use crate::runtime::AgentDeps;
 use crate::skill_runner::{ExpectedDirs, RunnerClient, RunnerRoute, SkillRoute};
 
-/// Production [`AgentDeps`]: files and filesystem usage under `[agent] host_root`, check
-/// tools from the agent's own filesystem (where they run), and the container runtime found
-/// at start-up, or at `[docker] endpoint` (ADR 0018).
-pub fn deps(
-    config: &AgentConfig,
-    executor: Arc<dyn ProcessExecutor>,
-    clock: Arc<dyn Clock>,
-    redactor: Arc<dyn Redactor>,
-    logs: Option<Arc<dyn LogSource>>,
-) -> Result<AgentDeps, AgentError> {
-    let root = &config.agent.host_root;
+/// The container runtime as the agent will use it: the switch and the source behind it.
+struct DockerSetup {
+    control: DockerControl,
+    source: Option<Arc<dyn ContainerSource>>,
+}
+
+/// Looks for an engine on this host's own sockets, or at `[docker] endpoint`, and connects
+/// to it. Looked for on every start, never remembered: an engine installed since the last
+/// run is picked up by restarting the agent.
+fn direct_docker(config: &AgentConfig) -> Result<DockerSetup, AgentError> {
     let mode = config.docker.enabled;
-    // Looked for on every start, never remembered: an engine installed since the last run
-    // is picked up by restarting the agent.
     let detection = (mode != DockerMode::Off).then(|| {
         detect(
             config.docker.endpoint.as_deref(),
@@ -36,7 +34,7 @@ pub fn deps(
     });
     let control = DockerControl::new(mode, detection.as_ref());
     log_detection(mode, detection.as_ref());
-    let container_source: Option<Arc<dyn ContainerSource>> =
+    let source =
         match docker::endpoint_for(mode, config.docker.endpoint.as_deref(), detection.as_ref()) {
             Some(endpoint) => {
                 let source = docker::connect(&endpoint)
@@ -45,25 +43,128 @@ pub fn deps(
             }
             None => None,
         };
+    Ok(DockerSetup { control, source })
+}
+
+/// Whether the owner pointed `[docker] endpoint` at a network socket (a proxy), which is not
+/// root-equivalent access and so stays a direct connection under the boundary (ADR 0018).
+fn owner_network_endpoint(config: &AgentConfig) -> bool {
+    config
+        .docker
+        .endpoint
+        .as_deref()
+        .is_some_and(|e| e.starts_with("tcp://") || e.starts_with("http://"))
+}
+
+/// The container runtime asked of the helper, which holds the engine socket the agent cannot
+/// open. Nothing here falls back to a direct socket.
+async fn helper_docker(config: &AgentConfig, helper: &HelperReads) -> DockerSetup {
+    let mode = config.docker.enabled;
+    let detection = match mode {
+        DockerMode::Off => None,
+        _ => Some(helper.detect_docker().await),
+    };
+    let control = DockerControl::new(mode, detection.as_ref());
+    log_detection(mode, detection.as_ref());
+    let source = control
+        .report()
+        .available
+        .then(|| control.gate(helper.container_source()));
+    DockerSetup { control, source }
+}
+
+/// Production [`AgentDeps`] for an agent whose privilege boundary is not in effect (a root
+/// agent, a container, single-box mode): files and filesystem usage under `[agent]
+/// host_root`, check tools from the agent's own filesystem (where they run), and the
+/// container runtime found at start-up, or at `[docker] endpoint` (ADR 0018).
+pub fn deps(
+    config: &AgentConfig,
+    executor: Arc<dyn ProcessExecutor>,
+    clock: Arc<dyn Clock>,
+    redactor: Arc<dyn Redactor>,
+    logs: Option<Arc<dyn LogSource>>,
+) -> Result<AgentDeps, AgentError> {
+    let docker = direct_docker(config)?;
+    Ok(assemble(
+        config, executor, clock, redactor, logs, docker, None,
+    ))
+}
+
+/// [`deps`], or with the boundary in effect [`deps_via_helper`] over the helper socket.
+pub async fn deps_with_boundary(
+    config: &AgentConfig,
+    executor: Arc<dyn ProcessExecutor>,
+    clock: Arc<dyn Clock>,
+    redactor: Arc<dyn Redactor>,
+    logs: Option<Arc<dyn LogSource>>,
+    boundary_in_effect: bool,
+) -> Result<AgentDeps, AgentError> {
+    if boundary_in_effect {
+        let helper = HelperReads::default_path(clock.clone());
+        deps_via_helper(config, executor, clock, redactor, logs, &helper).await
+    } else {
+        deps(config, executor, clock, redactor, logs)
+    }
+}
+
+/// Production [`AgentDeps`] for an agent whose privilege boundary is in effect: containers,
+/// SMART, the kernel-log fallback and the listening-port owners are read through `helper`,
+/// never through a unix socket or a privileged command of the agent's own. An owner-set
+/// `tcp://` or `http://` `[docker] endpoint` keeps its direct connection.
+pub async fn deps_via_helper(
+    config: &AgentConfig,
+    executor: Arc<dyn ProcessExecutor>,
+    clock: Arc<dyn Clock>,
+    redactor: Arc<dyn Redactor>,
+    logs: Option<Arc<dyn LogSource>>,
+    helper: &HelperReads,
+) -> Result<AgentDeps, AgentError> {
+    let docker = if owner_network_endpoint(config) {
+        direct_docker(config)?
+    } else {
+        helper_docker(config, helper).await
+    };
+    Ok(assemble(
+        config,
+        executor,
+        clock,
+        redactor,
+        logs,
+        docker,
+        Some(helper.privileged()),
+    ))
+}
+
+fn assemble(
+    config: &AgentConfig,
+    executor: Arc<dyn ProcessExecutor>,
+    clock: Arc<dyn Clock>,
+    redactor: Arc<dyn Redactor>,
+    logs: Option<Arc<dyn LogSource>>,
+    docker: DockerSetup,
+    privileged: Option<Arc<dyn PrivilegedReads>>,
+) -> AgentDeps {
+    let root = &config.agent.host_root;
     let skills = skill_route(
         config,
         executor.clone(),
         clock.clone(),
         crate::runtime::runs_as_root(),
     );
-    Ok(AgentDeps {
+    AgentDeps {
         clock,
         executor,
         hostfs: Arc::new(RealHostFs::new(root.clone())),
         toolfs: Arc::new(RealHostFs::new("/")),
         fs_stats: Arc::new(RealFsStats::new(root.clone())),
-        container_source,
-        docker: Some(control),
+        container_source: docker.source,
+        docker: Some(docker.control),
         redactor,
         logs,
-        boundary_in_effect: false,
+        boundary_in_effect: privileged.is_some(),
+        privileged,
         skills,
-    })
+    }
 }
 
 /// How this agent executes skills. An agent running as root (`euid_is_root`: the privilege

@@ -92,6 +92,7 @@ impl Fixture {
             commands: commands.clone(),
             clock: self.clock.clone(),
             settings: domovoi_agent::overrides::fixed(BTreeMap::new()),
+            privileged: None,
         };
         RequestCtx {
             host_id: self.host_id,
@@ -114,6 +115,7 @@ impl Fixture {
             helper: domovoi_agent::helper_client::HelperRelay::new(
                 self.dir.path().join("no-helper.sock"),
             ),
+            privileged: None,
         }
     }
 }
