@@ -6,7 +6,7 @@
 //! helper (root) signs a report of the effective safety set, the agent relays the bytes
 //! unchanged, and the hub verifies them against the pinned key only.
 //!
-//! Verification follows a fixed order ([`verify`]): decode, pin, signature over the received
+//! Verification follows a fixed order (the `verify` module): decode, pin, signature over the received
 //! bytes, parse, hashes, nonce (consumed late), signed-incomplete, generation, high-water
 //! mark. Trust follows the latest outcome; no per-host flag stays set once an honest report
 //! arrives.
