@@ -4,9 +4,13 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use async_trait::async_trait;
 use domovoi_core::HostId;
 use domovoi_core::attest::Nonce32;
-use domovoi_core::ports::{AttestationReply, HelperReport, LinkError};
+use domovoi_core::ports::{
+    AgentLink, AttestationReply, HelperRelay, HelperReport, LinkError, Presence,
+};
+use jiff::Timestamp;
 
 use super::FakeAgentLink;
 use crate::lock;
@@ -60,5 +64,25 @@ impl FakeAgentLink {
     #[must_use]
     pub fn attestation_requests(&self) -> Vec<(HostId, Nonce32)> {
         lock(&self.attest.asked).clone()
+    }
+}
+
+#[async_trait]
+impl HelperRelay for FakeAgentLink {
+    async fn ask(
+        &self,
+        host: HostId,
+        nonce: Nonce32,
+        deadline: Timestamp,
+    ) -> Result<AttestationReply, LinkError> {
+        AgentLink::attest_safety(self, host, nonce, deadline).await
+    }
+
+    fn report(&self, host: HostId) -> Option<HelperReport> {
+        AgentLink::helper_report(self, host)
+    }
+
+    fn connected(&self, host: HostId) -> bool {
+        matches!(AgentLink::presence(self, host), Presence::Connected { .. })
     }
 }
