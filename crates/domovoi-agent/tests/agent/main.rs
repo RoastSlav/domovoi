@@ -57,3 +57,6 @@ mod skill_runner_requests;
 mod skill_runner_status;
 #[cfg(test)]
 mod spool;
+#[cfg(test)]
+#[cfg(target_os = "linux")]
+mod unit_capability;

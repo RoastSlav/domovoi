@@ -116,3 +116,26 @@ impl ReadGroup {
         }
     }
 }
+
+/// Whether a write group may be served on this platform: the platform record must be sound and
+/// not blocked, and an untested platform needs the owner's per-host opt-in. The one truth
+/// table, shared by the helper (to refuse) and the agent (to say what the helper offers).
+///
+/// # Errors
+/// `PlatformBlocked` without a sound record or on a blocked tier; `WriteGroupNeedsOptIn` on an
+/// untested tier without the opt-in.
+pub fn write_tier_gate(
+    record: crate::isolation::PlatformRecordState,
+    tier: crate::isolation::PlatformTier,
+    write_opt_in: bool,
+) -> Result<(), super::UnavailableReason> {
+    use crate::isolation::{PlatformRecordState, PlatformTier};
+    match (record, tier) {
+        (PlatformRecordState::Ok, PlatformTier::Supported) => Ok(()),
+        (PlatformRecordState::Ok, PlatformTier::Untested) if write_opt_in => Ok(()),
+        (PlatformRecordState::Ok, PlatformTier::Untested) => {
+            Err(super::UnavailableReason::WriteGroupNeedsOptIn)
+        }
+        _ => Err(super::UnavailableReason::PlatformBlocked),
+    }
+}

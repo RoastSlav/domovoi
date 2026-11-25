@@ -39,12 +39,20 @@ pub async fn restart(
 
     // 3: the id must be the manager's id for that name; every refusal applies; then compare.
     let name = UnitName::parse(id.as_str()).map_err(|_| UnitRefusal::ReadFailed)?;
-    let identity = resolve_identity(&name, env.sys, env.fs, env.policy).await?;
-    if identity.id != *id {
+    // First: the id on the request must be the manager's id for that name, before any other
+    // rule runs, so an alias that now means another unit is `target_changed`, not a verdict
+    // about the unit it moved to.
+    let reported = env
+        .sys
+        .load_unit(&name)
+        .await
+        .map_err(|_| UnitRefusal::ReadFailed)?;
+    if reported.id != id.as_str() {
         return Err(UnitRefusal::TargetChanged {
             field: "id".to_owned(),
         });
     }
+    let identity = resolve_identity(&name, env.sys, env.fs, env.policy).await?;
     compare_identity(hash, &identity)?;
     // The bound properties the post-restart check compares the new process with.
     let bound = env

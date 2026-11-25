@@ -82,14 +82,7 @@ pub fn write_gate(
     {
         return Err(UnavailableReason::GroupDisabled);
     }
-    match (state, tier) {
-        (PlatformRecordState::Ok, PlatformTier::Supported) => Ok(()),
-        (PlatformRecordState::Ok, PlatformTier::Untested) if config.write_opt_in() => Ok(()),
-        (PlatformRecordState::Ok, PlatformTier::Untested) => {
-            Err(UnavailableReason::WriteGroupNeedsOptIn)
-        }
-        _ => Err(UnavailableReason::PlatformBlocked),
-    }
+    domovoi_core::helper::write_tier_gate(state, tier, config.write_opt_in())
 }
 
 /// An allowlist entry whose canonical id differs from what was written is a config error

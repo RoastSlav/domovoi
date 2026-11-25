@@ -116,6 +116,7 @@ impl Fixture {
                 self.dir.path().join("no-helper.sock"),
             ),
             privileged: None,
+            ceiling: None,
         }
     }
 }

@@ -177,6 +177,25 @@ async fn alias_retarget_after_approval_refuses_with_target_changed_on_id() {
 }
 
 #[tokio::test]
+async fn an_alias_that_now_resolves_to_a_disallowed_unit_is_target_changed_on_id() {
+    let f = Fixture::new();
+    let env = f.env(10);
+    let approved = hash(&env).await;
+    // The manager now says `alias.service` is `other.service`, which is not on the allowlist.
+    f.world.with(|s| {
+        s.renamed
+            .insert("alias.service".to_owned(), "other.service".to_owned())
+    });
+    let request = HelperRequest::UnitRestart {
+        id: UnitId::parse("alias.service").expect("id"),
+        identity_hash: approved,
+    };
+    let response = run(&request, &env, TIMEOUT, None, "unit_restart").await;
+    assert_eq!(refused(&response), ("target_changed", Some("id")));
+    assert!(f.world.calls().is_empty());
+}
+
+#[tokio::test]
 async fn helper_restart_budget_prevents_start_limit() {
     let f = Fixture::new();
     f.world.with(|s| s.loaded.start_limit_burst = 3);

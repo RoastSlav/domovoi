@@ -11,6 +11,7 @@ mod catalog;
 mod overview;
 mod skills;
 mod tools;
+mod unit;
 
 use std::sync::Arc;
 
@@ -114,6 +115,9 @@ pub struct RequestCtx {
     /// Kernel-log and listening-socket reads served by the helper when the privilege boundary
     /// is in effect; `None` keeps the direct paths.
     pub privileged: Option<Arc<dyn PrivilegedReads>>,
+    /// The unattended ceiling from `agent.toml [unattended]`; `None` accepts no
+    /// policy-labelled request.
+    pub ceiling: Option<Arc<crate::unattended::Ceiling>>,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.

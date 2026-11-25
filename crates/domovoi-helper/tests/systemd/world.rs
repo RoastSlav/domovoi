@@ -28,6 +28,8 @@ pub struct State {
     pub restarted: bool,
     pub calls: Vec<ProcessSpec>,
     pub service_reads: u32,
+    /// Names the manager answers with another unit's id: name to reported `Id`.
+    pub renamed: BTreeMap<String, String>,
 }
 
 #[cfg(test)]
@@ -92,6 +94,7 @@ impl World {
                 restarted: false,
                 calls: Vec::new(),
                 service_reads: 0,
+                renamed: BTreeMap::new(),
             }),
         }
     }
@@ -107,8 +110,15 @@ impl World {
 
 #[async_trait]
 impl SystemdView for World {
-    async fn load_unit(&self, _: &UnitName) -> Result<UnitProps, ViewError> {
-        Ok(self.with(|s| s.props.clone()))
+    async fn load_unit(&self, name: &UnitName) -> Result<UnitProps, ViewError> {
+        Ok(self.with(|s| {
+            let mut props = s.props.clone();
+            if let Some(id) = s.renamed.get(name.as_str()) {
+                props.id.clone_from(id);
+                props.names.insert(id.clone());
+            }
+            props
+        }))
     }
     async fn service_props(&self, _: &UnitId) -> Result<LoadedProps, ViewError> {
         Ok(self.with(|s| {

@@ -99,9 +99,53 @@ async fn helper_status_is_ok_with_enabled_group_names() {
     assert_eq!(
         status,
         HelperStatus::Ok {
-            ops: vec!["docker.read".to_owned(), "systemd.read".to_owned()]
+            ops: vec![
+                "docker.read".to_owned(),
+                "systemd.read".to_owned(),
+                // An enabled `systemd.read` also offers the identity read as an operation.
+                "unit.identity".to_owned()
+            ]
         }
     );
+}
+
+#[tokio::test]
+async fn unit_restart_is_offered_only_when_the_write_group_is_named_and_the_tier_allows() {
+    let offered = |tier: PlatformTier, opt_in: bool, record: PlatformRecordState, named: bool| {
+        let script: Script = Arc::new(move |request| match request {
+            HelperRequest::Groups => (
+                HELPER_PROTOCOL,
+                HelperResponse::Groups {
+                    enabled: vec![HelperGroup::SystemdRead],
+                    ignored: if named {
+                        vec![HelperGroup::SystemdWrite]
+                    } else {
+                        Vec::new()
+                    },
+                    write_opt_in: opt_in,
+                    platform_tier: tier,
+                    platform_record: record,
+                },
+            ),
+            _ => (HELPER_PROTOCOL, health(HELPER_PROTOCOL)),
+        });
+        async move {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("h.sock");
+            let _stub = serve_stub(&socket, script);
+            match probe_status(&HelperClient::new(&socket), &*clock()).await {
+                HelperStatus::Ok { ops } => ops.contains(&"unit.restart".to_owned()),
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    use PlatformRecordState::{Missing, Ok as Sound};
+    assert!(offered(PlatformTier::Supported, false, Sound, true).await);
+    assert!(offered(PlatformTier::Untested, true, Sound, true).await);
+    assert!(!offered(PlatformTier::Untested, false, Sound, true).await);
+    assert!(!offered(PlatformTier::Blocked, true, Sound, true).await);
+    assert!(!offered(PlatformTier::Supported, true, Missing, true).await);
+    assert!(!offered(PlatformTier::Supported, true, Sound, false).await);
 }
 
 #[tokio::test]
