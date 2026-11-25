@@ -7,6 +7,7 @@ mod delivery;
 mod dispatcher;
 mod error;
 pub(crate) mod every;
+mod helper;
 mod knowledge;
 mod local;
 mod lock;
@@ -163,7 +164,6 @@ impl HubRuntime {
         .await?;
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
-        let knowledge = knowledge::build(&store, &clock);
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
         let (bus, _) = broadcast::channel(capacity);
         let manager_shutdown = CancellationToken::new();
@@ -194,6 +194,8 @@ impl HubRuntime {
             },
         )?;
         let link: Arc<dyn AgentLink> = server.link();
+        let helper_hub = helper::hub(&store, caps::helper_relay(link.clone()), &clock);
+        let knowledge = knowledge::build(&store, &clock, helper_hub.clone());
         // The capability registry is the one place the compiled contracts, the agent's
         // catalogue, hub enablement, the skill floors and the ceiling meet (RW-10). The
         // engine gets it beside the narrow capabilities, never the link itself (ADR 0023).
@@ -258,7 +260,12 @@ impl HubRuntime {
             shutdown: &worker_shutdown,
         })
         .await?;
-        server.set_reconciler(packages::reconciler(operations.as_ref(), &packages.handle));
+        server.set_reconciler(packages::reconciler(
+            operations.as_ref(),
+            &packages.handle,
+            helper::on_hello(&helper_hub),
+        ));
+        helper::on_status(&server, &helper_hub);
         let public_url = support::public_url(&config)?;
         let (gateways, notifiers) = adapters::build_chat(&config, &clock, &public_url, &overrides)?;
         let identity = WebIdentity {
@@ -339,6 +346,7 @@ impl HubRuntime {
             ),
             conversations,
             settings: store.clone(),
+            helper_trust: helper::service(&helper_hub, &store, &auth, &clock),
             packages: crate::services::PackageCommands::new(crate::services::PackageDeps {
                 handle: packages.handle.clone(),
                 importer: packages.importer.clone(),
@@ -434,6 +442,7 @@ impl HubRuntime {
         let knowledge_task =
             knowledge::spawn_sweeper(knowledge, clock.clone(), intake_shutdown.clone());
         let profile_task = crate::profile::spawn(profile_deps, intake_shutdown.clone());
+        helper::schedule(helper_hub, &store, intake_shutdown.clone());
         Ok(Self {
             lock,
             auth,

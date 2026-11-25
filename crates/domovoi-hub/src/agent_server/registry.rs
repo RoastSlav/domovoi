@@ -36,7 +36,7 @@ mod reserved;
 /// What the hub knows about one host's agent.
 #[derive(Default)]
 pub(super) struct Entry {
-    live: Option<Live>,
+    pub(super) live: Option<Live>,
     last_seen: Option<Timestamp>,
     /// When this hub session last saw a live session end, if it ever had one.
     absent_since: Option<Timestamp>,
@@ -51,7 +51,7 @@ pub(crate) struct Registry {
 }
 
 impl Registry {
-    fn lock(&self) -> MutexGuard<'_, State> {
+    pub(super) fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 

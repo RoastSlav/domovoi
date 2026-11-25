@@ -1507,3 +1507,147 @@ fn audit_inspect_violations(sources: &[(String, String)]) -> Vec<String> {
     }
     out
 }
+
+/// The hub's production text of the file at `rel` under `src/`, or an empty string.
+fn hub_text(rel: &str) -> String {
+    let wanted = crate_path(rel);
+    hub_sources()
+        .into_iter()
+        .find(|(path, _)| *path == wanted)
+        .map(|(_, text)| text)
+        .unwrap_or_default()
+}
+
+/// ATTEST-1: a safety report is verified in one module, through one function that takes the
+/// pinned key. No other hub file names the signature check or a verifying key.
+#[test]
+fn attest_1_verify_strict_is_called_in_one_hub_module() {
+    let mut sites = Vec::new();
+    for (path, text) in hub_sources() {
+        if !path.contains("helper_trust") && !path.contains("api/helper") {
+            continue;
+        }
+        if text.contains("verify_strict") || text.contains("VerifyingKey") {
+            sites.push(path);
+        }
+    }
+    assert_eq!(sites, [crate_path("helper_trust/verify.rs")]);
+    let verify = hub_text("helper_trust/verify.rs");
+    assert_eq!(verify.matches(".verify_strict(").count(), 1);
+    assert!(
+        squeezed(&verify).contains("fnsignature_holds(pinned:&[u8;32]"),
+        "the signature check takes the pinned key"
+    );
+    // The verifier is the only code that builds a verified report.
+    for (path, text) in hub_sources() {
+        if path.contains("helper_trust") && !path.ends_with("verify.rs") {
+            assert!(
+                !text.contains("VerifiedReport {"),
+                "{path} builds a verified report"
+            );
+        }
+    }
+}
+
+/// ATTEST-2: the acceptance write is built in `accept.rs` only, from a verified report, which
+/// only the complete-report path of the verifier produces.
+#[test]
+fn attest_2_accept_is_built_only_in_accept_rs() {
+    let mut sites = Vec::new();
+    for (path, text) in hub_sources() {
+        let built = text.contains("HelperTrustWrite::Accept")
+            || (path.contains("helper_trust") && text.contains("Accepted {"));
+        if built {
+            sites.push(path);
+        }
+    }
+    assert_eq!(sites, [crate_path("helper_trust/accept.rs")]);
+    let accept = hub_text("helper_trust/accept.rs");
+    assert!(accept.contains("verified: Box<VerifiedReport>"));
+}
+
+/// ATTEST-3: the hub computes every helper fingerprint from key bytes. The wire types carry no
+/// fingerprint, and nothing that reads a relayed report or identity names one.
+#[test]
+fn attest_3_the_hub_never_reads_an_agent_fingerprint() {
+    for name in ["HelperIdentity", "SafetyAttestation"] {
+        let text = std::fs::read_to_string(
+            workspace_root().join("crates/domovoi-proto/src/messages/handshake.rs"),
+        )
+        .unwrap()
+            + &std::fs::read_to_string(
+                workspace_root().join("crates/domovoi-proto/src/messages/stream.rs"),
+            )
+            .unwrap();
+        let at = text
+            .find(&format!("pub struct {name}"))
+            .expect("the wire type");
+        let body = &text[at..at + text[at..].find("\n}").unwrap()];
+        assert!(
+            !body.contains("fingerprint"),
+            "{name} carries a fingerprint"
+        );
+    }
+    for rel in ["agent_server/link_helper.rs", "agent_server/live.rs"] {
+        assert!(
+            !hub_text(rel).contains("fingerprint"),
+            "{rel} reads a fingerprint"
+        );
+    }
+}
+
+/// ATTEST-5: the high-water table is written only by the acceptance and pin writes of the
+/// applier (and deleted for a removed host), and read only by the store's read module.
+#[test]
+fn attest_5_high_water_is_written_only_by_the_applier() {
+    let mut writers = Vec::new();
+    let mut readers = Vec::new();
+    for (path, text) in tree("crates/domovoi-store/src") {
+        let writes = text.contains("INSERT INTO helper_high_water")
+            || text.contains("UPDATE helper_high_water")
+            || text.contains("DELETE FROM helper_high_water")
+            || text.contains("\"helper_high_water\"");
+        if writes {
+            writers.push(path.clone());
+        }
+        if text.contains("FROM helper_high_water") && !text.contains("DELETE FROM") {
+            readers.push(path);
+        }
+    }
+    assert_eq!(writers, ["crates/domovoi-store/src/helper_trust/apply.rs"]);
+    assert_eq!(readers, ["crates/domovoi-store/src/helper_trust/read.rs"]);
+}
+
+/// ATTEST-7: trust follows the latest outcome. No per-host mismatch flag or set exists in the
+/// helper trust code, the store or the migration.
+#[test]
+fn attest_7_there_is_no_sticky_per_host_flag() {
+    let mut texts: Vec<(String, String)> = hub_sources()
+        .into_iter()
+        .filter(|(path, _)| path.contains("helper_trust"))
+        .collect();
+    texts.extend(tree("crates/domovoi-store/src/helper_trust"));
+    texts.push((
+        "migration".to_owned(),
+        std::fs::read_to_string(
+            workspace_root().join("crates/domovoi-store/migrations/0020_helper_trust.sql"),
+        )
+        .unwrap(),
+    ));
+    for (path, text) in &texts {
+        for banned in [
+            "sticky",
+            "mismatch_flag",
+            "mismatched_hosts",
+            "key_changed_hosts",
+            "blocked_hosts",
+        ] {
+            assert!(
+                !text.contains(banned),
+                "{path} has a per-host flag ({banned})"
+            );
+        }
+    }
+    let migration = &texts.last().unwrap().1;
+    assert!(migration.contains("latest_outcome"));
+}

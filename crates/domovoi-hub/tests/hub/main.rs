@@ -51,6 +51,8 @@ mod gates;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]
+mod helper_trust;
+#[cfg(test)]
 mod interactions;
 #[cfg(test)]
 mod knowledge_api;

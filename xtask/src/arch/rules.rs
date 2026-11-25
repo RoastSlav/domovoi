@@ -143,6 +143,8 @@ pub const CRATES: &[CrateRule] = &[
             "uuid",
             "jiff",
             "nix",
+            "ed25519-dalek",
+            "rand",
         ]),
     },
     CrateRule {
@@ -228,6 +230,7 @@ pub const RAW_OPS: &[&str] = &[
     "send_transfer",
     "start_capability",
     "capability_result",
+    "attest_safety",
 ];
 
 /// Boundary paths, `Type::assoc` as written (EXEC-2, ADR 0022, ADR 0023): the one authorizing
@@ -387,6 +390,15 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     },
     BoundaryCard {
         id: "EXEC-2",
+        op: BoundaryOp::Call("attest_safety"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a helper attestation is requested only through `HelperRelay::ask`, called by the helper trust module's one request path in domovoi-hub/src/helper_trust/request.rs; the raw `attest_safety` call belongs to the runtime capability (ADR 0023)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
         op: BoundaryOp::Call("hand_off"),
         sites: &[BoundarySite {
             file: "crates/domovoi-engine/src/operations/execute.rs",
@@ -535,6 +547,7 @@ pub const UNZONED_MODULES: &[&str] = &[
     "capability",
     "csp",
     "digest",
+    "helper_trust",
     "middleware",
     "packages",
     "profile",
@@ -572,6 +585,7 @@ pub const LINK_NAMES_ALLOWED_FILES: &[&str] = &[
     "crates/domovoi-core/src/ports/agent_link.rs",
     "crates/domovoi-core/src/ports/mod.rs",
     "crates/domovoi-hub/src/agent_server/link.rs",
+    "crates/domovoi-hub/src/agent_server/link_helper.rs",
     "crates/domovoi-hub/src/agent_server/link_logs.rs",
     "crates/domovoi-hub/src/agent_server/link_package.rs",
     "crates/domovoi-hub/src/agent_server/mod.rs",

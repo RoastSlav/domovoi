@@ -42,6 +42,9 @@ pub(crate) struct Live {
     pub skill_runner_status: SkillRunnerStatus,
     /// What the agent's privileged helper reported about itself.
     pub helper_status: HelperStatus,
+    /// `hello.helper_identity`: the public key the agent relayed for its helper. Never
+    /// trusted; the hub only compares it with the owner's pin.
+    pub helper_identity: Option<[u8; 32]>,
     /// `hello.ceiling_summary`, kept as the agent sent it.
     pub ceiling_summary: Option<String>,
     /// `hello.ceiling_hash`, as lowercase hex. Opaque: compared, never interpreted.

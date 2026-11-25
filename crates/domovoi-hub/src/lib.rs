@@ -12,6 +12,7 @@ pub mod auth;
 pub mod capability;
 pub mod csp;
 mod digest;
+pub mod helper_trust;
 pub mod ingest;
 pub mod middleware;
 pub mod packages;

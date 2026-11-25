@@ -47,6 +47,9 @@ pub(crate) async fn run_session(
         runs_as_root: hello.runs_as_root,
         skill_runner_status: hello.skill_runner_status,
         helper_status: hello.helper_status,
+        helper_identity: hello
+            .helper_identity
+            .map(|identity| *identity.public_key.as_bytes()),
         ceiling_summary: hello.ceiling_summary,
         ceiling_hash: hello.ceiling_hash.map(|hash| hex::encode(hash.as_bytes())),
         checks: hello.checks,
@@ -161,6 +164,21 @@ pub(super) fn reconcile(inner: &Inner, host: HostId, session: &CancellationToken
     });
 }
 
+/// Tells the status listener, if the runtime set one, that `host` reported new runtime
+/// status. The listener runs in its own task, bounded by the server's shutdown.
+fn notify_status(inner: &Inner, host: HostId) {
+    let Some(listener) = inner.status_listener.get().cloned() else {
+        return;
+    };
+    let shutdown = inner.shutdown.clone();
+    tokio::spawn(async move {
+        tokio::select! {
+            () = shutdown.cancelled() => {}
+            () = listener.reconcile_host(host) => {}
+        }
+    });
+}
+
 async fn handle(
     inner: &Inner,
     transport: &mut dyn Transport,
@@ -213,6 +231,7 @@ async fn handle(
         }
         Message::AgentStatus(status) => {
             inner.registry.set_agent_status(host, session, status);
+            notify_status(inner, host);
             Ok(())
         }
         reply @ (Message::ToolResult(_)

@@ -15,6 +15,7 @@
 mod briefing;
 mod caller;
 mod conversations;
+mod helper_trust;
 mod hosts;
 mod incidents;
 mod knowledge;
@@ -40,6 +41,7 @@ use domovoi_engine::triage::TriageHandle;
 pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
 pub use conversations::ConversationCommands;
+pub use helper_trust::{HelperError, HelperTrust, HelperTrustDeps, HelperView};
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
 pub use incidents::{FollowUpError, IncidentService, RetriageError, Retriaged, latest_triage};
 pub use knowledge::{KNOWLEDGE_PASSWORD_REQUIRED, KnowledgeCommandError, KnowledgeCommands};
@@ -92,6 +94,8 @@ pub struct Services {
     pub preferences: PreferenceService,
     /// Signed packages: import, install jobs and what hosts report.
     pub packages: PackageCommands,
+    /// The helper's key pin and attestation: view, re-check, pin and unpin.
+    pub helper_trust: HelperTrust,
 }
 
 /// What the services are built from.
@@ -132,6 +136,8 @@ pub struct ServicesDeps {
     pub settings: Arc<dyn SettingsRepo>,
     /// The package use cases.
     pub packages: PackageCommands,
+    /// The helper trust use cases.
+    pub helper_trust: HelperTrust,
 }
 
 impl Services {
@@ -171,6 +177,7 @@ impl Services {
             conversations: deps.conversations,
             preferences,
             packages: deps.packages,
+            helper_trust: deps.helper_trust,
         }
     }
 }

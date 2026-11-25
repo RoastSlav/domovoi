@@ -112,12 +112,15 @@ pub(super) async fn build(input: PackageBuild<'_>) -> Result<Packages, RuntimeEr
 pub(super) fn reconciler(
     operations: Option<&OperationHandle>,
     packages: &PackageHandle,
+    helper: Arc<dyn HostReconciler>,
 ) -> Arc<CompositeReconciler> {
     let mut parts: Vec<Arc<dyn HostReconciler>> = Vec::new();
     if let Some(operations) = operations {
         parts.push(Arc::new(operations.clone()));
     }
     parts.push(Arc::new(packages.clone()));
+    // Last: asking a helper can take a while and must not delay settling executions.
+    parts.push(helper);
     Arc::new(CompositeReconciler::new(parts))
 }
 
