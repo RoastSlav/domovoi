@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 
 use super::request::HelperRequestFrame;
 use super::response::HelperResponseFrame;
-use super::{HELPER_PROTOCOL, MAX_FRAME_BYTES};
+use super::{HELPER_PROTOCOL, MAX_FRAME_BYTES, MAX_RESPONSE_BYTES};
 use crate::identity::RefusalToken;
 
 /// Why a frame could not be built or read.
@@ -47,6 +47,17 @@ pub fn encode_frame<T: Serialize>(value: &T) -> Result<Vec<u8>, FrameError> {
 pub fn frame_len(header: [u8; 4]) -> Result<usize, FrameError> {
     let len = u32::from_be_bytes(header) as usize;
     if len > MAX_FRAME_BYTES {
+        Err(FrameError::FrameTooLarge(len))
+    } else {
+        Ok(len)
+    }
+}
+
+/// The body length an answer header announces, refused above [`MAX_RESPONSE_BYTES`] before any
+/// body is read.
+pub fn frame_len_response(header: [u8; 4]) -> Result<usize, FrameError> {
+    let len = u32::from_be_bytes(header) as usize;
+    if len > MAX_RESPONSE_BYTES {
         Err(FrameError::FrameTooLarge(len))
     } else {
         Ok(len)

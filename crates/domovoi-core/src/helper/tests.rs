@@ -24,6 +24,7 @@ fn every_request() -> Vec<HelperRequest> {
     out.push(HelperRequest::SafetyAttest {
         nonce: Nonce::from_bytes([0xab; 32]),
     });
+    out.push(HelperRequest::SafetyPublicKey);
     out
 }
 
@@ -63,6 +64,19 @@ fn every_response() -> Vec<HelperResponse> {
         HelperResponse::Unavailable {
             group: HelperGroup::SmartRead,
             reason: UnavailableReason::NotImplemented,
+        },
+        HelperResponse::SafetyAttested {
+            attestation: SignedAttestation {
+                public_key: [7; 32],
+                report: b"format=1\n".to_vec(),
+                signature: [9; 64],
+            },
+        },
+        HelperResponse::SafetyUnsigned {
+            token: UnsignedToken::KeyMissing,
+        },
+        HelperResponse::SafetyPublicKey {
+            public_key: "07".repeat(32),
         },
         HelperResponse::Refused {
             token: RefusalToken::PeerNotAgent,
@@ -187,10 +201,25 @@ fn helper_request_has_no_write_or_free_form_variant() {
     distinct.dedup();
     assert_eq!(
         distinct,
-        ["health", "groups", "read", "safety_attest"],
+        [
+            "health",
+            "groups",
+            "read",
+            "safety_attest",
+            "safety_public_key"
+        ],
         "request variants changed"
     );
-    assert_eq!(OPERATIONS, ["health", "groups", "read", "safety_attest"]);
+    assert_eq!(
+        OPERATIONS,
+        [
+            "health",
+            "groups",
+            "read",
+            "safety_attest",
+            "safety_public_key"
+        ]
+    );
     // No write group can be named in a read request.
     let write = r#"{"op":"read","group":"docker.write"}"#;
     assert!(serde_json::from_str::<HelperRequest>(write).is_err());
@@ -239,4 +268,47 @@ fn nonce_requires_64_lowercase_hex() {
     assert_eq!(Nonce::parse(""), Err(NonceError));
     let json = serde_json::to_string(&nonce).expect("serialises");
     assert_eq!(json, format!("\"{good}\""));
+}
+
+#[test]
+fn answer_header_allows_a_maximum_size_report_but_a_request_does_not() {
+    let wide = (MAX_RESPONSE_BYTES as u32).to_be_bytes();
+    assert_eq!(frame_len_response(wide), Ok(MAX_RESPONSE_BYTES));
+    assert!(frame_len(wide).is_err());
+    assert!(frame_len_response(((MAX_RESPONSE_BYTES as u32) + 1).to_be_bytes()).is_err());
+    // A 64 KiB report as hex, with its key and signature, fits one answer.
+    let frame = HelperResponseFrame {
+        v: HELPER_PROTOCOL,
+        id: id(),
+        response: HelperResponse::SafetyAttested {
+            attestation: SignedAttestation {
+                public_key: [1; 32],
+                report: vec![b'a'; 64 * 1024],
+                signature: [2; 64],
+            },
+        },
+    };
+    let bytes = encode_frame(&frame).expect("encodes");
+    assert!(bytes.len() - 4 <= MAX_RESPONSE_BYTES);
+}
+
+#[test]
+fn signed_attestation_refuses_uppercase_and_wrong_length_hex() {
+    let ok = format!(
+        r#"{{"public_key":"{}","report":"00","signature":"{}"}}"#,
+        "11".repeat(32),
+        "22".repeat(64)
+    );
+    assert!(serde_json::from_str::<SignedAttestation>(&ok).is_ok());
+    for bad in [
+        ok.replace("\"00\"", "\"0A\""),
+        ok.replace(&"11".repeat(32), &"11".repeat(31)),
+        ok.replace(&"22".repeat(64), &"2A".repeat(64)),
+        ok.replace('}', ",\"extra\":1}"),
+    ] {
+        assert!(
+            serde_json::from_str::<SignedAttestation>(&bad).is_err(),
+            "{bad}"
+        );
+    }
 }

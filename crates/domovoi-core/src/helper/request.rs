@@ -71,11 +71,13 @@ pub enum HelperRequest {
         /// The group asked.
         group: ReadGroup,
     },
-    /// A safety attestation; answered `unavailable` until the attestation milestone.
+    /// A safety attestation: the helper signs a report of what it enforces, bound to `nonce`.
     SafetyAttest {
         /// The challenge to bind into the attestation.
         nonce: Nonce,
     },
+    /// The helper's public attestation key. Read-only: it carries no secret and changes nothing.
+    SafetyPublicKey,
 }
 
 /// One request on the wire.

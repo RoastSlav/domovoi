@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::attestation::{SignedAttestation, UnsignedToken};
 use super::group::HelperGroup;
 use crate::identity::{PathFault, RefusalToken};
 use crate::isolation::{PlatformRecordState, PlatformTier};
@@ -53,6 +54,21 @@ pub enum HelperResponse {
         group: HelperGroup,
         /// Why not.
         reason: UnavailableReason,
+    },
+    /// A signed safety report.
+    SafetyAttested {
+        /// The report, its signature and the key that made it.
+        attestation: SignedAttestation,
+    },
+    /// No signed report could be made; the token says why. Carries no signature.
+    SafetyUnsigned {
+        /// Why.
+        token: UnsignedToken,
+    },
+    /// The helper's public attestation key.
+    SafetyPublicKey {
+        /// 32 bytes as 64 lowercase hex characters.
+        public_key: String,
     },
     /// The request was refused before it was understood.
     Refused {
