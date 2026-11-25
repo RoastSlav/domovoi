@@ -33,6 +33,7 @@ pub mod relay;
 pub mod requests;
 pub mod runtime;
 pub mod scheduler;
+pub mod skill_runner;
 pub mod spool;
 pub mod state_owner;
 pub mod store;

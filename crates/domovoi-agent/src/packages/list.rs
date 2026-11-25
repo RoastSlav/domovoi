@@ -5,7 +5,9 @@ use domovoi_core::package::{KeyState, PackageListEntry, PackageStatus};
 use super::error::PackageError;
 use super::{ListOutcome, PackageService};
 
-/// Why no package is executable yet; a test pins it so the skill-runner work notices.
+/// Why no package is executable yet. The skill runner can serve a package's skills, but the
+/// agent sends it only the skills directory; a test pins this token until a later change
+/// enables package skills.
 pub const EXECUTABLE_REASON: &str = "skill_runner_not_integrated";
 
 impl PackageService {
