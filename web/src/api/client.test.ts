@@ -67,3 +67,13 @@ test("unauthenticated_response_redirects_to_login", async () => {
   await respond("/api/v1/session", json401("unauthorized"));
   expect(go, "already there").not.toHaveBeenCalled();
 });
+
+test("a_password_check_answered_with_401_does_not_log_the_person_out", async () => {
+  const go = vi.fn();
+  setUnauthorizedHandler(go);
+  await respond("/api/v1/hosts/nas/helper/key", json401("wrong_password"));
+  await respond("/api/v1/hosts/nas/helper/key", json401("password_required"));
+  expect(go).not.toHaveBeenCalled();
+  await respond("/api/v1/hosts/nas/helper/key", json401("unauthorized"));
+  expect(go).toHaveBeenLastCalledWith("/login");
+});

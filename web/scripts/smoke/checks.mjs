@@ -802,7 +802,7 @@ export const CHECKS = [
         },
     },
     {
-        name: "host limits are read only and the helper tab is a placeholder with no request",
+        name: "host limits are read only and the helper views show the hub's verified state",
         async run(ctx) {
             const { page, server } = ctx;
             server.reset();
@@ -815,13 +815,15 @@ export const CHECKS = [
                 .count();
             expect(editable === 0, "The limits tab has an editable control.");
             await open(ctx, "/capabilities?tab=helper", WIDE_DESK);
-            await visible(
-                page.getByText("Not available on this hub yet").first(),
-                "the placeholder",
-            );
+            await visible(page.getByText("Key pinned").first(), "the pinned key state");
+            await visible(page.getByText("Verified", { exact: true }).first(), "the verdict");
+            await visible(page.getByText("192.0.2.0/24").first(), "the verified network");
+            await open(ctx, "/capabilities/helper-key?host=nas", WIDE_DESK);
+            await visible(page.getByText("Key received from the helper"), "the received key");
+            await visible(page.getByRole("button", { name: "Unpin" }), "the unpin button");
             expect(
                 !server.unexpected.some((key) => /helper/i.test(key)),
-                "A helper request was made.",
+                "An unknown helper request was made.",
             );
         },
     },
@@ -840,7 +842,12 @@ export const CHECKS = [
                 ],
                 ["/capabilities/jobs/0192b000-0000-7000-8000-00000000a001", "Job page", "nas"],
                 ["/capabilities?tab=limits&host=nas", "Limits tab", "container.restart"],
-                ["/capabilities?tab=helper", "Helper tab", "Not available on this hub yet"],
+                ["/capabilities?tab=helper", "Helper tab", "Key pinned"],
+                [
+                    "/capabilities/helper-key?host=nas",
+                    "Helper key page",
+                    "Key received from the helper",
+                ],
             ];
             try {
                 for (const scheme of ["light", "dark"]) {

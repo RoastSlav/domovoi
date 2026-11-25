@@ -4,8 +4,6 @@ import { nas } from "../../test/fixtures";
 import { expectP0Everywhere, renderWithProfile } from "../../test/visibility";
 import { renderAt } from "../../test/render";
 import { CapabilitiesPage } from "./CapabilitiesPage";
-import { HelperKeyPage } from "./HelperKeyPage";
-import { HelperTab } from "./HelperTab";
 import { ceilingNotReported } from "./limitsText";
 
 vi.mock("../../api/client", () => import("../../test/apiMock"));
@@ -198,25 +196,6 @@ test("limits tab load error is not an empty state", async () => {
   expect(await screen.findByRole("table", { name: /Unattended limits/ })).toBeInTheDocument();
 });
 
-test("helper views are labelled placeholders with no requests", async () => {
-  renderAt("/capabilities?tab=helper", "/capabilities", <HelperTab />);
-  expect(screen.getByText("Not available on this hub yet")).toBeInTheDocument();
-  expect(screen.getByText("Not available yet")).toBeInTheDocument();
-  expect(screen.getByText(/This hub does not collect helper status/)).toBeInTheDocument();
-  expect(document.body.textContent).not.toMatch(/enrolled|pinned|verified|covered/);
-  expect(calls).toHaveLength(0);
-});
-
-test("helper key page is a placeholder that links back to the helper tab", async () => {
-  renderAt("/capabilities/helper-key", "/capabilities/helper-key", <HelperKeyPage />);
-  expect(screen.getByText(/This hub does not receive helper keys yet/)).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: /Back to the helper tab/ })).toHaveAttribute(
-    "href",
-    "/capabilities?tab=helper",
-  );
-  expect(calls).toHaveLength(0);
-});
-
 test("p0 is visible in every profile on the capability tabs", async () => {
   route(CEILING, () => REPORTED);
   await expectP0Everywhere({
@@ -248,10 +227,5 @@ test("p0 is visible in every profile on the capability tabs", async () => {
       await screen.findByText(/These limits belong to the host/);
       return view;
     },
-  });
-  await expectP0Everywhere({
-    expectedIds: ["capabilities.helper.placeholder"],
-    render: async (profile) =>
-      renderWithProfile(profile, "/capabilities?tab=helper", "/capabilities", <HelperTab />),
   });
 });

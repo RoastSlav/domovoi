@@ -16,6 +16,9 @@ const CREDENTIAL_PATHS = new Set(["/api/v1/auth/login", "/api/v1/auth/setup"]);
 
 let onUnauthorized: (to: AuthPage) => void = (to) => window.location.assign(to);
 
+/** 401 codes that answer a password check: the person is still logged in. */
+const PASSWORD_CODES = new Set(["password_required", "wrong_password"]);
+
 /** Sets what happens on a 401; the app passes React Router's `navigate`. */
 export function setUnauthorizedHandler(handler: (to: AuthPage) => void): void {
   onUnauthorized = handler;
@@ -53,7 +56,11 @@ export const authMiddleware: Middleware = {
     if (response.status !== 401 || CREDENTIAL_PATHS.has(new URL(request.url).pathname)) {
       return undefined;
     }
-    const to: AuthPage = (await errorCode(response)) === "setup_required" ? "/setup" : "/login";
+    const code = await errorCode(response);
+    if (code !== undefined && PASSWORD_CODES.has(code)) {
+      return undefined;
+    }
+    const to: AuthPage = code === "setup_required" ? "/setup" : "/login";
     if (window.location.pathname !== to) {
       onUnauthorized(to);
     }

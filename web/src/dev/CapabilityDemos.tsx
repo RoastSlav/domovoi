@@ -1,8 +1,8 @@
 import type { CeilingEntry } from "../api/types";
-import { Stack } from "../components";
-import { HelperKeyPlaceholder } from "../features/capabilities/HelperKeyPlaceholder";
-import { HelperPlaceholder } from "../features/capabilities/HelperPlaceholder";
+import { HelperHostCard } from "../features/capabilities/HelperHostCard";
+import { HelperKeyEnroll } from "../features/capabilities/HelperKeyEnroll";
 import { LimitsTable } from "../features/capabilities/LimitsTable";
+import { helperView, unpinnedView } from "../test/helperFixtures";
 import { Demo, Group } from "./Demo";
 
 const ENTRIES: CeilingEntry[] = [
@@ -24,18 +24,21 @@ const ENTRIES: CeilingEntry[] = [
   },
 ];
 
-/** The Capability Center's own pieces in the catalogue: the host limits table and the two placeholders. */
+/** The Capability Center's own pieces in the catalogue: the host limits table and the helper views. */
 export function CapabilityDemos() {
   return (
     <Group title="Capability Center">
       <Demo name="Host limits table">
         <LimitsTable host="nas" entries={ENTRIES} />
       </Demo>
-      <Demo name="Helper placeholders">
-        <Stack gap={4}>
-          <HelperPlaceholder />
-          <HelperKeyPlaceholder />
-        </Stack>
+      <Demo name="Helper card, verified">
+        <HelperHostCard view={helperView()} />
+      </Demo>
+      <Demo name="Helper card, unverified">
+        <HelperHostCard view={unpinnedView()} />
+      </Demo>
+      <Demo name="Helper key, changed">
+        <HelperKeyEnroll view={helperView({ key_state: "changed" })} />
       </Demo>
     </Group>
   );
