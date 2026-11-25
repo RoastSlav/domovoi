@@ -200,6 +200,7 @@ export async function startServer(dist) {
     function policyRoute(method, pathname) {
         const known = {
             "GET /api/v1/policy": () => policyFixture("overview-active"),
+            "GET /api/v1/policy/autonomy": () => ({ paused: false, suspended_rules: [] }),
             "GET /api/v1/policy/versions": () => ({
                 items: [policyFixture("version-3").summary],
                 next_cursor: null,
