@@ -1791,11 +1791,14 @@ fn container_restart_has_no_dispatch_path() {
     }
 }
 
-/// The list of contracts a policy may dispatch is closed and has one entry.
+/// The list of contracts a policy may dispatch is closed and has two entries.
 #[test]
 fn policy_dispatchable_list_is_closed() {
     use domovoi_core::capability::POLICY_DISPATCHABLE;
-    assert_eq!(POLICY_DISPATCHABLE, ["unit.restart"]);
+    assert_eq!(
+        POLICY_DISPATCHABLE,
+        ["unit.restart", "firewall.block_source"]
+    );
 }
 
 /// A unit call carries a name, or an id with the hash it was approved against: no free field.

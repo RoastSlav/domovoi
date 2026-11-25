@@ -21,9 +21,9 @@ use super::rules::{
     AUTHORIZATION_HUMAN_ALLOWED_PREFIXES, AUTHORIZATION_MODULE,
     AUTHORIZATION_POLICY_ALLOWED_PREFIXES, HUMAN_APPROVAL_ALLOWED_PREFIXES,
     HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES, MAX_FILE_LINES, PLAN_CAPABILITY_ALLOWED_PREFIXES,
-    PLAN_HASH_V2_ALLOWED_PREFIXES, POLICY_PERMIT_ALLOWED_PREFIXES,
-    POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES, PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS,
-    PURE_FORBIDDEN_PATHS,
+    PLAN_CONTAINMENT_ALLOWED_PREFIXES, PLAN_HASH_V2_ALLOWED_PREFIXES,
+    POLICY_PERMIT_ALLOWED_PREFIXES, POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES,
+    PROCESS_ALLOWED_PREFIXES, PURE_CRATE_DIRS, PURE_FORBIDDEN_PATHS,
 };
 
 /// Scan every `.rs` file under `crates/`, and every Rust file those files load from elsewhere
@@ -163,6 +163,10 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
         || PLAN_CAPABILITY_ALLOWED_PREFIXES
             .iter()
             .any(|p| path_matches(rel, p));
+    let plan_containment_ok = test_only
+        || PLAN_CONTAINMENT_ALLOWED_PREFIXES
+            .iter()
+            .any(|p| path_matches(rel, p));
     let authorization_human_ok = test_only
         || AUTHORIZATION_HUMAN_ALLOWED_PREFIXES
             .iter()
@@ -252,6 +256,13 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
                 "INV-1",
                 &at,
                 "Authorization::policy may only be called in crates/domovoi-hub/src/policy/",
+            ));
+        }
+        if literals.contains("plan:containment-v1") && !plan_containment_ok {
+            out.push(v(
+                "INV-1",
+                &at,
+                "the plan:containment-v1 domain line has one implementation, in crates/domovoi-core/src/action/containment_plan.rs",
             ));
         }
         if literals.contains("plan:v2") && !plan_v2_ok {

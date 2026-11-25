@@ -208,6 +208,10 @@ pub const POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES: &[&str] =
 pub const PLAN_CAPABILITY_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-core/src/action/capability_plan.rs"];
 
+/// The one file that may write the `plan:containment-v1` domain line (INV-1, ADR 0038).
+pub const PLAN_CONTAINMENT_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-core/src/action/containment_plan.rs"];
+
 /// Path prefixes where `Authorization::human` may be called: only the hub's auth layer
 /// turns an authenticated human into an authorization (INV-1, ADR 0021).
 pub const AUTHORIZATION_HUMAN_ALLOWED_PREFIXES: &[&str] =
