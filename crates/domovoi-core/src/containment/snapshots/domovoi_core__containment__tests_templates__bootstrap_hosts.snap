@@ -1,0 +1,15 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "bootstrap(&table(), Layout::Hosts, max())"
+---
+create table inet domovoi
+add set inet domovoi blocked4 { type ipv4_addr; flags timeout; timeout 30s; size 1000; }
+add set inet domovoi blocked6 { type ipv6_addr; flags timeout; timeout 30s; size 1000; }
+add set inet domovoi excl4 { type ipv4_addr; flags interval; }
+add set inet domovoi excl6 { type ipv6_addr; flags interval; }
+add chain inet domovoi contain { type filter hook prerouting priority -310; policy accept; }
+add rule inet domovoi contain counter
+add rule inet domovoi contain ip saddr @excl4 accept
+add rule inet domovoi contain ip6 saddr @excl6 accept
+add rule inet domovoi contain ip saddr @blocked4 counter drop
+add rule inet domovoi contain ip6 saddr @blocked6 counter drop

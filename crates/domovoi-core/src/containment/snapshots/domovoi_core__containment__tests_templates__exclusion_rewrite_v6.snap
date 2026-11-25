@@ -1,0 +1,6 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "exclusion_rewrite(&table(), Family::V6, &v6)"
+---
+flush set inet domovoi excl6
+add element inet domovoi excl6 { 2001:db8::-2001:db8::ffff }

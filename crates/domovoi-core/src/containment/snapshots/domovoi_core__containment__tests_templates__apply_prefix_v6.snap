@@ -1,0 +1,5 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "apply(&table(), &net(\"2001:db8:1::/64\"))"
+---
+create element inet domovoi blockednet6 { 2001:db8:1::/64 timeout 30s }

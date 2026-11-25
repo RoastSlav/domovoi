@@ -1,0 +1,6 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "exclusion_rewrite(&table(), Family::V4, &v4)"
+---
+flush set inet domovoi excl4
+add element inet domovoi excl4 { 192.0.2.0-192.0.2.255, 198.51.100.7-198.51.100.7 }
