@@ -1,0 +1,1 @@
+[{"dst":"2001:db8::/64","dev":"dummy0","protocol":"2","metric":256,"flags":[],"pref":"medium"},{"dst":"fe80::/64","dev":"dummy0","protocol":"2","metric":256,"flags":[],"pref":"medium"},{"dst":"default","gateway":"2001:db8::1","dev":"dummy0","metric":1024,"flags":[],"pref":"medium"}]
