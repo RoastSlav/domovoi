@@ -87,7 +87,7 @@ fn source_files(
 
 /// The hub's one raw-link consumer, holding its exact count: the capability forward every raw
 /// link operation exactly once.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .unit_call_result(a, b, c);\n    self.link\n        .unit_call_result(a, b, c);
     self.link
         .attest_safety(a, b, c);\n}\n";
 
@@ -242,10 +242,8 @@ fn the_link_scan_sees_an_untyped_accessor() {
         "auth/interactions/web.rs",
         "// let link = server.link();\n",
     );
-    assert!(
-        xtask::arch::ast::exec_violations(&tree).is_empty(),
-        "a comment is not a call",
-    );
+    let found = xtask::arch::ast::exec_violations(&tree);
+    assert!(found.is_empty(), "a comment is not a call: {found:?}");
     for rel in ["runtime/mod.rs", "agent_server/mod.rs"] {
         let mut tree = hub_tree();
         push_text(&mut tree, rel, "let link = server.link();\n");
@@ -953,16 +951,20 @@ fn squeezed(text: &str) -> String {
     text.split_whitespace().collect()
 }
 
-/// A recorded policy decision is data. Nothing under the policy modules names an approval or
-/// a permit type, and no production code issues a `PolicyPermit` or builds the policy
-/// variant of an authorization before the permit issuer exists.
+/// The policy sources name no permit or authorization type, `PolicyPermit::issue(` and
+/// `Authorization::policy(` each appear once in production, in the permit issuer's one file, the
+/// word `PermitIssuer` is named only where the issuer, its port and its wiring live, and the
+/// permit is built only after the evaluator's `Allow` was checked.
+///
+/// This replaces the earlier gate, which asserted that the issuer's directory did not exist. The
+/// replacement is stricter: it names the one file and counts the calls.
 #[test]
 fn no_code_path_issues_a_policy_permit() {
     assert!(
-        !workspace_root()
-            .join("crates/domovoi-hub/src/policy")
+        workspace_root()
+            .join("crates/domovoi-hub/src/policy/issuer.rs")
             .exists(),
-        "the permit issuer's directory does not exist yet"
+        "the permit issuer's one file exists"
     );
     let forbidden = [
         "PolicyPermit",
@@ -1000,6 +1002,18 @@ fn no_code_path_issues_a_policy_permit() {
         checked >= 20,
         "the scan found the policy sources ({checked})"
     );
+    // Where the word `PermitIssuer` may appear: the issuer, its port, the engine's permit
+    // handler and its dependency group, and the runtime wiring.
+    let may_name_issuer = |path: &str| {
+        path.contains("crates/domovoi-hub/src/policy/")
+            || path.ends_with("crates/domovoi-core/src/ports/permit.rs")
+            || path.ends_with("crates/domovoi-core/src/ports/mod.rs")
+            || path.ends_with("crates/domovoi-engine/src/operations/effects/policy.rs")
+            || path.ends_with("crates/domovoi-engine/src/operations/deps.rs")
+            || path.ends_with("crates/domovoi-engine/src/operations/mod.rs")
+            || path.contains("crates/domovoi-hub/src/runtime/")
+    };
+    let mut issued: Vec<(String, usize, usize)> = Vec::new();
     for (path, text) in workspace_production() {
         let live = text.split("#[cfg(test)]").next().unwrap_or_default();
         let code: String = live
@@ -1011,10 +1025,36 @@ fn no_code_path_issues_a_policy_permit() {
 ",
             );
         let code = squeezed(&code);
-        for call in ["Authorization::policy(", "PolicyPermit::issue("] {
-            assert!(!code.contains(call), "{path} calls {call}");
+        let policy_calls = code.matches("Authorization::policy(").count();
+        let issue_calls = code.matches("PolicyPermit::issue(").count();
+        if policy_calls + issue_calls > 0 {
+            issued.push((path.to_string(), policy_calls, issue_calls));
+        }
+        if code.contains("PermitIssuer") {
+            assert!(may_name_issuer(&path), "{path} names PermitIssuer");
         }
     }
+    assert_eq!(
+        issued.len(),
+        1,
+        "the constructors appear in exactly one production file: {issued:?}"
+    );
+    let (path, policy_calls, issue_calls) = &issued[0];
+    assert!(
+        path.ends_with("crates/domovoi-hub/src/policy/issuer.rs"),
+        "{path} builds a permit"
+    );
+    assert_eq!((*policy_calls, *issue_calls), (1, 1), "once each");
+    // The permit is built only after the `Allow` outcome was checked.
+    let issuer =
+        std::fs::read_to_string(workspace_root().join("crates/domovoi-hub/src/policy/issuer.rs"))
+            .unwrap_or_default();
+    let allowed_at = issuer.find("Outcome::Allow");
+    let built_at = issuer.find("PolicyPermit::issue(");
+    assert!(
+        matches!((allowed_at, built_at), (Some(allow), Some(build)) if allow < build),
+        "the permit is built after the evaluator's `Allow` is required"
+    );
 }
 
 /// Draft and publication writes are built only by the hub's policy service, and recorded
@@ -1652,4 +1692,144 @@ fn attest_7_there_is_no_sticky_per_host_flag() {
     }
     let migration = &texts.last().unwrap().1;
     assert!(migration.contains("latest_outcome"));
+}
+
+/// Production code of `text` with comments and everything from the first `#[cfg(test)]` removed.
+fn live_code(text: &str) -> String {
+    text.split("#[cfg(test)]")
+        .next()
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Only the helper runs `systemctl restart`: no other production file names both.
+#[test]
+fn no_code_path_calls_systemctl_restart_outside_the_helper() {
+    for (path, text) in workspace_production() {
+        if path.starts_with("crates/domovoi-helper/") {
+            continue;
+        }
+        let code = live_code(&text);
+        let names_restart = code.contains("\"restart\"");
+        assert!(
+            !(names_restart && code.contains("systemctl")),
+            "{path} builds a systemctl restart outside the helper"
+        );
+    }
+}
+
+/// The helper's only `systemctl` argument vector is `restart -- <Id>`: its sources name no
+/// other verb, never reload, never reset a failed unit, and never pass `--json` to `systemctl`.
+#[test]
+fn helper_never_calls_daemon_reload() {
+    let mut scanned = 0;
+    for (path, text) in tree("crates/domovoi-helper/src") {
+        let code = live_code(&text);
+        for verb in [
+            "daemon-reload",
+            "daemon-reexec",
+            "reset-failed",
+            "try-restart",
+            "set-property",
+            "\"stop\"",
+            "\"kill\"",
+        ] {
+            assert!(!code.contains(verb), "{path} names `{verb}`");
+        }
+        scanned += 1;
+    }
+    assert!(scanned > 10, "the helper sources were found ({scanned})");
+}
+
+/// `--json` goes to `busctl` only: the file that builds the restart command never names it.
+#[test]
+fn no_code_path_passes_json_to_systemctl() {
+    let restart = std::fs::read_to_string(
+        workspace_root().join("crates/domovoi-helper/src/systemd/restart.rs"),
+    )
+    .unwrap_or_default();
+    assert!(!restart.is_empty(), "the restart file was found");
+    assert!(!live_code(&restart).contains("--json"));
+    for (path, text) in workspace_production() {
+        let code = live_code(&text);
+        if code.contains("Tool::Systemctl") {
+            assert!(
+                !code.contains("--json"),
+                "{path} passes --json near systemctl"
+            );
+        }
+    }
+}
+
+/// `container.restart` has no dispatch path: it is on neither closed list, and no production
+/// source names a Docker helper write operation.
+#[test]
+fn container_restart_has_no_dispatch_path() {
+    use domovoi_core::capability::{EXECUTABLE_BUILTINS, POLICY_DISPATCHABLE};
+    assert!(!EXECUTABLE_BUILTINS.contains(&"container.restart"));
+    assert!(!POLICY_DISPATCHABLE.contains(&"container.restart"));
+    for (path, text) in workspace_production() {
+        if path.ends_with("tests.rs") || path.contains("/tests/") {
+            continue;
+        }
+        let code = live_code(&text);
+        for needle in [
+            "DockerRestart",
+            "docker_restart",
+            "DockerStop",
+            "docker_exec",
+            "restart_container_api",
+        ] {
+            assert!(
+                !code.contains(needle),
+                "{path} names a Docker write operation `{needle}`"
+            );
+        }
+    }
+}
+
+/// The list of contracts a policy may dispatch is closed and has one entry.
+#[test]
+fn policy_dispatchable_list_is_closed() {
+    use domovoi_core::capability::POLICY_DISPATCHABLE;
+    assert_eq!(POLICY_DISPATCHABLE, ["unit.restart"]);
+}
+
+/// A unit call carries a name, or an id with the hash it was approved against: no free field.
+#[test]
+fn unit_call_has_no_free_argument() {
+    let source =
+        std::fs::read_to_string(workspace_root().join("crates/domovoi-core/src/unit/call.rs"))
+            .unwrap_or_default();
+    let start = source.find("pub enum UnitCall").unwrap_or_default();
+    let end = source[start..]
+        .find("\n}\n")
+        .map_or(source.len(), |at| start + at);
+    let block = &source[start..end];
+    assert!(block.contains("name: UnitName") && block.contains("id: UnitId"));
+    assert!(block.contains("identity_hash: IdentityHash"));
+    for free in ["String", "Vec<", "BTreeMap", "PathBuf", "&str"] {
+        assert!(
+            !block.contains(free),
+            "UnitCall carries a free field `{free}`"
+        );
+    }
+}
+
+/// The engine never builds an authorization or a permit; it carries the one it is handed.
+#[test]
+fn engine_never_builds_an_authorization_for_permits() {
+    for (path, text) in tree("crates/domovoi-engine/src") {
+        let code = squeezed(&live_code(&text));
+        for call in [
+            "Authorization::policy(",
+            "PolicyPermit::issue(",
+            "PolicyPermit::restore(",
+        ] {
+            assert!(!code.contains(call), "{path} calls {call}");
+        }
+    }
 }
