@@ -636,6 +636,27 @@ jobs:
           # The helper service is a template (domovoi-helper@.service); verify takes the file as is.
           # The agent unit Wants the helper socket, so all four go in one run.
           systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service deploy/systemd/domovoi-helper.socket deploy/systemd/domovoi-helper@.service
+      - name: Render and verify the skill runner units
+        run: |
+          # The runner units name User=domovoi-skill and Group=domovoi-skill, so both accounts
+          # exist first. verify proves syntax only: it is silent about a mask that fails the
+          # start with 226/NAMESPACE, which deploy/test/skill-runner.sh measures.
+          sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin domovoi-agent
+          sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin domovoi-skill
+          sudo install -d /etc/domovoi/skills /var/lib/domovoi-packages
+          # The default rendering, and one for other directories, both through install.sh's own text.
+          mkdir -p "$RUNNER_TEMP/units"
+          sh install.sh --print-unit runner-socket > "$RUNNER_TEMP/units/domovoi-skill-runner.socket"
+          sh install.sh --print-unit runner-service > "$RUNNER_TEMP/units/domovoi-skill-runner@.service"
+          cmp "$RUNNER_TEMP/units/domovoi-skill-runner.socket" deploy/systemd/domovoi-skill-runner.socket
+          cmp "$RUNNER_TEMP/units/domovoi-skill-runner@.service" deploy/systemd/domovoi-skill-runner@.service
+          systemd-analyze verify --man=no "$RUNNER_TEMP/units/domovoi-skill-runner.socket" "$RUNNER_TEMP/units/domovoi-skill-runner@.service"
+          sudo install -d /srv/skills /srv/packages
+          mkdir -p "$RUNNER_TEMP/custom"
+          cp "$RUNNER_TEMP/units/domovoi-skill-runner.socket" "$RUNNER_TEMP/custom/"
+          sed -e 's|/etc/domovoi/skills|/srv/skills|g' -e 's|/var/lib/domovoi-packages|/srv/packages|g' \
+            "$RUNNER_TEMP/units/domovoi-skill-runner@.service" > "$RUNNER_TEMP/custom/domovoi-skill-runner@.service"
+          systemd-analyze verify --man=no "$RUNNER_TEMP/custom/domovoi-skill-runner.socket" "$RUNNER_TEMP/custom/domovoi-skill-runner@.service"
 
   # Needs a machine that boots with systemd as PID 1. Not in the required `needs:` list of
   # the gate job until it has run green three times in a row and the owner agrees; until
@@ -670,6 +691,12 @@ jobs:
         run: |
           sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
             DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/identities.sh
+      # Not in the gate's `needs:` list either. It may find that this runner image cannot host
+      # it (no cgroup v2, or no systemd as PID 1); the step prints the facts first.
+      - name: Run the skill runner in real units, with the systemd canaries
+        run: |
+          sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
+            DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/skill-runner.sh
 
   coverage:
     name: Coverage

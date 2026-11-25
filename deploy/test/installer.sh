@@ -54,7 +54,8 @@ done
 
 # The units embedded in install.sh are the ones in deploy/systemd/.
 for pair in hub:domovoi-hub.service agent:domovoi-agent.service \
-    helper-socket:domovoi-helper.socket helper-service:domovoi-helper@.service; do
+    helper-socket:domovoi-helper.socket helper-service:domovoi-helper@.service \
+    runner-socket:domovoi-skill-runner.socket runner-service:domovoi-skill-runner@.service; do
     unit="${pair%%:*}"
     unit_file="${pair#*:}"
     check "embedded $unit unit matches deploy/systemd" \
@@ -66,6 +67,114 @@ check "the legacy agent unit keeps running as root" \
     sh -c "! sh '$installer' --print-unit agent-legacy | grep -Eq '^(User|Group)='"
 check "an unknown unit name is refused" \
     sh -c "! sh '$installer' --print-unit runner >/dev/null 2>&1"
+
+# The runner steps need systemd, so they are tested through the functions of install.sh, taken
+# out of the script as written, with stubs for the binary and for systemctl.
+fns="$work/install-functions.sh"
+grep '^say() {' "$installer" >"$fns" # a one-line function
+for fn in fail failed_checks runner_service_unit render_runner_service runner_prefix_ok \
+    runner_dirs place_unit start_sockets; do
+    sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
+done
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 9
+
+rendered="$work/rendered.service"
+render_with() {
+    sh -c ". '$fns'; runner_skills_dir='$1'; runner_packages_dir='$2'; render_runner_service" >"$rendered"
+}
+render_with /etc/domovoi/skills /var/lib/domovoi-packages
+check "the default directories render to the shipped runner unit" \
+    cmp -s "$rendered" "$root/deploy/systemd/domovoi-skill-runner@.service"
+render_with /srv/skills /srv/packages
+check "a custom skills_dir and packages_dir reach the ExecStart arguments" \
+    grep -qx 'ExecStart=/usr/local/bin/domovoi skill-runner serve --skills-dir /srv/skills --packages-dir /srv/packages' "$rendered"
+check "a custom skills_dir and packages_dir reach the bind" \
+    grep -qx 'BindReadOnlyPaths=/srv/skills /srv/packages' "$rendered"
+check "no default directory is left in a custom rendering" \
+    sh -c "! grep -E '/etc/domovoi/skills|domovoi-packages' '$rendered'"
+check "the mask still names its three parents" \
+    grep -qx 'TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro' "$rendered"
+
+for bad in /home/me /root /root/x /run/prefix /tmp/p /dev/shm/p; do
+    check "a prefix of $bad is refused for the runner" \
+        sh -c ". '$fns'; prefix='$bad'; ! (runner_prefix_ok) >/dev/null 2>&1"
+done
+for good in /usr/local /opt/domovoi /usr; do
+    check "a prefix of $good is allowed for the runner" \
+        sh -c ". '$fns'; prefix='$good'; runner_prefix_ok"
+done
+
+# Stubs: a binary that answers `agent dirs` and `agent selftest`, and a systemctl that logs.
+stub="$work/stub"
+mkdir -p "$stub"
+cat >"$stub/domovoi" <<'STUB'
+#!/bin/sh
+case "$*" in
+"agent dirs")
+    [ "${STUB_DIRS:-ok}" = ok ] || { echo "agent.toml: a path is not usable" >&2; exit 1; }
+    echo "skills_dir=/srv/skills"
+    echo "packages_dir=/srv/packages"
+    ;;
+"agent selftest --installer --record")
+    [ "${STUB_FAIL:-none}" != first ] || { echo "ST-05 fail runner_groups_extra"; exit 1; }
+    echo "ST-01 pass"
+    ;;
+"agent selftest --installer")
+    [ "${STUB_FAIL:-none}" != second ] || { echo "ST-13 fail runner_probe"; exit 1; }
+    echo "ST-13 pass"
+    ;;
+esac
+STUB
+chmod 0755 "$stub/domovoi"
+sockets_run() {
+    : >"$work/systemctl.log"
+    sh -c ". '$fns'; systemctl() { echo \"\$*\" >>'$work/systemctl.log'; }; bin='$stub/domovoi'; tmp='$work'; $1" \
+        >"$work/sockets.out" 2>&1
+}
+check "agent dirs sets the two runner directories and adds them to the created-set" \
+    sh -c ". '$fns'; bin='$stub/domovoi'; CREATED_PATHS='/etc/domovoi'; runner_dirs; test \"\$runner_skills_dir \$runner_packages_dir\" = '/srv/skills /srv/packages' && test \"\$CREATED_PATHS\" = '/etc/domovoi /srv/skills /srv/packages'"
+if STUB_DIRS=refuse sh -c ". '$fns'; bin='$stub/domovoi'; CREATED_PATHS=x; runner_dirs" >"$work/dirs.out" 2>&1; then
+    fail "a refused agent dirs stops the runner steps"
+else
+    pass "a refused agent dirs stops the runner steps"
+fi
+check "a refused agent dirs says nothing was changed" grep -q "nothing was changed" "$work/dirs.out"
+
+sockets_run start_sockets
+check "both sockets start when the self-test passes" \
+    sh -c "grep -qx 'enable --now domovoi-helper.socket' '$work/systemctl.log' && grep -qx 'enable --now domovoi-skill-runner.socket' '$work/systemctl.log' && ! grep -q disable '$work/systemctl.log'"
+STUB_FAIL=first
+export STUB_FAIL
+if sockets_run start_sockets; then
+    fail "a failed self-test stops the install"
+else
+    pass "a failed self-test stops the install"
+fi
+STUB_FAIL=none
+check "a failed self-test never starts the runner socket" \
+    sh -c "! grep -q 'enable --now domovoi-skill-runner.socket' '$work/systemctl.log'"
+check "a failed self-test is named by its check" grep -q "ST-05" "$work/sockets.out"
+STUB_FAIL=second
+if sockets_run start_sockets; then
+    fail "a failed check with the runner socket up stops the install"
+else
+    pass "a failed check with the runner socket up stops the install"
+fi
+STUB_FAIL=none
+check "a failed check with the runner socket up stops the socket again" \
+    grep -qx 'disable --now domovoi-skill-runner.socket' "$work/systemctl.log"
+check "that failure names the check" grep -q "ST-13" "$work/sockets.out"
+
+# An edited runner unit is kept; the new text is written beside it.
+mkdir -p /etc/systemd/system
+echo "# edited" >/etc/systemd/system/domovoi-skill-runner@.service
+sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; record_dir=/nonexistent; place_unit domovoi-skill-runner@.service render_runner_service 0" \
+    >"$work/place.out" 2>&1 || true
+check "an edited runner unit is kept" test "$(cat /etc/systemd/system/domovoi-skill-runner@.service)" = "# edited"
+check "the kept runner unit is reported" grep -q "Kept /etc/systemd/system/domovoi-skill-runner@.service" "$work/place.out"
+check "the new runner unit is saved beside it" \
+    cmp -s "$work/prefix/share/domovoi/domovoi-skill-runner@.service" "$root/deploy/systemd/domovoi-skill-runner@.service"
+rm -f /etc/systemd/system/domovoi-skill-runner@.service
 
 case "$(uname -m)" in
 x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;
