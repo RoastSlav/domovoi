@@ -660,7 +660,7 @@ row_end $?
 row_begin migrate_identity_converts_a_legacy_install
 (
     set -e
-    printf '# test\n' >/etc/domovoi/agent.toml
+    printf '[agent]\nhost_name = "legacy"\nhub_url = "wss://hub.example:7421"\n' >/etc/domovoi/agent.toml
     chmod 0640 /etc/domovoi/agent.toml
     printf 'identity\n' >/var/lib/domovoi-agent/identity.json
     # A legacy host has no packages directory; the rolled-back run left an empty one.
