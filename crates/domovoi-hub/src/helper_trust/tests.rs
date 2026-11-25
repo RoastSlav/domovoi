@@ -423,7 +423,7 @@ mod schedule {
     use std::sync::Arc;
 
     use domovoi_core::ports::{
-        Clock, HelperLive, HelperReport, HelperTrustRepo, HostReconciler, HostRepo, Presence,
+        HelperLive, HelperReport, HelperTrustRepo, HostReconciler, HostRepo, Presence,
     };
     use domovoi_core::{Actor, UserId};
     use domovoi_testkit::build::host;
