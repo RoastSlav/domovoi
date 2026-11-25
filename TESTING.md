@@ -93,6 +93,7 @@ CI (`.github/workflows/ci.yml`) only runs a job when files it covers change. The
 | Installer on ubuntu:24.04 / debian:12       | `install.sh`, `deploy/test/installer.sh`                       | see [Installer test](#installer-test)                                                                                                               |
 | systemd units verify                        | `deploy/systemd/`                                              | see [systemd units](#systemd-units)                                                                                                                 |
 | Real accounts and systemd units (not required) | `install.sh`, `deploy/`, `crates/domovoi-helper/`; nightly and on demand | see [Privileged identity test](#privileged-identity-test)                                                                            |
+| Containment namespace tests (not required)  | `crates/domovoi-core/src/containment/`, `crates/domovoi-helper/src/nft/`, `crates/domovoi-agent/src/containment/`, the workflow | see [Containment namespace tests](#containment-namespace-tests) |
 | Coverage                                    | Rust changes                                                   | `cargo llvm-cov nextest --workspace --locked --no-tests=pass --html`, then open `target/llvm-cov/html/index.html`                                   |
 
 Other workflows:
@@ -102,6 +103,7 @@ Other workflows:
 | Container smoke test (`docker.yml`)     | see [Docker image](#docker-image)                                                            |
 | Docs (`docs.yml`)                       | `cargo install mdbook --locked && mdbook serve docs/book`, then open <http://localhost:3000> |
 | Drills (live model) (`drills-live.yml`) | see [Triage drills](#triage-drills)                                                          |
+| Containment leak tests (`containment-leak.yml`) | see [Containment namespace tests](#containment-namespace-tests)                       |
 | CodeQL, OpenSSF Scorecard, Release      | GitHub only; nothing to run locally                                                          |
 
 ## Running part of the test suite
@@ -300,6 +302,29 @@ It also needs `python3`, `useradd`, `userdel`, `groupadd`, `groupdel`, `gpasswd`
 The installer test also covers the runner steps without systemd: the rendering of the unit for custom directories, the refusal of a `--prefix` the runner cannot execute from, the `agent dirs` helper and the order of the sockets. `shellcheck install.sh deploy/test/*.sh examples/skills/*/run` covers `skill-runner.sh` as well.
 
 CI runs both privileged scripts in the `Real accounts and systemd units` job on `ubuntu-24.04`, which first prints `systemctl --version`, the cgroup filesystem and the name of PID 1 and fails with a clear message when PID 1 is not systemd. The job runs on pull requests that touch `install.sh`, `deploy/` or `crates/domovoi-helper/`, nightly, and on demand (`workflow_dispatch`). It is not in the required checks yet.
+
+### Containment namespace tests
+
+The helper's `nft` group is tested against a real `nft` in a throwaway network namespace. Linux only, root, with `nftables`, `iproute2` and `conntrack` installed. The tests skip with a printed reason, and pass, unless `DOMOVOI_NS_TESTS=1` is set; a test that needs a missing prerequisite (`nf_flow_table`, `conntrack`) says so and skips.
+
+```sh
+cargo test --package domovoi-helper --test nft_ns --no-run
+sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_NS_TESTS=1 \
+  unshare --net --mount sh -c 'mount -t tmpfs tmpfs /run && ip link set lo up && cargo test --package domovoi-helper --test nft_ns -- --nocapture'
+```
+
+Without root, `unshare -Urnm sh -c 'mount -t tmpfs tmpfs /run && DOMOVOI_NS_TESTS=1 cargo test --package domovoi-helper --test nft_ns'` works where the kernel allows unprivileged user namespaces; CI does not use it, because recent Ubuntu refuses it under AppArmor. The tests that need a real kernel timer set 3 to 5 second timeouts and poll for at most 15 seconds; none waits for the helper's own 30 seconds.
+
+The load tests, which flood a namespace with UDP while the helper replaces an element, also need `DOMOVOI_LOAD_TESTS=1` and `DOMOVOI_BIN`, the path of a built `domovoi` (the self-test re-invokes it as its sender):
+
+```sh
+cargo build --package domovoi
+sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_NS_TESTS=1 DOMOVOI_LOAD_TESTS=1 \
+  DOMOVOI_BIN="$PWD/target/debug/domovoi" \
+  unshare --net --mount sh -c 'mount -t tmpfs tmpfs /run && ip link set lo up && cargo test --package domovoi-helper --test nft_ns -- --nocapture load'
+```
+
+CI runs the first group in the `Containment namespace tests` job on pull requests that touch the files named in the table above. The second group is the separate `Containment leak tests` workflow (`containment-leak.yml`), started by hand and weekly; it prints the runner's kernel release and `nft` version. It records what that one runner does and says nothing about other kernels or `nft` versions. Neither is in the required checks: the first joins them after three green runs in a row and the owner's agreement, the second never does.
 
 ### systemd units
 

@@ -1,0 +1,39 @@
+# Runs the containment load tests: a UDP flood in a throwaway network namespace while the helper
+# replaces an element of its block set. Started by hand and weekly; never required for merging.
+# It records what this runner's kernel and `nft` do. It says nothing about other kernels, other
+# `nft` versions, a real NIC or a conntrack rule; the owner validates those on virtual machines.
+name: Containment leak tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  containment-leak:
+    name: Containment load tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nftables, iproute2 and conntrack
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 conntrack
+      - name: Print the kernel release and the nft version
+        run: |
+          echo "kernel: $(uname -r)"
+          echo "nft: $(nft --version)"
+      - run: rustup toolchain install
+      - name: Build the binary and the tests
+        run: |
+          cargo build --package domovoi --locked
+          cargo test --package domovoi-helper --test nft_ns --locked --no-run
+      - name: Run the load tests as root in a new network and mount namespace
+        run: |
+          sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_NS_TESTS=1 DOMOVOI_LOAD_TESTS=1 \
+            DOMOVOI_BIN="$PWD/target/debug/domovoi" \
+            unshare --net --mount sh -c 'mount -t tmpfs tmpfs /run && ip link set lo up && cargo test --package domovoi-helper --test nft_ns --locked -- --nocapture load'
