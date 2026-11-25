@@ -77,6 +77,7 @@ pub fn known_contracts() -> Vec<CapabilityContract> {
         .into_iter()
         .chain(package_contracts())
         .chain(super::unit::unit_contracts())
+        .chain(super::containment::containment_contracts())
         .collect()
 }
 

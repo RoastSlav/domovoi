@@ -80,6 +80,8 @@ pub enum TargetKind {
     Container,
     /// One systemd unit.
     Unit,
+    /// One external network address or prefix.
+    NetworkSource,
 }
 
 /// Whether a capability's effect can be undone.
