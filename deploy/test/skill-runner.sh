@@ -266,7 +266,8 @@ row_begin corrected_units_start_isolate_cancel_time_out_and_clean_up
 (
     set -e
     out="$(ask root "$health")"
-    case "$out" in *'"type":"health"'*"\"skills_root\":\"$skills\""*) ;; *) die "root health: $out" ;; esac
+    case "$out" in *'"type":"health"'*) ;; *) die "root health: $out" ;; esac
+    case "$out" in *"\"skills_root\":\"$skills\""*) ;; *) die "root health roots: $out" ;; esac
     out="$(ask domovoi-agent "$health")"
     case "$out" in *'"type":"health"'*) ;; *) die "agent health: $out" ;; esac
     out="$(ask root "$probe")"
