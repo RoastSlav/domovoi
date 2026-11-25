@@ -53,6 +53,9 @@ pub fn step_reason(err: &OperationError) -> String {
         OperationError::Execution(ExecutionError::NotYetSupported) => {
             "Policy approvals are not supported yet; a person must approve"
         }
+        OperationError::Execution(ExecutionError::PermitNotAllowed) => {
+            "A person must approve this one"
+        }
         OperationError::Execution(ExecutionError::NeedsTypedConfirmation) => {
             "Approve this one in the web UI"
         }

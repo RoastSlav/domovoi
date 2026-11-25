@@ -19,6 +19,7 @@ pub use budget::{BudgetKind, BudgetLimits, BudgetUsed, Budgets};
 pub use edge::{EdgeError, EdgeKind, StepEdge, check_edge};
 pub use execution::{
     ExecutionApproval, ExecutionError, ExecutionParts, ExecutionRecord, ExecutionState,
+    StoredPermit,
 };
 pub use intent::{ExecutionIntent, RetryOf, StepIntent};
 pub use snapshot::OperationSnapshot;

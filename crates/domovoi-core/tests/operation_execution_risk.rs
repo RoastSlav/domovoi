@@ -51,6 +51,7 @@ fn record(risk: Option<Risk>) -> ExecutionRecord {
         risk,
         chat_token_hash: None,
         approval: None,
+        permit: None,
         waiting_since: None,
         dispatched: None,
         settled_at: None,

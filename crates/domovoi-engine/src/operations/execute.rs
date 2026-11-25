@@ -86,9 +86,9 @@ pub enum ExecuteError {
 impl From<ExecutionError> for ExecuteError {
     fn from(err: ExecutionError) -> Self {
         match err {
-            ExecutionError::AlreadyAuthorized | ExecutionError::NeedsTypedConfirmation => {
-                Self::NotAuthorized
-            }
+            ExecutionError::AlreadyAuthorized
+            | ExecutionError::NeedsTypedConfirmation
+            | ExecutionError::PermitNotAllowed => Self::NotAuthorized,
             ExecutionError::Expired => Self::Expired,
             ExecutionError::PlanChanged => Self::PlanChanged,
             ExecutionError::NotYetSupported => Self::NotYetSupported,

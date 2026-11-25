@@ -15,6 +15,7 @@ use crate::ports::helper_trust::HelperReport;
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
+use crate::unit::{UnitDispatch, UnitOutputs};
 
 /// What a read tool returned.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +413,34 @@ pub trait AgentLink: Send + Sync {
         _handoff: CapabilityHandoff,
         _deadline: Timestamp,
     ) -> Result<PackageOutputs, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Hands one unit capability request to `host`'s live session, which must still be
+    /// `expected_session` with the journal `expected_epoch` names, and returns once the frame
+    /// is in that session's outgoing queue.
+    ///
+    /// Same contract as [`AgentLink::start_capability`]: failing means nothing was queued.
+    async fn start_unit_call(
+        &self,
+        _host: HostId,
+        _req: UnitDispatch,
+        _expected_session: AgentSessionId,
+        _expected_epoch: JournalEpoch,
+        _deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Waits for the terminal answer to a request handed over by
+    /// [`AgentLink::start_unit_call`]. [`LinkError::Rejected`] is the agent's confirmed
+    /// refusal or failure; every other error leaves the outcome unknown.
+    async fn unit_call_result(
+        &self,
+        _host: HostId,
+        _handoff: CapabilityHandoff,
+        _deadline: Timestamp,
+    ) -> Result<UnitOutputs, LinkError> {
         Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
     }
 

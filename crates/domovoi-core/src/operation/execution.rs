@@ -6,8 +6,8 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::action::{
-    ApprovalChannel, ApprovalProvenance, Authorization, HumanApproval, JournalEpoch, PlanBinding,
-    PlanHash,
+    ApprovalChannel, ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval,
+    JournalEpoch, PlanBinding, PlanHash, PolicyPermit,
 };
 use crate::capability::ContractId;
 use crate::id::{ExecutionId, HostId, OperationId, StepId};
@@ -29,9 +29,12 @@ pub enum ExecutionError {
     /// The approval named a different plan than the one stored.
     #[error("the plan changed since it was shown")]
     PlanChanged,
-    /// Only a person can authorize an execution for now.
+    /// Only a person can authorize this kind of execution (a package change, for now).
     #[error("only a person can approve this for now")]
     NotYetSupported,
+    /// A policy permit may authorize only a write; the stored risk is not exactly `write`.
+    #[error("a policy permit can authorize only a write")]
+    PermitNotAllowed,
     /// The stored risk is not read or write, so only a web approval with the typed skill name
     /// is allowed.
     #[error("approve this in the web UI and type the skill's name")]
@@ -132,6 +135,39 @@ impl ExecutionApproval {
     }
 }
 
+/// The policy permit that authorized one execution, with the decision document it came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredPermit {
+    permit: PolicyPermit,
+    decision: String,
+}
+
+impl StoredPermit {
+    /// Pairs a permit with the text of the enforced decision document.
+    #[must_use]
+    pub fn new(permit: PolicyPermit, decision: String) -> Self {
+        Self { permit, decision }
+    }
+
+    /// The permit.
+    #[must_use]
+    pub fn permit(&self) -> &PolicyPermit {
+        &self.permit
+    }
+
+    /// The decision id the permit packs.
+    #[must_use]
+    pub fn decision_id(&self) -> &str {
+        self.permit.decision_id()
+    }
+
+    /// The enforced decision document, as text.
+    #[must_use]
+    pub fn decision(&self) -> &str {
+        &self.decision
+    }
+}
+
 /// Everything a store needs to give back to rebuild an [`ExecutionRecord`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionParts {
@@ -161,6 +197,8 @@ pub struct ExecutionParts {
     pub chat_token_hash: Option<[u8; 32]>,
     /// The stored approval.
     pub approval: Option<ExecutionApproval>,
+    /// The stored policy permit; at most one of `approval` and `permit` is set.
+    pub permit: Option<StoredPermit>,
     /// When the hub began waiting for the agent.
     pub waiting_since: Option<Timestamp>,
     /// The journal epoch and time of dispatch.
@@ -202,6 +240,7 @@ pub struct ExecutionRecord {
     // Boxed to keep the record (and the write enum that carries it) small.
     chat_token_hash: Option<Box<[u8; 32]>>,
     approval: Option<ExecutionApproval>,
+    permit: Option<Box<StoredPermit>>,
     /// When the hub began waiting for the agent to come back.
     pub waiting_since: Option<Timestamp>,
     /// The agent journal epoch and time the run was handed off at.
@@ -241,6 +280,7 @@ impl ExecutionRecord {
             risk: Some(risk),
             chat_token_hash: None,
             approval: None,
+            permit: None,
             waiting_since: None,
             dispatched: None,
             settled_at: None,
@@ -249,12 +289,14 @@ impl ExecutionRecord {
         }
     }
 
-    /// Records a person's approval.
+    /// Records a person's approval, or a policy permit.
     ///
-    /// Refuses, in this order: a policy authorization (not supported yet); a channel other
-    /// than a typed web confirmation when the stored risk is not read or write; a binding
-    /// that does not name the stored plan hash; a second approval; an expired window. On any
-    /// refusal nothing changes.
+    /// A person's approval is refused, in this order: a channel other than a typed web
+    /// confirmation when the stored risk is not read or write; a binding that does not name
+    /// the stored plan hash; a second authorization; an expired window.
+    ///
+    /// A permit (see [`Self::authorize_by_permit`]) is refused in the order its method says.
+    /// On any refusal nothing changes.
     pub fn authorize(
         &mut self,
         authorization: Authorization,
@@ -263,7 +305,9 @@ impl ExecutionRecord {
         now: Timestamp,
     ) -> Result<(), ExecutionError> {
         let Some(human) = authorization.human_approval() else {
-            return Err(ExecutionError::NotYetSupported);
+            // The writer passes the decision document through `authorize_by_permit`; this
+            // path keeps the same checks for a caller that has none to store.
+            return self.authorize_by_permit(&authorization, String::new(), now);
         };
         let typed = matches!(
             human.channel(),
@@ -277,7 +321,7 @@ impl ExecutionRecord {
         if !binding.matches(&self.plan_hash) {
             return Err(ExecutionError::PlanChanged);
         }
-        if self.approval.is_some() {
+        if self.is_authorized() {
             return Err(ExecutionError::AlreadyAuthorized);
         }
         if now >= self.expires_at {
@@ -294,6 +338,59 @@ impl ExecutionRecord {
         });
         self.updated_at = now;
         Ok(())
+    }
+
+    /// Records a policy permit as the authorization, with the decision document it came from.
+    ///
+    /// Refuses, in this order: a stored risk that is not exactly `write`; a permit that names
+    /// another plan hash; a second authorization of either kind; a permit or window that has
+    /// closed. On any refusal nothing changes.
+    pub fn authorize_by_permit(
+        &mut self,
+        authorization: &Authorization,
+        decision: String,
+        now: Timestamp,
+    ) -> Result<(), ExecutionError> {
+        let Some(permit) = authorization.policy_permit() else {
+            return Err(ExecutionError::NotYetSupported);
+        };
+        if self.risk != Some(Risk::Write) {
+            return Err(ExecutionError::PermitNotAllowed);
+        }
+        if permit.plan_hash() != self.plan_hash {
+            return Err(ExecutionError::PlanChanged);
+        }
+        if self.is_authorized() {
+            return Err(ExecutionError::AlreadyAuthorized);
+        }
+        if now >= permit.expires_at() || now >= self.expires_at {
+            return Err(ExecutionError::Expired);
+        }
+        self.permit = Some(Box::new(StoredPermit::new(permit.clone(), decision)));
+        self.updated_at = now;
+        Ok(())
+    }
+
+    /// Whether a person or a policy permit has authorized this execution.
+    #[must_use]
+    pub fn is_authorized(&self) -> bool {
+        self.approval.is_some() || self.permit.is_some()
+    }
+
+    /// Which kind of authorization the record holds, if any.
+    #[must_use]
+    pub fn authorization_kind(&self) -> Option<AuthorizationKind> {
+        match (&self.approval, &self.permit) {
+            (Some(_), _) => Some(AuthorizationKind::Human),
+            (None, Some(_)) => Some(AuthorizationKind::Policy),
+            (None, None) => None,
+        }
+    }
+
+    /// The stored policy permit, once one authorized this execution.
+    #[must_use]
+    pub fn permit(&self) -> Option<&StoredPermit> {
+        self.permit.as_deref()
     }
 
     /// The risk of the skill when the step was proposed; `None` when unknown (rows written
@@ -340,7 +437,7 @@ impl ExecutionRecord {
             StepOutcome::Skipped => ExecutionState::Skipped,
             StepOutcome::Cancelled => ExecutionState::Cancelled,
             StepOutcome::Running => ExecutionState::Dispatched,
-            StepOutcome::Pending if self.approval.is_some() => ExecutionState::Authorized,
+            StepOutcome::Pending if self.is_authorized() => ExecutionState::Authorized,
             StepOutcome::Pending if approval_step == Some(StepOutcome::Pending) => {
                 ExecutionState::AwaitingApproval
             }
@@ -366,6 +463,7 @@ impl ExecutionRecord {
             risk: parts.risk,
             chat_token_hash: parts.chat_token_hash.map(Box::new),
             approval: parts.approval,
+            permit: parts.permit.map(Box::new),
             waiting_since: parts.waiting_since,
             dispatched: parts.dispatched,
             settled_at: parts.settled_at,

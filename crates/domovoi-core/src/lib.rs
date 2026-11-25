@@ -43,16 +43,17 @@ pub mod signal;
 pub mod skill;
 pub mod skill_runner;
 pub mod triage;
+pub mod unit;
 pub mod user;
 pub mod verdict;
 
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
     ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalEvidenceError,
-    ApprovalPlan, ApprovalProvenance, Authorization, AuthorizationKind, HumanApproval, ImplHash,
-    JournalEpoch, PackagePlan, PermitError, PlanBinding, PlanContract, PlanError, PlanFamily,
-    PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts, Principal, StoredAction,
-    StoredActionError, job_plan_hash,
+    ApprovalPlan, ApprovalProvenance, Authorization, AuthorizationKind, CapabilityPlan,
+    HumanApproval, ImplHash, JournalEpoch, PackagePlan, PermitError, PlanBinding, PlanContract,
+    PlanError, PlanFamily, PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts, Principal,
+    StoredAction, StoredActionError, job_plan_hash,
 };
 pub use actor::{
     Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_KNOWLEDGE,
@@ -98,8 +99,8 @@ pub use operation::{
     ExecutionError, ExecutionIntent, ExecutionParts, ExecutionRecord, ExecutionState,
     FinishOutcome, Operation, OperationKind, OperationSnapshot, OperationStatus, OperationTrace,
     PauseReason, PinnedSubject, RetryOf, Step, StepEdge, StepIntent, StepKind, StepOutcome,
-    StepProgress, StepRecord, StepUsage, TRACE_SCHEMA_VERSION, TraceEdge, TraceOperation, TraceRef,
-    TraceStep, WaitKind, build_trace, check_edge,
+    StepProgress, StepRecord, StepUsage, StoredPermit, TRACE_SCHEMA_VERSION, TraceEdge,
+    TraceOperation, TraceRef, TraceStep, WaitKind, build_trace, check_edge,
 };
 pub use severity::Severity;
 pub use sha256::ScriptDigest;

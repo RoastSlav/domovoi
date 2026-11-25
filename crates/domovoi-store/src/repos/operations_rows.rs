@@ -267,6 +267,7 @@ impl ExecutionRow {
                 })
                 .transpose()?,
             approval,
+            permit: None,
             waiting_since: from_ms_opt(self.waiting_since)?,
             dispatched,
             settled_at: from_ms_opt(self.settled_at)?,
