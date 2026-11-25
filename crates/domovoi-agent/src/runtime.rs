@@ -220,7 +220,7 @@ impl AgentRuntime {
             logs: deps.logs.clone(),
             journal: Some(journal.clone()),
             packages,
-            helper: crate::helper_client::HelperClient::default_path(),
+            helper: crate::helper_client::HelperRelay::default_path(),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -278,7 +278,7 @@ impl AgentRuntime {
             &self.requests.catalog,
             self.requests.package_surface(),
         );
-        let helper = self.requests.helper.clone();
+        let helper = self.requests.helper.client().clone();
         let helper_status = crate::helper_client::probe_status(&helper, &*self.deps.clock).await;
         let helper_identity = match helper_status {
             HelperStatus::Ok { .. } => {

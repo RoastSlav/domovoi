@@ -100,6 +100,47 @@ impl HelperClientError {
 /// The relayed code for a helper that cannot be asked or does not serve the operation.
 pub const HELPER_UNAVAILABLE: &str = "helper_unavailable";
 
+/// What the request handler holds of the helper socket: it can ask for a signed safety report and
+/// nothing else, and it is the only part of the handler that reaches the socket.
+#[derive(Debug, Clone)]
+pub struct HelperRelay {
+    client: HelperClient,
+}
+
+impl HelperRelay {
+    /// A relay for the socket at `socket`.
+    #[must_use]
+    pub fn new(socket: impl Into<PathBuf>) -> Self {
+        Self {
+            client: HelperClient::new(socket),
+        }
+    }
+
+    /// A relay for the socket the helper unit listens on.
+    #[must_use]
+    pub fn default_path() -> Self {
+        Self {
+            client: HelperClient::default_path(),
+        }
+    }
+
+    /// The client behind the relay, for the status probe.
+    #[must_use]
+    pub fn client(&self) -> &HelperClient {
+        &self.client
+    }
+
+    /// Asks the helper for a signed safety report bound to `nonce`, returned exactly as the helper
+    /// wrote it.
+    pub async fn attest(
+        &self,
+        nonce: Nonce,
+        clock: &dyn Clock,
+    ) -> Result<SignedAttestation, HelperClientError> {
+        self.client.attest(nonce, clock).await
+    }
+}
+
 /// A client for the helper's local socket.
 #[derive(Debug, Clone)]
 pub struct HelperClient {

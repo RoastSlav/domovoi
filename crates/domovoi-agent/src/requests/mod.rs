@@ -106,7 +106,7 @@ pub struct RequestCtx {
     /// The package service; `None` without a `[packages]` section.
     pub packages: Option<Arc<crate::packages::PackageService>>,
     /// The helper's socket, for `attest_safety`.
-    pub helper: crate::helper_client::HelperClient,
+    pub helper: crate::helper_client::HelperRelay,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.

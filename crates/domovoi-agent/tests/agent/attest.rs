@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use domovoi_agent::helper_client::{HelperClient, probe_identity};
+use domovoi_agent::helper_client::{HelperClient, HelperRelay, probe_identity};
 use domovoi_agent::link::RequestKind;
 use domovoi_agent::link::STATUS_PROBE_INTERVAL;
 use domovoi_agent::link::handshake::AgentStatusSource;
@@ -77,7 +77,7 @@ fn error_code(message: &Message) -> &str {
 async fn relay(socket: &Path, request: RequestKind) -> Message {
     let rig = Fixture::new();
     let mut ctx = rig.ctx(Vec::new(), None, Vec::new());
-    ctx.helper = HelperClient::new(socket);
+    ctx.helper = HelperRelay::new(socket);
     handle(&ctx, &request).await
 }
 
