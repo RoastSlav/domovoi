@@ -14,6 +14,8 @@ pub mod platform;
 #[cfg(unix)]
 pub mod probe;
 #[cfg(unix)]
+pub mod reads;
+#[cfg(unix)]
 pub mod repair;
 #[cfg(unix)]
 pub mod selftest;
