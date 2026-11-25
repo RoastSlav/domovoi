@@ -182,6 +182,9 @@ pub async fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
     if super::unit::is_unit_contract(contract) {
         return super::unit::run_unit(ctx, run).await;
     }
+    if super::firewall::is_firewall_contract(contract) {
+        return super::firewall::run_firewall(ctx, run).await;
+    }
     if ![INSTALL, UNINSTALL, LIST].contains(&contract) {
         return refused(
             "contract_unknown",
