@@ -193,13 +193,14 @@ async fn serve_echoes_the_request_id() {
 }
 
 #[tokio::test]
-async fn serve_answers_read_as_unavailable_and_safety_attest_without_a_lock_as_unsigned() {
+async fn serve_answers_docker_without_an_engine_as_engine_absent_and_unlocked_attest_as_unsigned() {
     let ctx = default_context();
     assert_eq!(
         ask(&ctx, HelperRequest::DockerList).await,
-        HelperResponse::Unavailable {
+        HelperResponse::ReadFailed {
             group: HelperGroup::DockerRead,
-            reason: UnavailableReason::NotImplemented,
+            token: domovoi_core::helper::read::ReadToken::EngineAbsent,
+            detail: None,
         }
     );
     // The attestation is served now. This host has no state directory on its disk, so the lock
