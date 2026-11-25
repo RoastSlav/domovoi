@@ -11,6 +11,7 @@ mod ip;
 mod journal;
 pub mod keys;
 mod net;
+pub mod ops;
 pub mod templates;
 mod tokens;
 
