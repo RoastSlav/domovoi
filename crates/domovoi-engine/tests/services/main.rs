@@ -6,6 +6,8 @@ mod actions;
 #[cfg(test)]
 mod attach;
 #[cfg(test)]
+mod attested_coverage;
+#[cfg(test)]
 mod capability;
 #[cfg(test)]
 mod chain;
