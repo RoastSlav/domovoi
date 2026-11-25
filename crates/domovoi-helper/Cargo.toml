@@ -28,6 +28,7 @@ nix = { workspace = true }
 [dev-dependencies]
 domovoi-testkit = { workspace = true }
 tempfile = { workspace = true }
+insta = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "net", "io-util", "time", "macros", "rt-multi-thread"] }
 

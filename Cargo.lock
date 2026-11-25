@@ -1091,6 +1091,7 @@ dependencies = [
  "domovoi-core",
  "domovoi-testkit",
  "ed25519-dalek",
+ "insta",
  "jiff",
  "nix",
  "proptest",
