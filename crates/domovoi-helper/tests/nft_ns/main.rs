@@ -2,6 +2,9 @@
 //! (`sudo unshare --net` in CI, `unshare -Urn` rootless). Each test says when it skips.
 #![cfg(unix)]
 
+#[cfg(test)]
 mod basic;
+#[cfg(test)]
 mod load;
+#[cfg(test)]
 mod support;

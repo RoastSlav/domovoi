@@ -59,7 +59,7 @@ impl Tool {
                 "/sbin/conntrack",
                 "/bin/conntrack",
             ],
-            Self::Ip => &["/usr/sbin/ip", "/usr/bin/ip", "/sbin/ip", "/bin/ip"],
+            Self::Ip => &crate::attest::ip_source::IP_PROGRAMS,
         }
     }
 }

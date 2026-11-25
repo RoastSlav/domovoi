@@ -22,7 +22,7 @@ macro_rules! ns_test {
             if !enabled(stringify!($name)) {
                 return;
             }
-            let $ns = Ns::new();
+            let $ns = Ns::new().await;
             let lock = domovoi_helper::state::StateLock::open($ns.dir.path()).expect("lock");
             let guard = lock.acquire().expect("guard");
             let $cx = $ns.cx(&guard, 1000, 10);
@@ -147,7 +147,7 @@ async fn rollback_on_full_set_falls_back_to_membership_read() {
     if !enabled("rollback_on_full_set_falls_back_to_membership_read") {
         return;
     }
-    let ns = Ns::new();
+    let ns = Ns::new().await;
     let lock = domovoi_helper::state::StateLock::open(ns.dir.path()).expect("lock");
     let guard = lock.acquire().expect("guard");
     let cx = ns.cx(&guard, 1, 10);
@@ -379,7 +379,7 @@ async fn max_active_counts_foreign_elements_from_json() {
     if !enabled("max_active_counts_foreign_elements_from_json") {
         return;
     }
-    let ns = Ns::new();
+    let ns = Ns::new().await;
     let lock = domovoi_helper::state::StateLock::open(ns.dir.path()).expect("lock");
     let guard = lock.acquire().expect("guard");
     let cx = ns.cx(&guard, 1000, 1);

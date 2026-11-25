@@ -13,7 +13,7 @@ use domovoi_core::containment::{Net, templates};
 use domovoi_helper::nft::selftest::scenario::{Host, run_scenario, scenarios};
 use domovoi_helper::nft::selftest::{self, current_key};
 
-use super::support::{Ns, RealExec, enabled, raw};
+use super::support::{Ns, enabled, raw};
 
 fn load_enabled(test: &str) -> bool {
     if !enabled(test) {
@@ -60,7 +60,7 @@ async fn selftest_namespace_is_always_deleted() {
     if !enabled("selftest_namespace_is_always_deleted") {
         return;
     }
-    let ns = Ns::new();
+    let ns = Ns::new().await;
     let h = host(&ns, "/nonexistent/domovoi", "t1");
     h.build().await.expect("the namespaces are built");
     assert!(h.leftovers().await, "they exist before the teardown");
@@ -81,7 +81,7 @@ async fn selftest_never_touches_the_default_namespace_or_the_production_table() 
     if !enabled("selftest_never_touches_the_default_namespace_or_the_production_table") {
         return;
     }
-    let ns = Ns::new();
+    let ns = Ns::new().await;
     let (exit, _) = raw(&ns, "create table inet domovoi\nadd set inet domovoi blocked4 { type ipv4_addr; flags timeout; timeout 30s; size 5; }\n").await;
     assert_eq!(exit, Some(0));
     let before = listing(&ns).await;
@@ -116,10 +116,10 @@ async fn leak_self_test_control_run_leaks_so_the_test_can_see_a_window() {
         return;
     }
     let bin = std::env::var("DOMOVOI_BIN").expect("DOMOVOI_BIN");
-    let ns = Ns::new();
+    let ns = Ns::new().await;
     let wall = WallClock;
     let h = Host {
-        exec: &RealExec,
+        exec: &ns.exec,
         inspect: &ns.inspect,
         clock: &wall,
         exe: bin,

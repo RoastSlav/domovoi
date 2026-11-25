@@ -3,8 +3,7 @@
 //! suite inside `unshare`).
 
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::attest::{BootId, ExpectedSafety, SafetyIdentity, UnverifiedReason, ZERO_HASH};
@@ -12,7 +11,7 @@ use domovoi_core::containment::templates::{MaxElements, TableName};
 use domovoi_core::containment::{ExclusionInputs, Gate, Layout, Net, effective_exclusions};
 use domovoi_core::host::KeyFingerprint;
 use domovoi_core::identity::{PathFacts, PathKind};
-use domovoi_core::ports::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
+use domovoi_core::ports::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec, Redactor};
 use domovoi_helper::nft::exec::Runner;
 use domovoi_helper::nft::journal_file::Journal;
 use domovoi_helper::nft::{Cx, Facts, State, ensure};
@@ -30,44 +29,31 @@ pub fn enabled(test: &str) -> bool {
     false
 }
 
-/// Runs a real process; the only spawner in these tests.
-pub struct RealExec;
+/// Passes text through unchanged.
+struct PassThrough;
+
+impl Redactor for PassThrough {
+    fn redact(&self, text: &str) -> String {
+        text.to_owned()
+    }
+}
+
+/// Runs a real process through the runner, the only spawner there is.
+pub struct RealExec(domovoi_runner::SandboxExecutor);
+
+impl RealExec {
+    fn new() -> Self {
+        Self(
+            domovoi_runner::SandboxExecutor::new(Arc::new(PassThrough))
+                .with_base_env(BTreeMap::new()),
+        )
+    }
+}
 
 #[async_trait]
 impl ProcessExecutor for RealExec {
     async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, ProcessError> {
-        tokio::task::spawn_blocking(move || {
-            let mut command = Command::new(&spec.program);
-            command
-                .args(&spec.args)
-                .env_clear()
-                .envs(&spec.env)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            let mut child = command
-                .spawn()
-                .map_err(|e| ProcessError::Spawn(e.to_string()))?;
-            if let Some(text) = &spec.stdin
-                && let Some(mut stdin) = child.stdin.take()
-            {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            let out = child
-                .wait_with_output()
-                .map_err(|e| ProcessError::Spawn(e.to_string()))?;
-            Ok(ProcessOutput {
-                exit_code: out.status.code(),
-                signal: None,
-                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-                truncated: false,
-                timed_out: false,
-                duration_ms: 0,
-            })
-        })
-        .await
-        .map_err(|e| ProcessError::Spawn(e.to_string()))?
+        self.0.run(spec).await
     }
 }
 
@@ -82,11 +68,11 @@ fn root_file() -> PathFacts {
 }
 
 /// The tests share one network namespace and one table name, so they take turns.
-static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A scratch directory, a host that vets `nft` and `ip`, and a clock.
 pub struct Ns {
-    _serial: std::sync::MutexGuard<'static, ()>,
+    _serial: tokio::sync::MutexGuard<'static, ()>,
     pub dir: tempfile::TempDir,
     pub exec: RealExec,
     pub inspect: FakeHostInspect,
@@ -94,19 +80,10 @@ pub struct Ns {
 }
 
 impl Ns {
-    pub fn new() -> Self {
-        let serial = SERIAL
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut flush = Command::new("/usr/sbin/nft")
-            .args(["-f", "-"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("nft starts");
-        if let Some(mut stdin) = flush.stdin.take() {
-            let _ = stdin.write_all(b"flush ruleset\n");
-        }
-        let _ = flush.wait();
+    pub async fn new() -> Self {
+        let serial = SERIAL.lock().await;
+        let exec = RealExec::new();
+        let _ = raw_with(&exec, "flush ruleset\n").await;
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("state.lock"), "").expect("lock");
         let inspect = FakeHostInspect::new()
@@ -116,7 +93,7 @@ impl Ns {
         Self {
             _serial: serial,
             dir,
-            exec: RealExec,
+            exec,
             inspect,
             clock: FakeClock::new("2026-01-01T00:00:00Z".parse::<Timestamp>().expect("time")),
         }
@@ -205,6 +182,10 @@ pub async fn state(cx: &Cx<'_>, gate: Gate) -> State {
 
 /// Sends `script` straight to `nft`, as the harness (not the helper) does.
 pub async fn raw(ns: &Ns, script: &str) -> (Option<i32>, String) {
+    raw_with(&ns.exec, script).await
+}
+
+async fn raw_with(exec: &RealExec, script: &str) -> (Option<i32>, String) {
     let spec = ProcessSpec {
         program: "/usr/sbin/nft".to_owned(),
         args: vec!["-f".to_owned(), "-".to_owned()],
@@ -215,7 +196,7 @@ pub async fn raw(ns: &Ns, script: &str) -> (Option<i32>, String) {
         max_output_bytes: 65_536,
         run_as: None,
     };
-    let out = ns.exec.run(spec).await.expect("nft runs");
+    let out = exec.run(spec).await.expect("nft runs");
     (out.exit_code, out.stderr)
 }
 

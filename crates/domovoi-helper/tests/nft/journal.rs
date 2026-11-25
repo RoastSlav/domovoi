@@ -132,7 +132,7 @@ async fn a_dangling_intent_is_settled_from_membership() {
     let guard = lock.acquire().expect("lock");
     let sys = no_sys();
     let cx = w.cx(&guard, &sys);
-    let st = state(&cx, facts(OPEN)).await;
+    let _ = state(&cx, facts(OPEN)).await;
     cx.journal
         .append(&guard, &intent("present", JournalOp::Apply))
         .expect("append");
