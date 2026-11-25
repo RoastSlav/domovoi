@@ -33,12 +33,7 @@ fn pin(host: HostId) -> Transaction {
     })))
 }
 
-fn accepted(
-    host: HostId,
-    generation: u64,
-    variant: u64,
-    seen: Option<HighWater>,
-) -> Accepted {
+fn accepted(host: HostId, generation: u64, variant: u64, seen: Option<HighWater>) -> Accepted {
     let report = complete_report(Nonce32::from_bytes([1; 32]), generation, variant).unwrap();
     let bytes = domovoi_core::attest::render_complete(&report);
     Accepted {
@@ -100,9 +95,13 @@ async fn a_moved_mark_is_a_conflict_and_nothing_is_written(
     assert_eq!(mark(store, host).await.map(|row| row.generation), Some(1));
     // Steps 8 to 10 are re-checked inside the commit even with a current view.
     let seen = mark(store, host).await;
-    let lower = store.commit(accept(accepted(host, 0, 0, seen.clone()))).await;
+    let lower = store
+        .commit(accept(accepted(host, 0, 0, seen.clone())))
+        .await;
     assert!(matches!(lower, Err(CommitError::Conflict { .. })));
-    let repeat = store.commit(accept(accepted(host, 1, 1, seen.clone()))).await;
+    let repeat = store
+        .commit(accept(accepted(host, 1, 1, seen.clone())))
+        .await;
     assert!(matches!(repeat, Err(CommitError::Conflict { .. })));
     store
         .commit(accept(accepted(host, 1, 0, seen)))
@@ -127,9 +126,11 @@ async fn an_outcome_revokes_and_pin_and_unpin_move_the_marks(
         at: at(200),
     };
     store
-        .commit(Transaction::new().write(StateWrite::HelperTrust(
-            HelperTrustWrite::RecordOutcome(record),
-        )))
+        .commit(
+            Transaction::new().write(StateWrite::HelperTrust(HelperTrustWrite::RecordOutcome(
+                record,
+            ))),
+        )
         .await
         .unwrap();
     let stored = store.stored(host).await.unwrap();
@@ -137,14 +138,15 @@ async fn an_outcome_revokes_and_pin_and_unpin_move_the_marks(
     assert!(stored.view.verified.is_none(), "the outcome revokes");
     let last = stored.last.unwrap();
     assert_eq!(last.reason, Some(UnverifiedReason::ReportIncomplete));
-    assert_eq!(last.detail.as_deref(), Some("helper_incomplete:state_corrupt"));
+    assert_eq!(
+        last.detail.as_deref(),
+        Some("helper_incomplete:state_corrupt")
+    );
     assert_eq!(mark(store, host).await.map(|row| row.generation), Some(4));
 
     // An unpin clears the pin and the outcome and keeps the mark.
     store
-        .commit(Transaction::new().write(StateWrite::HelperTrust(HelperTrustWrite::Unpin {
-            host,
-        })))
+        .commit(Transaction::new().write(StateWrite::HelperTrust(HelperTrustWrite::Unpin { host })))
         .await
         .unwrap();
     let stored = store.stored(host).await.unwrap();
@@ -168,9 +170,11 @@ async fn removing_a_host_deletes_its_rows(store: &(impl UnitOfWork + HelperTrust
             .unwrap();
     }
     store
-        .commit(Transaction::new().write(StateWrite::HelperTrust(
-            HelperTrustWrite::RemoveHost { host },
-        )))
+        .commit(
+            Transaction::new().write(StateWrite::HelperTrust(HelperTrustWrite::RemoveHost {
+                host,
+            })),
+        )
         .await
         .unwrap();
     let gone = store.stored(host).await.unwrap();
@@ -190,11 +194,12 @@ async fn a_verified_outcome_cannot_be_recorded_directly(
         detail: String::new(),
         at: at(1),
     };
-    let result = store
-        .commit(Transaction::new().write(StateWrite::HelperTrust(
-            HelperTrustWrite::RecordOutcome(record),
-        )))
-        .await;
+    let result =
+        store
+            .commit(Transaction::new().write(StateWrite::HelperTrust(
+                HelperTrustWrite::RecordOutcome(record),
+            )))
+            .await;
     assert!(matches!(result, Err(CommitError::Constraint(_))));
 }
 
@@ -248,7 +253,10 @@ async fn high_water_persisted_across_hub_restart() {
     let reopened = Store::open(&path, StoreOptions::beside(&path, T0))
         .await
         .unwrap();
-    assert_eq!(mark(&reopened, host).await.map(|row| row.generation), Some(7));
+    assert_eq!(
+        mark(&reopened, host).await.map(|row| row.generation),
+        Some(7)
+    );
     let stored = reopened.stored(host).await.unwrap();
     assert_eq!(stored.view.pin.unwrap().public_key, KEY);
     assert_eq!(stored.view.verified.unwrap().identity.generation, 7);

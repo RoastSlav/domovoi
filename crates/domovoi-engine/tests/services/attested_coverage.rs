@@ -57,13 +57,20 @@ impl Rig {
         let service = KnowledgeService::new(KnowledgeDeps {
             uow: store.clone(),
             read: store.clone(),
-            coverage: Arc::new(AttestedCoverage::new(self.trust.clone(), self.clock.clone())),
+            coverage: Arc::new(AttestedCoverage::new(
+                self.trust.clone(),
+                self.clock.clone(),
+            )),
             clock: self.clock.clone(),
         });
         (service, store)
     }
 
-    async fn path(&self, service: &KnowledgeService, cidr: &str) -> domovoi_engine::knowledge::Recorded {
+    async fn path(
+        &self,
+        service: &KnowledgeService,
+        cidr: &str,
+    ) -> domovoi_engine::knowledge::Recorded {
         service
             .assert_fact(
                 draft(
@@ -175,7 +182,9 @@ async fn confirmation_current_follows_the_reboot_exception_only() {
     let evidence = evidence_of(rig.coverage.verdict(rig.host, COVERED).await);
     let now = rig.clock.now();
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &evidence, now).await,
+        rig.coverage
+            .confirmation_current(rig.host, &evidence, now)
+            .await,
         Ok(())
     );
     // The same identity but another boot: a reboot alone does not invalidate it.
@@ -184,33 +193,43 @@ async fn confirmation_current_follows_the_reboot_exception_only() {
         domovoi_core::attest::BootId::parse("0a0b0c0d-1111-4222-8333-444455556666").unwrap();
     let rebooted = CoverageEvidence::new(identity.canonical()).unwrap();
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &rebooted, now).await,
+        rig.coverage
+            .confirmation_current(rig.host, &rebooted, now)
+            .await,
         Ok(())
     );
     // A changed generation or configuration does.
     let stale = Err(UnverifiableReason::ConfirmationStale);
     rig.verified(2, 1);
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &evidence, now).await,
+        rig.coverage
+            .confirmation_current(rig.host, &evidence, now)
+            .await,
         stale
     );
     // An unreadable evidence text and an old confirmation do too.
     rig.verified(1, 0);
     let junk = CoverageEvidence::new("fake-evidence").unwrap();
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &junk, now).await,
+        rig.coverage
+            .confirmation_current(rig.host, &junk, now)
+            .await,
         stale
     );
     let thirty_days = SignedDuration::from_secs(30 * 86_400);
     let old = now.checked_sub(thirty_days).unwrap();
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &evidence, old).await,
+        rig.coverage
+            .confirmation_current(rig.host, &evidence, old)
+            .await,
         stale
     );
     // Without a current verified attestation the reason is the gate's.
     rig.clock.advance(SignedDuration::from_secs(300));
     assert_eq!(
-        rig.coverage.confirmation_current(rig.host, &evidence, now).await,
+        rig.coverage
+            .confirmation_current(rig.host, &evidence, now)
+            .await,
         Err(UnverifiableReason::AttestationStale)
     );
 }
@@ -234,7 +253,8 @@ async fn unavailable_coverage_still_refuses_every_confirmation() {
     );
     let fake = domovoi_testkit::FakeCoverage::covering(&[COVERED]);
     assert_eq!(
-        fake.confirmation_current(HostId::new(), &evidence, T0).await,
+        fake.confirmation_current(HostId::new(), &evidence, T0)
+            .await,
         Err(UnverifiableReason::NotAvailable),
         "a fake that is not told otherwise fails closed too"
     );
@@ -276,12 +296,18 @@ async fn changed_helper_safety_set_invalidates_confirmation() {
     let (service, _) = rig.service();
     let path = rig.path(&service, COVERED).await;
     rig.confirm(&service, &path).await.unwrap();
-    let listed = service.confirmed_paths_with_currency(rig.host).await.unwrap();
+    let listed = service
+        .confirmed_paths_with_currency(rig.host)
+        .await
+        .unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].currency, Ok(()));
     // The helper's safety set changes: a new generation with another configuration.
     rig.verified(2, 1);
-    let listed = service.confirmed_paths_with_currency(rig.host).await.unwrap();
+    let listed = service
+        .confirmed_paths_with_currency(rig.host)
+        .await
+        .unwrap();
     assert_eq!(
         listed[0].currency,
         Err(UnverifiableReason::ConfirmationStale)
@@ -298,7 +324,10 @@ async fn stale_attestation_blocks_unattended_containment() {
     let path = rig.path(&service, COVERED).await;
     rig.confirm(&service, &path).await.unwrap();
     rig.clock.advance(SignedDuration::from_secs(300));
-    let listed = service.confirmed_paths_with_currency(rig.host).await.unwrap();
+    let listed = service
+        .confirmed_paths_with_currency(rig.host)
+        .await
+        .unwrap();
     assert_eq!(
         listed[0].currency,
         Err(UnverifiableReason::AttestationStale)
