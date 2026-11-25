@@ -10,36 +10,37 @@ mod agent_checks;
 mod duration;
 mod render;
 mod root_checks;
+mod runner;
 mod units;
 
 use std::collections::BTreeMap;
 
-use domovoi_core::identity::CheckToken;
-use domovoi_core::identity::{AGENT_ACCOUNT, HostDirs, evaluate_runner_groups};
+use domovoi_core::identity::{AGENT_ACCOUNT, HostDirs};
 use domovoi_core::isolation::{
     BoundaryReason, BoundaryState, CheckId, CheckResult, IsolationReport, Outcome, RunBy,
-    RunnerFault, SUPPORTED_PLATFORMS, SelftestReport, TierDecision, WriteOptIn, classify_platform,
-    evaluate_isolation, evaluate_runner_startup, inspect_boundary,
+    SUPPORTED_PLATFORMS, SelftestReport, TierDecision, WriteOptIn, classify_platform,
+    inspect_boundary,
 };
 use domovoi_core::ports::{HostInspect, ProcessExecutor, ProcessSpec};
 use jiff::SignedDuration;
 use serde::{Deserialize, Serialize};
 
 pub use agent_checks::{
-    DOCKER_SOCKET, HealthAnswer, HealthProbe, UnixHealthProbe, run_agent_checks,
+    DOCKER_SOCKET, HealthAnswer, HealthProbe, RunnerHealth, UnixHealthProbe, run_agent_checks,
 };
 pub use duration::{SystemdDuration, parse_systemd_duration};
 pub use render::{
     AffectedSkill, affected_skills, exit_code, render_fault, render_json, render_result,
-    render_text,
+    render_text, skill_row,
 };
 pub use root_checks::{
     RootChecks, SLOW_WRITE_MICROS, TableFaults, WRITE_CYCLES, detect_systemd, run_root_checks,
     table_faults,
 };
+pub use runner::{RunnerObservation, runner_checks, runner_results};
 pub use units::{
-    AGENT_UNIT, HELPER_SOCKET_UNIT, SELFTEST_INSTANCE, UnitInspection, UnitTextFault,
-    inspect_units, parse_show, scan_unit_text, st07, st09,
+    AGENT_UNIT, HELPER_SOCKET_UNIT, RUNNER_SOCKET_UNIT, SELFTEST_INSTANCE, UnitInspection,
+    UnitTextFault, inspect_units, parse_show, scan_unit_text, st07, st09,
 };
 
 /// Where `systemctl` lives; the executor runs it by absolute path.
@@ -165,51 +166,6 @@ async fn agent_checks_as_agent(env: &SelftestEnv<'_>) -> Result<AgentChecksOutpu
     serde_json::from_str(&output.stdout).map_err(|e| format!("unreadable agent checks: {e}"))
 }
 
-/// ST-05, ST-06 and ST-13 from an isolation report the runner collected, else `nd`.
-#[must_use]
-pub fn runner_checks(report: Option<&IsolationReport>) -> Vec<CheckResult> {
-    let Some(report) = report else {
-        return vec![
-            CheckResult::new(CheckId::St05, Outcome::nd("runner_not_installed")),
-            CheckResult::new(CheckId::St06, Outcome::nd("runner_not_installed")),
-            CheckResult::new(CheckId::St13, Outcome::nd("runner_probe_unavailable")),
-        ];
-    };
-    let status = &report.status;
-    let st05 = match evaluate_runner_groups(&status.groups, status.gid) {
-        Ok(()) => Outcome::Pass,
-        Err(gids) => Outcome::fail(
-            CheckToken::RunnerGroupsExtra,
-            format!("extra groups {gids:?}"),
-        ),
-    };
-    let privileges: Vec<String> = evaluate_runner_startup(status)
-        .into_iter()
-        .filter(|f| !matches!(f, RunnerFault::ExtraGroups { .. }))
-        .map(|f| f.to_string())
-        .collect();
-    let st06 = if privileges.is_empty() {
-        Outcome::Pass
-    } else {
-        Outcome::fail(CheckToken::RunnerPrivileges, privileges.join("; "))
-    };
-    let faults = evaluate_isolation(report);
-    let st13 = if faults.is_empty() {
-        Outcome::Pass
-    } else {
-        let text: Vec<String> = faults
-            .iter()
-            .map(|f| format!("point {}: {}", f.point, f.what))
-            .collect();
-        Outcome::fail(CheckToken::RunnerNotIsolated, text.join("; "))
-    };
-    vec![
-        CheckResult::new(CheckId::St05, st05),
-        CheckResult::new(CheckId::St06, st06),
-        CheckResult::new(CheckId::St13, st13),
-    ]
-}
-
 /// Runs the self-test and returns the merged report, every check present once in id order.
 ///
 /// `runner` is the isolation report the runner collected in probe mode, when there is one.
@@ -218,12 +174,30 @@ pub async fn run_selftest(
     mode: Mode,
     runner: Option<&IsolationReport>,
 ) -> Result<SelftestReport, SelftestError> {
+    run_selftest_with(env, mode, runner_checks(runner)).await
+}
+
+/// Like [`run_selftest`], with the runner's halves taken from what the binary observed on the
+/// runner socket.
+pub async fn run_selftest_observed(
+    env: &SelftestEnv<'_>,
+    mode: Mode,
+    runner: &RunnerObservation,
+) -> Result<SelftestReport, SelftestError> {
+    run_selftest_with(env, mode, runner_results(runner)).await
+}
+
+async fn run_selftest_with(
+    env: &SelftestEnv<'_>,
+    mode: Mode,
+    runner_results: Vec<CheckResult>,
+) -> Result<SelftestReport, SelftestError> {
     let is_root = env.inspect.euid() == 0;
     if mode == Mode::Installer && !is_root {
         return Err(SelftestError::NotRoot);
     }
     let version = detect_systemd(env.inspect, env.executor, env.systemctl).await;
-    let mut results = runner_checks(runner);
+    let mut results = runner_results;
     let boundary = match mode {
         Mode::Local => {
             let out = collect_agent_checks(env);

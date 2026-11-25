@@ -14,6 +14,8 @@ mod record;
 #[cfg(test)]
 mod repair;
 #[cfg(test)]
+mod runner;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod units;

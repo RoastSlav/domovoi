@@ -14,11 +14,12 @@ use domovoi_core::helper::{
     encode_frame, frame_len,
 };
 use domovoi_core::identity::{
-    AGENT_ACCOUNT, CheckToken, DOCKER_GROUP, HostDirs, JOURNAL_GROUP, PathId, UserEntry,
+    AGENT_ACCOUNT, CheckToken, DOCKER_GROUP, HostDirs, JOURNAL_GROUP, PathId, PathSpec, UserEntry,
     evaluate_agent_groups, evaluate_path, expected_paths,
 };
 use domovoi_core::isolation::{BoundaryReason, BoundaryState, CheckId, CheckResult, Outcome};
 use domovoi_core::ports::{Access, HostInspect, InspectError, Probe};
+use domovoi_core::skill_runner::RUNNER_SOCKET_PATH;
 use uuid::Uuid;
 
 /// Where Docker listens on a host install.
@@ -37,6 +38,24 @@ pub struct HealthAnswer {
 pub trait HealthProbe: Send + Sync {
     /// Asks the helper at `socket` for its health; the error is a short reason.
     fn health(&self, socket: &Path) -> Result<HealthAnswer, String>;
+
+    /// What the skill runner answered to `health` on its socket. The runner speaks another
+    /// protocol and the client is async, so the binary asks beforehand and reports here; the
+    /// default is a host without a runner.
+    fn runner_health(&self) -> RunnerHealth {
+        RunnerHealth::NotInstalled
+    }
+}
+
+/// The runner half of ST-14: whether a `health` connect to the runner socket worked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunnerHealth {
+    /// No runner socket exists (or nobody asked).
+    NotInstalled,
+    /// The runner answered, or refused with its own token: the socket connects.
+    Answered,
+    /// The socket exists but the connect or the exchange failed; the text is why.
+    Unreachable(String),
 }
 
 /// The real [`HealthProbe`]: one blocking request over a Unix socket with socket timeouts.
@@ -154,23 +173,61 @@ fn st12(inspect: &dyn HostInspect, dirs: &HostDirs, agent: Option<&UserEntry>) -
             Outcome::nd("the path table has no socket row"),
         );
     };
-    let found = inspect.lstat(&spec.path).map_err(Into::into);
-    if matches!(found, Err(domovoi_core::identity::FactsError::NotFound)) {
+    // The runner's node has the helper's expectations: socket, root:domovoi-agent, 0660.
+    let runner_spec = PathSpec {
+        path: PathBuf::from(RUNNER_SOCKET_PATH),
+        ..spec.clone()
+    };
+    let owner = (agent.uid, agent.gid);
+    let helper = inspect.lstat(&spec.path).map_err(Into::into);
+    let runner = inspect.lstat(&runner_spec.path).map_err(Into::into);
+    let helper_absent = matches!(helper, Err(domovoi_core::identity::FactsError::NotFound));
+    let runner_absent = matches!(runner, Err(domovoi_core::identity::FactsError::NotFound));
+    let mut faults = Vec::new();
+    let mut wrong = Vec::new();
+    for (spec, found, absent) in [
+        (&spec, helper, helper_absent),
+        (&runner_spec, runner, runner_absent),
+    ] {
+        if absent {
+            continue;
+        }
+        if let Some(fault) = evaluate_path(spec, found, owner) {
+            wrong.push(spec.path.display().to_string());
+            faults.push(fault);
+        }
+    }
+    if !faults.is_empty() {
+        return CheckResult::new(
+            CheckId::St12,
+            Outcome::fail(
+                CheckToken::SocketModeWrong,
+                format!("{} is not root:domovoi-agent 0660", wrong.join(", ")),
+            ),
+        )
+        .with_faults(faults);
+    }
+    if helper_absent {
         return CheckResult::new(
             CheckId::St12,
             Outcome::nd("helper_socket_absent: the socket unit is not running"),
         );
     }
-    match evaluate_path(&spec, found, (agent.uid, agent.gid)) {
-        None => CheckResult::new(CheckId::St12, Outcome::Pass),
-        Some(fault) => CheckResult::new(
-            CheckId::St12,
-            Outcome::fail(
-                CheckToken::SocketModeWrong,
-                format!("{} is not root:domovoi-agent 0660", spec.path.display()),
-            ),
-        )
-        .with_faults(vec![fault]),
+    CheckResult::new(CheckId::St12, Outcome::Pass)
+}
+
+/// The outcome once the helper answered: the runner half decides between `nd`, pass and fail.
+fn st14_runner_half(health: &dyn HealthProbe, answer: HealthAnswer) -> Outcome {
+    match health.runner_health() {
+        RunnerHealth::NotInstalled => Outcome::nd(format!(
+            "runner_socket_not_installed; helper socket answered health (pid {})",
+            answer.pid
+        )),
+        RunnerHealth::Answered => Outcome::Pass,
+        RunnerHealth::Unreachable(why) => Outcome::fail(
+            CheckToken::SocketUnreachable,
+            format!("runner socket: {why}"),
+        ),
     }
 }
 
@@ -191,13 +248,7 @@ fn st14(
             None,
         ),
         Ok(answer) => (
-            CheckResult::new(
-                CheckId::St14,
-                Outcome::nd(format!(
-                    "runner_socket_not_installed; helper socket answered health (pid {})",
-                    answer.pid
-                )),
-            ),
+            CheckResult::new(CheckId::St14, st14_runner_half(health, answer)),
             Some(answer),
         ),
     }

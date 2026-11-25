@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use domovoi_core::identity::{AGENT_ACCOUNT, AGENT_GROUP, CheckToken};
+use domovoi_core::identity::{AGENT_ACCOUNT, AGENT_GROUP, CheckToken, HostDirs, SKILL_ACCOUNT};
 use domovoi_core::isolation::{CheckId, CheckResult, Outcome};
 use domovoi_core::ports::{HostInspect, ProcessExecutor, ProcessSpec};
 use jiff::SignedDuration;
@@ -22,6 +22,10 @@ pub const SELFTEST_INSTANCE: &str = "selftest";
 pub const HELPER_SOCKET_UNIT: &str = "domovoi-helper.socket";
 /// The helper's per-connection service template, without the instance and suffix.
 const HELPER_SERVICE_TEMPLATE: &str = "domovoi-helper@";
+/// The skill runner's socket unit.
+pub const RUNNER_SOCKET_UNIT: &str = "domovoi-skill-runner.socket";
+/// The skill runner's per-connection service template, without the instance and suffix.
+const RUNNER_SERVICE_TEMPLATE: &str = "domovoi-skill-runner@";
 /// The agent's unit.
 pub const AGENT_UNIT: &str = "domovoi-agent.service";
 
@@ -42,11 +46,18 @@ enum Expect {
     Mode(u32),
     /// A duration, compared after parsing so `1min` and `60s` agree.
     Span(SystemdDuration),
+    /// The `ExecStart` argument vector after the program path, as `systemctl show` prints it in
+    /// `argv[]=`; a difference is reported as `bind_paths` (the unit and `agent.toml` disagree).
+    Argv(Vec<String>),
+    /// The `BindReadOnlyPaths` entries, in order; a difference is reported as `bind_paths`.
+    Binds(Vec<String>),
 }
 
 /// A unit to inspect and the properties it must have.
 struct UnitSpec {
     name: String,
+    /// A unit that may be absent: a host without it is not a failure.
+    optional: bool,
     expect: Vec<(&'static str, Expect)>,
 }
 
@@ -54,9 +65,25 @@ fn text(value: &str) -> Expect {
     Expect::Text(value.to_owned())
 }
 
-fn specs() -> Vec<UnitSpec> {
+/// The runner's `ExecStart` arguments, as the unit is rendered for `dirs`.
+fn runner_argv(dirs: &HostDirs) -> Vec<String> {
+    [
+        "skill-runner",
+        "serve",
+        "--skills-dir",
+        &dirs.skills_dir.to_string_lossy(),
+        "--packages-dir",
+        &dirs.packages_dir.to_string_lossy(),
+    ]
+    .iter()
+    .map(|a| (*a).to_owned())
+    .collect()
+}
+
+fn specs(dirs: &HostDirs) -> Vec<UnitSpec> {
     vec![
         UnitSpec {
+            optional: false,
             name: HELPER_SOCKET_UNIT.to_owned(),
             expect: vec![
                 ("Accept", text("yes")),
@@ -66,6 +93,7 @@ fn specs() -> Vec<UnitSpec> {
             ],
         },
         UnitSpec {
+            optional: false,
             name: format!("{HELPER_SERVICE_TEMPLATE}{SELFTEST_INSTANCE}.service"),
             expect: vec![
                 ("Type", text("simple")),
@@ -77,8 +105,39 @@ fn specs() -> Vec<UnitSpec> {
             ],
         },
         UnitSpec {
+            optional: false,
             name: AGENT_UNIT.to_owned(),
             expect: vec![("User", text(AGENT_ACCOUNT)), ("Group", text(AGENT_GROUP))],
+        },
+        UnitSpec {
+            optional: true,
+            name: RUNNER_SOCKET_UNIT.to_owned(),
+            expect: vec![
+                ("Accept", text("yes")),
+                ("SocketMode", Expect::Mode(0o660)),
+                ("SocketUser", text("root")),
+                ("SocketGroup", text(AGENT_GROUP)),
+            ],
+        },
+        UnitSpec {
+            optional: true,
+            name: format!("{RUNNER_SERVICE_TEMPLATE}{SELFTEST_INSTANCE}.service"),
+            expect: vec![
+                ("Type", text("simple")),
+                ("User", text(SKILL_ACCOUNT)),
+                (
+                    "RuntimeMaxUSec",
+                    Expect::Span(SystemdDuration::from_secs(3720)),
+                ),
+                ("ExecStart", Expect::Argv(runner_argv(dirs))),
+                (
+                    "BindReadOnlyPaths",
+                    Expect::Binds(vec![
+                        dirs.skills_dir.to_string_lossy().into_owned(),
+                        dirs.packages_dir.to_string_lossy().into_owned(),
+                    ]),
+                ),
+            ],
         },
     ]
 }
@@ -110,6 +169,13 @@ pub struct UnitInspection {
     pub modified: Vec<String>,
 }
 
+/// The arguments after the program path in the `argv[]=` part of a `systemctl show` `ExecStart`.
+fn exec_argv(value: &str) -> Option<Vec<String>> {
+    let (_, rest) = value.split_once("argv[]=")?;
+    let argv = rest.split(" ; ").next()?;
+    Some(argv.split_whitespace().skip(1).map(str::to_owned).collect())
+}
+
 fn compare(found: &BTreeMap<String, String>, name: &str, expect: &Expect) -> Option<String> {
     let value = found.get(name).map_or("", String::as_str);
     match expect {
@@ -123,6 +189,22 @@ fn compare(found: &BTreeMap<String, String>, name: &str, expect: &Expect) -> Opt
             Some(span) if span == *want => None,
             _ => Some(format!("{name}={value:?}, expected {want:?}")),
         },
+        Expect::Argv(want) => match exec_argv(value) {
+            Some(argv) if argv == *want => None,
+            other => Some(format!(
+                "bind_paths: ExecStart arguments are {other:?}, expected {want:?} for agent.toml"
+            )),
+        },
+        Expect::Binds(want) => {
+            let have: Vec<&str> = value.split_whitespace().collect();
+            if have == *want {
+                None
+            } else {
+                Some(format!(
+                    "bind_paths: {name}={value:?}, expected {want:?} for agent.toml"
+                ))
+            }
+        }
     }
 }
 
@@ -161,11 +243,16 @@ fn judge(spec: &UnitSpec, props: &BTreeMap<String, String>) -> UnitInspection {
 
 /// Asks systemd about the helper socket, a helper service instance and the agent unit.
 ///
-/// `systemctl` is the absolute path of the program. Runner units are not queried here: they are
-/// `nd` until the runner exists.
-pub async fn inspect_units(executor: &dyn ProcessExecutor, systemctl: &str) -> Vec<UnitInspection> {
+/// `systemctl` is the absolute path of the program. The runner's socket and service instance are
+/// compared too when installed (the service against the rendering for `dirs`); a host without
+/// them is not a failure.
+pub async fn inspect_units(
+    executor: &dyn ProcessExecutor,
+    systemctl: &str,
+    dirs: &HostDirs,
+) -> Vec<UnitInspection> {
     let mut out = Vec::new();
-    for spec in specs() {
+    for spec in specs(dirs) {
         let mut names: Vec<&str> = COMMON_PROPERTIES.to_vec();
         names.extend(spec.expect.iter().map(|(n, _)| *n));
         let run = ProcessSpec {
@@ -188,6 +275,9 @@ pub async fn inspect_units(executor: &dyn ProcessExecutor, systemctl: &str) -> V
             Ok(o) => failed(&spec, format!("systemctl show exited {:?}", o.exit_code)),
             Err(e) => failed(&spec, format!("systemctl show could not run: {e}")),
         };
+        if spec.optional && inspection.fragment.is_none() {
+            continue;
+        }
         out.push(inspection);
     }
     out
