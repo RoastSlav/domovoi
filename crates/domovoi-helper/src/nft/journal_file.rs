@@ -149,14 +149,18 @@ pub fn fold(records: &[JournalRecord]) -> Vec<BlockState> {
                 s.phase = Phase::Applied;
                 s.applied_at = Some(*at);
             }),
-            JournalRecord::Noop { block } => touch_no_time(&mut map, block, |s| s.phase = Phase::Noop),
+            JournalRecord::Noop { block } => {
+                touch_no_time(&mut map, block, |s| s.phase = Phase::Noop)
+            }
             JournalRecord::Failed { block, .. } => {
                 touch_no_time(&mut map, block, |s| s.phase = Phase::Failed);
             }
-            JournalRecord::Confirmed { block, deadline } => touch(&mut map, block, *deadline, |s| {
-                s.phase = Phase::Confirmed;
-                s.deadline = Some(*deadline);
-            }),
+            JournalRecord::Confirmed { block, deadline } => {
+                touch(&mut map, block, *deadline, |s| {
+                    s.phase = Phase::Confirmed;
+                    s.deadline = Some(*deadline);
+                })
+            }
             JournalRecord::RollbackIntent { block, at } => touch(&mut map, block, *at, |s| {
                 s.phase = Phase::RollbackIntent;
                 s.rollback_recorded = true;
@@ -165,7 +169,9 @@ pub fn fold(records: &[JournalRecord]) -> Vec<BlockState> {
                 s.phase = Phase::RolledBack;
                 s.rollback_recorded = true;
             }),
-            JournalRecord::Lost { block, at } => touch(&mut map, block, *at, |s| s.phase = Phase::Lost),
+            JournalRecord::Lost { block, at } => {
+                touch(&mut map, block, *at, |s| s.phase = Phase::Lost)
+            }
             JournalRecord::TableRecreated { .. } | JournalRecord::Orphan { .. } => {}
         }
     }
@@ -227,7 +233,11 @@ impl Journal {
 
     /// Appends `record` and syncs it before returning, so the record exists before the `nft`
     /// call it describes. `_guard` proves the state lock is held.
-    pub fn append(&self, _guard: &LockGuard<'_>, record: &JournalRecord) -> Result<(), JournalError> {
+    pub fn append(
+        &self,
+        _guard: &LockGuard<'_>,
+        record: &JournalRecord,
+    ) -> Result<(), JournalError> {
         let line = record
             .to_line()
             .map_err(|e| JournalError::Io(std::io::Error::other(e)))?;
@@ -266,7 +276,10 @@ impl Journal {
     ) -> Result<bool, JournalError> {
         let old: std::collections::BTreeSet<String> = fold(&loaded.records)
             .into_iter()
-            .filter(|b| b.finished_at(now).is_some_and(|at| now - at > KEEP))
+            .filter(|b| {
+                b.finished_at(now)
+                    .is_some_and(|at| now.duration_since(at) > KEEP)
+            })
             .map(|b| b.block)
             .collect();
         let keep: Vec<&JournalRecord> = loaded
@@ -274,7 +287,7 @@ impl Journal {
             .iter()
             .filter(|r| match r {
                 JournalRecord::Orphan { .. } => false,
-                JournalRecord::TableRecreated { at, .. } => now - *at <= KEEP,
+                JournalRecord::TableRecreated { at, .. } => now.duration_since(*at) <= KEEP,
                 other => other.block().is_none_or(|b| !old.contains(b)),
             })
             .collect();

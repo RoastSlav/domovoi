@@ -5,9 +5,9 @@
 //! is read as JSON and compared by name and number; a difference is `table_drift` and nothing
 //! repairs it, except that an empty table of the wrong layout is deleted and made again.
 
-use domovoi_core::containment::templates::{CHAIN_PRIORITY, STEP1_TTL_S, SetName, TableName};
+use domovoi_core::containment::templates::{CHAIN_PRIORITY, STEP1_TTL_S, SetName};
 use domovoi_core::containment::{
-    Family, JournalRecord, Layout, NftOp, Net, RecreateReason, StderrClass, Token, classify_stderr,
+    Family, JournalRecord, Layout, Net, NftOp, RecreateReason, StderrClass, Token, classify_stderr,
     coalesce, templates,
 };
 
@@ -40,14 +40,44 @@ struct SetSpec {
 
 fn set_specs(layout: Layout) -> Vec<SetSpec> {
     let mut specs = vec![
-        SetSpec { name: "blocked4", typ: "ipv4_addr", flags: &["timeout"], timed: true },
-        SetSpec { name: "blocked6", typ: "ipv6_addr", flags: &["timeout"], timed: true },
-        SetSpec { name: "excl4", typ: "ipv4_addr", flags: &["interval"], timed: false },
-        SetSpec { name: "excl6", typ: "ipv6_addr", flags: &["interval"], timed: false },
+        SetSpec {
+            name: "blocked4",
+            typ: "ipv4_addr",
+            flags: &["timeout"],
+            timed: true,
+        },
+        SetSpec {
+            name: "blocked6",
+            typ: "ipv6_addr",
+            flags: &["timeout"],
+            timed: true,
+        },
+        SetSpec {
+            name: "excl4",
+            typ: "ipv4_addr",
+            flags: &["interval"],
+            timed: false,
+        },
+        SetSpec {
+            name: "excl6",
+            typ: "ipv6_addr",
+            flags: &["interval"],
+            timed: false,
+        },
     ];
     if layout == Layout::HostsAndPrefixes {
-        specs.push(SetSpec { name: "blockednet4", typ: "ipv4_addr", flags: &["interval", "timeout"], timed: true });
-        specs.push(SetSpec { name: "blockednet6", typ: "ipv6_addr", flags: &["interval", "timeout"], timed: true });
+        specs.push(SetSpec {
+            name: "blockednet4",
+            typ: "ipv4_addr",
+            flags: &["interval", "timeout"],
+            timed: true,
+        });
+        specs.push(SetSpec {
+            name: "blockednet6",
+            typ: "ipv6_addr",
+            flags: &["interval", "timeout"],
+            timed: true,
+        });
     }
     specs
 }
@@ -93,10 +123,16 @@ pub fn drift_of(view: &TableView, layout: Layout, max_elements: u32) -> Option<S
             && (set.size != Some(u64::from(max_elements))
                 || set.timeout != Some(u64::from(STEP1_TTL_S)))
         {
-            return Some(format!("set {} has another size or default timeout", spec.name));
+            return Some(format!(
+                "set {} has another size or default timeout",
+                spec.name
+            ));
         }
     }
-    let extra = view.sets.keys().any(|k| !set_specs(layout).iter().any(|s| s.name == k));
+    let extra = view
+        .sets
+        .keys()
+        .any(|k| !set_specs(layout).iter().any(|s| s.name == k));
     if extra {
         return Some("the table holds a set the template does not".to_owned());
     }
@@ -138,9 +174,12 @@ pub async fn read_table(cx: &Cx<'_>) -> Result<Option<TableView>, Refusal> {
         .await
         .map_err(|f| Refusal::of_fault(&f))?;
     if run.ok() {
-        return parse(&run.stdout)
-            .map(Some)
-            .map_err(|_| Refusal::new(Token::InternalTemplateError, "the table listing is not JSON"));
+        return parse(&run.stdout).map(Some).map_err(|_| {
+            Refusal::new(
+                Token::InternalTemplateError,
+                "the table listing is not JSON",
+            )
+        });
     }
     if is_absent(run.exit, &run.stderr) {
         return Ok(None);
@@ -150,23 +189,42 @@ pub async fn read_table(cx: &Cx<'_>) -> Result<Option<TableView>, Refusal> {
 
 async fn bootstrap(cx: &Cx<'_>, layout: Layout) -> Result<(), Refusal> {
     let script = templates::bootstrap(&cx.table, layout, cx.max_elements);
-    let run = cx.run.script(&script).await.map_err(|f| Refusal::of_fault(&f))?;
+    let run = cx
+        .run
+        .script(&script)
+        .await
+        .map_err(|f| Refusal::of_fault(&f))?;
     if run.ok() {
         return Ok(());
     }
     match classify_stderr(NftOp::CreateTable, &run.stderr) {
         StderrClass::TableExistsRace => Ok(()),
-        class => Err(Refusal::new(token_of(class, false), first_line(&run.stderr))),
+        class => Err(Refusal::new(
+            token_of(class, false),
+            first_line(&run.stderr),
+        )),
     }
 }
 
 fn first_line(text: &str) -> String {
-    text.lines().next().unwrap_or_default().chars().take(160).collect()
+    text.lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .take(160)
+        .collect()
 }
 
 fn exclusion_ranges(net_list: &[Net], family: Family) -> Vec<(u128, u128)> {
-    let of_family: Vec<Net> = net_list.iter().filter(|n| n.family() == family).copied().collect();
-    coalesce(&of_family).into_iter().map(|(lo, hi, _)| (lo, hi)).collect()
+    let of_family: Vec<Net> = net_list
+        .iter()
+        .filter(|n| n.family() == family)
+        .copied()
+        .collect();
+    coalesce(&of_family)
+        .into_iter()
+        .map(|(lo, hi, _)| (lo, hi))
+        .collect()
 }
 
 fn current_ranges(view: &TableView, set: SetName) -> Vec<(u128, u128)> {
@@ -192,7 +250,11 @@ async fn sync_exclusions(
             continue;
         }
         let script = templates::exclusion_rewrite(&cx.table, family, &want);
-        let run = cx.run.script(&script).await.map_err(|f| Refusal::of_fault(&f))?;
+        let run = cx
+            .run
+            .script(&script)
+            .await
+            .map_err(|f| Refusal::of_fault(&f))?;
         if !run.ok() {
             return Err(Refusal::from_run(NftOp::ExclusionRewrite, &run, true));
         }
@@ -225,23 +287,36 @@ pub async fn ensure(
             let layout = wanted.unwrap_or(Layout::Hosts);
             for block in &live {
                 cx.journal
-                    .append(cx.guard, &JournalRecord::Lost { block: block.clone(), at: now })
+                    .append(
+                        cx.guard,
+                        &JournalRecord::Lost {
+                            block: block.clone(),
+                            at: now,
+                        },
+                    )
                     .map_err(Refusal::journal)?;
             }
             if !live.is_empty() {
                 cx.journal
                     .append(
                         cx.guard,
-                        &JournalRecord::TableRecreated { reason: RecreateReason::TableLost, at: now },
+                        &JournalRecord::TableRecreated {
+                            reason: RecreateReason::TableLost,
+                            at: now,
+                        },
                     )
                     .map_err(Refusal::journal)?;
             }
             lost = live.clone();
             bootstrap(cx, layout).await?;
-            state = if lost.is_empty() { TableState::Created } else { TableState::Recreated };
-            read_table(cx)
-                .await?
-                .ok_or_else(|| Refusal::new(Token::TableDrift, "the table is gone after its creation"))?
+            state = if lost.is_empty() {
+                TableState::Created
+            } else {
+                TableState::Recreated
+            };
+            read_table(cx).await?.ok_or_else(|| {
+                Refusal::new(Token::TableDrift, "the table is gone after its creation")
+            })?
         }
     };
     let mut layout = layout_of(&view);
@@ -266,13 +341,16 @@ pub async fn ensure(
             cx.journal
                 .append(
                     cx.guard,
-                    &JournalRecord::TableRecreated { reason: RecreateReason::LayoutChanged, at: now },
+                    &JournalRecord::TableRecreated {
+                        reason: RecreateReason::LayoutChanged,
+                        at: now,
+                    },
                 )
                 .map_err(Refusal::journal)?;
             state = TableState::Recreated;
-            view = read_table(cx)
-                .await?
-                .ok_or_else(|| Refusal::new(Token::TableDrift, "the table is gone after its creation"))?;
+            view = read_table(cx).await?.ok_or_else(|| {
+                Refusal::new(Token::TableDrift, "the table is gone after its creation")
+            })?;
             layout = layout_of(&view);
         }
     }
@@ -287,11 +365,17 @@ pub async fn ensure(
         && let Some(exclusions) = exclusions
         && sync_exclusions(cx, &view, exclusions).await?
     {
-        view = read_table(cx)
-            .await?
-            .ok_or_else(|| Refusal::new(Token::TableDrift, "the table is gone after its rewrite"))?;
+        view = read_table(cx).await?.ok_or_else(|| {
+            Refusal::new(Token::TableDrift, "the table is gone after its rewrite")
+        })?;
     }
-    Ok(Ensured { view, state, drift, lost, layout })
+    Ok(Ensured {
+        view,
+        state,
+        drift,
+        lost,
+        layout,
+    })
 }
 
 /// The `Run` of a failed read or script as the token it means; used by the other modules.

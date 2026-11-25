@@ -104,7 +104,9 @@ impl Runner<'_> {
             run_as: None,
         };
         match self.exec.run(spec).await {
-            Ok(ProcessOutput { timed_out: true, .. }) => Err(Fault::TimedOut),
+            Ok(ProcessOutput {
+                timed_out: true, ..
+            }) => Err(Fault::TimedOut),
             Ok(out) => Ok(Run {
                 exit: out.exit_code,
                 stdout: out.stdout,
@@ -117,8 +119,13 @@ impl Runner<'_> {
 
     /// Sends `script` to `nft -f -`.
     pub async fn script(&self, script: &str) -> Result<Run, Fault> {
-        self.run(Tool::Nft, script_args(), Some(script.to_owned()), SCRIPT_CAP)
-            .await
+        self.run(
+            Tool::Nft,
+            script_args(),
+            Some(script.to_owned()),
+            SCRIPT_CAP,
+        )
+        .await
     }
 
     /// Runs `nft` with the read `args` of a template and returns its JSON.

@@ -94,14 +94,6 @@ pub struct TableView {
     pub counters: Vec<u64>,
 }
 
-fn family_of(typ: &str) -> Option<Family> {
-    match typ {
-        "ipv4_addr" => Some(Family::V4),
-        "ipv6_addr" => Some(Family::V6),
-        _ => None,
-    }
-}
-
 fn addr(text: &str) -> Option<(Family, u128)> {
     match text.parse::<IpAddr>().ok()? {
         IpAddr::V4(v4) => Some((Family::V4, u128::from(u32::from(v4)))),
@@ -118,7 +110,7 @@ fn span(value: &Value) -> Option<(Family, u128, u128)> {
     if let Some(prefix) = object.get("prefix") {
         let (family, base) = addr(prefix.get("addr")?.as_str()?)?;
         let len = u32::try_from(prefix.get("len")?.as_u64()?).ok()?;
-        let bits = match family {
+        let bits: u32 = match family {
             Family::V4 => 32,
             Family::V6 => 128,
         };
@@ -216,14 +208,17 @@ pub fn parse(json: &str) -> Result<TableView, ViewError> {
             let flags = set
                 .get("flags")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|f| f.as_str().map(str::to_owned)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|f| f.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default();
             let members = set
                 .get("elem")
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(member).collect())
                 .unwrap_or_default();
-            let _ = family_of(typ);
             view.sets.insert(
                 name.to_owned(),
                 SetView {
@@ -246,7 +241,10 @@ pub fn parse(json: &str) -> Result<TableView, ViewError> {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_owned(),
-                prio: chain.get("prio").and_then(Value::as_i64).unwrap_or(i64::MAX),
+                prio: chain
+                    .get("prio")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(i64::MAX),
                 policy: chain
                     .get("policy")
                     .and_then(Value::as_str)

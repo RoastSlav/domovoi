@@ -65,7 +65,11 @@ pub async fn existing_flows(cx: &Cx<'_>, net: &Net) -> ExistingFlows {
     if !narrow_enough(net) {
         return ExistingFlows::MayPersist;
     }
-    match cx.run.conntrack(templates::conntrack_delete_args(net)).await {
+    match cx
+        .run
+        .conntrack(templates::conntrack_delete_args(net))
+        .await
+    {
         Ok(run) if run.ok() => ExistingFlows::Cut,
         _ => ExistingFlows::MayPersist,
     }

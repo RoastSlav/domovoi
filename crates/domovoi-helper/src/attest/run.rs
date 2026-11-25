@@ -135,7 +135,10 @@ pub(super) fn config_lines(env: &AttestEnv) -> Result<ConfigLines, &'static str>
     effective_config_lines(&text).map_err(|err| err.reason())
 }
 
-pub(super) async fn route_lines(env: &AttestEnv, config: &ConfigLines) -> Result<RouteLines, ReadError> {
+pub(super) async fn route_lines(
+    env: &AttestEnv,
+    config: &ConfigLines,
+) -> Result<RouteLines, ReadError> {
     let source = AgentTomlEndpoints::load(&*env.inspect, &env.dirs.etc_dir.join("agent.toml"));
     let endpoints = Endpoints {
         hub_addrs: source.hub_addrs()?,

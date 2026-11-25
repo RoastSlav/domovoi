@@ -42,7 +42,10 @@ pub fn active_count(view: &TableView, interval_path: bool) -> usize {
 /// is refused, never clamped.
 pub fn check_ttl(ttl_s: u32, max_ttl_s: u64) -> Result<(), Refusal> {
     if ttl_s <= STEP1_TTL_S {
-        return Err(Refusal::new(Token::TtlTooShort, format!("the TTL must be above {STEP1_TTL_S}s")));
+        return Err(Refusal::new(
+            Token::TtlTooShort,
+            format!("the TTL must be above {STEP1_TTL_S}s"),
+        ));
     }
     if u64::from(ttl_s) > max_ttl_s {
         return Err(Refusal::new(
@@ -89,7 +92,9 @@ pub fn inputs_from(cidrs: &[String], routes: &RouteLines) -> Option<ExclusionInp
         inputs.hub_addrs.push(host_net(text.parse().ok()?)?);
     }
     for text in &routes.link_peer {
-        inputs.link_peers.push(host_net(LinkPeer::parse(text).ok()?.ip)?);
+        inputs
+            .link_peers
+            .push(host_net(LinkPeer::parse(text).ok()?.ip)?);
     }
     for text in &routes.local_addr {
         inputs
