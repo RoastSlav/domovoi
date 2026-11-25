@@ -1036,6 +1036,7 @@ name = "domovoi-core"
 version = "0.0.10"
 dependencies = [
  "async-trait",
+ "ed25519-dalek",
  "futures",
  "hex",
  "insta",
@@ -1089,8 +1090,11 @@ dependencies = [
  "domovoi-config",
  "domovoi-core",
  "domovoi-testkit",
+ "ed25519-dalek",
  "jiff",
  "nix",
+ "proptest",
+ "rand 0.10.3",
  "serde",
  "serde_json",
  "tempfile",

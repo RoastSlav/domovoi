@@ -471,7 +471,7 @@ use. `preloadGraph()` warms it.
   always on the page, so the page stays usable and no approval, banner or inspector depends on the graph.
 - **Replay.** Above the graph a **Replay** button opens the replay bar (`ReplayBar`, inside
   `GraphView`); closed is the default and fetches nothing. The bar is a group named "Replay":
-  Previous moment, Play or Pause, Next moment, a Speed control (1×, 2×, 4×), Back to live and a
+  Previous moment, Play or Pause, Next moment, a Speed control (1ï¿½, 2ï¿½, 4ï¿½), Back to live and a
   `Scrubber` named "Replay position". A position is a moment (one whole second in which something was
   recorded) or Live, the last stop; the status line says "Moment i of n: clock. caption", or "Live". While a
   moment shows, the graph frame carries `data-replay="true"` and a note above it, "Replay: showing
@@ -668,7 +668,7 @@ one node that opens with Enter or a click, and a step that needs the person is n
 - Decisions are recorded for comparison and are not enforced. Every recorded answer says so.
 
 **Replay how an operation unfolded.** Press Replay above the graph, then drag the "Replay position"
-slider or step with Previous moment and Next moment; Play runs the moments at 1×, 2× or 4×, and Back
+slider or step with Previous moment and Next moment; Play runs the moments at 1ï¿½, 2ï¿½ or 4ï¿½, and Back
 to live returns. The graph shows the operation at that moment and a note says so; everything else on
 the page, including approvals, is live. The replay is honest about what it knows: it is rebuilt from
 the final record and the journal, so only creation, `awaiting_approval`, `dispatched` and final outcomes
@@ -779,41 +779,50 @@ pinned automatically; the key id is a label); a changed key reads "helper key ch
 containment; the helper's fail-closed reasons (`state_missing`, `state_corrupt`, `state_key_mismatch`,
 `key_missing`, `uninitialized`, `generation_regressed`) show with the matching local action; a
 containment step the helper refuses because its safety identity changed carries the reason
-`safety_changed`. The owner confirms only covered paths. The Capability Center
-reserves the Helper tab and `/capabilities/helper-key` as labelled placeholders until the hub
-collects helper data.
+`safety_changed`. The owner confirms only covered paths. The Capability Center's Helper tab
+(`HelperPanel`) shows one `HelperHostCard` per host: the key state (`no helper key`, `key not pinned`, `key pinned`,
+`key changed`), the attestation verdict (`verified`, `attestation stale`, `unverified`, from `design/helperVocab.ts`
+through `tone.ts`), the reason in words and the matching local action, a Re-check button and, only with a verified,
+fresh report, the effective set read-only. A verdict of "verified" without the report itself reads as unverified
+(`hasVerifiedReport` in `helperText.ts` is the one place that decides). What the agent says, and any unsigned hint, is marked
+"Relayed by the agent, not verified" and never changes the verdict. `/capabilities/helper-key?host=` (`HelperKeyEnroll`)
+shows the received fingerprint in groups of four as unverified until pinned, asks the owner to run
+`domovoi helper fingerprint` on the host and type the value, and pins with the password; a changed key reads
+"Helper key changed: re-enrol" in a P0 banner. Both are P0 (`capabilities.helper.attestation`,
+`capabilities.helper-key.enroll`). The hub answers a missing or wrong password with 401 `password_required` or
+`wrong_password`; `authMiddleware` leaves those two codes alone so a password check never logs the person out.
 
 ## Checks that will fail your PR
 
-| What                                                                                                                                                  | Command         | Fix                                                                              |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------------------------------- |
-| Raw colour or `--palette-*` outside `tokens.css`                                                                                                      | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                                 |
-| The two dark theme blocks differ                                                                                                                      | `npm test`      | Make them identical                                                              |
-| A token pair below WCAG AA (text 4.5, UI 3)                                                                                                           | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                                     |
-| A status without label, tone, hint, icon                                                                                                              | `npm test`      | Add it to its vocabulary in `src/design/`                                        |
-| A hub error or failure without words                                                                                                                  | `npm test`      | Add it to `messages.ts`                                                          |
-| "Oops", "Something went wrong", "Error:", "!" in text                                                                                                 | `npm test`      | Say what happened and what to do (`voice.test.ts`)                               |
-| An axe violation in whatever a page test leaves on screen                                                                                             | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment                       |
-| Inline JSX `style`                                                                                                                                    | `npm run lint`  | A CSS module with tokens; computed values need a disable comment                 |
-| JSX `title=`                                                                                                                                          | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                             |
-| A raw `<button>` in `src/features` or `src/app`                                                                                                       | `npm run lint`  | `Button` or `IconButton`                                                         |
-| A verdict string literal (`"ACTION_NEEDED"`) in page code                                                                                             | `npm run lint`  | `verdictMeta` and `StatusPill`                                                   |
-| `disabled` on a control without `disabledReason`                                                                                                      | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint                     |
-| `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top                    |
-| A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                               |
-| `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                                       |
-| The graph library imported outside `src/components/graph/`                                                                                            | `npm run lint`  | Only the engine imports it, through a dynamic import                             |
-| Inline `style` in `src/components/graph/`                                                                                                             | `npm run lint`  | SVG attributes or a CSS module with tokens                                       |
-| A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                          |
-| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                           |
-| No graph chunk, or it is in the first download or statically imported by an initial chunk, or it imports more than `vendor`                           | `npm run build` | Import the library only through the engine's dynamic import (`npm run size`)     |
-| A graph motion token above 600 ms, or not 0 ms under reduced motion                                                                                   | `npm test`      | Fix the token in `tokens.css` (`styles/motion.test.ts`)                          |
-| A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`)           |
-| Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                                     |
-| An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`                       |
-| A placeholder helper view that gains a helper request or data                                                                                         | `npm test`      | When the hub gains helper endpoints, replace the placeholder and update the test |
-| An install job created or retried outside the two authorization dialogs                                                                               | `npm test`      | Only the confirm buttons of the install and retry dialogs may call them          |
-| A broken operations page, slot, focus, graph or contrast in a browser, or any violation of the hub's real Content-Security-Policy                     | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                          |
+| What                                                                                                                                                  | Command         | Fix                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------ |
+| Raw colour or `--palette-*` outside `tokens.css`                                                                                                      | `npm test`      | Use a semantic token (`styles/cssGuard.test.ts`)                                                       |
+| The two dark theme blocks differ                                                                                                                      | `npm test`      | Make them identical                                                                                    |
+| A token pair below WCAG AA (text 4.5, UI 3)                                                                                                           | `npm test`      | Adjust the token (`styles/contrast.test.ts`)                                                           |
+| A status without label, tone, hint, icon                                                                                                              | `npm test`      | Add it to its vocabulary in `src/design/`                                                              |
+| A hub error or failure without words                                                                                                                  | `npm test`      | Add it to `messages.ts`                                                                                |
+| "Oops", "Something went wrong", "Error:", "!" in text                                                                                                 | `npm test`      | Say what happened and what to do (`voice.test.ts`)                                                     |
+| An axe violation in whatever a page test leaves on screen                                                                                             | `npm test`      | Fix the markup; `skipAxe()` only for a deliberate fragment                                             |
+| Inline JSX `style`                                                                                                                                    | `npm run lint`  | A CSS module with tokens; computed values need a disable comment                                       |
+| JSX `title=`                                                                                                                                          | `npm run lint`  | `Tooltip`, `InfoTip` or visible text                                                                   |
+| A raw `<button>` in `src/features` or `src/app`                                                                                                       | `npm run lint`  | `Button` or `IconButton`                                                                               |
+| A verdict string literal (`"ACTION_NEEDED"`) in page code                                                                                             | `npm run lint`  | `verdictMeta` and `StatusPill`                                                                         |
+| `disabled` on a control without `disabledReason`                                                                                                      | `npm run lint`  | Pass `disabledReason`; or disable the line and name the hint                                           |
+| `.mutate(` in a file with no `useActionFeedback`/`InlineError`                                                                                        | `npm run lint`  | Wrap it; or `// feedback-ok: where it is reported` at the top                                          |
+| A deep import of a kit file; `lucide-react` outside `Icon`                                                                                            | `npm run lint`  | Import from the barrel; use `Icon`                                                                     |
+| `fetch` outside `src/api`                                                                                                                             | `npm run lint`  | A hook in `src/api/hooks/`                                                                             |
+| The graph library imported outside `src/components/graph/`                                                                                            | `npm run lint`  | Only the engine imports it, through a dynamic import                                                   |
+| Inline `style` in `src/components/graph/`                                                                                                             | `npm run lint`  | SVG attributes or a CSS module with tokens                                                             |
+| A source file over 250 lines (no exemptions)                                                                                                          | `npm run lint`  | Split by responsibility                                                                                |
+| Initial JS over budget, a chunk over 120 kB, CSS over 30 kB                                                                                           | `npm run build` | Load it lazily or drop the dependency (`npm run size`)                                                 |
+| No graph chunk, or it is in the first download or statically imported by an initial chunk, or it imports more than `vendor`                           | `npm run build` | Import the library only through the engine's dynamic import (`npm run size`)                           |
+| A graph motion token above 600 ms, or not 0 ms under reduced motion                                                                                   | `npm test`      | Fix the token in `tokens.css` (`styles/motion.test.ts`)                                                |
+| A P0 element missing or collapsed in a profile                                                                                                        | `npm test`      | Take it out of the collapsed container (`p0_visible_in_every_profile`)                                 |
+| Visibility primitive in approval, banner or API code                                                                                                  | `npm test`      | Remove it: the profile never gates authority                                                           |
+| An approval control, a visibility primitive in publication code, a stored or logged password, or a whole policy label literal under `features/policy` | `npm test`      | Remove it. Gate tests: `src/features/policy/gates.test.ts`                                             |
+| A helper view that reaches a helper route other than the four, writes a reason code, or reads the verdict itself                                      | `npm test`      | Use `api/hooks/helper.ts`, `design/helperVocab.ts` and `hasVerifiedReport` (`capabilityGates.test.ts`) |
+| An install job created or retried outside the two authorization dialogs                                                                               | `npm test`      | Only the confirm buttons of the install and retry dialogs may call them                                |
+| A broken operations page, slot, focus, graph or contrast in a browser, or any violation of the hub's real Content-Security-Policy                     | `npm run smoke` | Fix the page; failure screenshots go to `web/smoke-out`                                                |
 
 The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` proves they fire.
 
@@ -823,7 +832,7 @@ The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` prove
 
 | Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                  |
 | ------------------------------ | ------------------------ | -------- | ---------------------------------------------------------------------- |
-| Initial JavaScript             | 179.0 kB, one chunk      | 179.8 kB | 183 kB (policy, knowledge and package words are eager; pages are lazy) |
+| Initial JavaScript             | 179.0 kB, one chunk      | 184.4 kB | 183 kB (policy, knowledge and package words are eager; pages are lazy) |
 | Largest chunk                  | 179.0 kB                 | 111.7 kB | 120 kB                                                                 |
 | Total CSS                      | 9.9 kB                   | 26.8 kB  | 30 kB                                                                  |
 

@@ -362,7 +362,7 @@ The owner's answers to the research decisions are D-36 to D-59 in `99`.
     EOF cancel, own process group, exit 0 and `RuntimeMaxSec` on `Type=simple`; `ProtectHome=yes`; no
     `TemporaryFileSystem=` on a path that may be absent; bind-through of the skills directory;
     refusal of any `run_as` but `domovoi-skill`; the five-site spelling edit (D-43).
-  - **47c, attestation:** the `04b` encoding and grammars; key lifecycle; state file and recovery; hub
+  - **47c, attestation (written and built):** the `04b` encoding and grammars; key lifecycle; state file and recovery; hub
     verifier with the latest-outcome rule, a persisted high-water mark and issue-time freshness;
     `expected_safety` required for `Contain`; proto changes (required fields, `deny_unknown_fields`, a
     closed reason enum, hash encoding); golden vectors C1 to C4 and R1 to R4 frozen; the two RW-37

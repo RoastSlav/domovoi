@@ -1,0 +1,13 @@
+# kind<TAB>interface name as hex<TAB>rule value (inet, priority 200, table 200, with the not flag)
+iif	62722d6c616e	inet|200|iif%3Dbr-lan%3Bnot|200
+iif	613b6e6f74	inet|200|iif%3Da%253Bnot%3Bnot|200
+iif	613d62	inet|200|iif%3Da%253Db%3Bnot|200
+iif	25	inet|200|iif%3D%2525%3Bnot|200
+iif	c3a9	inet|200|iif%3D%25C3%25A9%3Bnot|200
+iif	3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b	inet|200|iif%3D%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%3Bnot|200
+oif	62722d6c616e	inet|200|oif%3Dbr-lan%3Bnot|200
+oif	613b6e6f74	inet|200|oif%3Da%253Bnot%3Bnot|200
+oif	613d62	inet|200|oif%3Da%253Db%3Bnot|200
+oif	25	inet|200|oif%3D%2525%3Bnot|200
+oif	c3a9	inet|200|oif%3D%25C3%25A9%3Bnot|200
+oif	3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b	inet|200|oif%3D%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%253B%3Bnot|200

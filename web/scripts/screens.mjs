@@ -61,6 +61,7 @@ const PAGES = [
     ["capabilities-packages", "/capabilities?tab=packages"],
     ["capabilities-limits", "/capabilities?tab=limits&host=nas"],
     ["capabilities-helper", "/capabilities?tab=helper"],
+    ["capabilities-helper-key", "/capabilities/helper-key?host=nas"],
     ["package-install", "/capabilities/install"],
     ["settings", "/settings"],
     ["design", "/dev/design"],

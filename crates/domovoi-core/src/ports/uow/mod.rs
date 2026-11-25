@@ -2,6 +2,7 @@
 
 mod conversations;
 mod effects;
+mod helper_trust;
 mod install;
 mod journal;
 mod knowledge_refs;
@@ -14,6 +15,7 @@ pub use conversations::{ConversationWrite, MessageGuard};
 pub use effects::{
     ClaimToken, EffectCompletion, EffectDraft, EffectKind, EffectRead, EffectRecord, EffectStatus,
 };
+pub use helper_trust::{Accepted, HelperTrustWrite, HighWater, OutcomeRecord, PinWrite};
 pub use install::InstallWrite;
 pub use journal::{
     AuditDraft, JournalDraft, JournalEntry, JournalFeed, JournalKind, JournalRead, timeline_journal,

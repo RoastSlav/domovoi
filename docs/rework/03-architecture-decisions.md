@@ -1067,7 +1067,8 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 
 ### Route coverage
 
-- **What the helper observes** (via netlink, as root):
+- **What the helper observes** (by running `ip -N -j` through the `ProcessExecutor` port, as root, with the
+  environment `LC_ALL=C`; there is no netlink code, and `ip` is the only program the helper runs):
   - all IPv4 and IPv6 policy rules;
   - every routing table referenced by a rule, plus `main` and `local`;
   - interface addresses and link state.
@@ -1394,6 +1395,26 @@ list in `99-open-decisions.md`), OPEN (needs an owner decision).
 - **Approval and unrelated work:**
   - `human_approved_containment_shows_uncovered_paths`
   - `monitoring_unaffected_by_missing_management_paths`
+
+### Implementation record (as built)
+
+- **Observation.** `ip -N -j -4|-6 rule show`, `... route show table <n>` and `ip -N -j -d -4|-6 route get <endpoint>`.
+  With `-N` the table and the route type arrive as strings; only `route get -d` prints the table. A policy rule
+  that is not a table lookup, and a selected route that is not plain unicast (blackhole, multipath, local),
+  produce a signed incomplete report with `route_unrepresentable`. A hub on the same host (a loopback hub URL, as
+  in single-box mode) selects the local table and so signs an incomplete report as well.
+- **Hub address (E5 default, awaiting confirmation).** `hub_addr` lines come from the literal IP in `[agent]
+  hub_url` of the root-owned `agent.toml`; a name yields none, and there are no `link_peer` lines in this release.
+  The owner covers a hub reached by name with `management_cidrs`.
+- **Unsigned tokens.** When there is no usable key or state the helper answers with an unsigned token:
+  `uninitialized`, `key_missing`, `key_corrupt`, `helper_state_permissions` (the settled name of the permission
+  fault) and `lock_unavailable`. The agent relays it as an `error` frame whose code is the token; an absent,
+  unreachable or non-serving helper is relayed as `helper_unavailable`. Both are an unverified hint: the hub
+  records them, shows them, and gates on `attestation_missing`. State faults with a usable key (`state_missing`,
+  `state_corrupt`, `state_key_mismatch`) are signed incomplete reports.
+- **Init.** `domovoi helper init` run again with key and state both present changes nothing and exits 0.
+- **Tests.** The two RW-37 tests the harness excluded (the high-water mark and the latest-outcome gate) are
+  implemented and owned by the hub and store tests. The frozen vectors are in `04b` §4.
 
 ## RW-38 Agent-side mutation rate limiter (D-27)
 

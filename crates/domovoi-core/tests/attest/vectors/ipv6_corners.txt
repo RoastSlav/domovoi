@@ -1,0 +1,17 @@
+# input<TAB>canonical text, or REFUSED when the strict ip parser must not accept it
+2001:db8:0:1:1:1:1:1	2001:db8:0:1:1:1:1:1
+2001:db8::1:1:1:1:1	REFUSED
+2001:db8:0:0:1:0:0:1	REFUSED
+2001:db8::1:0:0:1	2001:db8::1:0:0:1
+2001:db8:0:0:0:0:0:1	REFUSED
+2001:db8::	2001:db8::
+2001:db8::1	2001:db8::1
+2001:DB8::1	REFUSED
+2001:0db8::1	REFUSED
+::	::
+::1	::1
+::ffff:192.0.2.1	::ffff:192.0.2.1
+::ffff:c000:201	REFUSED
+192.0.2.1	192.0.2.1
+192.0.2.01	REFUSED
+192.0.2	REFUSED

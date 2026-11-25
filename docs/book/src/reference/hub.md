@@ -39,3 +39,28 @@ An archive over `max_artifact_bytes` is refused with `too_large`. An import that
 ### Retention
 
 Finished install jobs are removed `job_history_days` after they finish. A job is removed only when every one of its targets is finished, and the purge runs with the daily retention job. Archives, host package records and the audit log are never removed automatically. An archive is deleted only by an explicit delete, and only when no job still uses it and no other record has the same digest.
+
+## Helper trust
+
+For each host with a helper the hub keeps the key the owner pinned, the latest attestation outcome and the highest accepted report. Everything is computed on the hub: a fingerprint is the SHA-256 of the 32 key bytes the hub received, never a value the agent sent. Nothing is pinned by itself, including on first contact.
+
+### Asking the helper
+
+The hub asks a connected host's helper for a signed report every 15 minutes, when a host connects or reports a new helper status, and on **Re-check**. A re-check is refused with `recheck_too_soon` (HTTP 429) when the helper was asked less than 10 seconds before. A host without a pinned key is not asked. A nonce is valid for under 60 seconds and used once.
+
+### What the hub accepts
+
+A report counts as the host's verified state only when the key in the answer is the pinned key, the signature verifies, the report is complete, its hashes and generation are consistent and the generation is not lower than the highest accepted one (an equal generation must carry the same hashes). Trust follows the **latest outcome**: a different key, an incomplete report or a generation that went backwards revokes the verified state at once, and the next good report restores it. A report stays fresh for under five minutes, counted from when the hub issued its nonce; after that the host reads `attestation_stale`.
+
+Why a host is not verified is one of nine reasons: `key_not_pinned`, `key_mismatch`, `attestation_missing`, `attestation_stale`, `signature_invalid`, `report_incomplete`, `generation_regressed`, `path_uncovered` and `confirmation_stale`. Finer detail goes to the audit log. The [helper guide](../guide/helper.md) says what each means.
+
+### Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/hosts/{name}/helper` | The helper's state as the agent said it, the received key and its fingerprint, the pin, the key state and the attestation state, and the verified set while it is verified and fresh. |
+| `POST /api/v1/hosts/{name}/helper/recheck` | Ask now. Answers 202; 409 when the host is not connected; 429 `recheck_too_soon`. |
+| `PUT /api/v1/hosts/{name}/helper/key` | Pin the received key. Needs the account password again and the full fingerprint typed from `domovoi helper fingerprint`. 409 `no_helper_key`, 422 `fingerprint_mismatch`, 401 `wrong_password`. |
+| `DELETE /api/v1/hosts/{name}/helper/key` | Remove the pin. Needs the password again. Containment stays blocked until a key is pinned again. |
+
+Pinning and unpinning work from the web UI only, never from chat. The pin, the unpin and each change of outcome (key mismatch, revoked, restored, generation regressed) are audited. Deleting a host deletes its pin. The Helper tab of the Capability Center shows all of this per host.

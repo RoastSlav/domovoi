@@ -482,6 +482,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/helper": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the hub knows about host `name`'s helper. */
+        get: operations["get_host_helper"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/helper/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pins the key the hub holds from host `name`'s helper. Asks for the password again and for
+         *     the key's full fingerprint, typed from `domovoi helper fingerprint` on the host.
+         */
+        put: operations["pin_host_helper_key"];
+        post?: never;
+        /**
+         * Removes the pin of host `name`'s helper key. Containment is blocked until it is pinned
+         *     again. Asks for the password again.
+         */
+        delete: operations["unpin_host_helper_key"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/helper/recheck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Asks host `name`'s helper for a fresh attestation now. */
+        post: operations["recheck_host_helper"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/logs": {
         parameters: {
             query?: never;
@@ -2105,6 +2163,23 @@ export interface components {
             /** @description Plain text, at most 4000 characters. */
             answer: string;
         };
+        /** @description Where the attestation stands. */
+        AttestationDto: {
+            /** @description When the hub last recorded an outcome or asked. */
+            checked_at?: string | null;
+            /** @description The token of a validly signed incomplete report. Display only. */
+            helper_reason?: string | null;
+            reason?: components["schemas"]["UnverifiedReasonDto"] | null;
+            /** @description The verdict. */
+            state: components["schemas"]["AttestationStateDto"];
+            /** @description The unsigned token an agent relayed. Unverified: the agent can invent it. */
+            unsigned_hint?: string | null;
+        };
+        /**
+         * @description The verdict on the attestation.
+         * @enum {string}
+         */
+        AttestationStateDto: "verified" | "stale" | "unverified";
         /** @description The anchor over the history written before the chain. */
         AuditAnchorDto: {
             /** @description The anchor's own hash, hex. */
@@ -2910,6 +2985,34 @@ export interface components {
             /** @description `[set]` or `[unset]`. */
             url: string;
         };
+        /** @description What the hub shows about a host's helper. */
+        HelperDto: {
+            /** @description Where the attestation stands. */
+            attestation: components["schemas"]["AttestationDto"];
+            /** @description What the agent said about the helper. Unverified. */
+            helper: components["schemas"]["HelperStateDto"];
+            /** @description The host's name. */
+            host: string;
+            /** @description Where the key stands. */
+            key_state: components["schemas"]["KeyStateDto"];
+            pin?: components["schemas"]["PinDto"] | null;
+            received_key?: components["schemas"]["ReceivedKeyDto"] | null;
+            verified?: components["schemas"]["VerifiedDto"] | null;
+        };
+        /** @description What the agent said about the helper. Unverified text. */
+        HelperStateDto: {
+            /** @description The operations the helper offers, as the agent reported. */
+            ops: string[];
+            /** @description What the agent said went wrong, when the state is `error`. */
+            reason?: string | null;
+            /** @description `absent`, `ok` or `error`, as the agent reported. */
+            state: components["schemas"]["HelperStateWord"];
+        };
+        /**
+         * @description The agent's word for the helper's state.
+         * @enum {string}
+         */
+        HelperStateWord: "absent" | "ok" | "error";
         /**
          * @description One journal row of the operation, reduced to what replay needs. It never carries intent,
          *     summary, reason, output or any free text.
@@ -3328,6 +3431,11 @@ export interface components {
             /** @description Pass as `cursor` for the next page; absent on the last. */
             next_cursor?: string | null;
         };
+        /**
+         * @description Where the key stands.
+         * @enum {string}
+         */
+        KeyStateDto: "no_helper" | "not_pinned" | "pinned" | "changed";
         /** @description An action on one fact, at the version the client read. */
         KnowledgeFactAction: {
             /**
@@ -3928,6 +4036,25 @@ export interface components {
             /** @description `budget`, `outcome_unknown`, `global_pause` or `error`. */
             type: string;
         };
+        /** @description The key the owner pinned. */
+        PinDto: {
+            /** @description 64 lowercase hex characters. */
+            fingerprint: string;
+            /** @description When it was pinned. */
+            pinned_at: string;
+            /** @description Who pinned it. */
+            pinned_by: string;
+        };
+        /** @description The owner's request to pin the key the hub holds from the helper. */
+        PinKeyRequest: {
+            /**
+             * @description The full fingerprint printed by `domovoi helper fingerprint` on the host; spaces and
+             *     case are ignored.
+             */
+            fingerprint: string;
+            /** @description The account password, asked for again. */
+            password?: string | null;
+        };
         /** @description A host, check and target an operation may act on. */
         PinnedSubjectDto: {
             /** @description The check, for example `container.down`. */
@@ -4151,6 +4278,15 @@ export interface components {
             failing: string[];
             /** @description True when no check failed. */
             ready: boolean;
+        };
+        /** @description A key the helper's session relayed, with the fingerprint the hub computed. */
+        ReceivedKeyDto: {
+            /** @description 64 lowercase hex characters. */
+            fingerprint: string;
+            /** @description The same, in groups of four, as `domovoi helper fingerprint` prints it. */
+            fingerprint_groups: string;
+            /** @description The first 16 characters of the fingerprint: a label, never trusted. */
+            key_id: string;
         };
         /** @description One relation. */
         RelationDto: {
@@ -5017,6 +5153,16 @@ export interface components {
             /** @description The turn. */
             turn: string;
         };
+        /** @description The owner's request to unpin the helper key. */
+        UnpinKeyRequest: {
+            /** @description The account password, asked for again. */
+            password?: string | null;
+        };
+        /**
+         * @description Why the helper's attestation is not verified: the closed set the wire and the gate use.
+         * @enum {string}
+         */
+        UnverifiedReasonDto: "key_not_pinned" | "key_mismatch" | "attestation_missing" | "attestation_stale" | "signature_invalid" | "report_incomplete" | "generation_regressed" | "path_uncovered" | "confirmation_stale";
         /** @description The newest release this hub knows about, with commands ready to copy. */
         UpdateDto: {
             /** @description Reinstalls an agent and restarts its service. */
@@ -5076,6 +5222,51 @@ export interface components {
             message: string;
             /** @description The rule it is about, if any. */
             rule?: string | null;
+        };
+        /** @description The verified effective set. Present only while the attestation is verified and fresh. */
+        VerifiedDto: {
+            /**
+             * Format: int64
+             * @description Seconds since then.
+             */
+            age_seconds: number;
+            /** @description The boot the report was made in. */
+            boot_id: string;
+            /** @description The configured management networks. */
+            cidrs: string[];
+            /** @description When the helper computed the report. Display only. */
+            computed_at: string;
+            /** @description Hash of the effective configuration. */
+            config_hash: string;
+            /** @description Whether the report is within the freshness window. */
+            fresh: boolean;
+            /**
+             * Format: int64
+             * @description The report generation.
+             */
+            generation: number;
+            /** @description The hub addresses the helper found. */
+            hub_addrs: string[];
+            /** @description The link peers the helper found, as `address:port`. */
+            link_peers: string[];
+            /**
+             * Format: int64
+             * @description How many containments may be active; zero allows none.
+             */
+            max_active: number;
+            /**
+             * Format: int64
+             * @description The longest a containment may last, in seconds.
+             */
+            max_ttl_s: number;
+            /** @description When the hub issued the nonce the report answers. */
+            nonce_issued_at: string;
+            /** @description The protected container names. */
+            protected_containers: string[];
+            /** @description The protected unit names. */
+            protected_units: string[];
+            /** @description Hash of the observed route state. */
+            route_state_hash: string;
         };
         /** @description How the hub checks that a write skill worked. */
         VerifyDto: {
@@ -6554,6 +6745,230 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_host_helper: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The helper's key and attestation state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelperDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pin_host_helper_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Pinned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelperDto"];
+                };
+            };
+            /** @description Not logged in, or the password is missing or wrong (wrong_password) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The hub holds no key from this host's helper (no_helper_key) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The typed text is not the full fingerprint of the held key (fingerprint_mismatch) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    unpin_host_helper_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnpinKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Unpinned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelperDto"];
+                };
+            };
+            /** @description Not logged in, or the password is missing or wrong (wrong_password) */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    recheck_host_helper: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asked; read the helper again for the outcome */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The host is not connected */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The helper was asked less than ten seconds ago (recheck_too_soon) */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

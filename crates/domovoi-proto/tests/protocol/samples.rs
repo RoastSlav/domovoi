@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::attest::{BootId, Hash32, UnverifiedReason};
 use domovoi_core::ports::LogLine;
 use domovoi_core::{
     ActionId, AgentId, CheckKey, DigestFact, Evidence, EvidenceValue, FactValue, HostId, HostName,
@@ -402,6 +403,40 @@ pub fn skill_success() -> Message {
             duration_ms: 1_250,
             argv_hash: Sha256Bytes([3; 32]),
         }),
+    }
+    .into()
+}
+
+/// A `run_capability` for `contain` that carries a verified safety identity.
+pub fn contain_verified() -> Message {
+    contain(ExpectedSafety::Verified {
+        fingerprint: Hash32::from_bytes([0xab; 32]),
+        boot_id: BootId::parse("5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f").unwrap(),
+        generation: 7,
+        config_hash: Hash32::from_bytes([1; 32]),
+        route_state_hash: Hash32::from_bytes([2; 32]),
+    })
+}
+
+/// A `run_capability` for `contain` whose helper is unverified: it carries a reason and no
+/// identity.
+pub fn contain_unverified() -> Message {
+    contain(ExpectedSafety::Unverified {
+        reason: UnverifiedReason::KeyNotPinned,
+    })
+}
+
+fn contain(expected_safety: ExpectedSafety) -> Message {
+    RunCapability {
+        execution_id: execution_id(),
+        contract: "firewall.block_source".to_owned(),
+        version: 1,
+        target: TargetKey::parse("host:nas").unwrap(),
+        args: BTreeMap::from([("source".to_owned(), "203.0.113.9/32".to_owned())]),
+        plan_hash: plan_hash(),
+        authorization_kind: AuthorizationKind::Human,
+        expires_at: DEADLINE,
+        expected_safety: Some(expected_safety),
     }
     .into()
 }

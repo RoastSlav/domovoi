@@ -1,7 +1,9 @@
-//! `domovoi helper serve|init|repair`: the root helper's three entry points.
+//! `domovoi helper serve|init|repair|rotate-key|recover|fingerprint`: the root helper's entry
+//! points.
 //!
-//! `serve` is started by the socket-activated unit, one process per connection. `init` and
-//! `repair` are owner commands run by hand as root. Nothing else may start a repair.
+//! `serve` is started by the socket-activated unit, one process per connection. The others are
+//! owner commands run by hand as root; `init` is also run by the installer. Nothing else may
+//! start a repair, a rotation or a recovery.
 
 use crate::ExitCode;
 use clap::Subcommand;
@@ -11,10 +13,19 @@ use clap::Subcommand;
 pub enum HelperCommand {
     /// Serve the one connection systemd passes on standard input, then exit.
     Serve,
-    /// Create the helper state directory and its lock (root only; changes nothing that exists).
+    /// Create the helper state directory, its lock, the attestation key and the first state
+    /// (root only; never replaces a key or a state that exists).
     Init,
     /// Put wrong modes and owners right, after the owner types `repair` (root only).
     Repair,
+    /// Replace the attestation key with a new one and retire the old public key (root only).
+    /// The hub shows "helper key changed" until the owner enrols the new fingerprint.
+    RotateKey,
+    /// Start over from lost or damaged state: retire what can be read and make a new key (root
+    /// only).
+    Recover,
+    /// Print the attestation key's fingerprint and key id, to compare with the hub (root only).
+    Fingerprint,
 }
 
 #[cfg(unix)]
@@ -35,16 +46,15 @@ mod unix {
     use std::path::Path;
     use std::sync::Arc;
 
+    use crate::cmd::helper_keys as keys;
     use domovoi_config::{HelperConfig, load_helper};
     use domovoi_core::identity::HostDirs;
-    use domovoi_core::ports::HostInspect;
     use domovoi_helper::adopt::adopt_stdin_connection;
     use domovoi_helper::inspect::UnixHostInspect;
     use domovoi_helper::repair::{
         RepairOutcome, TerminalConfirm, UnixRepairOps, render_plan, render_remaining, run_repair,
     };
     use domovoi_helper::serve::{ServeContext, ServeOutcome, serve_connection};
-    use domovoi_helper::state::{InitOutcome, StateLayout, init};
 
     /// Where `helper.toml` is read from.
     const HELPER_TOML: &str = "/etc/domovoi/helper.toml";
@@ -53,8 +63,11 @@ mod unix {
         let dirs = HostDirs::default();
         match command {
             HelperCommand::Serve => serve(dirs).await,
-            HelperCommand::Init => init_state(&dirs),
+            HelperCommand::Init => keys::init_state(&dirs),
             HelperCommand::Repair => repair(&dirs),
+            HelperCommand::RotateKey => keys::replace_key(&dirs, true),
+            HelperCommand::Recover => keys::replace_key(&dirs, false),
+            HelperCommand::Fingerprint => keys::print_fingerprint(&dirs),
         }
     }
 
@@ -75,36 +88,12 @@ mod unix {
             Arc::new(SystemClock),
             dirs,
             env!("CARGO_PKG_VERSION"),
-        );
+        )
+        .with_process_executor(keys::route_reader());
         match serve_connection(conn, &ctx).await {
             ServeOutcome::Failed(why) => anyhow::bail!("serving the connection failed: {why}"),
             _ => Ok(ExitCode::SUCCESS),
         }
-    }
-
-    fn require_root() -> anyhow::Result<()> {
-        anyhow::ensure!(
-            UnixHostInspect::new().euid() == 0,
-            "this command changes root-owned files; run it as root"
-        );
-        Ok(())
-    }
-
-    fn init_state(dirs: &HostDirs) -> anyhow::Result<ExitCode> {
-        require_root()?;
-        match init(StateLayout::PRODUCTION, &dirs.helper_dir) {
-            Ok(InitOutcome::Created) => println!("created {}", dirs.helper_dir.display()),
-            Ok(InitOutcome::AlreadyInitialised) => println!("already initialised"),
-            Err(domovoi_helper::state::InitError::Faults(faults)) => {
-                for fault in &faults {
-                    crate::cmd::warn(domovoi_helper::selftest::render_fault(fault).trim_end());
-                }
-                crate::cmd::warn("nothing was changed; run `domovoi helper repair`");
-                return Ok(ExitCode::FAILURE);
-            }
-            Err(err) => return Err(err.into()),
-        }
-        Ok(ExitCode::SUCCESS)
     }
 
     fn repair(dirs: &HostDirs) -> anyhow::Result<ExitCode> {

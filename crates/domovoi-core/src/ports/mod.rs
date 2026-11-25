@@ -12,6 +12,7 @@ pub mod chat;
 pub mod clock;
 pub mod context;
 pub mod experience;
+pub mod helper_trust;
 pub mod host_inspect;
 pub mod hostfs;
 pub mod knowledge;
@@ -28,7 +29,7 @@ pub mod target;
 pub mod uow;
 
 pub use agent_link::{
-    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot,
+    ActionAnswer, ActionAnswerEntry, ActionAnswers, AgentLink, AgentSnapshot, AttestationReply,
     CATALOGUE_UNSUPPORTED, CheckRecheck, HostAvailability, IngestError, LinkError, Presence,
     SignalSink, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnknownReason,
 };
@@ -46,6 +47,10 @@ pub use chat::{
 pub use clock::Clock;
 pub use context::ContextSource;
 pub use experience::ExperienceRead;
+pub use helper_trust::{
+    HelperLive, HelperRelay, HelperReport, HelperTrustRead, HelperTrustRepo, LastOutcome,
+    StoredTrust,
+};
 pub use host_inspect::{Access, HostInspect, InspectError, Probe, TreeEntry};
 pub use hostfs::{FsError, HostFs};
 pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};

@@ -9,6 +9,7 @@ pub mod action;
 pub mod actor;
 pub mod addr;
 pub mod advisory;
+pub mod attest;
 pub mod audit_chain;
 pub mod baseline;
 pub mod capability;

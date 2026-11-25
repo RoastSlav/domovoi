@@ -16,10 +16,11 @@ use serde_json::Value;
 
 pub use actions::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, ActionStatusQuery, AuthorizationKind,
-    CapabilityFailureCode, CapabilityOutcome, CapabilityResult, ExpectedSafety,
-    OutcomeUnknownReason, RefusalCode, RefusalScope, Refused, RunCapability,
+    CapabilityFailureCode, CapabilityOutcome, CapabilityResult, OutcomeUnknownReason, RefusalCode,
+    RefusalScope, Refused, RunCapability,
 };
 pub use catalog::{CatalogEntry, CatalogPage, GetCatalog};
+pub use domovoi_core::attest::ExpectedSafety;
 pub use handshake::{
     AUTHORITATIVE_ABSENCE, AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride,
     DockerReport, Enroll, Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts, Reject,

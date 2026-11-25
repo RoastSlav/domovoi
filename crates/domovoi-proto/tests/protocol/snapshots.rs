@@ -32,6 +32,14 @@ fn every_message_kind_matches_its_wire_snapshot() {
     }
     insta::assert_json_snapshot!("skill_result_ok", pretty(&samples::skill_success(), true));
     insta::assert_json_snapshot!(
+        "run_capability_contain",
+        pretty(&samples::contain_verified(), false)
+    );
+    insta::assert_json_snapshot!(
+        "run_capability_contain_unverified",
+        pretty(&samples::contain_unverified(), false)
+    );
+    insta::assert_json_snapshot!(
         "reject_agent_too_old",
         pretty(&samples::agent_too_old(), true)
     );

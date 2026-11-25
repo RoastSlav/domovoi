@@ -5,13 +5,14 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use domovoi_core::attest::Nonce32;
 use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{
-    ActionAnswers, ActionCaps, AgentSnapshot, AvailabilityProbe, CheckRecheck, CheckRerun,
-    EvidenceCaps, HandoffRunner, HostAvailability, HostObservation, HostRead, HostView,
-    JournalStatus, LinkError, PackageCaps, PackageRelay, Presence, SkillDispatch, SkillHandoff,
-    SkillOutput, ToolOutput,
+    ActionAnswers, ActionCaps, AgentSnapshot, AttestationReply, AvailabilityProbe, CheckRecheck,
+    CheckRerun, EvidenceCaps, HandoffRunner, HelperRelay, HelperReport, HostAvailability,
+    HostObservation, HostRead, HostView, JournalStatus, LinkError, PackageCaps, PackageRelay,
+    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch, PackageDispatch,
@@ -205,6 +206,36 @@ pub fn package_caps(link: Arc<dyn AgentLink>) -> PackageCaps {
         journal: Arc::new(JournalOf { link: link.clone() }),
         relay: Arc::new(RelayOf { link }),
     }
+}
+
+struct HelperOf {
+    link: Arc<dyn AgentLink>,
+}
+
+#[async_trait]
+impl HelperRelay for HelperOf {
+    async fn ask(
+        &self,
+        host: HostId,
+        nonce: Nonce32,
+        deadline: Timestamp,
+    ) -> Result<AttestationReply, LinkError> {
+        self.link.attest_safety(host, nonce, deadline).await
+    }
+
+    fn report(&self, host: HostId) -> Option<HelperReport> {
+        self.link.helper_report(host)
+    }
+
+    fn connected(&self, host: HostId) -> bool {
+        matches!(self.link.presence(host), Presence::Connected { .. })
+    }
+}
+
+/// The helper trust code's capability over the one link: ask for an attestation, read what the
+/// session says about its helper, and know whether the host is connected.
+pub fn helper_relay(link: Arc<dyn AgentLink>) -> Arc<dyn HelperRelay> {
+    Arc::new(HelperOf { link })
 }
 
 /// A single catalogue capability over the policy link, for the narrow `HostCatalog`

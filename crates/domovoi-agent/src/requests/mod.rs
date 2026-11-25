@@ -5,6 +5,7 @@
 //! refuses more than its queue holds as busy. Every request is cut off at its deadline,
 //! and tool output is redacted, then capped at [`MAX_TOOL_OUTPUT`].
 
+mod attest;
 mod capability;
 mod catalog;
 mod overview;
@@ -32,6 +33,7 @@ use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+pub use self::attest::attest_reply;
 pub use self::catalog::{catalog_entries, page};
 pub use self::overview::parse_loadavg;
 pub use self::skills::{run_read_skill, run_skill};
@@ -105,6 +107,8 @@ pub struct RequestCtx {
     pub journal: Option<Arc<crate::journal::Journal>>,
     /// The package service; `None` without a `[packages]` section.
     pub packages: Option<Arc<crate::packages::PackageService>>,
+    /// The helper's socket, for `attest_safety`.
+    pub helper: crate::helper_client::HelperRelay,
 }
 
 /// Cuts `text` to at most `max` bytes on a character boundary.
@@ -194,6 +198,7 @@ pub fn busy_reply(kind: &RequestKind) -> Message {
         RequestKind::Logs(_)
         | RequestKind::Capability(_)
         | RequestKind::Catalog(_)
+        | RequestKind::Attest(_)
         | RequestKind::ActionStatus(_) => Message::Error(ErrorMessage {
             code: "busy".to_owned(),
             message: BUSY.to_owned(),
@@ -385,6 +390,7 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
         RequestKind::Capability(run) => capability::run_capability(ctx, run).await,
         RequestKind::Catalog(get) => catalog_reply(ctx, get),
         RequestKind::ActionStatus(query) => action_status(ctx, query),
+        RequestKind::Attest(challenge) => attest_reply(ctx, challenge).await,
     }
 }
 

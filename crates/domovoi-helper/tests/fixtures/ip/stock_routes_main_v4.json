@@ -1,0 +1,1 @@
+[{"dst":"default","gateway":"198.51.100.1","dev":"eth0","protocol":"2","flags":["onlink"]},{"dst":"198.51.100.0/24","dev":"eth0","protocol":"2","scope":"253","prefsrc":"198.51.100.5","flags":[]}]

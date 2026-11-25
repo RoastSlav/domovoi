@@ -1,0 +1,3 @@
+# The attestation vectors are byte-exact: their digests are over LF bytes, so no checkout may convert line endings.
+crates/domovoi-core/tests/attest/vectors/** -text
+crates/domovoi-helper/tests/fixtures/ip/** -text

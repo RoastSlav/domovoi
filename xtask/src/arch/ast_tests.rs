@@ -37,7 +37,9 @@ const OP_DISPATCH_PATH: &str = "crates/domovoi-engine/src/operations/effects/dis
 const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs";
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
-const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n}\n";
+const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);
+    self.link
+        .attest_safety(a, b, c);\n}\n";
 
 fn hub_sites() -> Vec<(String, String)> {
     files(&[

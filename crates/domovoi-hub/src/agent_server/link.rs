@@ -4,12 +4,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
+use domovoi_core::attest::Nonce32;
 use domovoi_core::capability::{
     CatalogImplementation, CatalogPageData, CatalogQuery, ContractVersion,
 };
 use domovoi_core::ports::{
-    ActionAnswers, AgentLink, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock, HostAvailability,
-    HostRepo, LinkError, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
+    ActionAnswers, AgentLink, AttestationReply, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock,
+    HelperReport, HostAvailability, HostRepo, LinkError, Presence, SkillDispatch, SkillHandoff,
+    SkillOutput, ToolOutput,
 };
 use domovoi_core::{
     ActionId, AgentSessionId, CheckKey, ContractId, HostId, JournalEpoch, ReadToolCall, RequestId,
@@ -127,7 +129,7 @@ impl WsAgentLink {
         }
     }
 
-    async fn request(
+    pub(super) async fn request(
         &self,
         host: HostId,
         message: &Message,
@@ -185,7 +187,7 @@ impl Drop for PendingRequest<'_> {
     }
 }
 
-fn unexpected(message: &Message) -> LinkError {
+pub(super) fn unexpected(message: &Message) -> LinkError {
     LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }
 
@@ -418,6 +420,19 @@ impl AgentLink for WsAgentLink {
         deadline: Timestamp,
     ) -> Result<PackageOutputs, LinkError> {
         self.capability_answer(host, handoff, deadline).await
+    }
+
+    async fn attest_safety(
+        &self,
+        host: HostId,
+        nonce: Nonce32,
+        deadline: Timestamp,
+    ) -> Result<AttestationReply, LinkError> {
+        self.attestation(host, nonce, deadline).await
+    }
+
+    fn helper_report(&self, host: HostId) -> Option<HelperReport> {
+        self.registry.helper_report(host)
     }
 
     async fn get_catalog(

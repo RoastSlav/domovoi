@@ -514,11 +514,20 @@ async fn main() -> Result<()> {
         clock: clock.clone(),
         shadow_enabled: false,
     });
+    let helper_hub = Arc::new(domovoi_hub::helper_trust::HelperTrustHub::new(
+        store.clone(),
+        store.clone(),
+        link.clone(),
+        clock.clone(),
+    ));
     let knowledge = Arc::new(domovoi_engine::knowledge::KnowledgeService::new(
         domovoi_engine::knowledge::KnowledgeDeps {
             uow: store.clone(),
             read: store.clone(),
-            coverage: Arc::new(domovoi_engine::knowledge::UnavailableCoverage),
+            coverage: Arc::new(domovoi_engine::knowledge::AttestedCoverage::new(
+                helper_hub.clone(),
+                clock.clone(),
+            )),
             clock: clock.clone(),
         },
     ));
@@ -585,6 +594,14 @@ async fn main() -> Result<()> {
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
         settings: store.clone(),
+        helper_trust: domovoi_hub::services::HelperTrust::new(
+            domovoi_hub::services::HelperTrustDeps {
+                hub: helper_hub,
+                hosts: store.clone(),
+                auth: auth.clone(),
+                clock: clock.clone(),
+            },
+        ),
         packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
             handle: package_handle,
             importer: package_importer,

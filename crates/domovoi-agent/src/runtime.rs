@@ -9,6 +9,7 @@ use domovoi_checks::framework::{HostDeps, Registry};
 use domovoi_checks::system::FsStats;
 use domovoi_config::AgentConfig;
 use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
+use domovoi_proto::messages::HelperStatus;
 use domovoi_runner::SkillCatalog;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -224,6 +225,7 @@ impl AgentRuntime {
             logs: deps.logs.clone(),
             journal: Some(journal.clone()),
             packages,
+            helper: crate::helper_client::HelperRelay::default_path(),
         });
         let verifier = Arc::new(PinnedVerifier::new(identity.hub_fingerprint));
         let connector = Arc::new(TlsConnector::new(
@@ -281,7 +283,14 @@ impl AgentRuntime {
             &self.requests.catalog,
             self.requests.package_surface(),
         );
-        let helper = crate::helper_client::HelperClient::default_path();
+        let helper = self.requests.helper.client().clone();
+        let helper_status = crate::helper_client::probe_status(&helper, &*self.deps.clock).await;
+        let helper_identity = match helper_status {
+            HelperStatus::Ok { .. } => {
+                crate::helper_client::probe_identity(&helper, &*self.deps.clock).await
+            }
+            _ => None,
+        };
         // The runner is probed once, bounded, before `hello` is built, so the hub sees the real
         // status. A root agent runs skills itself (legacy route) and has nothing to probe.
         let runner = if let SkillRoute::Runner(route) = &self.deps.skills {
@@ -293,7 +302,8 @@ impl AgentRuntime {
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
-            helper_status: crate::helper_client::probe_status(&helper, &*self.deps.clock).await,
+            helper_status,
+            helper_identity,
             skill_runner_status: runner
                 .as_ref()
                 .map_or_else(Default::default, |route| route.state().status()),

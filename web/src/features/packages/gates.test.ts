@@ -69,7 +69,9 @@ describe("package gates", () => {
   it("capability_center_has_no_authority_controls", () => {
     const writes = ["api.POST", "api.PUT", "api.DELETE", "useMutation"];
     const center = sources.filter(({ path }) => path.startsWith("features/capabilities/"));
-    for (const { path, text } of center) {
+    // The helper views pin, unpin and re-check through `api/hooks/helper.ts`; `helper_views_use_only_helper_endpoints` guards them.
+    const readOnly = center.filter(({ path }) => !/capabilities\/[Hh]elper/.test(path));
+    for (const { path, text } of readOnly) {
       for (const word of [...writes, ".mutate("]) {
         expect(text, `${path} writes through ${word}`).not.toContain(word);
       }

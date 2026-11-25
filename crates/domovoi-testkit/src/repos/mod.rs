@@ -8,6 +8,7 @@ mod audit_inspect;
 mod conversations;
 mod experience;
 mod health;
+mod helper_trust;
 mod hosts;
 mod incidents;
 mod install;
@@ -81,6 +82,8 @@ struct State {
     notes: BTreeMap<NoteId, Note>,
     /// Package artifacts, install jobs, targets and host inventories.
     install: install::InstallState,
+    /// Helper key pins, latest attestation outcomes and high-water marks.
+    helper: helper_trust::HelperState,
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
     /// The last journal `seq` handed out; unlike `journal.len()` it survives pruning.

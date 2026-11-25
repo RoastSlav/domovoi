@@ -189,6 +189,11 @@ export function defined<T extends object>(value: T): { [K in keyof T]?: Exclude<
   ) as { [K in keyof T]?: Exclude<T[K], undefined> };
 }
 
+/** What the hub knows about a host's helper: its key, the attestation and the verified set. */
+export type HelperView = Schemas["HelperDto"];
+/** The verified effective set of a host's helper. */
+export type HelperVerified = Schemas["VerifiedDto"];
+
 /** One operation in a list. */
 export type OperationSummary = Schemas["OperationSummaryDto"];
 /** One page of operations. */

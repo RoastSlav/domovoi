@@ -1,13 +1,18 @@
 //! The closed set of operations and the helper's view of the platform record.
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use domovoi_core::attest::Nonce32;
 use domovoi_core::helper::{HelperGroup, HelperRequest, HelperResponse, UnavailableReason};
 use domovoi_core::identity::HostDirs;
 use domovoi_core::isolation::{
     PLATFORM_RECORD_FORMAT, PlatformRecord, PlatformRecordState, PlatformTier,
 };
-use domovoi_core::ports::HostInspect;
+use domovoi_core::ports::{HostInspect, ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 
 use super::ServeContext;
+use crate::attest::{AttestEnv, AttestOutcome, public_key, safety_attest};
 
 /// The platform record's file name inside the helper's state directory.
 const PLATFORM_FILE: &str = "platform.json";
@@ -70,7 +75,7 @@ pub fn unavailable_reason(
 }
 
 /// Answers one decoded request. The request type has no write variant and no free-form field.
-pub(super) fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> HelperResponse {
+pub(super) async fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> HelperResponse {
     match request {
         HelperRequest::Health => HelperResponse::Health {
             protocol: domovoi_core::helper::HELPER_PROTOCOL,
@@ -79,7 +84,62 @@ pub(super) fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> HelperRes
         },
         HelperRequest::Groups => groups(ctx),
         HelperRequest::Read { group } => unavailable(group.group(), ctx),
-        HelperRequest::SafetyAttest { .. } => unavailable(HelperGroup::SafetyAttest, ctx),
+        HelperRequest::SafetyAttest { nonce } => attest(*nonce, ctx).await,
+        HelperRequest::SafetyPublicKey => attest_public_key(ctx),
+    }
+}
+
+/// An executor for a context that was given none: every program is missing, so every route read
+/// fails and the attestation is a signed incomplete report rather than a guess.
+struct NoProcess;
+
+#[async_trait]
+impl ProcessExecutor for NoProcess {
+    async fn run(&self, _spec: ProcessSpec) -> Result<ProcessOutput, ProcessError> {
+        Err(ProcessError::NotFound)
+    }
+}
+
+/// The attestation environment of this connection, or the answer to give when the group is off.
+fn attest_env(ctx: &ServeContext) -> Result<AttestEnv, HelperResponse> {
+    match &ctx.config {
+        Ok(config)
+            if config
+                .effective_groups()
+                .contains(&HelperGroup::SafetyAttest) => {}
+        _ => return Err(unavailable(HelperGroup::SafetyAttest, ctx)),
+    }
+    let exec: Arc<dyn ProcessExecutor> =
+        ctx.executor.clone().unwrap_or_else(|| Arc::new(NoProcess));
+    Ok(AttestEnv::new(
+        ctx.dirs.clone(),
+        ctx.inspect.clone(),
+        ctx.clock.clone(),
+        exec,
+    ))
+}
+
+async fn attest(nonce: domovoi_core::helper::Nonce, ctx: &ServeContext) -> HelperResponse {
+    let env = match attest_env(ctx) {
+        Ok(env) => env,
+        Err(response) => return response,
+    };
+    match safety_attest(&env, Nonce32::from(nonce)).await {
+        AttestOutcome::Signed(attestation) => HelperResponse::SafetyAttested { attestation },
+        AttestOutcome::Unsigned(token) => HelperResponse::SafetyUnsigned { token },
+    }
+}
+
+fn attest_public_key(ctx: &ServeContext) -> HelperResponse {
+    let env = match attest_env(ctx) {
+        Ok(env) => env,
+        Err(response) => return response,
+    };
+    match public_key(&env) {
+        Ok(key) => HelperResponse::SafetyPublicKey {
+            public_key: domovoi_core::attest::Hash32::from_bytes(key).to_string(),
+        },
+        Err(token) => HelperResponse::SafetyUnsigned { token },
     }
 }
 

@@ -1,0 +1,1 @@
+[{"priority":0,"src":"all","table":"255"},{"priority":100,"src":"192.0.2.0","srclen":24,"fwmark":"0x10","fwmask":"0xff","table":"100"},{"priority":101,"src":"all","dst":"198.51.100.0","dstlen":24,"iif":"dummy0","table":"100"},{"priority":32766,"src":"all","table":"254"},{"priority":32767,"src":"all","table":"253"}]

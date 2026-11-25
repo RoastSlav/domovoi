@@ -104,9 +104,19 @@ The helper is the root part of the three-identities layout. See [Helper](helper.
 
 `domovoi helper serve` is started by the helper's socket unit, adopts the connection from standard input, answers one request and exits. It refuses to run when standard input is not a socket, so do not run it by hand.
 
-`sudo domovoi helper init` creates `/var/lib/domovoi-helper` (mode 0700) and its lock file. It prints `created` or `already initialised`, and refuses, changing nothing, when the directory exists with other modes.
+`sudo domovoi helper init` creates `/var/lib/domovoi-helper` (mode 0700), its lock file, the attestation key (`attest.key`, mode 0600, a 32-byte Ed25519 seed that only root can read) and the first state file (generation 0). It prints the key's fingerprint in groups of four and its 16-character key id: compare the fingerprint with the one the hub shows before you enrol the key. It refuses, changing nothing, when the directory exists with other modes. Running it again when the key and the state both exist changes nothing and exits 0, so re-running the installer is harmless; when only one of the two exists (an earlier run stopped half way) it exits non-zero and points to `recover`.
 
 `sudo domovoi helper repair` is the only command that changes a wrong mode or owner on a Domovoi path. It prints each path with the found and the expected mode, owner and group and the exact change, then asks you to type `repair` at the terminal. There is no `--yes`: without a terminal it changes nothing. It refuses symlinks and paths of the wrong type, changes only the paths it lists and only their mode and owner, never content, and then re-runs the checks and prints what is left.
+
+### `domovoi helper rotate-key`, `recover` and `fingerprint`
+
+These commands change or read the attestation key. They are run by hand as root and never run implicitly: not by the installer, not by an upgrade, not by the agent or the hub.
+
+`sudo domovoi helper rotate-key` needs a usable key and a state file. It writes `retired/<UTC timestamp>/` first (the old public key, its fingerprint and a copy of the old state, all synced), then a new key and a new state with generation 0, then replaces the live files. The old private key is deleted: no copy of it exists anywhere under the state directory. It prints the old and the new fingerprint. The hub shows "helper key changed" until the owner enrols the new fingerprint.
+
+`sudo domovoi helper recover` is for lost or damaged state. It needs at least one of the key and the state file, retires whatever can be read of them the same way, and always makes a new key, because continuity cannot be proven after state loss. A helper whose state is missing, damaged or belongs to another key keeps answering with a signed report that says so (`state_missing`, `state_corrupt`, `state_key_mismatch`) until you run it; nothing resets the state automatically.
+
+`sudo domovoi helper fingerprint` computes the fingerprint from the private key file and prints it in groups of four with the key id.
 
 ### `domovoi skill-runner serve`
 

@@ -12,6 +12,7 @@ mod error;
 mod handshake;
 mod link;
 mod link_answers;
+mod link_helper;
 mod live;
 mod memory;
 mod overrides;
@@ -96,6 +97,9 @@ struct Inner {
     /// The action service, once the runtime has it, so an authenticated agent's
     /// dispatched runs can be reconciled against its journal.
     reconciler: OnceLock<Arc<dyn HostReconciler>>,
+    /// Told when a host's agent reports new runtime status, so the helper attestation can be
+    /// refreshed when the helper or its key changed.
+    status_listener: OnceLock<Arc<dyn HostReconciler>>,
 }
 
 /// The agent server. Cheap to clone; clones share one server.
@@ -131,6 +135,7 @@ impl AgentServer {
                 shutdown: CancellationToken::new(),
                 overrides: OnceLock::new(),
                 reconciler: OnceLock::new(),
+                status_listener: OnceLock::new(),
             }),
         })
     }
@@ -207,6 +212,14 @@ impl AgentServer {
             if let Some(session) = self.inner.registry.live_cancel(host) {
                 session::reconcile(&self.inner, host, &session);
             }
+        }
+    }
+
+    /// Gives the server a listener told whenever a host's agent reports new runtime status.
+    /// The first listener wins.
+    pub fn set_status_listener(&self, listener: Arc<dyn HostReconciler>) {
+        if self.inner.status_listener.set(listener).is_err() {
+            tracing::warn!("the agent server already has a status listener; keeping the first");
         }
     }
 

@@ -361,3 +361,51 @@ fn model_meta_tools_are_closed() {
     }
     let _ = variants;
 }
+
+/// ATTEST-8: freshness is measured from the nonce issue time, and the gate names neither the
+/// receipt nor the acceptance time.
+#[test]
+fn attest_8_gate_reads_nonce_issued_at_only() {
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/attest/gate.rs"))
+            .expect("the gate source");
+    assert!(source.contains("nonce_issued_at"));
+    for forbidden in ["received_at", "accepted_at"] {
+        assert!(
+            !source.contains(forbidden),
+            "the gate must not read `{forbidden}`"
+        );
+    }
+}
+
+/// ATTEST-10: the guard value and its reason refuse extra fields, unknown tags and unknown
+/// reasons, and the reason is a closed enum.
+#[test]
+fn attest_10_expected_safety_is_strict() {
+    use domovoi_core::attest::{ExpectedSafety, UnverifiedReason};
+    let refused = |json: &str| serde_json::from_str::<ExpectedSafety>(json).is_err();
+    assert!(refused(
+        r#"{"state":"unverified","reason":"key_not_pinned","extra":1}"#
+    ));
+    assert!(refused(r#"{"state":"maybe","reason":"key_not_pinned"}"#));
+    assert!(refused(r#"{"state":"unverified","reason":"not_a_reason"}"#));
+    assert!(serde_json::from_str::<UnverifiedReason>(r#""not_a_reason""#).is_err());
+    // Adding a reason breaks this exhaustive match, which forces a visible review of the gate.
+    fn closed(reason: UnverifiedReason) -> usize {
+        match reason {
+            UnverifiedReason::KeyNotPinned => 1,
+            UnverifiedReason::KeyMismatch => 2,
+            UnverifiedReason::AttestationMissing => 3,
+            UnverifiedReason::AttestationStale => 4,
+            UnverifiedReason::SignatureInvalid => 5,
+            UnverifiedReason::ReportIncomplete => 6,
+            UnverifiedReason::GenerationRegressed => 7,
+            UnverifiedReason::PathUncovered => 8,
+            UnverifiedReason::ConfirmationStale => 9,
+        }
+    }
+    assert_eq!(
+        UnverifiedReason::ALL.map(closed),
+        [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    );
+}

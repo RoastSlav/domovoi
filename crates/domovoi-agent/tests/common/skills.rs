@@ -111,6 +111,9 @@ impl Fixture {
             logs: None,
             journal: None,
             packages: None,
+            helper: domovoi_agent::helper_client::HelperRelay::new(
+                self.dir.path().join("no-helper.sock"),
+            ),
         }
     }
 }

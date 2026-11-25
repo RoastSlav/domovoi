@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::Clock;
-use domovoi_engine::knowledge::{KnowledgeDeps, KnowledgeService, UnavailableCoverage};
+use domovoi_core::ports::{Clock, HelperTrustRead};
+use domovoi_engine::knowledge::{AttestedCoverage, KnowledgeDeps, KnowledgeService};
 use domovoi_store::Store;
 use jiff::SignedDuration;
 use tokio::task::JoinHandle;
@@ -11,13 +11,17 @@ use tokio_util::sync::CancellationToken;
 
 use crate::runtime::every::every;
 
-/// The knowledge service over the store. The helper attestation that makes management-path
-/// coverage checkable arrives later; until then no path can be confirmed.
-pub(crate) fn build(store: &Arc<Store>, clock: &Arc<dyn Clock>) -> Arc<KnowledgeService> {
+/// The knowledge service over the store. A management path can be confirmed only when the
+/// helper's verified attestation, read through `trust`, shows it covered.
+pub(crate) fn build(
+    store: &Arc<Store>,
+    clock: &Arc<dyn Clock>,
+    trust: Arc<dyn HelperTrustRead>,
+) -> Arc<KnowledgeService> {
     Arc::new(KnowledgeService::new(KnowledgeDeps {
         uow: store.clone(),
         read: store.clone(),
-        coverage: Arc::new(UnavailableCoverage),
+        coverage: Arc::new(AttestedCoverage::new(trust, clock.clone())),
         clock: clock.clone(),
     }))
 }

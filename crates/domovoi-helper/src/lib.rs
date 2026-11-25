@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 pub mod adopt;
+pub mod attest;
 #[cfg(unix)]
 pub mod inspect;
 #[cfg(unix)]

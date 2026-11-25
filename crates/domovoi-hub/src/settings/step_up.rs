@@ -98,8 +98,9 @@ pub struct EnforcedStepUp {
     pub enforced_by: &'static str,
 }
 
-/// Actions that ask for the password again today: publishing a policy version, and changing
-/// a locked prohibition in a policy draft.
+/// Actions that ask for the password again today: publishing a policy version, changing a
+/// locked prohibition in a policy draft, and pinning or unpinning a helper key (which also
+/// needs the full fingerprint typed out).
 pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
     EnforcedStepUp {
         id: "policy.publish",
@@ -108,6 +109,14 @@ pub const STEP_UP_ENFORCED_ACTIONS: &[EnforcedStepUp] = &[
     EnforcedStepUp {
         id: "policy.lock_changed",
         enforced_by: "PolicyService",
+    },
+    EnforcedStepUp {
+        id: "helper.key_pin",
+        enforced_by: "HelperTrust",
+    },
+    EnforcedStepUp {
+        id: "helper.key_unpin",
+        enforced_by: "HelperTrust",
     },
 ];
 
@@ -287,6 +296,21 @@ mod tests {
         }
         let ids: Vec<&str> = STEP_UP_ENFORCED_ACTIONS.iter().map(|a| a.id).collect();
         assert!(ids.contains(&"policy.publish") && ids.contains(&"policy.lock_changed"));
+    }
+
+    #[test]
+    fn step_up_registry_lists_helper_pin_and_unpin_as_enforced() {
+        for id in ["helper.key_pin", "helper.key_unpin"] {
+            let action = STEP_UP_ENFORCED_ACTIONS
+                .iter()
+                .find(|action| action.id == id)
+                .unwrap_or_else(|| panic!("{id} is registered as enforced"));
+            assert_eq!(action.enforced_by, "HelperTrust");
+            assert!(
+                !STEP_UP_ACTIONS.iter().any(|future| future.id == id),
+                "{id} is not still waiting on a feature"
+            );
+        }
     }
 
     #[test]

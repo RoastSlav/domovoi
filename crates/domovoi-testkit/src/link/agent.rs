@@ -234,6 +234,23 @@ impl AgentLink for FakeAgentLink {
         self.fake_capability_result(host, handoff, deadline).await
     }
 
+    async fn attest_safety(
+        &self,
+        host: HostId,
+        nonce: domovoi_core::attest::Nonce32,
+        _deadline: Timestamp,
+    ) -> Result<domovoi_core::ports::AttestationReply, LinkError> {
+        self.connected(host)?;
+        self.attest.answer(host, nonce)
+    }
+
+    fn helper_report(&self, host: HostId) -> Option<domovoi_core::ports::HelperReport> {
+        if !matches!(self.presence(host), Presence::Connected { .. }) {
+            return None;
+        }
+        self.attest.report(host)
+    }
+
     async fn get_catalog(
         &self,
         host: HostId,

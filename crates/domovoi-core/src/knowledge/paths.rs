@@ -6,8 +6,9 @@ use super::fact::{Fact, FactSource, KnowledgeStatus};
 use crate::actor::Actor;
 use crate::id::{FactRecordId, HostId};
 
-/// Opaque proof that a path is covered. It is stored and compared for equality only, never
-/// parsed here.
+/// Proof that a path is covered, opaque to the knowledge store. The attestation module stores
+/// `SafetyIdentity::canonical()` in it and parses it back with
+/// `SafetyIdentity::parse_canonical`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverageEvidence(String);
 
@@ -79,6 +80,10 @@ pub enum UnverifiableReason {
     ReportIncomplete,
     /// The attestation's generation went backwards.
     GenerationRegressed,
+    /// The helper's attestation does not cover this path.
+    PathUncovered,
+    /// The confirmation no longer matches the helper's current safety set.
+    ConfirmationStale,
 }
 
 impl UnverifiableReason {
@@ -94,6 +99,10 @@ impl UnverifiableReason {
             Self::SignatureInvalid => "the helper's attestation is not validly signed",
             Self::ReportIncomplete => "the helper's report is incomplete",
             Self::GenerationRegressed => "the helper's attestation went backwards",
+            Self::PathUncovered => "the helper's attestation does not cover this path",
+            Self::ConfirmationStale => {
+                "the confirmation no longer matches the helper's current safety set"
+            }
         }
     }
 }

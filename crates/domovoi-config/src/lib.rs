@@ -9,6 +9,8 @@ pub mod agent;
 pub mod duration;
 pub mod env;
 pub mod helper;
+pub mod helper_endpoints;
+pub mod helper_safety;
 pub mod hub;
 pub mod issue;
 pub mod layered;
@@ -29,6 +31,8 @@ pub use agent::{AgentConfig, DockerMode, MutationLimits};
 pub use duration::Duration;
 pub use env::{EnvSource, MapEnv, OverrideScope, SystemEnv};
 pub use helper::{FRESH_INSTALL_GROUPS, HelperConfig, load_helper, parse_helper};
+pub use helper_endpoints::hub_url_ip;
+pub use helper_safety::{HelperSafetyError, effective_config_lines, parse_safety_input};
 pub use hub::{FALLBACK_KEEP_PRE_MIGRATE, HubConfig, PackagesHubSection};
 pub use issue::{ConfigIssue, IssueSeverity};
 pub use layered::{

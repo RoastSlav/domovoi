@@ -34,6 +34,7 @@ export const keys = {
   skills: (name: string) => ["hosts", "skills", name] as const,
   capabilities: (name: string) => ["hosts", "capabilities", name] as const,
   hostCeiling: (name: string) => ["hosts", "ceiling", name] as const,
+  hostHelper: (name: string) => ["hosts", "helper", name] as const,
   hostPackages: (hostId: string) => ["hosts", "packages", hostId] as const,
   packagesStatus: ["packages", "status"] as const,
   packages: ["packages", "list"] as const,

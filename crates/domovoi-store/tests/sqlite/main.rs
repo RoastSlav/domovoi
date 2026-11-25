@@ -30,6 +30,8 @@ mod durability;
 #[cfg(test)]
 mod experience;
 #[cfg(test)]
+mod helper_trust;
+#[cfg(test)]
 mod install;
 #[cfg(test)]
 mod journal_feed;

@@ -621,6 +621,19 @@ async fn assemble(
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
         settings: store.clone(),
+        helper_trust: domovoi_hub::services::HelperTrust::new(
+            domovoi_hub::services::HelperTrustDeps {
+                hub: Arc::new(domovoi_hub::helper_trust::HelperTrustHub::new(
+                    store.clone(),
+                    store.clone(),
+                    link.clone(),
+                    clock.clone(),
+                )),
+                hosts: store.clone(),
+                auth: auth.clone(),
+                clock: clock.clone(),
+            },
+        ),
         packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
             handle: package_handle,
             importer: package_importer,

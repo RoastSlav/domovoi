@@ -1,0 +1,12 @@
+domovoi-safety-config-v1
+cidr=100.64.0.0/11
+cidr=192.168.1.0/24
+cidr=2001:db8::/32
+protected_unit=domovoi-agent.service
+protected_unit=domovoi-helper.socket
+protected_unit=domovoi-skill-runner.socket
+protected_unit=plex.service
+protected_unit=sshd.service
+protected_container=homeassistant
+max_ttl_s=86400
+max_active=50

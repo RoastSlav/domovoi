@@ -18,6 +18,7 @@ pub mod contracts;
 pub mod coverage;
 pub mod crash;
 pub mod fs;
+pub mod helper_attest;
 pub mod host_inspect;
 pub mod link;
 pub mod live;

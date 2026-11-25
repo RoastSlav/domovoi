@@ -5,7 +5,8 @@ use std::task::{Context, Poll};
 use domovoi_config::{HelperConfig, parse_helper};
 use domovoi_core::helper::{
     HELPER_PROTOCOL, HelperGroup, HelperRequest, HelperRequestFrame, HelperResponse,
-    HelperResponseFrame, Nonce, ReadGroup, UnavailableReason, decode_response, encode_frame,
+    HelperResponseFrame, Nonce, ReadGroup, UnavailableReason, UnsignedToken, decode_response,
+    encode_frame,
 };
 use domovoi_core::identity::{FaultKind, HostDirs, PathId, RefusalToken};
 use domovoi_core::isolation::{
@@ -193,7 +194,7 @@ async fn serve_echoes_the_request_id() {
 }
 
 #[tokio::test]
-async fn serve_answers_read_and_safety_attest_as_unavailable() {
+async fn serve_answers_read_as_unavailable_and_safety_attest_without_a_lock_as_unsigned() {
     let ctx = default_context();
     assert_eq!(
         ask(
@@ -208,11 +209,18 @@ async fn serve_answers_read_and_safety_attest_as_unavailable() {
             reason: UnavailableReason::NotImplemented,
         }
     );
+    // The attestation is served now. This host has no state directory on its disk, so the lock
+    // cannot be opened and the answer is the unsigned token, never a guess.
     assert_eq!(
         ask(&ctx, HelperRequest::SafetyAttest { nonce: nonce() }).await,
-        HelperResponse::Unavailable {
-            group: HelperGroup::SafetyAttest,
-            reason: UnavailableReason::NotImplemented,
+        HelperResponse::SafetyUnsigned {
+            token: UnsignedToken::LockUnavailable,
+        }
+    );
+    assert_eq!(
+        ask(&ctx, HelperRequest::SafetyPublicKey).await,
+        HelperResponse::SafetyUnsigned {
+            token: UnsignedToken::LockUnavailable,
         }
     );
 }
@@ -532,4 +540,24 @@ fn write_groups_are_refused_on_untested_platforms_without_owner_opt_in() {
         reason(RecordOk, Supported, false),
         UnavailableReason::NotImplemented
     );
+}
+
+#[tokio::test]
+async fn attest_without_group_safety_attest_is_refused() {
+    let ctx = context(
+        healthy(&HostDirs::default()),
+        "groups = [\"docker.read\"]\n",
+    );
+    for request in [
+        HelperRequest::SafetyAttest { nonce: nonce() },
+        HelperRequest::SafetyPublicKey,
+    ] {
+        assert_eq!(
+            ask(&ctx, request).await,
+            HelperResponse::Unavailable {
+                group: HelperGroup::SafetyAttest,
+                reason: UnavailableReason::GroupDisabled,
+            }
+        );
+    }
 }

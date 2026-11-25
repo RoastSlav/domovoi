@@ -1,6 +1,6 @@
 /**
  * The mock hub's package, install-job, host-limits and capability answers. Every route the
- * Capability Center calls is listed here; there is deliberately no helper route.
+ * Capability Center calls is listed here, the four helper routes included.
  */
 
 const T0 = "2026-10-31T12:00:00Z";
@@ -39,7 +39,14 @@ function installed(observed) {
 
 /** What the mock hub keeps between requests of one run. */
 export function makePackageState(hostId) {
-    return { hostId, imported: true, jobReads: 0, jobCreated: false, bodies: [] };
+    return {
+        hostId,
+        imported: true,
+        jobReads: 0,
+        jobCreated: false,
+        bodies: [],
+        helperPinned: true,
+    };
 }
 
 function job(state, finished) {
@@ -74,12 +81,77 @@ function job(state, finished) {
     };
 }
 
-/** Answers a package, job, ceiling or capability request; undefined for any other path. */
+const FINGERPRINT = "0123456789abcdef".repeat(4);
+
+/** The helper view of nas: a pinned key and a verified report, or the key received but unpinned. */
+function helperView(pinned) {
+    return {
+        host: "nas",
+        helper: { state: "ok", ops: ["safety.attest"] },
+        key_state: pinned ? "pinned" : "not_pinned",
+        received_key: {
+            fingerprint: FINGERPRINT,
+            fingerprint_groups: FINGERPRINT.replace(/(.{4})/g, "$1 ").trim(),
+            key_id: FINGERPRINT.slice(0, 16),
+        },
+        pin: pinned ? { fingerprint: FINGERPRINT, pinned_at: T0, pinned_by: "admin" } : null,
+        attestation: pinned
+            ? { state: "verified", checked_at: T0 }
+            : { state: "unverified", reason: "key_not_pinned", checked_at: T0 },
+        verified: pinned
+            ? {
+                  age_seconds: 30,
+                  boot_id: "boot-1",
+                  cidrs: ["192.0.2.0/24"],
+                  computed_at: T0,
+                  config_hash: "c0ffee",
+                  fresh: true,
+                  generation: 7,
+                  hub_addrs: ["192.0.2.10"],
+                  link_peers: ["192.0.2.10:7421"],
+                  max_active: 4,
+                  max_ttl_s: 3600,
+                  nonce_issued_at: T0,
+                  protected_containers: ["plex"],
+                  protected_units: ["sshd.service"],
+                  route_state_hash: "abc123",
+              }
+            : null,
+    };
+}
+
+/** Answers a package, job, ceiling, capability or helper request; undefined for any other path. */
 export function packageRoute(state, method, pathname, body) {
     const ok = (payload, status = 200) => ({ status, payload });
     const key = `${method} ${pathname}`;
     const jobPath = `/api/v1/packages/jobs/${JOB_ID}`;
+    const other = /^\/api\/v1\/hosts\/([^/]+)\/helper$/.exec(pathname);
+    if (method === "GET" && other && other[1] !== "nas") {
+        // A host with no helper: its card renders the absent state.
+        return ok({
+            host: other[1],
+            helper: { state: "absent", ops: [] },
+            key_state: "no_helper",
+            received_key: null,
+            pin: null,
+            attestation: { state: "unverified", reason: "attestation_missing", checked_at: null },
+            verified: null,
+        });
+    }
     switch (key) {
+        case "GET /api/v1/hosts/nas/helper":
+            return ok(helperView(state.helperPinned !== false));
+        case "POST /api/v1/hosts/nas/helper/recheck":
+            return { status: 202, payload: undefined };
+        case "PUT /api/v1/hosts/nas/helper/key":
+            if (body?.password !== "correct-password") {
+                return ok({ error: "wrong_password", message: "wrong password" }, 401);
+            }
+            state.helperPinned = true;
+            return ok(helperView(true));
+        case "DELETE /api/v1/hosts/nas/helper/key":
+            state.helperPinned = false;
+            return ok(helperView(false));
         case "GET /api/v1/hosts/nas/capabilities":
             return ok({ host: "nas", entries: [], unknown_contracts: [] });
         case "GET /api/v1/hosts/nas/ceiling":

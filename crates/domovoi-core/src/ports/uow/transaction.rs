@@ -12,7 +12,7 @@ use crate::{ActionRequest, Incident, Note, Signal};
 
 use super::{
     AuditDraft, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath, EffectDraft,
-    EffectReschedule, InstallWrite, JournalDraft, OperationWrite,
+    EffectReschedule, HelperTrustWrite, InstallWrite, JournalDraft, OperationWrite,
 };
 
 /// Which kind of aggregate a write, journal entry or effect belongs to.
@@ -38,6 +38,8 @@ pub enum AggregateKind {
     Conversation,
     /// A package install or uninstall job and its targets.
     InstallJob,
+    /// A host's helper key pin and attestation state.
+    HelperTrust,
 }
 
 impl AggregateKind {
@@ -60,6 +62,7 @@ impl AggregateKind {
             Self::Entity => "entity",
             Self::Conversation => "conversation",
             Self::InstallJob => "install_job",
+            Self::HelperTrust => "helper_trust",
         }
     }
 
@@ -77,6 +80,7 @@ impl AggregateKind {
             "entity" => Some(Self::Entity),
             "conversation" => Some(Self::Conversation),
             "install_job" => Some(Self::InstallJob),
+            "helper_trust" => Some(Self::HelperTrust),
             _ => None,
         }
     }
@@ -149,6 +153,18 @@ impl AggregateRef {
         Self {
             kind: AggregateKind::InstallJob,
             id: id.to_string(),
+        }
+    }
+}
+
+impl AggregateRef {
+    /// A helper trust reference: the aggregate of every helper pin and attestation audit
+    /// entry of a host.
+    #[must_use]
+    pub fn helper_trust(host: crate::id::HostId) -> Self {
+        Self {
+            kind: AggregateKind::HelperTrust,
+            id: host.to_string(),
         }
     }
 }
@@ -291,6 +307,8 @@ pub enum StateWrite {
     Conversation(ConversationWrite),
     /// One change to a package artifact, an install job or a host's package inventory.
     Install(InstallWrite),
+    /// One change to a host's helper key pin, latest attestation outcome or high-water mark.
+    HelperTrust(HelperTrustWrite),
 }
 
 /// Everything one business event changes.

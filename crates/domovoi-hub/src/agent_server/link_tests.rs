@@ -124,6 +124,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
         runs_as_root: false,
         skill_runner_status: domovoi_proto::messages::SkillRunnerStatus::Absent,
         helper_status: domovoi_proto::messages::HelperStatus::Absent,
+        helper_identity: None,
         ceiling_summary: None,
         ceiling_hash: None,
         checks: Vec::new(),
@@ -284,3 +285,59 @@ async fn dropping_a_read_midway_releases_its_registered_request() {
 
 #[path = "link_package_tests.rs"]
 mod package;
+
+#[tokio::test]
+async fn received_key_from_hello_is_stored_and_fingerprinted_by_the_hub() {
+    use domovoi_core::KeyFingerprint;
+    use domovoi_core::ports::{AgentLink as _, HelperLive};
+    use domovoi_proto::PublicKey;
+    use domovoi_proto::messages::{AgentStatus, HelperIdentity, HelperStatus, SkillRunnerStatus};
+
+    let w = world(Arc::new(InMemoryStore::new()));
+    assert!(
+        w.link.helper_report(w.host).is_none(),
+        "no session, no report"
+    );
+    let (mut live, session) = live_session(mpsc::channel(1).0);
+    live.helper_identity = Some([7; 32]);
+    live.helper_status = HelperStatus::Ok {
+        ops: vec!["safety.attest".to_owned()],
+    };
+    w.registry.register(w.host, live, None).unwrap();
+    let report = w.link.helper_report(w.host).unwrap();
+    assert_eq!(report.public_key, Some([7; 32]));
+    assert_eq!(
+        report.live,
+        HelperLive::Ok {
+            ops: vec!["safety.attest".to_owned()]
+        }
+    );
+    // The hub's fingerprint is its own hash of the relayed bytes; nothing else is read.
+    let fingerprint = KeyFingerprint::of_public_key(&report.public_key.unwrap());
+    assert_eq!(fingerprint.to_string().len(), 64);
+    // A later status report replaces what the session says about its helper.
+    w.registry.set_agent_status(
+        w.host,
+        session,
+        AgentStatus {
+            helper_status: HelperStatus::Error {
+                reason: "restarting".to_owned(),
+            },
+            helper_identity: Some(HelperIdentity {
+                public_key: PublicKey([8; 32]),
+            }),
+            skill_runner_status: SkillRunnerStatus::Absent,
+            runs_as_root: false,
+            ceiling_hash: None,
+            ceiling_summary: None,
+        },
+    );
+    let report = w.link.helper_report(w.host).unwrap();
+    assert_eq!(report.public_key, Some([8; 32]));
+    assert_eq!(
+        report.live,
+        HelperLive::Error {
+            reason: "restarting".to_owned()
+        }
+    );
+}

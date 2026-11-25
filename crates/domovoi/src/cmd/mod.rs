@@ -7,6 +7,8 @@ mod audit;
 mod check;
 mod digest;
 mod helper;
+#[cfg(unix)]
+mod helper_keys;
 mod hub;
 mod hub_run;
 mod notify;

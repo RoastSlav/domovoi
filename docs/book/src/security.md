@@ -74,6 +74,17 @@ Two things are reported separately:
 
 A wrong mode or owner on the helper's directory, lock, key or state makes the helper refuse to start and name each path. It never repairs on its own. The only repair is `sudo domovoi helper repair`, a local command that prints what it will change, needs you at a terminal to type the word `repair`, refuses symlinks, and changes only the listed paths and only their mode and owner. Nothing in the agent, the hub or a chat can run it.
 
+## Helper attestation
+
+Before the hub lets an unattended action touch a host's network, it needs proof that the helper really enforces the protected management paths. The proof is a signed report, and the agent cannot forge it.
+
+- **The helper key.** `domovoi helper init` makes an Ed25519 key in `/var/lib/domovoi-helper`, a root-only 0700 directory. The helper signs its reports with it. The agent never reads the key, and neither does the hub, the skill runner or a package. The agent can only carry a report; it holds no key that would make one.
+- **The pin.** The hub trusts one key per host: the one the owner pinned. Nothing is pinned on first contact. The hub shows the key it received and computes its fingerprint itself (SHA-256 of the 32 key bytes, so a fingerprint the agent sent is never used). You run `sudo domovoi helper fingerprint` on the host, type the whole fingerprint into the hub, and give your password again. Only then is the key pinned. Comparing a short key id is not enough and is not accepted.
+- **What is checked.** A report counts only if it comes with the pinned key, the signature over exactly the bytes received verifies, those bytes are in the one canonical form, the hub's own nonce is in it (so an old report cannot be replayed), it says it is complete, and its generation has not gone back. Freshness is counted from when the hub issued its nonce, not from when the answer arrived.
+- **Why the agent cannot forge a report.** A compromised agent can refuse to relay, delay or drop a report, or send a different key. It cannot sign. A different key is only a mismatch: the old pin is kept and the host reads as not verified until the pinned key attests again. It also cannot widen what the helper protects: the protected set is in `helper.toml`, which only root can write.
+- **What "unverified" means.** The hub has no proof of what the helper enforces right now. A host is unverified when no key is pinned, the key changed, no report is held, the held report is older than five minutes, a signature failed, the helper signed a report that says it could not compute the set, the generation went backwards, a path is not covered or an owner's confirmation no longer matches. Trust follows the latest outcome, so a bad answer revokes at once and one later good answer restores. Monitoring is never affected. Unattended containment on that host stays blocked.
+- **Fail closed.** A missing, damaged or foreign state file, a missing key and a wrong mode all stop the helper from signing a claim. Nothing resets state or creates a key by itself: a local `sudo` command is the only way (`rotate-key`, `recover`, `repair`; see the [helper guide](guide/helper.md)). Rotation deletes the old private key.
+
 ## What could go wrong, and what stops it
 
 | Scenario | What happens |
@@ -85,6 +96,8 @@ A wrong mode or owner on the helper's directory, lock, key or state makes the he
 | A stolen chat approve token | Tokens are single-use, stored only as hashes, bound to one action, and expire with it. |
 | Someone edits a skill after you approved it | The manifest hash no longer matches, so dispatch is refused. |
 | A compromised hub | It can only ask agents for skills already installed on them, within each agent's `allow_risk`. It cannot push code. |
+| A compromised agent presents its own key as the helper's | The key differs from the pin, so the host is unverified and the old pin stays. Nothing is pinned without your password and the fingerprint typed from the host. |
+| A compromised agent replays or edits an old safety report | The report carries the hub's fresh nonce and is signed; an edited or replayed report fails verification. |
 | A webhook from the internet | Rejected without a valid signature or token, and limited in size. |
 | A secret in a log that triage reads | Known secrets and common credential patterns are redacted before the text reaches the model. |
 

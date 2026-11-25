@@ -1,0 +1,1 @@
+[{"dst":"default","gateway":"192.0.2.254","dev":"dummy0","metric":200,"flags":[]},{"dst":"198.51.100.0/24","gateway":"192.0.2.2","dev":"dummy0","flags":[]}]
