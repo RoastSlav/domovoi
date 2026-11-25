@@ -243,7 +243,7 @@ impl HelperClient {
 
     #[cfg(unix)]
     async fn round_trip(&self, request: &[u8]) -> Result<HelperResponseFrame, HelperClientError> {
-        use domovoi_core::helper::{decode_response, frame_len_response};
+        use domovoi_core::helper::{MAX_RESPONSE_BYTES, decode_response, frame_len};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let io_error = |err: std::io::Error| HelperClientError::Unreachable(err.to_string());
@@ -256,7 +256,7 @@ impl HelperClient {
         stream.write_all(request).await.map_err(io_error)?;
         let mut header = [0_u8; 4];
         stream.read_exact(&mut header).await.map_err(io_error)?;
-        let len = frame_len_response(header).map_err(frame_error)?;
+        let len = frame_len(header, MAX_RESPONSE_BYTES).map_err(frame_error)?;
         let mut body = vec![0_u8; len];
         stream.read_exact(&mut body).await.map_err(io_error)?;
         decode_response(&body).map_err(frame_error)

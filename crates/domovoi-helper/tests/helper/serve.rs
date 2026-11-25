@@ -5,8 +5,7 @@ use std::task::{Context, Poll};
 use domovoi_config::{HelperConfig, parse_helper};
 use domovoi_core::helper::{
     HELPER_PROTOCOL, HelperGroup, HelperRequest, HelperRequestFrame, HelperResponse,
-    HelperResponseFrame, Nonce, ReadGroup, UnavailableReason, UnsignedToken, decode_response,
-    encode_frame,
+    HelperResponseFrame, Nonce, UnavailableReason, UnsignedToken, decode_response, encode_frame,
 };
 use domovoi_core::identity::{FaultKind, HostDirs, PathId, RefusalToken};
 use domovoi_core::isolation::{
@@ -197,13 +196,7 @@ async fn serve_echoes_the_request_id() {
 async fn serve_answers_read_as_unavailable_and_safety_attest_without_a_lock_as_unsigned() {
     let ctx = default_context();
     assert_eq!(
-        ask(
-            &ctx,
-            HelperRequest::Read {
-                group: ReadGroup::DockerRead
-            }
-        )
-        .await,
+        ask(&ctx, HelperRequest::DockerList).await,
         HelperResponse::Unavailable {
             group: HelperGroup::DockerRead,
             reason: UnavailableReason::NotImplemented,
@@ -232,13 +225,7 @@ async fn serve_marks_a_disabled_group_group_disabled() {
         "groups = [\"docker.read\"]\n",
     );
     assert_eq!(
-        ask(
-            &ctx,
-            HelperRequest::Read {
-                group: ReadGroup::SmartRead
-            }
-        )
-        .await,
+        ask(&ctx, HelperRequest::SmartScan).await,
         HelperResponse::Unavailable {
             group: HelperGroup::SmartRead,
             reason: UnavailableReason::GroupDisabled,

@@ -83,9 +83,10 @@ pub(super) async fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> Hel
             pid: std::process::id(),
         },
         HelperRequest::Groups => groups(ctx),
-        HelperRequest::Read { group } => unavailable(group.group(), ctx),
         HelperRequest::SafetyAttest { nonce } => attest(*nonce, ctx).await,
         HelperRequest::SafetyPublicKey => attest_public_key(ctx),
+        // The read operations are served by `reads`; until it is wired, each is not implemented.
+        read => unavailable(read.group().unwrap_or(HelperGroup::DockerRead), ctx),
     }
 }
 

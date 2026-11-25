@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use super::attestation::{SignedAttestation, UnsignedToken};
 use super::group::HelperGroup;
+use super::read::{ContainerWire, DeviceRef, DockerEngineInfo, EventWire, ListenerWire, ReadToken};
 use crate::identity::{PathFault, RefusalToken};
 use crate::isolation::{PlatformRecordState, PlatformTier};
 
@@ -54,6 +55,74 @@ pub enum HelperResponse {
         group: HelperGroup,
         /// Why not.
         reason: UnavailableReason,
+    },
+    /// The engine probe: `None` when no socket answered (a `ReadFailed` carries the reason).
+    DockerEngine {
+        /// The engine found.
+        engine: Option<DockerEngineInfo>,
+    },
+    /// Every container, sorted by name.
+    DockerContainers {
+        /// The containers.
+        containers: Vec<ContainerWire>,
+        /// Whether the list was cut at the cap.
+        truncated: bool,
+    },
+    /// Container events in the window.
+    DockerEvents {
+        /// The events.
+        events: Vec<EventWire>,
+        /// Whether the list was cut at the cap.
+        truncated: bool,
+    },
+    /// One container's inspect document, with every environment value removed.
+    DockerInspect {
+        /// The document.
+        inspect: serde_json::Value,
+    },
+    /// One container's log text.
+    DockerLogs {
+        /// The text.
+        text: String,
+        /// Whether it was cut.
+        truncated: bool,
+    },
+    /// The devices a scan found, already filtered by the allowlist.
+    SmartScan {
+        /// The devices.
+        devices: Vec<DeviceRef>,
+    },
+    /// A SMART report.
+    SmartReport {
+        /// The raw `smartctl --json` text.
+        json: String,
+        /// The tool's exit code, a bit mask.
+        exit_code: Option<i32>,
+        /// Whether the text was cut.
+        truncated: bool,
+    },
+    /// Kernel log lines.
+    KernelLog {
+        /// The lines.
+        text: String,
+        /// Whether the text was cut.
+        truncated: bool,
+    },
+    /// Listening sockets.
+    NetListeners {
+        /// The sockets.
+        listeners: Vec<ListenerWire>,
+        /// Whether the list was cut at the cap.
+        truncated: bool,
+    },
+    /// A read operation was understood and served but failed.
+    ReadFailed {
+        /// The group of the operation.
+        group: HelperGroup,
+        /// Why.
+        token: ReadToken,
+        /// At most 200 printable ASCII bytes, with no path outside `/dev`.
+        detail: Option<String>,
     },
     /// A signed safety report.
     SafetyAttested {

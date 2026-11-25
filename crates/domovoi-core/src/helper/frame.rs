@@ -3,15 +3,15 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
+use super::HELPER_PROTOCOL;
 use super::request::HelperRequestFrame;
 use super::response::HelperResponseFrame;
-use super::{HELPER_PROTOCOL, MAX_FRAME_BYTES, MAX_RESPONSE_BYTES};
 use crate::identity::RefusalToken;
 
 /// Why a frame could not be built or read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FrameError {
-    /// The length exceeds [`MAX_FRAME_BYTES`].
+    /// The length exceeds the cap of its direction.
     #[error("frame of {0} bytes exceeds the cap")]
     FrameTooLarge(usize),
     /// The value could not be written as JSON.
@@ -43,21 +43,12 @@ pub fn encode_frame<T: Serialize>(value: &T) -> Result<Vec<u8>, FrameError> {
     Ok(out)
 }
 
-/// The body length a header announces, refused above [`MAX_FRAME_BYTES`] before any body is read.
-pub fn frame_len(header: [u8; 4]) -> Result<usize, FrameError> {
+/// The body length a header announces, refused above `limit` before any body is read. A server
+/// passes [`super::MAX_REQUEST_BYTES`]; a client reading an answer passes
+/// [`super::MAX_RESPONSE_BYTES`].
+pub fn frame_len(header: [u8; 4], limit: usize) -> Result<usize, FrameError> {
     let len = u32::from_be_bytes(header) as usize;
-    if len > MAX_FRAME_BYTES {
-        Err(FrameError::FrameTooLarge(len))
-    } else {
-        Ok(len)
-    }
-}
-
-/// The body length an answer header announces, refused above [`MAX_RESPONSE_BYTES`] before any
-/// body is read.
-pub fn frame_len_response(header: [u8; 4]) -> Result<usize, FrameError> {
-    let len = u32::from_be_bytes(header) as usize;
-    if len > MAX_RESPONSE_BYTES {
+    if len > limit {
         Err(FrameError::FrameTooLarge(len))
     } else {
         Ok(len)
@@ -93,18 +84,28 @@ pub fn decode_request(body: &[u8]) -> Result<HelperRequestFrame, RefusalToken> {
     }
     // serde ignores unknown fields on a unit variant of an internally tagged enum, so the
     // closed field set is enforced here as well.
-    let field = match op {
-        "read" => Some("group"),
-        "safety_attest" => Some("nonce"),
-        _ => None,
+    let fields: &[&str] = match op {
+        "docker_events" => &["since_secs", "until_secs"],
+        "docker_inspect" => &["container"],
+        "docker_logs" => &["container", "lines"],
+        "smart_report" => &["device"],
+        "kernel_log" => &["since_minutes", "lines"],
+        "safety_attest" => &["nonce"],
+        _ => &[],
     };
     if request
         .keys()
-        .any(|key| key != "op" && Some(key.as_str()) != field)
+        .any(|key| key != "op" && !fields.contains(&key.as_str()))
     {
         return Err(RefusalToken::FrameMalformed);
     }
-    serde_json::from_value(value).map_err(|_| RefusalToken::FrameMalformed)
+    let frame: HelperRequestFrame =
+        serde_json::from_value(value).map_err(|_| RefusalToken::FrameMalformed)?;
+    frame
+        .request
+        .check_bounds()
+        .map_err(|_| RefusalToken::FrameMalformed)?;
+    Ok(frame)
 }
 
 /// Reads an answer body.
