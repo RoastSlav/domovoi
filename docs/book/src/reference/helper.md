@@ -2,7 +2,7 @@
 
 The helper is a small root program that sits behind a socket on hosts installed with the three-identities layout (see [Security model](../security.md#three-identities-on-one-host)). The agent asks it for the few things that need root. It answers one request per connection and exits.
 
-In this release it answers `health`, `groups`, the read groups and `safety.attest`. Every read group and `safety.attest` is answered as unavailable, because the operations behind them are not built yet. It has no write group: it cannot restart a unit, change the firewall, act on a container or run a command, and it starts no process of its own. Platform support is not claimed for any system.
+In this release it answers `health`, `groups`, the read groups, `safety.attest` and the read-only `safety.public_key`. Every read group is answered as unavailable, because the operations behind them are not built yet. `safety.attest` answers a challenge with a report of the effective safety set (`[safety]` in `helper.toml`, the mandatory units, and the routes to the hub and the management networks as read from the kernel with `ip -j`), signed with the helper's attestation key; `safety.public_key` answers the public half of that key and nothing else. It has no write group: it cannot restart a unit, change the firewall, act on a container or run a command. The only program it ever runs is `ip`, with fixed arguments and the environment `LC_ALL=C`, to read routes. Platform support is not claimed for any system.
 
 Who is served: only the `domovoi-agent` account. The helper looks up that account's user id each time a connection arrives. Root is not served; use `domovoi agent selftest` for root diagnostics. A request is one length-prefixed JSON frame of at most 64 KiB, with a closed set of operations and no free-form field, so there is nothing to carry a path, a command or a unit name. If the helper's own checks fail at start it answers every request with `StartRefused` and the list of faulty paths. See [Troubleshooting](../troubleshooting.md#the-helper-refuses-to-start).
 
@@ -117,6 +117,9 @@ The helper unit carries no other hardening setting on purpose: the rest have not
 | --- | --- | --- |
 | `/var/lib/domovoi-helper` | root, 0700 | Created by `domovoi helper init`. |
 | `/var/lib/domovoi-helper/state.lock` | root, 0600 | The lock held across a request. |
+| `/var/lib/domovoi-helper/attest.key` | root, 0600 | The Ed25519 seed that signs safety attestations. Created by `domovoi helper init`; replaced only by `rotate-key` and `recover`. |
+| `/var/lib/domovoi-helper/state` | root, 0600 | The attestation generation and the hashes it was made from, with a checksum. |
+| `/var/lib/domovoi-helper/retired/` | root, 0700 | The public key and the old state of every retired key. Never a private key. |
 | `/var/lib/domovoi-helper/platform.json` | root, 0600 | Written by `agent selftest --installer --record`. |
 | `/etc/domovoi/helper.toml` | root, 0600 | Described above. |
 | `/run/domovoi-helper.sock` | `root:domovoi-agent`, 0660 | Created by the socket unit. |

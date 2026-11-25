@@ -56,7 +56,7 @@ flowchart LR
 | `domovoi-chat` | Chat gateway and notifier adapters: Discord, generic webhook | core |
 | `domovoi-checks` | Built-in checks. Feature `host` (agent-side host checks), feature `net` (network probes, also used by the hub) | core |
 | `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution | core |
-| `domovoi-helper` | The root helper: socket adoption and serving, the start checks, the repair command, the host inspection adapter and the isolation self-test. It spawns nothing in this milestone | core, config |
+| `domovoi-helper` | The root helper: socket adoption and serving, the start checks, the repair command, the host inspection adapter, the isolation self-test and the safety attestation (key, state, route observation). It runs only `ip`, through the `ProcessExecutor` port | core, config |
 | `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool | core, config, proto, checks, runner |
 | `domovoi-hub` | Hub runtime: HTTP API, auth, SPA serving, webhook ingest, agent server, wiring of engine with adapters. `PolicyService` is the use-case service for the policy draft, versions, preview, simulation and shadow reads (ADR 0026) | core, config, proto, engine, store, llm, chat, checks |
 | `domovoi-testkit` | Fakes for every port, a fake clock, fixtures, the crash-injecting store, snapshots and invariants. **Dev-dependency only.** | core, proto |
