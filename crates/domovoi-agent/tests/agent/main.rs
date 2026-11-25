@@ -1,6 +1,8 @@
 //! Agent runtime tests against a test hub on loopback, with a fake clock.
 
 #[cfg(test)]
+mod attest;
+#[cfg(test)]
 #[cfg(target_os = "linux")]
 mod capability;
 #[cfg(test)]

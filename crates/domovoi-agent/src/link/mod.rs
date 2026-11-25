@@ -23,8 +23,8 @@ use std::sync::Arc;
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
 use domovoi_proto::messages::{
-    ActionStatusQuery, CheckInfo, GetCatalog, GetLogs, Pong, RunCapability, RunCheck, RunSkill,
-    RunTool, Signals, Unsupported,
+    ActionStatusQuery, AttestSafety, CheckInfo, GetCatalog, GetLogs, Pong, RunCapability, RunCheck,
+    RunSkill, RunTool, Signals, Unsupported,
 };
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
@@ -77,6 +77,8 @@ pub enum RequestKind {
     ActionStatus(ActionStatusQuery),
     /// One page of the capability catalogue.
     Catalog(GetCatalog),
+    /// A challenge for the helper's signed safety report.
+    Attest(AttestSafety),
 }
 
 /// A request and the id its reply must carry in `reply_to`.
@@ -447,6 +449,7 @@ impl Link {
             }
             Message::ActionStatus(query) => RequestKind::ActionStatus(query),
             Message::GetCatalog(get) => RequestKind::Catalog(get),
+            Message::AttestSafety(challenge) => RequestKind::Attest(challenge),
             Message::Unknown { kind } => {
                 let reply = Message::Unsupported(Unsupported { type_name: kind });
                 frame::send(transport, &reply, Some(id)).await?;

@@ -5,13 +5,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use domovoi_core::attest::Hash32;
 use domovoi_core::helper::{
     FrameError, HELPER_PROTOCOL, HELPER_SOCKET, HelperGroup, HelperRequest, HelperRequestFrame,
-    HelperResponse, HelperResponseFrame, encode_frame,
+    HelperResponse, HelperResponseFrame, Nonce, SignedAttestation, UnsignedToken, encode_frame,
 };
 use domovoi_core::identity::RefusalToken;
 use domovoi_core::ports::Clock;
-use domovoi_proto::messages::HelperStatus;
+use domovoi_proto::PublicKey;
+use domovoi_proto::messages::{HelperIdentity, HelperStatus};
 use jiff::SignedDuration;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -67,7 +69,36 @@ pub enum HelperClientError {
     /// The helper answered something other than what was asked.
     #[error("the helper answered an unexpected message")]
     Unexpected,
+    /// The helper could not sign an attestation and said why. The token carries no signature.
+    #[error("the helper could not attest: {0}")]
+    Unsigned(UnsignedToken),
+    /// The helper does not serve the operation: its group is switched off.
+    #[error("the helper does not serve this operation")]
+    Unavailable,
 }
+
+impl HelperClientError {
+    /// The `error` code the agent relays to the hub for this failure.
+    ///
+    /// A token the helper itself gave (a refusal, a start refusal or an unsigned answer) is
+    /// relayed as it is; everything else is `helper_unavailable`.
+    #[must_use]
+    pub fn relay_code(&self) -> &'static str {
+        match self {
+            Self::Refused(token) | Self::StartRefused(token) => token.as_str(),
+            Self::Unsigned(token) => token.as_str(),
+            Self::Absent
+            | Self::Unreachable(_)
+            | Self::Frame(_)
+            | Self::Protocol(_)
+            | Self::Unexpected
+            | Self::Unavailable => HELPER_UNAVAILABLE,
+        }
+    }
+}
+
+/// The relayed code for a helper that cannot be asked or does not serve the operation.
+pub const HELPER_UNAVAILABLE: &str = "helper_unavailable";
 
 /// A client for the helper's local socket.
 #[derive(Debug, Clone)]
@@ -116,6 +147,38 @@ impl HelperClient {
         }
     }
 
+    /// Asks the helper for a signed safety report bound to `nonce`.
+    ///
+    /// The report and the signature are returned exactly as the helper wrote them.
+    pub async fn attest(
+        &self,
+        nonce: Nonce,
+        clock: &dyn Clock,
+    ) -> Result<SignedAttestation, HelperClientError> {
+        match self
+            .exchange(HelperRequest::SafetyAttest { nonce }, clock)
+            .await?
+        {
+            HelperResponse::SafetyAttested { attestation } => Ok(attestation),
+            HelperResponse::SafetyUnsigned { token } => Err(HelperClientError::Unsigned(token)),
+            HelperResponse::Unavailable { .. } => Err(HelperClientError::Unavailable),
+            other => Err(refusal(other)),
+        }
+    }
+
+    /// Asks the helper for its public attestation key.
+    pub async fn public_key(&self, clock: &dyn Clock) -> Result<[u8; 32], HelperClientError> {
+        match self.exchange(HelperRequest::SafetyPublicKey, clock).await? {
+            HelperResponse::SafetyPublicKey { public_key } => public_key
+                .parse::<Hash32>()
+                .map(|hash| *hash.as_bytes())
+                .map_err(|_| HelperClientError::Unexpected),
+            HelperResponse::SafetyUnsigned { token } => Err(HelperClientError::Unsigned(token)),
+            HelperResponse::Unavailable { .. } => Err(HelperClientError::Unavailable),
+            other => Err(refusal(other)),
+        }
+    }
+
     async fn exchange(
         &self,
         request: HelperRequest,
@@ -138,7 +201,7 @@ impl HelperClient {
 
     #[cfg(unix)]
     async fn round_trip(&self, request: &[u8]) -> Result<HelperResponseFrame, HelperClientError> {
-        use domovoi_core::helper::{decode_response, frame_len};
+        use domovoi_core::helper::{decode_response, frame_len_response};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         let io_error = |err: std::io::Error| HelperClientError::Unreachable(err.to_string());
@@ -151,7 +214,7 @@ impl HelperClient {
         stream.write_all(request).await.map_err(io_error)?;
         let mut header = [0_u8; 4];
         stream.read_exact(&mut header).await.map_err(io_error)?;
-        let len = frame_len(header).map_err(frame_error)?;
+        let len = frame_len_response(header).map_err(frame_error)?;
         let mut body = vec![0_u8; len];
         stream.read_exact(&mut body).await.map_err(io_error)?;
         decode_response(&body).map_err(frame_error)
@@ -212,7 +275,22 @@ fn failure(err: &HelperClientError) -> HelperStatus {
         HelperClientError::Protocol(_) => error_status("protocol"),
         HelperClientError::Frame(_) | HelperClientError::Unexpected => error_status("frame"),
         HelperClientError::Unreachable(_) => error_status("unreachable"),
+        HelperClientError::Unsigned(token) => error_status(token.as_str()),
+        HelperClientError::Unavailable => error_status("unavailable"),
     }
+}
+
+/// The helper's public key as the agent announces it, when the helper answers.
+///
+/// Only the public key: the agent sends no fingerprint, and the hub computes its own.
+pub async fn probe_identity(client: &HelperClient, clock: &dyn Clock) -> Option<HelperIdentity> {
+    client
+        .public_key(clock)
+        .await
+        .ok()
+        .map(|key| HelperIdentity {
+            public_key: PublicKey(key),
+        })
 }
 
 fn error_status(reason: &str) -> HelperStatus {
@@ -236,10 +314,16 @@ pub async fn keep_status(
             () = sleep(&*clock, STATUS_PROBE_INTERVAL) => {}
         }
         let helper_status = probe_status(&client, &*clock).await;
+        let helper_identity = match helper_status {
+            HelperStatus::Ok { .. } => probe_identity(&client, &*clock).await,
+            _ => None,
+        };
         if let Some(mut current) = status.current()
-            && current.helper_status != helper_status
+            && (current.helper_status != helper_status
+                || current.helper_identity != helper_identity)
         {
             current.helper_status = helper_status;
+            current.helper_identity = helper_identity;
             status.set(current);
         }
     }
