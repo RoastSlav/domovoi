@@ -7,6 +7,7 @@ use jiff::Timestamp;
 use crate::host::KeyFingerprint;
 
 use super::identity::SafetyIdentity;
+use super::report::CompleteReport;
 use super::scalar::Cidr;
 
 /// The helper key the owner pinned for a host.
@@ -48,6 +49,32 @@ pub enum LatestOutcome {
     Regressed,
 }
 
+impl LatestOutcome {
+    /// The stable text stored in the database: `verified`, `mismatch`, `signed_incomplete` or
+    /// `regressed`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Mismatch => "mismatch",
+            Self::SignedIncomplete => "signed_incomplete",
+            Self::Regressed => "regressed",
+        }
+    }
+
+    /// Reads [`LatestOutcome::as_str`] back; `None` for anything else.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "verified" => Some(Self::Verified),
+            "mismatch" => Some(Self::Mismatch),
+            "signed_incomplete" => Some(Self::SignedIncomplete),
+            "regressed" => Some(Self::Regressed),
+            _ => None,
+        }
+    }
+}
+
 /// A verified attestation, stored only when a complete report passed every check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedState {
@@ -69,6 +96,38 @@ pub struct VerifiedState {
     pub hub_addrs: Vec<IpAddr>,
     /// The link peers the helper found.
     pub link_peers: Vec<(IpAddr, u16)>,
+}
+
+impl VerifiedState {
+    /// The verified state a complete report proves. `report` is the received bytes the
+    /// parsed `parsed` came from; `fingerprint` is the hub-computed fingerprint of the key that
+    /// signed them.
+    #[must_use]
+    pub fn from_report(
+        parsed: &CompleteReport,
+        report: Vec<u8>,
+        fingerprint: KeyFingerprint,
+        nonce_issued_at: Timestamp,
+        accepted_at: Timestamp,
+    ) -> Self {
+        Self {
+            identity: SafetyIdentity {
+                fingerprint,
+                boot_id: parsed.boot_id.clone(),
+                generation: parsed.generation,
+                config_hash: parsed.config_hash,
+                route_state_hash: parsed.route_state_hash,
+            },
+            report,
+            nonce_issued_at,
+            accepted_at,
+            max_ttl_s: parsed.config.max_ttl_s,
+            max_active: parsed.config.max_active,
+            cidrs: parsed.cidrs(),
+            hub_addrs: parsed.hub_addrs(),
+            link_peers: parsed.link_peers(),
+        }
+    }
 }
 
 /// Everything the gate needs about one host's helper.

@@ -11,6 +11,7 @@ use crate::install::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
 };
 use crate::ports::capability::HostView;
+use crate::ports::helper_trust::HelperReport;
 use crate::signal::{CheckKey, Evidence, Signal, SignalStatus, TargetKey};
 use crate::skill::{SkillName, SkillSummary, ValidatedArgs};
 use crate::triage::ReadToolCall;
@@ -428,6 +429,12 @@ pub trait AgentLink: Send + Sync {
         _deadline: Timestamp,
     ) -> Result<AttestationReply, LinkError> {
         Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// What `host`'s live session said about its helper, or `None` without a live session.
+    /// Unverified: the key it carries is only ever compared with the owner's pin.
+    fn helper_report(&self, _host: HostId) -> Option<HelperReport> {
+        None
     }
 }
 

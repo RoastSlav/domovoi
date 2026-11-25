@@ -1,13 +1,14 @@
 //! Reading the knowledge store, and the hook that checks management-path coverage.
 
 use async_trait::async_trait;
+use jiff::Timestamp;
 
 use super::repos::{Page, Paged, StoreError};
 use super::uow::Versioned;
 use crate::id::{EntityId, FactRecordId, HostId, RelationId};
 use crate::knowledge::{
-    CoverageVerdict, Entity, Fact, FactSource, PathConfirmation, Predicate, Relation, RelationKind,
-    SubjectRef,
+    CoverageEvidence, CoverageVerdict, Entity, Fact, FactSource, PathConfirmation, Predicate,
+    Relation, RelationKind, SubjectRef, UnverifiableReason,
 };
 
 /// Which facts to list. Every field narrows the result.
@@ -119,4 +120,20 @@ pub trait ManagementCoverage: Send + Sync {
 
     /// Whether the verified helper attestation shows `cidr` (canonical) covered on `host`.
     async fn verdict(&self, host: HostId, cidr: &str) -> CoverageVerdict;
+
+    /// Whether a stored confirmation's `evidence` still holds against the host's current
+    /// verified attestation: the identity is equal, or differs only by a reboot while the
+    /// attestation is fresh, and the confirmation is not too old. Fails closed by default.
+    ///
+    /// # Errors
+    ///
+    /// The reason it cannot be confirmed as current.
+    async fn confirmation_current(
+        &self,
+        _host: HostId,
+        _evidence: &CoverageEvidence,
+        _confirmed_at: Timestamp,
+    ) -> Result<(), UnverifiableReason> {
+        Err(UnverifiableReason::NotAvailable)
+    }
 }

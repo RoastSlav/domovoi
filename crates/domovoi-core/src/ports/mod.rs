@@ -47,7 +47,9 @@ pub use chat::{
 pub use clock::Clock;
 pub use context::ContextSource;
 pub use experience::ExperienceRead;
-pub use helper_trust::HelperTrustRead;
+pub use helper_trust::{
+    HelperLive, HelperReport, HelperTrustRead, HelperTrustRepo, LastOutcome, StoredTrust,
+};
 pub use host_inspect::{Access, HostInspect, InspectError, Probe, TreeEntry};
 pub use hostfs::{FsError, HostFs};
 pub use knowledge::{FactFilter, FactHit, KnowledgeRead, ManagementCoverage, RelationFilter};
