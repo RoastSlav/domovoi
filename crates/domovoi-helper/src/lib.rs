@@ -1,7 +1,8 @@
 //! The root helper runtime of Domovoi: connection adoption, the closed request dispatcher, the
 //! start checks, the host inspection adapter, the isolation self-test and the repair command.
 //!
-//! The helper spawns no process. Pure types, the platform tier and the check evaluators live in
+//! The helper spawns processes only through the injected `ProcessExecutor`, and only the three fixed
+//! read tools (`smartctl`, `dmesg`, `ss`). Pure types, the platform tier and the check evaluators live in
 //! `domovoi-core`; this crate holds everything that touches the host.
 
 #[cfg(unix)]
@@ -13,6 +14,8 @@ pub mod inspect;
 pub mod platform;
 #[cfg(unix)]
 pub mod probe;
+#[cfg(unix)]
+pub mod reads;
 #[cfg(unix)]
 pub mod repair;
 #[cfg(unix)]
