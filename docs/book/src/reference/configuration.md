@@ -466,9 +466,9 @@ What may run unattended, one entry per contract.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `args` | map of list of string | Constrained argument values. Not accepted for `unit.restart`. |
+| `args` | map of list of string | Constrained argument values (`firewall.block_source`: `prefix_len_v4` and `prefix_len_v6`, one shortest allowed prefix length each). Not accepted for `unit.restart`. |
 | `capability` | string | The exact contract id, such as `unit.restart`. No wildcard. |
-| `max_active` | integer | For contracts that bound concurrent runs. Not accepted for `unit.restart`. |
+| `max_active` | integer | For contracts that bound concurrent runs (`firewall.block_source`: blocks held at once, 1 to 10000). Not accepted for `unit.restart`. |
 | `max_per_hour` | integer | How many policy-labelled executions of this contract per rolling hour. At least 1. |
-| `max_ttl` | duration | For contracts that bound a lifetime. Not accepted for `unit.restart`. |
-| `targets` | list of string | Canonical targets (unit ids for `unit.restart`). `"*"` must be written explicitly. |
+| `max_ttl` | duration | For contracts that bound a lifetime (`firewall.block_source`: above 30 seconds, at most 365 days). Not accepted for `unit.restart`. |
+| `targets` | list of string | Canonical targets: unit ids for `unit.restart`, `ipnet:<canonical network>` for `firewall.block_source`. `"*"` must be written explicitly. |

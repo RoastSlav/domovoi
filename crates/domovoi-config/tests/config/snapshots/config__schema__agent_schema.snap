@@ -1,6 +1,5 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
-assertion_line: 10
 expression: "AgentConfig::json_schema()"
 ---
 {
@@ -452,7 +451,7 @@ expression: "AgentConfig::json_schema()"
       "type": "object",
       "properties": {
         "args": {
-          "description": "Constrained argument values. Not accepted for `unit.restart`.",
+          "description": "Constrained argument values (`firewall.block_source`: `prefix_len_v4` and\n`prefix_len_v6`, one shortest allowed prefix length each). Not accepted for\n`unit.restart`.",
           "type": [
             "object",
             "null"
@@ -470,7 +469,7 @@ expression: "AgentConfig::json_schema()"
           "type": "string"
         },
         "max_active": {
-          "description": "For contracts that bound concurrent runs. Not accepted for `unit.restart`.",
+          "description": "For contracts that bound concurrent runs (`firewall.block_source`: blocks held at\nonce, 1 to 10000). Not accepted for `unit.restart`.",
           "type": [
             "integer",
             "null"
@@ -486,7 +485,7 @@ expression: "AgentConfig::json_schema()"
           "minimum": 0
         },
         "max_ttl": {
-          "description": "For contracts that bound a lifetime. Not accepted for `unit.restart`.",
+          "description": "For contracts that bound a lifetime (`firewall.block_source`: above 30 seconds, at\nmost 365 days). Not accepted for `unit.restart`.",
           "anyOf": [
             {
               "$ref": "#/$defs/Duration"
@@ -497,7 +496,7 @@ expression: "AgentConfig::json_schema()"
           ]
         },
         "targets": {
-          "description": "Canonical targets (unit ids for `unit.restart`). `\"*\"` must be written explicitly.",
+          "description": "Canonical targets: unit ids for `unit.restart`, `ipnet:<canonical network>` for\n`firewall.block_source`. `\"*\"` must be written explicitly.",
           "type": "array",
           "items": {
             "type": "string"

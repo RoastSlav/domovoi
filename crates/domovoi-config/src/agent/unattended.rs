@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::EffectClass;
+use domovoi_core::capability::containment::BLOCK_SOURCE_ID;
 use domovoi_core::capability::{POLICY_DISPATCHABLE, known_contracts};
+use domovoi_core::containment::Net;
 use domovoi_core::unit::UnitId;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -30,17 +32,22 @@ pub struct UnattendedSection {
 pub struct UnattendedAllow {
     /// The exact contract id, such as `unit.restart`. No wildcard.
     pub capability: String,
-    /// Canonical targets (unit ids for `unit.restart`). `"*"` must be written explicitly.
+    /// Canonical targets: unit ids for `unit.restart`, `ipnet:<canonical network>` for
+    /// `firewall.block_source`. `"*"` must be written explicitly.
     pub targets: Vec<String>,
     /// How many policy-labelled executions of this contract per rolling hour. At least 1.
     pub max_per_hour: u32,
-    /// For contracts that bound concurrent runs. Not accepted for `unit.restart`.
+    /// For contracts that bound concurrent runs (`firewall.block_source`: blocks held at
+    /// once, 1 to 10000). Not accepted for `unit.restart`.
     #[serde(default)]
     pub max_active: Option<u32>,
-    /// For contracts that bound a lifetime. Not accepted for `unit.restart`.
+    /// For contracts that bound a lifetime (`firewall.block_source`: above 30 seconds, at
+    /// most 365 days). Not accepted for `unit.restart`.
     #[serde(default)]
     pub max_ttl: Option<Duration>,
-    /// Constrained argument values. Not accepted for `unit.restart`.
+    /// Constrained argument values (`firewall.block_source`: `prefix_len_v4` and
+    /// `prefix_len_v6`, one shortest allowed prefix length each). Not accepted for
+    /// `unit.restart`.
     #[serde(default)]
     pub args: Option<BTreeMap<String, Vec<String>>>,
 }
@@ -58,7 +65,7 @@ impl UnattendedSection {
                     "is not a contract this agent knows",
                 )),
                 Some(c)
-                    if c.effect != EffectClass::Mutate
+                    if !matches!(c.effect, EffectClass::Mutate | EffectClass::Contain)
                         || !POLICY_DISPATCHABLE.contains(&entry.capability.as_str()) =>
                 {
                     issues.push(ConfigIssue::error(
@@ -74,8 +81,21 @@ impl UnattendedSection {
                     "needs at least one target; write \"*\" to allow every target",
                 ));
             }
+            let firewall = entry.capability == BLOCK_SOURCE_ID;
             for target in &entry.targets {
-                if target != "*" && UnitId::parse(target).is_err() {
+                if target == "*" {
+                    continue;
+                }
+                if firewall {
+                    if !is_canonical_network_target(target) {
+                        issues.push(ConfigIssue::error(
+                            at("targets"),
+                            format!(
+                                "`{target}` is not a canonical network such as \"ipnet:203.0.113.0/24\""
+                            ),
+                        ));
+                    }
+                } else if UnitId::parse(target).is_err() {
                     issues.push(ConfigIssue::error(
                         at("targets"),
                         format!(
@@ -86,6 +106,10 @@ impl UnattendedSection {
             }
             if entry.max_per_hour == 0 {
                 issues.push(ConfigIssue::error(at("max_per_hour"), "must be at least 1"));
+            }
+            if firewall {
+                validate_firewall(entry, &at, issues);
+                continue;
             }
             // `unit.restart` declares no constrainable argument and no lifetime.
             for (present, field) in [
@@ -109,6 +133,59 @@ impl UnattendedSection {
                     "is listed twice; use one entry per contract",
                 ));
             }
+        }
+    }
+}
+
+/// Whether `target` is `ipnet:` followed by the canonical text of one network.
+fn is_canonical_network_target(target: &str) -> bool {
+    target
+        .strip_prefix("ipnet:")
+        .and_then(|text| Net::parse(text).ok().map(|net| net.canonical() == text))
+        .unwrap_or(false)
+}
+
+/// The bounds a `firewall.block_source` entry may state.
+fn validate_firewall(
+    entry: &UnattendedAllow,
+    at: &dyn Fn(&str) -> String,
+    issues: &mut Vec<ConfigIssue>,
+) {
+    if let Some(active) = entry.max_active
+        && !(1..=10_000).contains(&active)
+    {
+        issues.push(ConfigIssue::error(at("max_active"), "must be 1 to 10000"));
+    }
+    if let Some(ttl) = entry.max_ttl {
+        let secs = ttl.as_signed().as_secs();
+        if !(31..=31_536_000).contains(&secs) {
+            issues.push(ConfigIssue::error(
+                at("max_ttl"),
+                "must be above 30 seconds and at most 365 days",
+            ));
+        }
+    }
+    for (key, values) in entry.args.iter().flatten() {
+        let longest = match key.as_str() {
+            "prefix_len_v4" => 32,
+            "prefix_len_v6" => 128,
+            _ => {
+                issues.push(ConfigIssue::error(
+                    at("args"),
+                    format!("`{key}` is not a constrainable argument of {BLOCK_SOURCE_ID}"),
+                ));
+                continue;
+            }
+        };
+        let valid = matches!(
+            values.as_slice(),
+            [one] if one.parse::<i64>().is_ok_and(|n| (1..=longest).contains(&n))
+        );
+        if !valid {
+            issues.push(ConfigIssue::error(
+                at("args"),
+                format!("`{key}` needs exactly one prefix length from 1 to {longest}"),
+            ));
         }
     }
 }
