@@ -372,6 +372,7 @@ fn spawn_ops(
                 settings: InvestigateSettings::default(),
             }),
             autonomy: None,
+            contain: None,
         },
         OperationSettings::default(),
     );

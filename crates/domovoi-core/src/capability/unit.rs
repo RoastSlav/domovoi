@@ -23,7 +23,7 @@ pub fn is_policy_dispatchable(id: &ContractId) -> bool {
 }
 
 /// The built-in contracts a plan may execute, besides skills.
-pub const EXECUTABLE_BUILTINS: &[&str] = &["unit.restart"];
+pub const EXECUTABLE_BUILTINS: &[&str] = &["unit.restart", "firewall.block_source"];
 
 fn schema(property: &str) -> Value {
     json!({

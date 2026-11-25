@@ -6,6 +6,7 @@
 //! It never writes, never decides approval and never sees an authorization: it is an early
 //! filter and a feedback channel, and the operation writer still checks everything again.
 
+mod contain;
 mod refusal;
 mod resolve;
 mod schema;

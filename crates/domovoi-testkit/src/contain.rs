@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use domovoi_core::containment::{ContainDispatch, ContainOutputs};
 use domovoi_core::id::RequestId;
 use domovoi_core::install::CapabilityHandoff;
-use domovoi_core::ports::{ContainCaps, ContainRelay, LinkError};
+use domovoi_core::ports::{BlockPhase, ContainCaps, ContainRelay, ContainmentRepo, LinkError};
 use domovoi_core::{AgentSessionId, HostId, JournalEpoch};
 use jiff::{SignedDuration, Timestamp};
 
@@ -23,12 +23,14 @@ struct Script {
     dispatches: Vec<ContainDispatch>,
     events: Vec<String>,
     advance: Option<(Arc<FakeClock>, SignedDuration)>,
+    seen: Vec<(String, Option<BlockPhase>)>,
 }
 
 /// A relay that never touches a link.
 #[derive(Default)]
 pub struct FakeContainRelay {
     script: Mutex<Script>,
+    watch: Mutex<Option<Arc<dyn ContainmentRepo>>>,
 }
 
 impl FakeContainRelay {
@@ -55,6 +57,19 @@ impl FakeContainRelay {
         lock(&self.script).advance = Some((clock, by));
     }
 
+    /// Makes every `dispatch_phase` read the block's stored phase from `repo` before it
+    /// answers, so a test can prove a phase was committed before its frame was sent.
+    pub fn watch(&self, repo: Arc<dyn ContainmentRepo>) {
+        *lock(&self.watch) = Some(repo);
+    }
+
+    /// For every request handed off, the phase the watched repo held for its block at that
+    /// moment, oldest first, as `(dispatch:<phase>, stored phase)`.
+    #[must_use]
+    pub fn seen_phases(&self) -> Vec<(String, Option<BlockPhase>)> {
+        lock(&self.script).seen.clone()
+    }
+
     /// Every request handed off, oldest first.
     #[must_use]
     pub fn dispatches(&self) -> Vec<ContainDispatch> {
@@ -78,6 +93,16 @@ impl ContainRelay for FakeContainRelay {
         _expected_epoch: JournalEpoch,
         _deadline: Timestamp,
     ) -> Result<CapabilityHandoff, LinkError> {
+        let repo = lock(&self.watch).clone();
+        let stored = match (&repo, req.call().spec()) {
+            (Some(repo), Some(spec)) => repo
+                .get_block(spec.block)
+                .await
+                .ok()
+                .flatten()
+                .map(|row| row.phase),
+            _ => None,
+        };
         let mut script = lock(&self.script);
         if let Some(Some(error)) = script.dispatch_errors.pop_front() {
             return Err(error);
@@ -87,6 +112,7 @@ impl ContainRelay for FakeContainRelay {
         }
         let phase = req.call().phase().unwrap_or("list");
         script.events.push(format!("dispatch:{phase}"));
+        script.seen.push((format!("dispatch:{phase}"), stored));
         script.dispatches.push(req);
         Ok(CapabilityHandoff::new(RequestId::new()))
     }

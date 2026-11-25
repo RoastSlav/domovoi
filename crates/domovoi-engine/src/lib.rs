@@ -22,6 +22,7 @@
 pub mod advisories;
 pub mod cards;
 pub mod chat_token;
+pub mod containment;
 pub mod context;
 pub mod conversations;
 pub mod correlate;

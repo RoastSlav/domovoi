@@ -565,6 +565,7 @@ async fn serve_with_incidents(w: &mut World, incidents: Arc<dyn IncidentRepo>) {
             shutdown: w.shutdown.clone(),
             investigate: None,
             autonomy: None,
+            contain: None,
         },
         w.settings.clone(),
     );

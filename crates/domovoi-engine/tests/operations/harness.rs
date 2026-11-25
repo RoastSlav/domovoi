@@ -310,6 +310,7 @@ impl World {
                 shutdown: self.shutdown.clone(),
                 investigate: None,
                 autonomy: self.autonomy.clone(),
+                contain: None,
             },
             self.settings.clone(),
         )

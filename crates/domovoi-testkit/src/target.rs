@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use domovoi_core::capability::{
     ResolvedTarget, TargetError, TargetKind, TargetName, TargetQuery, TargetUnresolved,
-    canonical_host_identity,
+    canonical_host_identity, canonical_network_identity,
 };
 use domovoi_core::ports::TargetResolver;
 use domovoi_core::unit::{
@@ -110,6 +110,29 @@ impl TargetResolver for FakeTargetResolver {
     }
 
     async fn resolve(&self, query: TargetQuery) -> Result<ResolvedTarget, TargetError> {
+        if let TargetQuery::NetworkSource { host, source } = &query {
+            let key = match lock(&self.keys).get(host) {
+                Some(Some(key)) => *key,
+                Some(None) => {
+                    return Err(unresolved(query, TargetUnresolved::HostIdentityUnproven));
+                }
+                None => crate::build::key_fingerprint(),
+            };
+            let identity = canonical_network_identity(*host, &key, source)
+                .map_err(|_| unresolved(query.clone(), TargetUnresolved::HostIdentityUnproven))?;
+            let name = TargetName::parse(&source.canonical()).map_err(|reason| {
+                TargetError::InvalidName {
+                    query: query.clone(),
+                    reason,
+                }
+            })?;
+            return Ok(ResolvedTarget {
+                identity,
+                name,
+                kind: TargetKind::NetworkSource,
+                host_key: key,
+            });
+        }
         let TargetQuery::Host { host } = &query else {
             return Err(unresolved(query, TargetUnresolved::ContainerVanished));
         };

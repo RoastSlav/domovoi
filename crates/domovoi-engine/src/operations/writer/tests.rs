@@ -136,6 +136,7 @@ async fn world() -> World {
             shutdown: shutdown.clone(),
             investigate: None,
             autonomy: None,
+            contain: None,
         },
         OperationSettings::default(),
     );

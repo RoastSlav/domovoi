@@ -133,6 +133,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
             },
         }),
         autonomy: Some(autonomy),
+        contain: None,
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

@@ -26,7 +26,7 @@ pub(super) const REASON_MAX: usize = 200;
 pub(super) type Fail = (Code, String, Option<String>);
 
 /// Whether a plan may name this capability today: the `skill.` family, and the built-ins on the
-/// closed `EXECUTABLE_BUILTINS` list (`unit.restart`). `container.restart` is on neither.
+/// closed `EXECUTABLE_BUILTINS` list (`unit.restart`, `firewall.block_source`). `container.restart` is on neither.
 #[must_use]
 pub fn is_executable(id: &ContractId) -> bool {
     id.is_skill() || EXECUTABLE_BUILTINS.contains(&id.as_str())
@@ -152,6 +152,11 @@ impl PlanValidator<'_> {
             Capability::Builtin if id.as_str() == "unit.restart" => {
                 return self
                     .check_unit(scope, staged, accepted, step, (host, &label), &id)
+                    .await;
+            }
+            Capability::Builtin if id.as_str() == "firewall.block_source" => {
+                return self
+                    .check_contain(scope, staged, accepted, step, host, &id)
                     .await;
             }
             Capability::Builtin => {

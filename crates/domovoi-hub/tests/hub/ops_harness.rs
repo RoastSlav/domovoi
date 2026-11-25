@@ -146,6 +146,7 @@ pub async fn spawn(
                 settings: InvestigateSettings::default(),
             }),
             autonomy: None,
+            contain: None,
         },
         OperationSettings::default(),
     )
