@@ -30,6 +30,8 @@ pub(super) struct TriageBuild<'a> {
     pub(super) executor: Option<Arc<dyn ProcessExecutor>>,
     pub(super) shutdown: &'a CancellationToken,
     pub(super) overrides: &'a AdapterOverrides,
+    /// How a unit is resolved through the host's helper.
+    pub(super) units: domovoi_core::ports::UnitCaps,
 }
 
 /// Starts triage when it is enabled, with the primary provider and every fallback the
@@ -50,6 +52,7 @@ pub(super) async fn build(
         executor,
         shutdown,
         overrides,
+        units,
     } = input;
     if !config.triage.enabled {
         return Ok((None, None));
@@ -89,10 +92,8 @@ pub(super) async fn build(
     let fallbacks = std::iter::chain(configured_fallbacks, tail).collect();
     // The runtime's one target resolver: triage's plan checks use it, and the operation
     // service takes the same one from the triage handle.
-    let resolver = Arc::new(TargetService::new(
-        Arc::new(evidence.clone()),
-        store.clone(),
-    ));
+    let resolver =
+        Arc::new(TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units));
     let experience = ExperienceSource::over(store.clone(), redactor.clone(), clock.clone());
     let (handle, task) = TriageService::spawn(
         TriageDeps {

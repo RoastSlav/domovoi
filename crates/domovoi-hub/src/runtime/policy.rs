@@ -49,11 +49,11 @@ pub(crate) fn wire(
     clock: &Arc<dyn Clock>,
     auth: &Arc<AuthState>,
     shutdown: &CancellationToken,
+    units: &domovoi_core::ports::UnitCaps,
 ) -> PolicyParts {
-    let resolver = Arc::new(TargetService::new(
-        Arc::new(evidence.clone()),
-        store.clone(),
-    ));
+    let resolver = Arc::new(
+        TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units.clone()),
+    );
     let env: Arc<dyn ShadowEnvironment> = Arc::new(HubShadowEnvironment::new(
         registry.clone(),
         resolver,

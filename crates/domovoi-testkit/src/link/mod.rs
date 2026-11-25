@@ -31,7 +31,7 @@ mod script;
 
 pub use any_caps::{action_caps_of, evidence_caps_of, observer_of_any};
 pub use attest::AttestHandler;
-pub use caps::{action_caps, evidence_caps, observer_of, package_caps};
+pub use caps::{action_caps, evidence_caps, observer_of, package_caps, unit_caps};
 pub use package_link::{CapabilityHandler, CapabilityHook, PackageEvent};
 pub use recorders::{RecordingReconciler, RecordingSignalSink};
 pub use request::LinkRequest;

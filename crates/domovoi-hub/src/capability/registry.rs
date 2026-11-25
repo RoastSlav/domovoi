@@ -16,7 +16,7 @@ use std::sync::Arc;
 use domovoi_core::capability::{
     Availability, AvailabilityEntry, CapabilityContract, CatalogSnapshot, CatalogueGap,
     CatalogueState, ContractId, ContractIndex, EffectClass, ExecutionPath, IndexError,
-    NotAllowedOnHost, TargetKind, UnavailableReason, effective_effect, skill_contract,
+    UnavailableReason, effective_effect, skill_contract,
 };
 use domovoi_core::ports::{
     Clock, HelperState, HostAvailability, HostRepo, HostView, HostWords, RunnerState, SettingsRepo,
@@ -26,10 +26,11 @@ use domovoi_core::{Host, HostId, SkillName, SkillSummary};
 use jiff::Timestamp;
 
 use super::catalogue::CatalogueCache;
-use super::ceiling::{CeilingParse, CeilingReport, ceiling_of, covers, parse_ceiling};
+use super::ceiling::{CeilingReport, ceiling_of};
 use super::enablement::Enablement;
 use super::floors::{FloorWriteError, Floors};
 use super::host::HostCapabilities;
+use super::host_rules::{ceiling_allows, host_allows, runner_refusal};
 
 /// The pieces the registry is built from, in the order they can be built without a cycle.
 pub struct RegistryDeps {
@@ -262,6 +263,15 @@ impl HubRegistry {
                 return Availability::NotInstalled;
             }
         }
+        // `container.restart` exists so a rule can name it. Nothing dispatches it, for either
+        // authorization kind and whatever the helper reports.
+        if contract.id.as_str() == "container.restart"
+            && contract.execution == ExecutionPath::Helper
+        {
+            return Availability::Unavailable {
+                reason: UnavailableReason::DockerWriteUnsupported,
+            };
+        }
         if contract.execution == ExecutionPath::Helper && seen.words.helper == HelperState::Absent {
             return Availability::Unavailable {
                 reason: UnavailableReason::HelperMissing,
@@ -389,54 +399,6 @@ fn catalogue_refusal(state: &CatalogueState) -> Option<UnavailableReason> {
             gap: CatalogueGap::HashMismatch,
         } => Some(UnavailableReason::CatalogueHashMismatch),
         CatalogueState::Partial { .. } => Some(UnavailableReason::CatalogueIncomplete),
-    }
-}
-
-/// Row 11: whether the agent's ceiling covers a non-`Read` contract.
-fn ceiling_allows(contract: &CapabilityContract, words: &HostWords) -> Result<(), Availability> {
-    let absent = Availability::NotAllowedOnHost {
-        reason: NotAllowedOnHost::CeilingAbsent,
-    };
-    match parse_ceiling(words.ceiling_summary.as_deref()) {
-        CeilingParse::Absent | CeilingParse::Malformed { .. } => Err(absent),
-        CeilingParse::Parsed(ceiling) if !ceiling.enabled => Err(absent),
-        CeilingParse::Parsed(ceiling) if covers(&ceiling, &contract.id) => Ok(()),
-        CeilingParse::Parsed(_) => Err(Availability::NotAllowedOnHost {
-            reason: NotAllowedOnHost::CeilingEntryMissing,
-        }),
-    }
-}
-
-/// Rows 11 and 12 for a compiled contract: ceiling, helper, container runtime.
-fn host_allows(contract: &CapabilityContract, words: &HostWords) -> Result<(), Availability> {
-    if contract.effect != EffectClass::Read {
-        ceiling_allows(contract, words)?;
-    }
-    if contract.execution == ExecutionPath::Helper && words.helper == HelperState::Failed {
-        return Err(Availability::Unavailable {
-            reason: UnavailableReason::HelperError,
-        });
-    }
-    if contract.target_kind == TargetKind::Container && !words.container_runtime {
-        return Err(Availability::Unavailable {
-            reason: UnavailableReason::ContainerRuntimeUnavailable,
-        });
-    }
-    Ok(())
-}
-
-/// Row 12 for skills: an unprivileged agent with no usable runner has nowhere to run them.
-fn runner_refusal(words: &HostWords) -> Option<UnavailableReason> {
-    if words.runs_as_root {
-        // A root agent still runs skills through the legacy agent process, so the runner's
-        // absence is a label on the row and never a refusal of a path that works.
-        return None;
-    }
-    match words.runner {
-        RunnerState::Ready => None,
-        RunnerState::Absent => Some(UnavailableReason::SkillRunnerMissing),
-        RunnerState::Unsupported => Some(UnavailableReason::SkillRunnerUnsupported),
-        RunnerState::Failed => Some(UnavailableReason::SkillRunnerError),
     }
 }
 

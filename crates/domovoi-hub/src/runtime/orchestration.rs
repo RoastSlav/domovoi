@@ -34,6 +34,8 @@ pub(super) struct OperationBuild<'a> {
     /// The triage service whose gates and cards investigations reuse; `None` when triage is
     /// off, where investigations do not start.
     pub(super) triage: Option<&'a TriageHandle>,
+    /// How a unit is resolved through the host's helper.
+    pub(super) units: domovoi_core::ports::UnitCaps,
 }
 
 /// Starts the operation service when the flag is on; with it off nothing is built or
@@ -50,6 +52,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         shutdown,
         bus,
         triage,
+        units,
     } = input;
     if !config.orchestration.enabled {
         if config.triage.enabled {
@@ -74,10 +77,9 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         // One resolver per runtime: the one triage already built, or a new one without it.
         resolver: triage.map_or_else(
             || -> Arc<dyn TargetResolver> {
-                Arc::new(TargetService::new(
-                    Arc::new(evidence.clone()),
-                    store.clone(),
-                ))
+                Arc::new(
+                    TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units),
+                )
             },
             TriageHandle::resolver,
         ),

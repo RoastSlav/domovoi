@@ -32,6 +32,7 @@ pub mod process;
 pub mod redact;
 pub mod repos;
 pub mod target;
+pub mod unit;
 
 pub use build::BuildError;
 pub use capability::FakeCapabilityRegistry;
@@ -54,6 +55,7 @@ pub use process::FakeProcessExecutor;
 pub use redact::ListRedactor;
 pub use repos::{InMemoryStore, UsageRow};
 pub use target::FakeTargetResolver;
+pub use unit::{FakeUnitRelay, identity_outputs};
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
 

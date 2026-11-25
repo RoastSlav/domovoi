@@ -483,3 +483,163 @@ async fn capability_result_maps_failed_refused_and_in_progress() {
         .await;
     assert!(matches!(again, Err(LinkError::Indeterminate(_))));
 }
+
+fn restart_request(kind: domovoi_core::AuthorizationKind) -> domovoi_core::unit::UnitDispatch {
+    domovoi_core::unit::UnitDispatch {
+        execution: ExecutionId::new(),
+        call: domovoi_core::unit::UnitCall::Restart {
+            id: domovoi_core::unit::UnitId::parse("example.service").unwrap(),
+            identity_hash: "cd".repeat(32).parse().unwrap(),
+        },
+        plan_hash: plan_hash(),
+        authorization_kind: kind,
+        expires_at: later(600),
+    }
+}
+
+#[tokio::test]
+async fn unit_call_link_fails_fast_when_the_session_changed() {
+    let mut s = session(4);
+    let (host, identity) = (s.world.host, s.identity);
+    let epoch = JournalEpoch::from_uuid(Uuid::nil());
+    let human = domovoi_core::AuthorizationKind::Human;
+
+    let stale = s
+        .world
+        .link
+        .start_unit_call(
+            host,
+            restart_request(human),
+            AgentSessionId::new(),
+            epoch,
+            later(60),
+        )
+        .await;
+    assert_eq!(stale.unwrap_err(), LinkError::SessionChanged);
+    let other_epoch = JournalEpoch::from_uuid(Uuid::now_v7());
+    let moved = s
+        .world
+        .link
+        .start_unit_call(
+            host,
+            restart_request(human),
+            identity,
+            other_epoch,
+            later(60),
+        )
+        .await;
+    assert_eq!(moved.unwrap_err(), LinkError::SessionChanged);
+    assert!(s.outbox.try_recv().is_err(), "nothing was queued");
+}
+
+#[tokio::test]
+async fn a_unit_restart_travels_as_the_existing_run_capability_frame() {
+    let mut s = session(4);
+    let (host, identity) = (s.world.host, s.identity);
+    let epoch = JournalEpoch::from_uuid(Uuid::nil());
+    for (kind, wire) in [
+        (
+            domovoi_core::AuthorizationKind::Human,
+            AuthorizationKind::Human,
+        ),
+        (
+            domovoi_core::AuthorizationKind::Policy,
+            AuthorizationKind::Policy,
+        ),
+    ] {
+        let req = restart_request(kind);
+        let handoff = s
+            .world
+            .link
+            .start_unit_call(host, req.clone(), identity, epoch, later(60))
+            .await
+            .unwrap();
+        let frame = decoded(&s.outbox.try_recv().unwrap());
+        assert_eq!(frame.id, handoff.request());
+        let Message::RunCapability(run) = frame.message else {
+            panic!("a run_capability frame was queued");
+        };
+        assert_eq!(run.contract, "unit.restart");
+        assert_eq!(run.version, 1);
+        assert_eq!(run.target.as_str(), "example.service");
+        assert_eq!(
+            run.authorization_kind, wire,
+            "the label is the stored authorization's"
+        );
+        assert_eq!(run.execution_id, req.execution.as_uuid());
+        assert_eq!(run.plan_hash, req.plan_hash);
+        assert_eq!(run.expires_at, req.expires_at);
+        assert!(run.expected_safety.is_none());
+        let args: Vec<(&str, &str)> = run
+            .args
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        assert_eq!(
+            args,
+            [
+                ("identity_hash", "cd".repeat(32).as_str()),
+                ("unit", "example.service")
+            ]
+        );
+    }
+}
+
+#[tokio::test]
+async fn unit_call_result_returns_outputs_and_maps_a_refusal() {
+    let mut s = session(4);
+    let (host, identity) = (s.world.host, s.identity);
+    let epoch = JournalEpoch::from_uuid(Uuid::nil());
+    let human = domovoi_core::AuthorizationKind::Human;
+    let mut outputs = BTreeMap::new();
+    outputs.insert("restarted".to_owned(), "true".to_owned());
+    let replies = [
+        (
+            Message::CapabilityResult(CapabilityResult {
+                outcome: CapabilityOutcome::Succeeded {
+                    outputs: outputs.clone(),
+                },
+            }),
+            Ok(domovoi_core::unit::UnitOutputs(outputs)),
+        ),
+        (
+            // The agent's own text already reads `<token>: <detail>`.
+            Message::CapabilityResult(CapabilityResult {
+                outcome: CapabilityOutcome::Failed {
+                    code: Open::new("refused", Some(CapabilityFailureCode::Refused)),
+                    message: "target_stale".to_owned(),
+                },
+            }),
+            Err(LinkError::Rejected("target_stale".to_owned())),
+        ),
+        (
+            Message::Error(ErrorMessage {
+                code: "outcome_unknown".to_owned(),
+                message: "journal lost".to_owned(),
+            }),
+            Err(LinkError::Indeterminate(
+                "outcome_unknown: journal lost".to_owned(),
+            )),
+        ),
+    ];
+    for (reply, expected) in replies {
+        let handoff = s
+            .world
+            .link
+            .start_unit_call(host, restart_request(human), identity, epoch, later(60))
+            .await
+            .unwrap();
+        let _sent = s.outbox.recv().await.unwrap();
+        let link = s.world.link.clone();
+        let task =
+            tokio::spawn(async move { link.unit_call_result(host, handoff, later(60)).await });
+        settle().await;
+        assert!(
+            s.world
+                .registry
+                .deliver(host, s.session, handoff.request(), reply)
+        );
+        assert_eq!(task.await.unwrap(), expected);
+        assert_eq!(s.world.registry.pending_len(host), 0);
+    }
+}

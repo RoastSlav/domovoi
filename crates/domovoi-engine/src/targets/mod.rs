@@ -18,6 +18,10 @@ use domovoi_core::capability::{
 };
 use domovoi_core::host::KeyFingerprint;
 use domovoi_core::ports::{HostAvailability, HostRepo, TargetResolver};
+use domovoi_core::ports::{LinkError, UnitCaps};
+use domovoi_core::unit::{
+    ResolvedUnit, UnitName, UnitRefusal, canonical_unit_identity, card_of, id_and_hash,
+};
 use domovoi_core::{HostId, ReadToolCall};
 use jiff::SignedDuration;
 
@@ -30,13 +34,26 @@ const RESOLVE_TIMEOUT: SignedDuration = SignedDuration::from_secs(30);
 pub struct TargetService {
     evidence: Arc<Evidence>,
     hosts: Arc<dyn HostRepo>,
+    units: Option<UnitCaps>,
 }
 
 impl TargetService {
     /// A resolver that reads through `evidence` and takes the enrolled key from `hosts`.
     #[must_use]
     pub fn new(evidence: Arc<Evidence>, hosts: Arc<dyn HostRepo>) -> Self {
-        Self { evidence, hosts }
+        Self {
+            evidence,
+            hosts,
+            units: None,
+        }
+    }
+
+    /// The same resolver, able to resolve a systemd unit through the host's helper. Without
+    /// it a unit never resolves.
+    #[must_use]
+    pub fn with_units(mut self, units: UnitCaps) -> Self {
+        self.units = Some(units);
+        self
     }
 
     /// The enrolled key fingerprint of `host`: the only source of a canonical identity.
@@ -172,12 +189,71 @@ impl TargetResolver for TargetService {
                     host_key: key,
                 })
             }
-            // R-8 is open: nothing in this milestone can prove a unit's effective
-            // configuration, so a unit never resolves and never gets a bound identity.
-            TargetQuery::Unit { .. } => {
-                Err(unresolved(&query, TargetUnresolved::UnitIdentityUnproven))
+            // A unit resolves only through the host's helper, which reads its loaded
+            // configuration and files; without one it has no provable identity.
+            TargetQuery::Unit { host, name } => {
+                self.resolve_unit(*host, name).await.map(|unit| unit.target)
             }
         }
+    }
+
+    async fn resolve_unit(
+        &self,
+        host: HostId,
+        name: &TargetName,
+    ) -> Result<ResolvedUnit, TargetError> {
+        let query = TargetQuery::Unit {
+            host,
+            name: name.clone(),
+        };
+        let Some(units) = &self.units else {
+            return Err(unresolved(&query, TargetUnresolved::UnitIdentityUnproven));
+        };
+        let typed = UnitName::parse(name.as_str()).map_err(|reason| TargetError::InvalidName {
+            query: query.clone(),
+            reason,
+        })?;
+        self.reachable(&query).await?;
+        let key = self.host_key(&query).await?;
+        let Some(snapshot) = units.observer.observe_snapshot(host) else {
+            return Err(unresolved(&query, TargetUnresolved::UnitIdentityUnproven));
+        };
+        let deadline = self
+            .evidence
+            .now()
+            .saturating_add(RESOLVE_TIMEOUT)
+            .unwrap_or_else(|_| self.evidence.now());
+        let refused = |refusal| TargetError::UnitRefused {
+            query: query.clone(),
+            refusal,
+        };
+        let outputs = units
+            .relay
+            .read_identity(host, &typed, snapshot.session, deadline)
+            .await
+            .map_err(|error| match error {
+                // The agent relays the helper's refusal as `<token>: <detail>`.
+                LinkError::Rejected(text) => UnitRefusal::from_message(&text).map_or_else(
+                    || unresolved(&query, TargetUnresolved::UnitIdentityUnproven),
+                    refused,
+                ),
+                _ => unresolved(&query, TargetUnresolved::UnitIdentityUnproven),
+            })?;
+        let (id, identity_hash) = id_and_hash(&outputs).map_err(refused)?;
+        let card = card_of(&outputs).map_err(refused)?;
+        let identity = canonical_unit_identity(host, &key, &id)
+            .map_err(|_| unresolved(&query, TargetUnresolved::UnitIdentityUnproven))?;
+        Ok(ResolvedUnit {
+            target: ResolvedTarget {
+                identity,
+                name: name.clone(),
+                kind: TargetKind::Unit,
+                host_key: key,
+            },
+            id,
+            identity_hash,
+            card,
+        })
     }
 }
 

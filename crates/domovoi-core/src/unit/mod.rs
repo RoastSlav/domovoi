@@ -13,6 +13,7 @@ mod post;
 mod props;
 mod refusal;
 mod resolve;
+mod resolved;
 
 pub use call::{UnitCall, UnitDispatch, UnitOutputs};
 pub use encode::Frames;
@@ -26,3 +27,4 @@ pub use props::{
 };
 pub use refusal::{UnitRefusal, UnsupportedReason};
 pub use resolve::{compare_identity, compare_to_bound, resolve_identity};
+pub use resolved::{ResolvedUnit, UnitCard, card_of, id_and_hash};

@@ -30,6 +30,10 @@ pub struct HostWords {
     pub runner: RunnerState,
     /// What the privileged helper reported about itself.
     pub helper: HelperState,
+    /// The operations the helper offers right now, as the agent reported them in `hello` and
+    /// `agent_status` (group names and operation names such as `unit.restart`). Empty unless
+    /// the helper is `Ready`.
+    pub helper_ops: Vec<String>,
     /// `hello.ceiling_summary`, as the agent sent it.
     pub ceiling_summary: Option<String>,
     /// `hello.ceiling_hash`, as lowercase hex.

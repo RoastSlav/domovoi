@@ -1,10 +1,12 @@
 //! How the agent's journal answers become the engine's [`ActionAnswers`].
 
 use domovoi_core::ActionId;
+use domovoi_core::ContractId;
 use domovoi_core::JournalEpoch;
+use domovoi_core::capability::{CatalogImplementation, ContractVersion};
 use domovoi_core::ports::{ActionAnswer, ActionAnswerEntry, ActionAnswers, UnknownReason};
 use domovoi_proto::messages::{
-    ActionState, ActionStatusAnswers, CapabilityOutcome, OutcomeUnknownReason,
+    ActionState, ActionStatusAnswers, CapabilityOutcome, CatalogEntry, OutcomeUnknownReason,
 };
 
 /// The engine's view of the journal's answers, mapped against what the answering session
@@ -79,4 +81,24 @@ fn unknown_reason(reason: &domovoi_proto::Open<OutcomeUnknownReason>) -> Unknown
             UnknownReason::JournalLost
         }
     }
+}
+
+/// The largest page the wire and the registry ask for.
+pub(super) const MAX_CATALOG_PAGE: u32 = 100;
+
+/// One wire entry as the core type, or why its id or version is unreadable.
+///
+/// The descriptor is ignored on purpose: it is opaque at the wire layer, and deriving a
+/// contract from it would let an agent define its own authority (RW-07).
+pub(super) fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, String> {
+    let contract = ContractId::parse(&entry.contract)
+        .map_err(|err| format!("{:?}: {}", entry.contract, err))?;
+    let version = ContractVersion::new(entry.version)
+        .map_err(|err| format!("{}: {}", entry.contract, err))?;
+    Ok(CatalogImplementation { contract, version })
+}
+
+/// A reply of a kind the request cannot have had.
+pub(super) fn unexpected(message: &domovoi_proto::Message) -> domovoi_core::ports::LinkError {
+    domovoi_core::ports::LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }

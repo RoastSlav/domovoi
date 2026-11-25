@@ -5,31 +5,30 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use domovoi_core::attest::Nonce32;
-use domovoi_core::capability::{
-    CatalogImplementation, CatalogPageData, CatalogQuery, ContractVersion,
-};
+use domovoi_core::capability::{CatalogPageData, CatalogQuery};
 use domovoi_core::ports::{
     ActionAnswers, AgentLink, AttestationReply, CATALOGUE_UNSUPPORTED, CheckRecheck, Clock,
     HelperReport, HostAvailability, HostRepo, LinkError, Presence, SkillDispatch, SkillHandoff,
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, ContractId, HostId, JournalEpoch, ReadToolCall, RequestId,
+    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId,
     SkillSummary, TargetKey,
 };
 use domovoi_core::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
 };
 use domovoi_proto::messages::{
-    ActionStatusQuery, CatalogEntry, GetCatalog, RunCheck, RunSkill, RunTool, SkillOutcome,
-    ToolFailureCode, ToolOutcome,
+    ActionStatusQuery, GetCatalog, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode,
+    ToolOutcome,
 };
 use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::Timestamp;
 use tokio::sync::oneshot;
 
 use super::compat::{ProtocolState, protocol_state};
-use super::link_answers::answers_from;
+pub(super) use super::link_answers::unexpected;
+use super::link_answers::{MAX_CATALOG_PAGE, answers_from, implementation_of};
 use super::registry::{Registry, SessionFacts, SessionState};
 
 /// Routes requests to the host's current session. Fails fast with
@@ -185,10 +184,6 @@ impl Drop for PendingRequest<'_> {
     fn drop(&mut self) {
         self.registry.forget(self.host, self.id);
     }
-}
-
-pub(super) fn unexpected(message: &Message) -> LinkError {
-    LinkError::Rejected(format!("the agent answered with {}", message.kind()))
 }
 
 #[async_trait]
@@ -422,6 +417,27 @@ impl AgentLink for WsAgentLink {
         self.capability_answer(host, handoff, deadline).await
     }
 
+    async fn start_unit_call(
+        &self,
+        host: HostId,
+        req: domovoi_core::unit::UnitDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.unit_dispatch(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn unit_call_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<domovoi_core::unit::UnitOutputs, LinkError> {
+        self.unit_answer(host, handoff, deadline).await
+    }
+
     async fn attest_safety(
         &self,
         host: HostId,
@@ -472,22 +488,6 @@ impl AgentLink for WsAgentLink {
         }
     }
 }
-
-/// The largest page the wire and the registry ask for.
-const MAX_CATALOG_PAGE: u32 = 100;
-
-/// One wire entry as the core type, or why its id or version is unreadable.
-///
-/// The descriptor is ignored on purpose: it is opaque at the wire layer, and deriving a
-/// contract from it would let an agent define its own authority (RW-07).
-fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, String> {
-    let contract = ContractId::parse(&entry.contract)
-        .map_err(|err| format!("{:?}: {}", entry.contract, err))?;
-    let version = ContractVersion::new(entry.version)
-        .map_err(|err| format!("{}: {}", entry.contract, err))?;
-    Ok(CatalogImplementation { contract, version })
-}
-
 #[path = "link_logs.rs"]
 mod logs;
 #[path = "link_package.rs"]

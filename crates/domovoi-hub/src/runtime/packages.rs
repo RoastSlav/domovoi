@@ -23,6 +23,8 @@ pub(super) struct PackageBuild<'a> {
     pub(super) config: &'a HubConfig,
     pub(super) store: &'a Arc<Store>,
     pub(super) caps: PackageCaps,
+    /// How a unit is resolved through the host's helper.
+    pub(super) units: domovoi_core::ports::UnitCaps,
     pub(super) registry: &'a Arc<HubRegistry>,
     pub(super) evidence: &'a Evidence,
     pub(super) triage: Option<&'a TriageHandle>,
@@ -50,6 +52,7 @@ pub(super) async fn build(input: PackageBuild<'_>) -> Result<Packages, RuntimeEr
         triage,
         clock,
         shutdown,
+        units,
     } = input;
     let keys = Arc::new(PackageKeys::from_config(&config.packages)?);
     let files = PackageStore::open(&config.hub.data_dir)
@@ -76,10 +79,9 @@ pub(super) async fn build(input: PackageBuild<'_>) -> Result<Packages, RuntimeEr
     }
     let resolver = triage.map_or_else(
         || -> Arc<dyn TargetResolver> {
-            Arc::new(TargetService::new(
-                Arc::new(evidence.clone()),
-                store.clone(),
-            ))
+            Arc::new(
+                TargetService::new(Arc::new(evidence.clone()), store.clone()).with_units(units),
+            )
         },
         TriageHandle::resolver,
     );

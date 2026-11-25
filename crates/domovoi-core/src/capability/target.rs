@@ -161,6 +161,14 @@ pub enum TargetError {
         /// What is wrong with the name.
         reason: ValidationError,
     },
+    /// The helper refused the unit; the refusal says why, in the words of the token table.
+    #[error("the unit was refused: {}", refusal.describe())]
+    UnitRefused {
+        /// The query the helper refused.
+        query: TargetQuery,
+        /// The helper's refusal.
+        refusal: crate::unit::UnitRefusal,
+    },
     /// The host cannot answer: no session, another protocol, or no container runtime.
     #[error("the host cannot answer this target")]
     HostUnavailable {
