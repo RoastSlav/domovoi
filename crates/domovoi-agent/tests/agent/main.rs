@@ -29,8 +29,21 @@ mod relay;
 #[cfg(test)]
 mod requests;
 #[cfg(test)]
+#[cfg(unix)]
+#[path = "../common/runner.rs"]
+mod runner_rig;
+#[cfg(test)]
 mod runtime;
 #[cfg(test)]
 mod scheduler;
+#[cfg(test)]
+#[cfg(unix)]
+mod skill_runner;
+#[cfg(test)]
+#[cfg(unix)]
+mod skill_runner_requests;
+#[cfg(test)]
+#[cfg(unix)]
+mod skill_runner_status;
 #[cfg(test)]
 mod spool;

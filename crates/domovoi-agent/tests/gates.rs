@@ -280,3 +280,83 @@ async fn package_skills_are_not_runnable_before_the_skill_runner() {
         SkillFailureCode::NotFound
     );
 }
+
+/// Every `.rs` file under `dir` with its contents.
+#[cfg(test)]
+fn sources(dir: &std::path::Path) -> Vec<(std::path::PathBuf, String)> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(next) = pending.pop() {
+        for entry in std::fs::read_dir(&next).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                found.push((path, text));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Skills run in the agent's own process only on the legacy route, and only a root agent is
+/// given it: the route is built in `production::skill_route` (and matched in the route's own
+/// module), nowhere else in the agent's sources.
+#[test]
+fn legacy_skill_route_is_built_only_for_root_agents() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut holders: Vec<String> = sources(&src)
+        .into_iter()
+        .filter(|(_, text)| text.contains("SkillRoute::Legacy("))
+        .map(|(path, _)| {
+            path.strip_prefix(&src)
+                .unwrap()
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/")
+        })
+        .collect();
+    holders.sort();
+    assert!(
+        holders.iter().any(|path| path == "production.rs"),
+        "production::skill_route builds the legacy route"
+    );
+    for path in &holders {
+        assert!(
+            path == "production.rs" || path == "skill_runner/route.rs",
+            "{path} builds or matches the legacy skill route"
+        );
+    }
+    let production = std::fs::read_to_string(src.join("production.rs")).unwrap();
+    let guarded = production
+        .split("pub fn skill_route(")
+        .nth(1)
+        .expect("production::skill_route exists");
+    let root_branch = guarded
+        .find("if euid_is_root")
+        .expect("the root test comes first");
+    let legacy = guarded.find("SkillRoute::Legacy(").unwrap();
+    assert!(
+        root_branch < legacy,
+        "the legacy route is behind the euid test"
+    );
+}
+
+/// The request handlers reach skills only through the route, never through the catalogue's
+/// own run method (which spawns in this process).
+#[test]
+fn requests_never_call_catalog_run_skill_directly() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/requests");
+    let files = sources(&src);
+    assert!(!files.is_empty());
+    for (path, text) in &files {
+        assert!(
+            !text.contains(".run_skill("),
+            "{} calls a catalogue's run_skill directly",
+            path.display()
+        );
+    }
+    let skills = std::fs::read_to_string(src.join("skills.rs")).unwrap();
+    assert_eq!(skills.matches("ctx.skills.run(").count(), 2);
+}

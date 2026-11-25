@@ -55,12 +55,12 @@ flowchart LR
 | `domovoi-llm` | LLM provider adapters: Anthropic, OpenAI-compatible, CLI | core |
 | `domovoi-chat` | Chat gateway and notifier adapters: Discord, generic webhook | core |
 | `domovoi-checks` | Built-in checks. Feature `host` (agent-side host checks), feature `net` (network probes, also used by the hub) | core |
-| `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution | core |
+| `domovoi-runner` | The only crate that spawns processes: skill manifests, argument validation, sandboxed execution. Its `serve` module also hosts the runner side of the skill-runner socket (one request per connection, run, cancel) | core |
 | `domovoi-helper` | The root helper: socket adoption and serving, the start checks, the repair command, the host inspection adapter and the isolation self-test. It spawns nothing in this milestone | core, config |
-| `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool | core, config, proto, checks, runner |
+| `domovoi-agent` | Agent runtime: hub link, check scheduler, request handling, spool, and the client of the skill-runner socket with the route that picks local or runner execution | core, config, proto, checks, runner |
 | `domovoi-hub` | Hub runtime: HTTP API, auth, SPA serving, webhook ingest, agent server, wiring of engine with adapters. `PolicyService` is the use-case service for the policy draft, versions, preview, simulation and shadow reads (ADR 0026) | core, config, proto, engine, store, llm, chat, checks |
 | `domovoi-testkit` | Fakes for every port, a fake clock, fixtures, the crash-injecting store, snapshots and invariants. **Dev-dependency only.** | core, proto |
-| `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor | core, config, hub, agent, runner, helper |
+| `domovoi` | The binary and CLI. Composition root: selects mode, wires hub and agent, injects the process executor, and wires `skill-runner serve` from the runner library and the helper's adoption and probe | core, config, hub, agent, runner, helper |
 | `xtask` | Developer tasks: `arch-check`, `openapi`, `ci`; the checker is also a library the engine's and the hub's gate tests call. **Dev-dependency only.** | none (not part of the product) |
 
 ```mermaid
@@ -303,6 +303,7 @@ flowchart LR
 - **Check scheduler**: runs each enabled check on its cadence, turns results into signals, applies the local baseline.
 - **Request handler**: serves `RunTool` and `RunSkill` requests. Every request is re-validated against the agent's local manifests and local policy before the runner sees it.
 - **Spool**: an append-only JSONL file (size-capped) that buffers signals while the hub is unreachable and replays them on reconnect.
+- **Skill execution**: when the privilege boundary is in effect (euid not 0) a skill runs only through the skill runner, over its socket, as the `domovoi-skill` account. The agent has no local path for it: no runner, or a runner that is not `Ok`, means the skill is unavailable. An agent with euid 0 keeps the legacy local path, labelled "privilege boundary not in effect". Tools and checks keep the local executor everywhere. A **runner probe** asks `health` at start and every 60 seconds and reports `skill_runner_status`.
 - **Helper probe**: at start and then every 60 seconds the agent connects to the helper socket, asks `health` and `groups`, and reports the result as `helper_status` (`Absent`, `Ok` with the enabled groups, or `Error` with a token). It sends nothing else and never falls back to running a privileged operation itself.
 - **Transfer receiver**: takes package archives and signatures in chunks from the hub, within the transfer limits in the [agent protocol reference](docs/book/src/reference/protocol.md#package-transfers).
 - **Package service**: checks a package's signature against the owner's trusted keys, installs and removes it under `packages_dir`, and keeps the registry. It never enables or runs what it installs.
@@ -380,9 +381,10 @@ flowchart LR
 ## 12. Skills and actions
 
 - Manifests live on the agent host in `skills/<name>/skill.toml`. The hub only ever sees names, hashes and metadata.
-- Packages are owner-signed archives of skills, installed under `packages_dir` beside the skill catalogue. Package skills are not added to the catalogue or `hello.skills`, and they cannot run until the skill runner exists.
+- Packages are owner-signed archives of skills, installed under `packages_dir` beside the skill catalogue. Package skills are not added to the catalogue or `hello.skills`, and they cannot run yet.
 - Parameters are validated against `ParamSpec` and passed as separate argv elements and as `DOMOVOI_PARAM_<NAME>` environment variables. The entry is executed directly, never through a shell.
-- Execution: dedicated user (`run_as`), cleared environment plus an allowlist, working directory inside the skill folder, own process group killed on timeout, stdout and stderr capped at `max_output`, output redacted.
+- Execution: dedicated user (`run_as`), cleared environment plus an allowlist, working directory inside the skill folder, own process group killed on timeout, stdout and stderr capped at `max_output`, output redacted. Under the privilege boundary the user is always `domovoi-skill`, and a `run_as` naming anyone else is refused (`run_as_unsupported`).
+- **The skill-runner socket** (`/run/domovoi-skill-runner.sock`, ADR 0034). One request per connection, a 4-byte big-endian length then JSON, versioned by `RUNNER_PROTOCOL`. The request is `health`, `probe` or `run`; a `run` carries the skill name and source, the implementation hash, the validated arguments and caps for time and output, and no path, environment or user. The reply is one buffered frame (`health`, `run`, `probe` or `refused` with a code), and the agent bounds, parses and re-redacts it. The agent keeps its write side open until it has read the reply; closing the connection earlier is the **cancel**: the runner kills the process group and exits without a reply. Every defined outcome exits 0, so a `failed` instance means a defect.
 - Write and destructive actions follow the `ActionRequest` state machine (§5.6). Destructive skills also need a typed confirmation in the web UI and can never be approved from a chat button.
 - Every transition is one atomic commit of the action row, its `audit_log` entry and its journal entry: who proposed, who approved, plan hash, argv, exit code, output hash, duration and the verification result. An audit failure fails the transition, so the store never holds a status without the entry that explains it.
 - **Enablement and availability are different questions, and both are the hub's.** `host.<name>.skills` switches a skill off for one host; the switch is enforced at the two boundaries the engine owns, `collect_evidence` and `execute`, which refuse a disabled skill with the same sentence. `Availability` answers "would the hub offer this here", from the compiled contracts, the agent's own list and the host's words; it is a report about missing pieces, never an authorization decision. `HostAvailability` is only the agent's connection state, and the two names are never interchanged.
@@ -441,6 +443,14 @@ Identity and helper invariants (ADR 0030, 0031 and 0033):
 - The helper start check only reads. A wrong mode, owner or type on its directory, lock, key or state refuses start and reports each path; only the owner-confirmed local command `domovoi helper repair` changes a mode or owner, and nothing else can reach it.
 - A host is labelled "privilege boundary not in effect" unless the agent runs as `domovoi-agent` with exactly the expected groups. A platform is never `Supported` while the published list is empty, and a check that was not run never counts as a pass.
 - Rules (enforced by `cargo xtask arch-check`, defined in ADR 0033): `HELPER-1`, `HELPER-2`, `IDENT-1`, `ID-2`, `ID-3`, `UNIT-2` (docker clause), `UNIT-3` (helper unit), `UNIT-4`, `UNIT-5`, `UNIT-7`, `UNIT-8`, `UNIT-9`, `INSTALL-1`, `SELFTEST-1`.
+
+Skill runner invariants (ADR 0034):
+
+- No skill runs as the control agent or as root under the boundary. `SkillRoute::Legacy` is built only for euid 0 and in tests, and a failure to reach the runner never falls back to running the skill locally.
+- The runner never switches users and never takes a path, environment or user from a request. It resolves the skill folder itself, recomputes the implementation hash, validates the arguments again and refuses `run_as` other than `domovoi-skill`.
+- The runner refuses every request when its own groups or privileges are wrong. The reply is data from the less trusted account: the agent parses it strictly, re-redacts it and caps it, and its authority never depends on the reply being true.
+- The socket mode (`root:domovoi-agent 0660`), the peer uid and the unit's mount mask are three separate layers; none replaces another.
+- New rules (`cargo xtask arch-check`, ADR 0034): `UNIT-1` (the runner unit has no `InaccessiblePaths=` under a `TemporaryFileSystem=` parent), `UNIT-6` (no bind of a `.sock` and no bind of a `/run` child), `RUNNER-1` (the socket literal and `RunnerRequest` appear only in the protocol module of core, the agent's client, the runner's `serve` module, the binary's `skill_runner` command, testkit, tests and `deploy/`), `RUNNER-2` (the runner's `serve` module imports no helper client, no `domovoi_helper` item and no agent state). `UNIT-2` (account clauses), `UNIT-3` (runner directives) and `UNIT-5` (runner socket) also cover the runner units.
 
 A step is approved only by `POST /api/v1/operations/{id}/steps/{step}/approve`, behind a session and the CSRF token. The body names the whole stored v2 plan hash (a missing or malformed hash is a 400; there is no prefix binding for steps), and a destructive skill, or one whose risk is not known when the person approves, needs its name typed exactly before anything is written. The route builds its authorization with the web helper in `auth/` and hands it to the operation writer, which refuses a policy authorization, a different hash, an expired window and a second approval. No chat command can approve a step.
 

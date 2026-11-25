@@ -55,7 +55,9 @@ real_paths="/etc/domovoi /var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovo
 /etc/systemd/system/domovoi-hub.service /etc/systemd/system/domovoi-agent.service
 /etc/systemd/system/domovoi-agent.service.d /etc/systemd/system/domovoi-helper.socket
 /etc/systemd/system/domovoi-helper.socket.d /etc/systemd/system/domovoi-helper@.service
-/etc/systemd/system/domovoi-helper@.service.d"
+/etc/systemd/system/domovoi-helper@.service.d /run/domovoi-skill-runner.sock
+/etc/systemd/system/domovoi-skill-runner.socket /etc/systemd/system/domovoi-skill-runner.socket.d
+/etc/systemd/system/domovoi-skill-runner@.service /etc/systemd/system/domovoi-skill-runner@.service.d"
 clash=0
 for name in $real_users; do
     if id "$name" >/dev/null 2>&1 || getent group "$name" >/dev/null 2>&1; then
@@ -87,16 +89,16 @@ listed() { tr '\n' ' ' <"$1"; }
 # Deletes only what the lists above and the record files name.
 wipe_host() {
     set +e
-    systemctl stop domovoi-agent.service domovoi-helper.socket >/dev/null 2>&1
-    systemctl stop 'domovoi-helper@*.service' >/dev/null 2>&1
-    systemctl disable domovoi-helper.socket domovoi-agent.service >/dev/null 2>&1
+    systemctl stop domovoi-agent.service domovoi-helper.socket domovoi-skill-runner.socket >/dev/null 2>&1
+    systemctl stop 'domovoi-helper@*.service' 'domovoi-skill-runner@*.service' >/dev/null 2>&1
+    systemctl disable domovoi-helper.socket domovoi-skill-runner.socket domovoi-agent.service >/dev/null 2>&1
     for path in $real_paths; do
         case "$path" in
-        /etc/systemd/system/* | /run/domovoi-helper.sock) rm -rf "$path" ;;
+        /etc/systemd/system/* | /run/domovoi-helper.sock | /run/domovoi-skill-runner.sock) rm -rf "$path" ;;
         esac
     done
     systemctl daemon-reload >/dev/null 2>&1
-    systemctl reset-failed 'domovoi-helper*' domovoi-agent.service >/dev/null 2>&1
+    systemctl reset-failed 'domovoi-helper*' 'domovoi-skill-runner*' domovoi-agent.service >/dev/null 2>&1
     rm -rf /etc/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper \
         /usr/local/bin/domovoi /usr/local/share/domovoi
     wh_users="$real_users $(listed "$work/users")"
@@ -367,7 +369,7 @@ row_begin installer_creates_mask_and_bind_paths_before_enabling_sockets
 )
 row_end $?
 
-row_begin selftest_installer_passes_on_a_clean_host_and_marks_runner_checks_nd
+row_begin selftest_installer_passes_on_a_clean_host_and_reports_runner_checks_honestly
 (
     set -e
     if "$installed_bin" agent selftest --installer >"$work/selftest.out" 2>&1; then :; else
@@ -381,7 +383,7 @@ row_begin selftest_installer_passes_on_a_clean_host_and_marks_runner_checks_nd
         }
     done
     for check in ST-05 ST-06 ST-13; do
-        grep -q "^$check nd" "$work/selftest.out" || die "$check is not reported as nd"
+        grep -Eq "^$check (nd|pass)" "$work/selftest.out" || die "$check is neither nd nor pass"
     done
     grep -q '^boundary: ' "$work/selftest.out" || die "the report has no boundary line"
 )
@@ -658,7 +660,7 @@ row_end $?
 row_begin migrate_identity_converts_a_legacy_install
 (
     set -e
-    printf '# test\n' >/etc/domovoi/agent.toml
+    printf '[agent]\nhost_name = "legacy"\nhub_url = "wss://hub.example:7421"\n' >/etc/domovoi/agent.toml
     chmod 0640 /etc/domovoi/agent.toml
     printf 'identity\n' >/var/lib/domovoi-agent/identity.json
     # A legacy host has no packages directory; the rolled-back run left an empty one.

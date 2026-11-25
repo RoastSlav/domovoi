@@ -622,8 +622,9 @@ pub struct RuleCard {
     pub backs: &'static str,
 }
 
-/// Cards of the helper, identity, unit and installer rules (ADR 0033). The checks live in
-/// `units.rs`, `install_script.rs`, `identity_rules.rs` and `selftest_rule.rs`.
+/// Cards of the helper, identity, unit, installer and skill runner rules (ADR 0033, 0034). The
+/// checks live in `units.rs`, `install_script.rs`, `identity_rules.rs`, `selftest_rule.rs`,
+/// `runner_rules.rs` and `runner_scan.rs`.
 pub const IDENTITY_CARDS: &[RuleCard] = &[
     RuleCard {
         id: "HELPER-1",
@@ -642,7 +643,7 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     },
     RuleCard {
         id: "ID-2",
-        message: "account names and group-membership calls live in domovoi-core/src/identity/ and the helper's inspect, selftest and start_check modules, and no numeric uid or gid is assigned next to an account constant",
+        message: "account names and group-membership calls live in domovoi-core/src/identity/, the helper's inspect, selftest and start_check modules and the runner's start_checks module, and no numeric uid or gid is assigned next to an account constant",
         backs: "F-DOC-7",
     },
     RuleCard {
@@ -651,13 +652,18 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
         backs: "synthesis 02 section 2.1.1",
     },
     RuleCard {
+        id: "UNIT-1",
+        message: "a unit never lists an InaccessiblePaths= entry at or under a TemporaryFileSystem= parent: mask a parent or a child, never both, or the start fails with 226/NAMESPACE",
+        backs: "F-MSK-7, F-MSK-8",
+    },
+    RuleCard {
         id: "UNIT-2",
-        message: "no shipped unit puts a process in the docker group",
+        message: "no shipped unit puts a process in the docker group, and domovoi-skill-runner@.service has Group=domovoi-skill and no SupplementaryGroups=",
         backs: "F-GRP-1, F-DOC-4",
     },
     RuleCard {
         id: "UNIT-3",
-        message: "domovoi-helper@.service carries every directive of the measured baseline with its value, and no User= or SupplementaryGroups=",
+        message: "domovoi-helper@.service and domovoi-skill-runner@.service carry every directive of the measured baseline with its value, and neither has SupplementaryGroups=; the helper has no User=, and the runner's bind sources equal its ExecStart directories",
         backs: "F-PRT-2, F-ACT-2",
     },
     RuleCard {
@@ -667,8 +673,13 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     },
     RuleCard {
         id: "UNIT-5",
-        message: "a shipped socket is SocketMode=0660, SocketUser=root, SocketGroup=domovoi-agent and listens only on a known path",
+        message: "a shipped socket is SocketMode=0660, SocketUser=root, SocketGroup=domovoi-agent and listens only on a known path; the runner socket listens only on /run/domovoi-skill-runner.sock",
         backs: "F-ACT-4, F-MSK-13",
+    },
+    RuleCard {
+        id: "UNIT-6",
+        message: "no BindPaths= or BindReadOnlyPaths= entry names a .sock path or anything under /run",
+        backs: "F-MSK-13",
     },
     RuleCard {
         id: "UNIT-7",
@@ -687,8 +698,18 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     },
     RuleCard {
         id: "INSTALL-1",
-        message: "install.sh creates every CREATED_PATHS entry before the first systemctl enable or start, and lists them between the created-set markers",
+        message: "install.sh creates every CREATED_PATHS entry before the first systemctl enable or start, lists them between the created-set markers, and enables the skill runner socket only after the runner directories exist, both runner units are installed, the daemon is reloaded and the self-test has run",
         backs: "F-MSK-10",
+    },
+    RuleCard {
+        id: "RUNNER-1",
+        message: "the skill runner socket file name and the RunnerRequest type are named only by the core skill_runner module, the agent's skill_runner module, the runner's serve module, the skill-runner subcommand, testkit and tests",
+        backs: "ADR 0030 Decision 8",
+    },
+    RuleCard {
+        id: "RUNNER-2",
+        message: "the runner's serve code imports no helper crate or client and no agent state type; it receives what it needs through ports",
+        backs: "ADR 0030 Decision 8",
     },
     RuleCard {
         id: "SELFTEST-1",
@@ -763,6 +784,7 @@ pub const IDENTITY_ALLOWED: &[&str] = &[
     "crates/domovoi-helper/src/selftest/",
     "crates/domovoi-helper/src/start_check.rs",
     "crates/domovoi-helper/src/start_check/",
+    "crates/domovoi-runner/src/serve/start_checks.rs",
 ];
 
 /// Source trees where ID-3 forbids parsing systemd instance names.
@@ -784,9 +806,9 @@ pub const COMPOSE_DIR: &str = "deploy/compose";
 /// The installer script (INSTALL-1, UNIT-7).
 pub const INSTALL_SCRIPT: &str = "install.sh";
 
-/// Socket paths a shipped `.socket` may listen on (UNIT-5). The skill runner's path joins the
-/// list when its unit ships.
-pub const SOCKET_LISTEN_STREAMS: &[&str] = &["/run/domovoi-helper.sock"];
+/// Socket paths a shipped `.socket` may listen on (UNIT-5).
+pub const SOCKET_LISTEN_STREAMS: &[&str] =
+    &["/run/domovoi-helper.sock", "/run/domovoi-skill-runner.sock"];
 
 /// Group a shipped socket belongs to (UNIT-5).
 pub const SOCKET_GROUP: &str = "domovoi-agent";

@@ -24,6 +24,8 @@ pub(super) struct Captured {
     pub(super) stderr: Vec<u8>,
     pub(super) truncated: bool,
     pub(super) timed_out: bool,
+    /// The cancel future completed first and the group was killed.
+    pub(super) cancelled: bool,
 }
 
 #[derive(Default)]
@@ -43,8 +45,30 @@ fn signal_group(pgid: Pid, signal: Signal) {
     let _ = killpg(pgid, signal);
 }
 
+/// Sends the group `SIGTERM`, waits [`TERM_GRACE`], then `SIGKILL`s it, and collects the child.
+async fn terminate(child: &mut Child, pgid: Pid) -> std::io::Result<std::process::ExitStatus> {
+    signal_group(pgid, Signal::SIGTERM);
+    match tokio::time::timeout(TERM_GRACE, child.wait()).await {
+        Ok(status) => status,
+        Err(_) => {
+            signal_group(pgid, Signal::SIGKILL);
+            child.wait().await
+        }
+    }
+}
+
 /// Runs `child` to completion under `spec`'s timeout and output caps.
-pub(super) async fn drive(mut child: Child, spec: &ProcessSpec) -> Result<Captured, ProcessError> {
+///
+/// When `cancel` completes first the group is terminated as on a timeout and
+/// [`Captured::cancelled`] is set.
+pub(super) async fn drive<C>(
+    mut child: Child,
+    spec: &ProcessSpec,
+    cancel: C,
+) -> Result<Captured, ProcessError>
+where
+    C: std::future::Future<Output = ()> + Send,
+{
     let pid = child
         .id()
         .ok_or_else(|| ProcessError::Spawn("child exited before it was tracked".to_owned()))?;
@@ -76,18 +100,19 @@ pub(super) async fn drive(mut child: Child, spec: &ProcessSpec) -> Result<Captur
 
     let limit = Duration::try_from(spec.timeout).unwrap_or(Duration::ZERO);
     let mut timed_out = false;
-    let status = match tokio::time::timeout(limit, child.wait()).await {
-        Ok(status) => status,
-        Err(_) => {
-            timed_out = true;
-            signal_group(pgid, Signal::SIGTERM);
-            match tokio::time::timeout(TERM_GRACE, child.wait()).await {
-                Ok(status) => status,
-                Err(_) => {
-                    signal_group(pgid, Signal::SIGKILL);
-                    child.wait().await
-                }
+    let mut cancelled = false;
+    tokio::pin!(cancel);
+    let status = tokio::select! {
+        waited = tokio::time::timeout(limit, child.wait()) => match waited {
+            Ok(status) => status,
+            Err(_) => {
+                timed_out = true;
+                terminate(&mut child, pgid).await
             }
+        },
+        () = &mut cancel => {
+            cancelled = true;
+            terminate(&mut child, pgid).await
         }
     }
     .map_err(|e| ProcessError::Spawn(format!("waiting for the process failed: {e}")))?;
@@ -109,6 +134,7 @@ pub(super) async fn drive(mut child: Child, spec: &ProcessSpec) -> Result<Captur
         stderr,
         truncated: out_truncated || err_truncated,
         timed_out,
+        cancelled,
     })
 }
 

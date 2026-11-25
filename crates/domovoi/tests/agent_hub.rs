@@ -12,6 +12,7 @@ mod common {
     use std::time::Duration;
 
     use async_trait::async_trait;
+    use domovoi_agent::skill_runner::SkillRoute;
     use domovoi_agent::spool::Spool;
     use domovoi_agent::{AgentDeps, AgentRuntime, EnrollEnv, enroll};
     use domovoi_checks::system::{FsStats, FsUsage};
@@ -200,6 +201,7 @@ mod common {
             redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
             logs: None,
             boundary_in_effect: false,
+            skills: SkillRoute::Legacy(Arc::new(FakeProcessExecutor::new())),
         };
         let runtime = AgentRuntime::new(config, deps).await.unwrap();
         let shutdown = CancellationToken::new();

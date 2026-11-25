@@ -16,7 +16,7 @@ jiff = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "macros"] }
+tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "macros", "net", "sync"] }
 toml = { workspace = true }
 tracing = { workspace = true }
 
@@ -27,7 +27,7 @@ nix = { workspace = true }
 domovoi-testkit = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["process", "io-util", "time", "fs", "rt", "rt-multi-thread", "macros", "net"] }
 
 [lints]
 workspace = true

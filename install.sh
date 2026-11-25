@@ -6,9 +6,9 @@
 # It downloads the release archive for this machine, checks its SHA-256, installs the
 # binary, and for --role hub or --role agent creates the users, directories and systemd
 # units. It writes exactly one config file, /etc/domovoi/helper.toml, and only when it is
-# absent. It never starts the hub or the agent; the one thing it starts is the helper
-# socket of an agent on a systemd host. Running it again upgrades the binary and leaves
-# everything else alone.
+# absent. It never starts the hub or the agent; the only things it starts are the helper
+# and skill runner sockets of an agent on a systemd host, the second one only after the
+# self-test passes. Running it again upgrades the binary and leaves everything else alone.
 #
 # An agent on a systemd host with no hub gets three identities: the unprivileged
 # domovoi-agent account runs the agent, the group-less domovoi-skill account is for skills,
@@ -42,8 +42,9 @@ Options:
   --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local)
   --no-service         install only the binary and examples: no user, directories or unit
   --print-unit NAME    print a systemd unit and exit: hub, agent, helper-socket,
-                       helper-service, or agent-legacy (the root agent unit used where
-                       the privilege boundary cannot be set up)
+                       helper-service, runner-socket, runner-service, or agent-legacy
+                       (the root agent unit used where the privilege boundary cannot be
+                       set up)
   --migrate-identity   with --role agent: move an agent that runs as root to the
                        domovoi-agent account; shows a plan and asks you to type "migrate"
   --rollback-identity  undo --migrate-identity from the record it saved
@@ -241,6 +242,71 @@ RuntimeMaxSec=60s
 KillMode=control-group
 TimeoutStopSec=5s
 EOF
+}
+
+runner_socket_unit() {
+    cat <<'EOF'
+[Unit]
+Description=Domovoi skill runner socket
+
+[Socket]
+ListenStream=/run/domovoi-skill-runner.sock
+SocketUser=root
+SocketGroup=domovoi-agent
+SocketMode=0660
+Accept=yes
+MaxConnections=16
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+EOF
+}
+
+runner_service_unit() {
+    cat <<'EOF'
+[Unit]
+Description=Domovoi skill runner (connection %i)
+# No ConditionPathExists= for the bind sources: a condition would skip the unit silently. A plain bind of an absent
+# path fails the start with 226/NAMESPACE, which is the wanted fail-closed behaviour.
+
+[Service]
+Type=simple
+User=domovoi-skill
+Group=domovoi-skill
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/local/bin/domovoi skill-runner serve --skills-dir /etc/domovoi/skills --packages-dir /var/lib/domovoi-packages
+Restart=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro
+BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages
+RuntimeMaxSec=3720s
+KillMode=control-group
+TimeoutStopSec=5s
+EOF
+}
+
+# The runner service with the skills and packages directories of this host in place of the
+# defaults, everywhere they occur (the ExecStart arguments and the bind). The two names
+# go through placeholders so that one value cannot be rewritten by the other. The values
+# come from `domovoi agent dirs`, which refuses any path a unit cannot hold safely.
+render_runner_service() {
+    runner_service_unit | sed \
+        -e 's|/etc/domovoi/skills|@SKILLS_DIR@|g' \
+        -e 's|/var/lib/domovoi-packages|@PACKAGES_DIR@|g' \
+        -e "s|@SKILLS_DIR@|$runner_skills_dir|g" \
+        -e "s|@PACKAGES_DIR@|$runner_packages_dir|g"
 }
 
 # The default /etc/domovoi/helper.toml, written only when the file is absent.
@@ -479,6 +545,12 @@ verify_layout() {
     fi
     check_path directory /var/lib/domovoi-agent 700 domovoi-agent:domovoi-agent
     check_path directory /var/lib/domovoi-packages 755 domovoi-agent:domovoi-agent
+    if [ "${runner_skills_dir:-/etc/domovoi/skills}" != "/etc/domovoi/skills" ]; then
+        check_path directory "$runner_skills_dir" 755 root:root
+    fi
+    if [ "${runner_packages_dir:-/var/lib/domovoi-packages}" != "/var/lib/domovoi-packages" ]; then
+        check_path directory "$runner_packages_dir" 755 domovoi-agent:domovoi-agent
+    fi
     check_path directory /var/lib/domovoi-helper 700 root:root
     check_path file /var/lib/domovoi-helper/state.lock 600 root:root
     for vl_name in attest.key state platform.json; do
@@ -486,7 +558,8 @@ verify_layout() {
             check_path file "/var/lib/domovoi-helper/$vl_name" 600 root:root
         fi
     done
-    for vl_dir in /etc/domovoi/skills /var/lib/domovoi-packages; do
+    for vl_dir in /etc/domovoi/skills /var/lib/domovoi-packages \
+        "${runner_skills_dir:-/etc/domovoi/skills}" "${runner_packages_dir:-/var/lib/domovoi-packages}"; do
         if [ -d "$vl_dir" ] && [ ! -L "$vl_dir" ]; then
             vl_bad="$(find "$vl_dir" ! -type l \( -perm -020 -o -perm -002 \) -print | head -n 1)"
             if [ -n "$vl_bad" ]; then
@@ -550,17 +623,53 @@ convert_legacy_paths() {
     chown -R -h domovoi-agent:domovoi-agent /var/lib/domovoi-agent /var/lib/domovoi-packages
 }
 
+# Fails when the binary would sit where the skill runner cannot execute it: ProtectHome=yes
+# hides /home and /root from the runner, and /run, /tmp and /dev/shm may be mounted noexec.
+runner_prefix_ok() {
+    case "$prefix" in
+    /home | /home/* | /root | /root/* | /run | /run/* | /tmp | /tmp/* | /dev/shm | /dev/shm/*)
+        fail "--prefix $prefix is not usable for the skill runner: its unit hides /home and /root, and /run and /tmp may be mounted noexec. Use a prefix such as /usr/local, or pass --no-service"
+        ;;
+    esac
+}
+
+# Sets $runner_skills_dir and $runner_packages_dir from the agent's own configuration, so the
+# runner unit names the same directories the agent uses. Stops the install, before anything
+# is created or replaced, when the binary refuses a path (a unit cannot hold it safely).
+runner_dirs() {
+    rd_out="$("$bin" agent dirs)" ||
+        fail "could not read the skills and packages directories from the agent configuration ($bin agent dirs failed); nothing was changed"
+    runner_skills_dir="$(printf '%s\n' "$rd_out" | sed -n 's/^skills_dir=//p')"
+    runner_packages_dir="$(printf '%s\n' "$rd_out" | sed -n 's/^packages_dir=//p')"
+    if [ -z "$runner_skills_dir" ] || [ -z "$runner_packages_dir" ]; then
+        fail "$bin agent dirs did not print skills_dir and packages_dir; nothing was changed"
+    fi
+    # Configured directories join the created-set, so they are made before any socket starts.
+    CREATED_PATHS="$CREATED_PATHS $runner_skills_dir $runner_packages_dir"
+}
+
+# Names the self-test checks that failed in the report $1, for the failure message.
+failed_checks() {
+    sed -n 's/^\(ST-[0-9][0-9]*\) fail.*/\1/p' "$1" | tr '\n' ' '
+}
+
 # The three-identities install. MODE is fresh, migrated (a rerun on a host that already has
-# the layout) or migrate (the conversion of a root agent). Steps, in order: accounts,
-# directories and helper.toml, helper init, the three units, the helper socket, the
-# self-test. The helper socket is the only service this starts.
+# the layout) or migrate (the conversion of a root agent). Steps, in order: the runner's
+# directories, accounts, directories and helper.toml, helper init, the five units, the
+# helper socket, the self-test, and only after it passes the skill runner socket. These
+# two sockets are the only services this starts.
 install_identities() {
     ii_mode="$1"
+    runner_prefix_ok
+    runner_dirs
     ensure_accounts
     make_dir /etc/domovoi 0750 root:domovoi-agent
     make_dir /etc/domovoi/skills 0755 root:root
     make_dir /var/lib/domovoi-agent 0700 domovoi-agent:domovoi-agent
     make_dir /var/lib/domovoi-packages 0755 domovoi-agent:domovoi-agent
+    # Directories the agent configuration moved elsewhere; the defaults above stay either way.
+    make_dir "$runner_skills_dir" 0755 root:root
+    make_dir "$runner_packages_dir" 0755 domovoi-agent:domovoi-agent
     if [ "$ii_mode" = "migrate" ]; then
         convert_legacy_paths
     fi
@@ -584,12 +693,24 @@ install_identities() {
     done
     place_unit domovoi-helper.socket helper_socket_unit 0
     place_unit domovoi-helper@.service helper_service_unit 0
+    place_unit domovoi-skill-runner.socket runner_socket_unit 0
+    place_unit domovoi-skill-runner@.service render_runner_service 0
     if [ "$ii_mode" = "migrate" ]; then
         place_unit domovoi-agent.service agent_unit 1
     else
         place_unit domovoi-agent.service agent_unit 0
     fi
     systemctl daemon-reload
+    start_sockets
+}
+
+# Starts the two sockets of the three-identities install. The helper socket starts first and
+# the self-test judges it; the skill runner socket starts only after that check has passed,
+# when its units are installed and the daemon has reloaded. The check runs once more with
+# the runner socket up, so the runner's own start checks and isolation probe report real
+# results; a failure there stops the socket again and names the check. This function stays
+# textually after the code that creates the directories and places the units.
+start_sockets() {
     systemctl enable --now domovoi-helper.socket
     say "Started domovoi-helper.socket"
     if "$bin" agent selftest --installer --record >"$tmp/selftest.out" 2>&1; then
@@ -597,8 +718,18 @@ install_identities() {
     else
         cat "$tmp/selftest.out"
         systemctl disable --now domovoi-helper.socket || true
-        ii_failed="$(sed -n 's/^\(ST-[0-9][0-9]*\) fail.*/\1/p' "$tmp/selftest.out" | tr '\n' ' ')"
-        fail "the self-test failed (${ii_failed:-see the report above}); the helper socket is disabled and nothing else was started"
+        ss_failed="$(failed_checks "$tmp/selftest.out")"
+        fail "the self-test failed (${ss_failed:-see the report above}); the helper socket is disabled, the skill runner socket was not started and nothing else was started"
+    fi
+    systemctl enable --now domovoi-skill-runner.socket
+    say "Started domovoi-skill-runner.socket"
+    if "$bin" agent selftest --installer >"$tmp/runner-selftest.out" 2>&1; then
+        cat "$tmp/runner-selftest.out"
+    else
+        cat "$tmp/runner-selftest.out"
+        systemctl disable --now domovoi-skill-runner.socket || true
+        ss_failed="$(failed_checks "$tmp/runner-selftest.out")"
+        fail "the self-test failed with the skill runner socket up (${ss_failed:-see the report above}); the skill runner socket is disabled, so skills stay unavailable, and the helper socket keeps running"
     fi
 }
 
@@ -628,6 +759,7 @@ migrate_preconditions() {
     fresh) fail "nothing to migrate: no agent is installed here. Run install.sh --role agent for a new install" ;;
     *) fail "nothing to migrate: the agent already runs as domovoi-agent. Check it with: $bin agent selftest" ;;
     esac
+    runner_prefix_ok
     [ -e "$agent_unit_path" ] ||
         fail "there is no agent unit at $agent_unit_path to migrate; install the agent first"
     for mp_file in "$agent_unit_path.d"/*.conf; do
@@ -684,7 +816,8 @@ migrate_plan() {
     say "What stops working:"
     say "  Checks that need root (Docker through its socket, SMART, the journal of every unit)"
     say "  report errors until the helper's read groups carry them."
-    say "  Skills whose manifest names a run_as user have no runner and stay unavailable."
+    say "  Skills run as domovoi-skill from now on. Skills whose manifest names another run_as"
+    say "  user stay unavailable."
     say ""
     say "Nothing is deleted. To undo this later: sudo sh install.sh --rollback-identity"
     say ""
@@ -734,6 +867,7 @@ rollback_apply() {
         chmod "$ra_mode" "$ra_path"
     done <"$record_dir/owners"
     systemctl disable --now domovoi-helper.socket || true
+    systemctl disable --now domovoi-skill-runner.socket || true
     systemctl daemon-reload
     if [ "$(cat "$record_dir/was-active" 2>/dev/null || echo 0)" = "1" ]; then
         systemctl start domovoi-agent || warn "the legacy agent did not start; check: systemctl status domovoi-agent"
@@ -743,7 +877,7 @@ rollback_apply() {
     say "Rolled back: the legacy agent unit and the recorded owners and modes are restored."
     say "These stay, unused and never deleted automatically: the domovoi-agent and"
     say "domovoi-skill accounts, /var/lib/domovoi-helper, /etc/domovoi/helper.toml,"
-    say "/var/lib/domovoi-packages and the domovoi-helper units. The record is now in $ra_saved"
+    say "/var/lib/domovoi-packages and the helper and skill runner units. The record is now in $ra_saved"
 }
 
 # The migration itself, after the owner confirmed and the new binary is installed.
@@ -797,7 +931,7 @@ migrate_apply() {
     say "  Saved legacy state: $record_dir (kept)"
     say "  To undo: sudo sh install.sh --rollback-identity"
     say "  Enroll or re-enroll with sudo; the files are handed to domovoi-agent automatically."
-    say "  This host stays blocked for skills until the skill runner is installed."
+    say "  Skills now run as domovoi-skill through the skill runner socket."
 }
 
 role=""
@@ -851,14 +985,16 @@ while [ $# -gt 0 ]; do
         shift
         ;;
     --print-unit)
-        [ $# -ge 2 ] || fail "--print-unit needs hub, agent, helper-socket, helper-service or agent-legacy"
+        [ $# -ge 2 ] || fail "--print-unit needs hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-legacy"
         case "$2" in
         hub) hub_unit ;;
         agent) agent_unit ;;
         helper-socket) helper_socket_unit ;;
         helper-service) helper_service_unit ;;
+        runner-socket) runner_socket_unit ;;
+        runner-service) runner_service_unit ;;
         agent-legacy) legacy_agent_unit ;;
-        *) fail "--print-unit takes hub, agent, helper-socket, helper-service or agent-legacy, not $2" ;;
+        *) fail "--print-unit takes hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-legacy, not $2" ;;
         esac
         exit 0
         ;;
@@ -1046,7 +1182,8 @@ elif [ "$layout" = "fresh" ] || [ "$layout" = "migrated" ]; then
     say "     with sudo: the files it writes are handed to the domovoi-agent account automatically."
     say "  2. systemctl enable --now domovoi-agent"
     say ""
-    say "The helper socket is running. This host stays blocked for skills until the skill runner is installed."
+    say "The helper and skill runner sockets are running. After a runner failure, clear it with:"
+    say "  systemctl reset-failed 'domovoi-skill-runner@*'"
 else
     say "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
     say "  2. systemctl enable --now domovoi-agent"

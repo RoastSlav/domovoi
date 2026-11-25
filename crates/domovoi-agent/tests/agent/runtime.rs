@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use domovoi_agent::skill_runner::SkillRoute;
 use domovoi_agent::{AgentDeps, AgentError, AgentRuntime};
 use domovoi_testkit::{FakeProcessExecutor, ListRedactor};
 #[cfg(target_os = "linux")]
@@ -28,6 +29,7 @@ fn deps(dir: &tempfile::TempDir) -> AgentDeps {
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
         boundary_in_effect: false,
+        skills: SkillRoute::Legacy(Arc::new(FakeProcessExecutor::new())),
     }
 }
 

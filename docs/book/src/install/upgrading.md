@@ -26,6 +26,8 @@ sudo sh install.sh --role agent --migrate-identity
 
 See [Binary and systemd](binary.md#already-installed) for what it changes and how to roll it back. An agent already on the new layout is checked on every rerun: the installer reports any path with a wrong mode or owner and changes nothing.
 
+**The skill runner's unit.** Running the installer again re-renders the skill runner unit with the current `skills_dir` and `packages_dir` from `agent.toml`. A unit you edited is kept and the new text is written beside it. If you change either directory in `agent.toml` and do not run the installer, the unit still names the old ones: the agent reports `runner_roots_differ` and skills stop, and `domovoi agent selftest` reports `unit_modified` naming `bind_paths` (check ST-07). Run the installer again, then restart the agent. `domovoi upgrade` replaces only the binary, so new runner processes use the new version at once while a running agent keeps the old protocol until you restart it; the agent shows `runner_protocol_mismatch` in between.
+
 **Containers.** Pull the new image and recreate the container on the same volume:
 
 ```sh
@@ -85,16 +87,17 @@ The environment variable `DOMOVOI_UPDATES__CHECK=false` does the same. Turning i
 An agent:
 
 ```sh
-sudo systemctl disable --now domovoi-agent domovoi-helper.socket
+sudo systemctl disable --now domovoi-agent domovoi-helper.socket domovoi-skill-runner.socket
 sudo rm /etc/systemd/system/domovoi-agent.service
 sudo rm /etc/systemd/system/domovoi-helper.socket /etc/systemd/system/domovoi-helper@.service
+sudo rm /etc/systemd/system/domovoi-skill-runner.socket /etc/systemd/system/domovoi-skill-runner@.service
 sudo rm -r /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper
 sudo systemctl daemon-reload
 sudo userdel domovoi-agent
 sudo userdel domovoi-skill
 ```
 
-On a host that never had the three-identities layout, the helper, packages and `userdel` lines have nothing to remove and can be skipped. The helper directory holds nothing but a lock in this release.
+On a host that never had the three-identities layout, the helper, skill runner, packages and `userdel` lines have nothing to remove and can be skipped. The helper directory holds nothing but a lock in this release.
 
 Then revoke the host on the hub's **Hosts** page, so its key is no longer accepted.
 

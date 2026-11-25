@@ -13,7 +13,7 @@ description = "Three params, one optional."
 risk = "write"
 entry = "run"
 timeout = "45s"
-run_as = "domovoi-skills"
+run_as = "domovoi-skill"
 max_output_bytes = 8192
 
 [[params]]
@@ -71,7 +71,7 @@ fn skill_env_and_argv_follow_declared_order() {
     assert_eq!(spec.cwd.as_deref(), Some("/skills/ordered"));
     assert_eq!(spec.timeout, SignedDuration::from_secs(45));
     assert_eq!(spec.max_output_bytes, 8192);
-    assert_eq!(spec.run_as.as_deref(), Some("domovoi-skills"));
+    assert_eq!(spec.run_as.as_deref(), Some("domovoi-skill"));
     assert_eq!(spec.stdin, None);
 }
 

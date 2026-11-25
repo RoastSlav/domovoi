@@ -114,6 +114,24 @@ fn boundary_text(boundary: &BoundaryState) -> String {
     }
 }
 
+/// The listing row SK-01 for one skill that does not run as the skill account.
+///
+/// Not a check: it never gates the platform tier. A named `run_as` is `warn` with the token
+/// `run_as_unsupported` on an agent with the boundary in effect, where the runner refuses it;
+/// a legacy root agent honours it, and a skill without `run_as` is only noted.
+#[must_use]
+pub fn skill_row(skill: &AffectedSkill, legacy_root: bool) -> String {
+    let who = skill.run_as.as_deref().unwrap_or("the agent (no run_as)");
+    let head = format!("skill {} runs as {who}, not {SKILL_ACCOUNT}", skill.name);
+    match (&skill.run_as, legacy_root) {
+        (_, true) => format!("SK-01 info {head}: honoured by the legacy path"),
+        (None, false) => format!("SK-01 info {head}"),
+        (Some(run_as), false) => format!(
+            "SK-01 warn run_as_unsupported {head} (names run_as {run_as}; only {SKILL_ACCOUNT} is supported on this host)"
+        ),
+    }
+}
+
 /// The whole report as text: a line per check, faults indented below it, then the platform, the
 /// boundary label, the tier decision and the skills that do not run as the skill account.
 #[must_use]
@@ -144,13 +162,13 @@ pub fn render_text(
     if let Some(notice) = decision.notice {
         lines.push(format!("notice: {}", notice.text()));
     }
-    for skill in affected {
-        lines.push(format!(
-            "skill {} runs as {}, not {SKILL_ACCOUNT}",
-            skill.name,
-            skill.run_as.as_deref().unwrap_or("the agent (no run_as)")
-        ));
-    }
+    let legacy_root = matches!(
+        report.boundary,
+        BoundaryState::NotInEffect {
+            reason: BoundaryReason::AgentIsRoot
+        }
+    );
+    lines.extend(affected.iter().map(|skill| skill_row(skill, legacy_root)));
     let mut text = lines.join("\n");
     text.push('\n');
     text

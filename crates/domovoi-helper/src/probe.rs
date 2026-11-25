@@ -12,10 +12,7 @@ use domovoi_core::isolation::{
     parse_proc_status,
 };
 use domovoi_core::ports::{HostInspect, Probe};
-
-/// Where the skill runner's socket is. The runner's own milestone owns the unit; the probe only
-/// needs the path to check that it is hidden.
-pub const RUNNER_SOCKET: &str = "/run/domovoi-skill-runner.sock";
+use domovoi_core::skill_runner::RUNNER_SOCKET_PATH;
 
 /// What the probe needs to know that it cannot see itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,7 +123,7 @@ pub fn collect(inspect: &dyn HostInspect, args: &ProbeArgs) -> IsolationReport {
     IsolationReport {
         connects: vec![
             record(inspect, &dirs.helper_socket, Probe::Connect),
-            record(inspect, Path::new(RUNNER_SOCKET), Probe::Connect),
+            record(inspect, Path::new(RUNNER_SOCKET_PATH), Probe::Connect),
         ],
         hidden_state,
         etc_listing: inspect.list_dir(&dirs.etc_dir).ok(),

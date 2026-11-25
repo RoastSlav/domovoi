@@ -25,6 +25,9 @@ pub enum AgentCommand {
     Enroll(EnrollArgs),
     /// Show what the link last recorded: connected, reconnecting or incompatible.
     Status(ConfigArg),
+    /// Print the directories the skill runner unit is rendered with (used by the installer).
+    #[command(hide = true)]
+    Dirs(ConfigArg),
     /// Check the three identities, the directories and the isolation on this host.
     Selftest(super::agent_selftest::SelftestArgs),
     /// Create, inspect or reset the durable action journal.
@@ -91,6 +94,7 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)
         }
+        AgentCommand::Dirs(args) => dirs(&args),
         AgentCommand::Selftest(args) => super::agent_selftest::run(args).await,
         AgentCommand::Journal(command) => {
             let (args, reset) = match command {
@@ -249,4 +253,25 @@ fn hand_over_state(dir: &std::path::Path) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// `agent dirs`: the two runner directories from `agent.toml` (defaults when it does not exist).
+fn dirs(args: &ConfigArg) -> anyhow::Result<ExitCode> {
+    use super::agent_dirs::RunnerDirs;
+    let resolved = if args.config.exists() {
+        let config = load_agent(&args.config)?;
+        RunnerDirs::resolve(Some((&config.agent.skills_dir, &config.agent.packages_dir)))
+    } else {
+        RunnerDirs::resolve(None)
+    };
+    match resolved {
+        Ok(dirs) => {
+            print!("{}", dirs.render());
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(why) => {
+            super::warn(&why);
+            Ok(ExitCode::FAILURE)
+        }
+    }
 }

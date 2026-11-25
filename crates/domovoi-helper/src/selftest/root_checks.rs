@@ -346,7 +346,7 @@ pub async fn run_root_checks(
     version: Option<String>,
 ) -> RootChecks {
     let (st07_result, st08_result, st09_result) = if let Some(v) = &version {
-        let units = inspect_units(executor, systemctl).await;
+        let units = inspect_units(executor, systemctl, dirs).await;
         (
             st07(&units),
             CheckResult::new(CheckId::St08, Outcome::info(v.clone())),

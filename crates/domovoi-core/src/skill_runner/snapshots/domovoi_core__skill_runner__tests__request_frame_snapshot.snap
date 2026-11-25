@@ -1,0 +1,8 @@
+---
+source: crates/domovoi-core/src/skill_runner/tests.rs
+expression: "rendered.join(\"\\n\")"
+---
+{"type":"health","protocol":1}
+{"type":"run","protocol":1,"execution_id":"01234567-89ab-cdef-0123-456789abcdef","source":"skills_dir","skill":"disk_usage","impl_hash":"11f86739f784488711c83f8dc44a6fab74fd6628ba5c9f5df3438f5d41f3a7d7","args":{"path":"/var"},"timeout_secs":30,"max_output_bytes":65536}
+{"type":"run","protocol":1,"execution_id":"01234567-89ab-cdef-0123-456789abcdef","source":{"package":{"name":"nginx-tools","version":"1.2.3"}},"skill":"disk_usage","impl_hash":"11f86739f784488711c83f8dc44a6fab74fd6628ba5c9f5df3438f5d41f3a7d7","args":{"path":"/var"},"timeout_secs":30,"max_output_bytes":65536}
+{"type":"probe","protocol":1,"helper_pid":4242}

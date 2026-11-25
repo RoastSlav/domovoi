@@ -59,6 +59,45 @@ pub(super) fn load_dir(dir: &Path) -> (Vec<LoadedSkill>, Vec<CatalogIssue>) {
     (skills, issues)
 }
 
+/// Why `<root>/<name>` is not a usable skill folder location.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FolderError {
+    /// The root or the folder does not exist.
+    Missing,
+    /// The folder resolves to somewhere that is not a direct child of the root.
+    Outside,
+}
+
+/// Resolves `<root>/<name>` to its canonical path, which must be a direct child of the
+/// canonical `root`; a folder symlinked elsewhere is [`FolderError::Outside`].
+pub(crate) fn resolve_in_root(root: &Path, name: &str) -> Result<PathBuf, FolderError> {
+    let root = root.canonicalize().map_err(|_| FolderError::Missing)?;
+    let folder = root
+        .join(name)
+        .canonicalize()
+        .map_err(|_| FolderError::Missing)?;
+    if folder.parent() == Some(root.as_path()) && folder.file_name().is_some_and(|n| n == name) {
+        Ok(folder)
+    } else {
+        Err(FolderError::Outside)
+    }
+}
+
+/// Loads exactly `folder`, which [`resolve_in_root`] already vetted.
+pub(super) fn load_folder(folder: &Path) -> Result<LoadedSkill, CatalogIssue> {
+    load_skill(folder).map_err(|message| issue(folder, message))
+}
+
+pub(super) fn missing_issue(root: &Path, name: &str, why: FolderError) -> CatalogIssue {
+    let message = match why {
+        FolderError::Missing => format!("no skill folder `{name}` under the skills directory"),
+        FolderError::Outside => {
+            format!("skill folder `{name}` resolves outside the skills directory")
+        }
+    };
+    issue(root, message)
+}
+
 fn issue(dir: &Path, message: String) -> CatalogIssue {
     CatalogIssue {
         skill_dir: dir.to_path_buf(),

@@ -1,0 +1,29 @@
+[Unit]
+Description=Domovoi skill runner (connection %i)
+# No ConditionPathExists= for the bind sources: a condition would skip the unit silently. A plain bind of an absent
+# path fails the start with 226/NAMESPACE, which is the wanted fail-closed behaviour.
+
+[Service]
+Type=simple
+User=domovoi-skill
+Group=domovoi-skill
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+ExecStart=/usr/local/bin/domovoi skill-runner serve --skills-dir /etc/domovoi/skills --packages-dir /var/lib/domovoi-packages
+Restart=no
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro
+BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages
+RuntimeMaxSec=3720s
+KillMode=control-group
+TimeoutStopSec=5s

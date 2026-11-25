@@ -26,6 +26,7 @@ use crate::overrides::EffectiveChecks;
 use crate::packages::{PackageDeps, PackageDirs, PackageService, TransferReceiver};
 use crate::requests::{RequestCtx, serve};
 use crate::scheduler::{CheckEnv, Scheduler};
+use crate::skill_runner::SkillRoute;
 use crate::spool::{SharedSpool, Spool};
 use crate::store::CheckStore;
 
@@ -58,6 +59,9 @@ pub struct AgentDeps {
     /// Whether the privilege boundary is in effect (the agent is the `domovoi-agent` account
     /// with exactly the expected groups), decided once at start by the binary.
     pub boundary_in_effect: bool,
+    /// How skills are executed: through the skill runner, or in the agent's own process for
+    /// an agent running as root. Built by [`crate::production::skill_route`].
+    pub skills: SkillRoute,
 }
 
 impl AgentDeps {
@@ -115,12 +119,12 @@ async fn open_journal(config: &AgentConfig, deps: &AgentDeps) -> Result<Arc<Jour
 }
 
 #[cfg(target_os = "linux")]
-fn runs_as_root() -> bool {
+pub(crate) fn runs_as_root() -> bool {
     nix::unistd::geteuid().is_root()
 }
 
 #[cfg(not(target_os = "linux"))]
-fn runs_as_root() -> bool {
+pub(crate) fn runs_as_root() -> bool {
     false
 }
 
@@ -207,6 +211,7 @@ impl AgentRuntime {
             catalog: Arc::new(load_catalog(&config.agent.skills_dir)),
             allow_risk: config.policy.allow_risk.clone(),
             exec: deps.executor.clone(),
+            skills: deps.skills.clone(),
             redactor: deps.redactor.clone(),
             clock: deps.clock.clone(),
             fs: deps.hostfs.clone(),
@@ -277,16 +282,28 @@ impl AgentRuntime {
             self.requests.package_surface(),
         );
         let helper = crate::helper_client::HelperClient::default_path();
+        // The runner is probed once, bounded, before `hello` is built, so the hub sees the real
+        // status. A root agent runs skills itself (legacy route) and has nothing to probe.
+        let runner = if let SkillRoute::Runner(route) = &self.deps.skills {
+            route.refresh().await;
+            Some(route.clone())
+        } else {
+            None
+        };
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
             helper_status: crate::helper_client::probe_status(&helper, &*self.deps.clock).await,
+            skill_runner_status: runner
+                .as_ref()
+                .map_or_else(Default::default, |route| route.state().status()),
             catalog_hash: crate::link::handshake::catalog_announcement(&entries),
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());
-        let helper_probe = tokio::spawn(crate::helper_client::keep_status(
+        let helper_probe = tokio::spawn(crate::helper_client::keep_status_with(
             helper,
+            runner,
             self.deps.clock.clone(),
             status.clone(),
             stop.clone(),

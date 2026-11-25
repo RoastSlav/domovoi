@@ -43,7 +43,7 @@ On each machine to watch:
 curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role agent
 ```
 
-On a systemd host with no hub on it, a fresh agent install sets up three identities: the unprivileged `domovoi-agent` account that runs the agent, the `domovoi-skill` account that skills will run as, and a root helper behind a socket. It creates the accounts, the directories with their modes, `/etc/domovoi/helper.toml`, the helper units, starts the helper socket and then runs `domovoi agent selftest --installer --record`. If a check fails, it stops the helper socket again, prints the report and exits with an error. [Security model](../security.md#three-identities-on-one-host) says what each identity may reach.
+On a systemd host with no hub on it, a fresh agent install sets up three identities: the unprivileged `domovoi-agent` account that runs the agent, the `domovoi-skill` account that skills will run as, and a root helper behind a socket. It creates the accounts, the directories with their modes, `/etc/domovoi/helper.toml`, the helper units and the skill runner units, starts the helper socket and then runs `domovoi agent selftest --installer --record`. Only if that passes does it start the skill runner socket and run the self-test again with the runner up. If a check fails, it stops the sockets it started, prints the report and exits with an error; a failed second check leaves the helper socket running and the runner socket stopped, so skills stay unavailable. [Security model](../security.md#three-identities-on-one-host) says what each identity may reach.
 
 In the hub's web UI, open **Hosts**, then **Add host**, and run the enroll command it shows on that machine, with `sudo`. Enroll runs as root, so it hands the agent's files to `domovoi-agent` when it is done and prints one line saying so. Then start the agent:
 
@@ -53,7 +53,7 @@ sudo systemctl enable --now domovoi-agent
 
 The host shows as connected within a few seconds. The agent dials the hub on port 7421; nothing connects to the agent.
 
-The helper starts on demand when the agent connects to its socket, so you never enable it by hand. This release's helper answers only `health` and `groups`. The host stays Blocked for skills until the skill runner is installed, so skills do not run on a fresh install yet.
+The helper and the skill runner start on demand when the agent connects to their sockets, so you never enable them by hand. This release's helper answers only `health` and `groups`, so skills that need privileged access (restarting a container or a unit, vacuuming the journal) report errors on a fresh install. See [What a skill can reach](../guide/skills.md#what-a-skill-can-reach).
 
 ### Already installed
 
@@ -65,7 +65,7 @@ sudo sh install.sh --role agent --migrate-identity
 
 The migration is never done by a routine rerun, because it takes root access away from checks you may rely on. It needs a terminal, shows the full plan first (accounts to create, every path whose owner or mode will change, the new unit, and what stops working) and asks you to type `migrate`. There is no `--yes`. It then saves the old unit and the old owners and modes under `/etc/domovoi/identity-migration/`, stops the agent, applies the layout, starts the agent and checks that it runs as `domovoi-agent`.
 
-What loses root access: checks that need it (Docker through its socket, SMART, the journal of every unit) report errors on a migrated host until the helper carries them, and skills that name a `run_as` have no runner yet. If the migration fails midway it rolls itself back. To roll back later:
+What loses root access: checks that need it (Docker through its socket, SMART, the journal of every unit) report errors on a migrated host until the helper carries them, and skills run as `domovoi-skill` through the skill runner, so a skill that names another `run_as` is refused until you edit its manifest. If the migration fails midway it rolls itself back. To roll back later:
 
 ```sh
 sudo sh install.sh --role agent --rollback-identity
@@ -93,7 +93,7 @@ A host in this state gets no unattended execution.
 | `--version v0.1.0` | Install this release instead of the latest. |
 | `--prefix /opt/domovoi` | Install the binary as `<prefix>/bin/domovoi`. Default `/usr/local`. |
 | `--no-service` | Install only the binary and examples: no user, directories or unit. Works without root when the prefix is writable. |
-| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket` and `helper-service`. |
+| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket` and `runner-service`. |
 | `--migrate-identity` | Move an existing root agent to the three-identities layout, after a printed plan and a typed confirmation. Agent role, root, needs a terminal. |
 | `--rollback-identity` | Undo that migration from the saved record. |
 
@@ -131,8 +131,9 @@ sudo sh install.sh --role hub
 | `/etc/systemd/system/domovoi-hub.service` | hub | See [`deploy/systemd`](https://github.com/RoastSlav/domovoi/tree/main/deploy/systemd). |
 | `/etc/systemd/system/domovoi-agent.service` | agent | |
 | `/etc/systemd/system/domovoi-helper.socket` and `domovoi-helper@.service` | agent | The helper, started on demand. |
+| `/etc/systemd/system/domovoi-skill-runner.socket` and `domovoi-skill-runner@.service` | agent | The skill runner, started on demand, one process per connection, as `domovoi-skill`. The installer writes your `skills_dir` and `packages_dir` into the service. |
 
-Apart from the helper socket on a fresh agent install, the installer never enables or starts a service. Running it again replaces the binary and leaves everything else as it is; on an agent it also checks each path above and reports any wrong mode or owner without changing it (see [Troubleshooting](../troubleshooting.md#a-path-has-the-wrong-mode-or-owner)). A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
+Apart from the helper and skill runner sockets on a fresh agent install, the installer never enables or starts a service. Running it again replaces the binary and leaves everything else as it is; on an agent it also checks each path above and reports any wrong mode or owner without changing it (see [Troubleshooting](../troubleshooting.md#a-path-has-the-wrong-mode-or-owner)). A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
 
 ## The units
 
@@ -151,9 +152,11 @@ Claude Code runs on Node.js, whose JIT the unit's `MemoryDenyWriteExecute=yes` b
 MemoryDenyWriteExecute=no
 ```
 
-On a fresh install the agent runs as `domovoi-agent`, not root. Its unit keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state and the packages directory. An agent installed earlier still runs as root until you migrate it (see above). Do not change these units with `systemctl edit`: the self-test reports any drop-in as `unit_modified`, and it will block skills when the runner arrives. See [Hardening](../guide/hardening.md).
+On a fresh install the agent runs as `domovoi-agent`, not root. Its unit keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state and the packages directory. An agent installed earlier still runs as root until you migrate it (see above). Do not change these units with `systemctl edit`: the self-test reports any drop-in as `unit_modified`, and it will block skills. See [Hardening](../guide/hardening.md).
 
 The helper runs as root in its own sandbox, one process per connection. `domovoi helper serve` is started by the socket and is not meant to be run by hand.
+
+The skill runner runs skills as `domovoi-skill`, in a sandbox that hides the agent's and helper's state, both sockets and everything in `/etc/domovoi` except the skills directory. It needs the binary at a path it can execute: the installer refuses a `--prefix` under `/home`, `/root`, `/run` or `/tmp` for an agent on a systemd host. It also refuses a `skills_dir` or `packages_dir` it cannot put in a unit (a relative path, a space, or a place under `/run`, `/tmp`, `/home`, `/root`, `/proc`, `/sys` or `/dev`) and names the problem. The installer creates every directory the sandbox names before it starts the socket. `domovoi skill-runner serve` is started by the socket and is not meant to be run by hand.
 
 ## One machine
 

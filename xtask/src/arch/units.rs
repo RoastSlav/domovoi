@@ -133,6 +133,7 @@ pub fn check_units(
     out.extend(check_helper_unit(units));
     out.extend(check_agent_user(units));
     out.extend(check_masks(units, created, require_created_set));
+    out.extend(super::runner_rules::check_runner_units(units));
     out
 }
 
@@ -452,9 +453,15 @@ pub fn check_deploy(root: &Path, require_created_set: bool) -> anyhow::Result<Ve
         .and_then(|p| p.created.as_ref())
         .map(|paths| paths.iter().cloned().collect());
     let mut out = check_units(&units, created.as_ref(), require_created_set);
+    out.extend(super::runner_rules::check_runner_present(&units));
     out.extend(check_compose(&compose));
     match &parsed {
-        Some(script) => out.extend(install_script::check(script, require_created_set)),
+        Some(parsed_script) => {
+            out.extend(install_script::check(parsed_script, require_created_set));
+            if let Some(text) = &script {
+                out.extend(super::runner_rules::check_install_order(text));
+            }
+        }
         None if require_created_set => out.push(violation(
             "INSTALL-1",
             INSTALL_SCRIPT,

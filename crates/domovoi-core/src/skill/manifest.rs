@@ -99,7 +99,7 @@ pub struct RevertSpec {
 /// risk = "write"
 /// entry = "restart.sh"
 /// timeout = "90s"
-/// run_as = "domovoi-skills"
+/// run_as = "domovoi-skill"
 /// hosts = ["nas"]
 /// applies_to = ["container.restart_loop"]
 /// max_output_bytes = 65536

@@ -12,6 +12,7 @@ use domovoi_core::ports::{Clock, HostFs, LogSource, ProcessExecutor, Redactor};
 use crate::docker::{self, DockerControl};
 use crate::error::AgentError;
 use crate::runtime::AgentDeps;
+use crate::skill_runner::{ExpectedDirs, RunnerClient, RunnerRoute, SkillRoute};
 
 /// Production [`AgentDeps`]: files and filesystem usage under `[agent] host_root`, check
 /// tools from the agent's own filesystem (where they run), and the container runtime found
@@ -44,6 +45,12 @@ pub fn deps(
             }
             None => None,
         };
+    let skills = skill_route(
+        config,
+        executor.clone(),
+        clock.clone(),
+        crate::runtime::runs_as_root(),
+    );
     Ok(AgentDeps {
         clock,
         executor,
@@ -55,7 +62,33 @@ pub fn deps(
         redactor,
         logs,
         boundary_in_effect: false,
+        skills,
     })
+}
+
+/// How this agent executes skills. An agent running as root (`euid_is_root`: the privilege
+/// boundary is not in effect, a container or a host not yet migrated) spawns them itself
+/// through `executor`, the labelled legacy path. Any other agent sends them to the skill
+/// runner and never spawns one, whatever state the runner is in.
+#[must_use]
+pub fn skill_route(
+    config: &AgentConfig,
+    executor: Arc<dyn ProcessExecutor>,
+    clock: Arc<dyn Clock>,
+    euid_is_root: bool,
+) -> SkillRoute {
+    if euid_is_root {
+        return SkillRoute::Legacy(executor);
+    }
+    let expected = ExpectedDirs {
+        skills: config.agent.skills_dir.clone(),
+        packages: config.agent.packages_dir.clone(),
+    };
+    SkillRoute::Runner(Arc::new(RunnerRoute::new(
+        RunnerClient::default_path(clock.clone()),
+        expected,
+        clock,
+    )))
 }
 
 fn log_detection(mode: DockerMode, detection: Option<&Detection>) {

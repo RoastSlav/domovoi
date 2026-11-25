@@ -35,7 +35,7 @@ fn selftest_parses_systemd_durations_6s_1min_infinity_and_composites() {
 #[tokio::test]
 async fn selftest_reads_unit_properties_through_an_instance_name_and_runtime_max_usec() {
     let exec = healthy_executor();
-    let found = inspect_units(&exec, SYSTEMCTL).await;
+    let found = inspect_units(&exec, SYSTEMCTL, &dirs()).await;
     assert!(
         found
             .iter()
@@ -78,7 +78,7 @@ async fn selftest_treats_a_failing_systemctl_show_as_unit_not_inspectable() {
             ..ProcessOutput::default()
         },
     );
-    let found = inspect_units(&exec, SYSTEMCTL).await;
+    let found = inspect_units(&exec, SYSTEMCTL, &dirs()).await;
     let socket = found
         .iter()
         .find(|u| u.unit == SOCKET_UNIT)
@@ -103,7 +103,7 @@ async fn selftest_flags_a_dropin_as_unit_modified() {
         "DropInPaths=/etc/systemd/system/domovoi-helper.socket.d/x.conf",
     );
     let exec = executor_with(&socket, &service_show(), &agent_show());
-    let found = inspect_units(&exec, SYSTEMCTL).await;
+    let found = inspect_units(&exec, SYSTEMCTL, &dirs()).await;
     let result = domovoi_helper::selftest::st07(&found);
     assert!(matches!(
         result.outcome,
@@ -118,7 +118,7 @@ async fn selftest_flags_a_dropin_as_unit_modified() {
 async fn selftest_flags_a_pending_reload_as_unit_modified() {
     let service = service_show().replace("NeedDaemonReload=no", "NeedDaemonReload=yes");
     let exec = executor_with(&socket_show(), &service, &agent_show());
-    let found = inspect_units(&exec, SYSTEMCTL).await;
+    let found = inspect_units(&exec, SYSTEMCTL, &dirs()).await;
     assert!(matches!(
         domovoi_helper::selftest::st07(&found).outcome,
         Outcome::Fail {

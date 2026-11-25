@@ -46,7 +46,7 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 **A proposed action is refused when approved.** Look at the action in the web UI. Common reasons: the skill's risk is above the host's `[policy] allow_risk`; the skill or its manifest changed since it was proposed; the proposal expired.
 
-**A skill fails with "permission denied".** On an agent that still runs as root, skills run as root unless the manifest sets `run_as`; on the three-identities layout they wait for the skill runner and run as `domovoi-skill`. Check the program it calls exists in the agent's `PATH` and on the host.
+**A skill fails with "permission denied".** On an agent that still runs as root, skills run as root unless the manifest sets `run_as`. On the three-identities layout they run through the skill runner as `domovoi-skill`, which cannot write to its working directory (the skill's own folder, read-only; use `/tmp`), cannot read the agent's or the helper's files and is in no `docker` group. Check also that the program it calls exists in the agent's `PATH` and on the host. If a starter skill such as `restart_container` fails this way, it needs an operation the helper does not offer yet; see [What a skill can reach](guide/skills.md#what-a-skill-can-reach).
 
 ## Identities and the helper
 
@@ -71,11 +71,31 @@ The helper's own checks failed, and it answers every request with `StartRefused`
 
 ### `unit_modified`
 
-Check ST-07 found a drop-in on the helper socket, the helper service or the agent unit, or a unit change that has not been loaded. Look for the file it lists (usually under `/etc/systemd/system/<unit>.d/`), remove it, run `sudo systemctl daemon-reload` and run the check again. `unit_not_inspectable` means `systemctl show` failed for that unit; check that it is installed. A drop-in can weaken the isolation the units set, so the check cannot accept it, and `systemctl edit` on these units will keep skills blocked once the skill runner ships.
+Check ST-07 found a drop-in on the helper socket, the helper service, the skill runner socket or service, or the agent unit, or a unit change that has not been loaded, or a runner unit whose directories (`bind_paths`) no longer match `agent.toml`. Look for the file it lists (usually under `/etc/systemd/system/<unit>.d/`), remove it, run `sudo systemctl daemon-reload` and run the check again. `unit_not_inspectable` means `systemctl show` failed for that unit; check that it is installed. A drop-in can weaken the isolation the units set, so the check cannot accept it, and `systemctl edit` on these units will keep skills blocked.
 
-### Skills are unavailable on a new install
+### Skills are unavailable: the skill runner
 
-On the three-identities layout skills run only through the skill runner, which is not installed yet, so the host is Blocked for skills. That is expected and not a fault.
+On the three-identities layout skills run only through the skill runner, one process per connection to `/run/domovoi-skill-runner.sock`. The host's skill runner status on the hub, and the agent's log, show one of these:
+
+| Status | Reason | What it means and what to do |
+| --- | --- | --- |
+| `Absent` | none | The socket does not exist. The installer enables `domovoi-skill-runner.socket` only after the self-test passes; check `systemctl status domovoi-skill-runner.socket` and run `sudo domovoi agent selftest --installer`. |
+| `Unsupported` | `runner_groups_extra` | The `domovoi-skill` account has a group besides its own. Remove it (`sudo gpasswd -d domovoi-skill <group>`). Nothing was changed for you. |
+| `Unsupported` | `runner_privileges` | The runner process has a capability or can gain privileges, usually because a drop-in changed its unit. Remove the drop-in; see `unit_modified`. |
+| `Error` | `runner_socket_permission` | The agent cannot connect to the socket. It should be `root:domovoi-agent`, mode 0660. Check ST-12 and the agent's groups. |
+| `Error` | `runner_protocol_mismatch` | The agent and the runner binary are different versions, usually after an upgrade. Restart the agent: `sudo systemctl restart domovoi-agent`. |
+| `Error` | `runner_roots_differ` | `skills_dir` or `packages_dir` in `agent.toml` is not the directory the runner unit was rendered with. Run the installer again to re-render the unit, then restart the agent. |
+| `Error` | `runner_unreachable` | The socket exists but no answer came: the runner crashed, or its unit failed to start. See below. |
+
+Read the runner's own messages with `sudo journalctl -u 'domovoi-skill-runner@*' -n 50`. A start that fails with `226/NAMESPACE` means a directory the unit binds does not exist (`skills_dir` or `packages_dir`); `ST-10` names it. A crashed runner leaves a failed instance behind. Clear it with:
+
+```sh
+sudo systemctl reset-failed 'domovoi-skill-runner@*'
+```
+
+**A skill is refused with `run_as_unsupported`.** The failure reads `run_as_unsupported: <skill> names run_as <user>; only domovoi-skill is supported on this host`. A migrated host runs skills only as `domovoi-skill`. Remove the `run_as` line from the manifest (or set it to `domovoi-skill`), run `domovoi check skills`, and restart the agent. `domovoi agent selftest` lists every affected skill. The hub shows the skill as failed with this message; it does not yet show the reason separately.
+
+**Skills stopped working after I edited `agent.toml` or a unit.** The runner gets its two directories from its unit, not from `agent.toml`. Run the installer again to re-render it. `unit_modified` with `bind_paths` means the unit and the file disagree. A drop-in that removes the unit's mount mask makes the runner fail closed, so skills stop; remove it.
 
 ## Discord
 

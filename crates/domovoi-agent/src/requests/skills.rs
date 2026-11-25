@@ -16,9 +16,10 @@ use domovoi_core::{PlanHash, Risk, SkillName, ValidatedArgs};
 use domovoi_proto::messages::{
     RunSkill, SkillFailure, SkillFailureCode, SkillOutcome, SkillSuccess, ToolFailureCode,
 };
-use domovoi_runner::{LoadedSkill, RunError};
+use domovoi_runner::LoadedSkill;
 
 use super::{RequestCtx, ToolFail};
+use crate::skill_runner::RouteError;
 
 fn fail(code: SkillFailureCode, message: impl Into<String>) -> SkillOutcome {
     SkillOutcome::Err(SkillFailure {
@@ -56,6 +57,18 @@ fn redacted(ctx: &RequestCtx, mut output: SkillOutput) -> SkillOutput {
     output.stdout = ctx.redactor.redact(&output.stdout);
     output.stderr = ctx.redactor.redact(&output.stderr);
     output
+}
+
+/// The failure message for a route error. The wire has no value for an unavailable runner or
+/// an unsupported `run_as`, so the token leads an `Exec` message.
+fn failure_message(skill: &str, err: &RouteError) -> String {
+    match err {
+        RouteError::RunAsUnsupported { run_as } => format!(
+            "run_as_unsupported: {skill} names run_as {run_as}; only {} is supported on this host",
+            domovoi_core::identity::SKILL_ACCOUNT
+        ),
+        other => other.to_string(),
+    }
 }
 
 /// Handles `run_skill`.
@@ -125,18 +138,18 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
         );
     }
     tracing::info!(skill = skill_name, action = %run.action_id, "running an approved skill");
-    match ctx.catalog.run_skill(skill, &validated, &*ctx.exec).await {
+    match ctx.skills.run(skill, &ctx.catalog, &validated).await {
         Ok(output) => {
             tracing::info!(skill = skill_name, exit_code = ?output.exit_code, "skill finished");
             SkillOutcome::Ok(SkillSuccess::from(redacted(ctx, output)))
         }
-        Err(RunError::TimedOut { .. }) => {
+        Err(RouteError::TimedOut(_)) => {
             tracing::warn!(skill = skill_name, "skill timed out");
             fail(SkillFailureCode::Timeout, format!("{skill_name} timed out"))
         }
         Err(err) => {
             tracing::warn!(skill = skill_name, %err, "skill could not run");
-            fail(SkillFailureCode::Exec, err.to_string())
+            fail(SkillFailureCode::Exec, failure_message(skill_name, &err))
         }
     }
 }
@@ -172,7 +185,7 @@ pub async fn run_read_skill(
         ),
         Refusal::InvalidArgs(reason) => ToolFail::new(ToolFailureCode::InvalidArgs, reason),
     })?;
-    match ctx.catalog.run_skill(skill, &validated, &*ctx.exec).await {
+    match ctx.skills.run(skill, &ctx.catalog, &validated).await {
         Ok(output) => {
             let mut text = output.stdout;
             if !output.stderr.is_empty() {
@@ -181,10 +194,13 @@ pub async fn run_read_skill(
             }
             Ok((text, output.truncated))
         }
-        Err(RunError::TimedOut { .. }) => Err(ToolFail::new(
+        Err(RouteError::TimedOut(_)) => Err(ToolFail::new(
             ToolFailureCode::Timeout,
             "the skill timed out",
         )),
-        Err(err) => Err(ToolFail::new(ToolFailureCode::Exec, err.to_string())),
+        Err(err) => Err(ToolFail::new(
+            ToolFailureCode::Exec,
+            failure_message(name.as_str(), &err),
+        )),
     }
 }
