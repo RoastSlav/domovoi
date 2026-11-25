@@ -82,11 +82,21 @@ impl SandboxExecutor {
     pub fn environment_for(&self, spec_env: &BTreeMap<String, String>) -> BTreeMap<String, String> {
         env::build(&self.base_env, spec_env)
     }
-}
 
-#[async_trait]
-impl ProcessExecutor for SandboxExecutor {
-    async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, ProcessError> {
+    /// Like [`ProcessExecutor::run`], but when `cancel` completes first the process group
+    /// gets `SIGTERM`, then `SIGKILL` after [`TERM_GRACE`], the child is collected, the
+    /// pipes are drained as usual and [`RunEnd::Cancelled`] is returned.
+    ///
+    /// # Errors
+    /// The same [`ProcessError`]s as [`ProcessExecutor::run`].
+    pub async fn run_cancellable<C>(
+        &self,
+        spec: ProcessSpec,
+        cancel: C,
+    ) -> Result<RunEnd, ProcessError>
+    where
+        C: std::future::Future<Output = ()> + Send,
+    {
         #[cfg(unix)]
         {
             let program = program::check(&spec.program)?;
@@ -97,9 +107,12 @@ impl ProcessExecutor for SandboxExecutor {
             };
             let started = std::time::Instant::now();
             let child = spawn::spawn(&program, &spec, &env, user)?;
-            let captured = capture::drive(child, &spec).await?;
+            let captured = capture::drive(child, &spec, cancel).await?;
+            if captured.cancelled {
+                return Ok(RunEnd::Cancelled);
+            }
             let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
-            Ok(ProcessOutput {
+            Ok(RunEnd::Finished(ProcessOutput {
                 exit_code: captured.exit_code,
                 signal: captured.signal,
                 stdout: self
@@ -111,14 +124,34 @@ impl ProcessExecutor for SandboxExecutor {
                 truncated: captured.truncated,
                 timed_out: captured.timed_out,
                 duration_ms,
-            })
+            }))
         }
         #[cfg(not(unix))]
         {
-            let _ = (&self.redactor, spec);
+            let _ = (&self.redactor, spec, cancel);
             Err(ProcessError::Spawn(
                 "process execution is only supported on Unix".to_owned(),
             ))
+        }
+    }
+}
+
+/// How a cancellable run ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnd {
+    /// The process ended, or hit its timeout, and produced this output.
+    Finished(ProcessOutput),
+    /// The cancel future completed first and the process group was killed.
+    Cancelled,
+}
+
+#[async_trait]
+impl ProcessExecutor for SandboxExecutor {
+    async fn run(&self, spec: ProcessSpec) -> Result<ProcessOutput, ProcessError> {
+        match self.run_cancellable(spec, std::future::pending()).await? {
+            RunEnd::Finished(output) => Ok(output),
+            // `pending` never completes, so a run is never cancelled.
+            RunEnd::Cancelled => Err(ProcessError::Spawn("run was cancelled".to_owned())),
         }
     }
 }
