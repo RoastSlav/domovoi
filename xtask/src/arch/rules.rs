@@ -267,6 +267,8 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedPackageTarget::of",
     "execute::execute_package",
     "execute_unit::execute_unit_restart",
+    "AuthorizedContainment::of",
+    "execute_contain::execute_containment_step",
     "OperationCommand::Dispatch",
     "Caller::web",
     "Caller::chat",
@@ -547,6 +549,24 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 1,
         }],
         message: "`execute::execute_step` is the operation service's one dispatch and is called once, from effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedContainment::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/execute_contain.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedContainment::of` is the one authorizing constructor of a containment dispatch and runs once per execution, in operations/execute_contain.rs (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute_contain::execute_containment_step"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/effects/dispatch.rs",
+            count: 1,
+        }],
+        message: "`execute_contain::execute_containment_step` is the operation service's one containment dispatch and is called once, from effects/dispatch.rs (ADR 0038)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -967,6 +987,7 @@ pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("ReadWritePaths", "/var/lib/domovoi-helper"),
     ("ProtectHome", "yes"),
     ("PrivateTmp", "yes"),
+    ("RestrictNamespaces", "yes"),
     ("PrivateDevices", "no"),
     ("DevicePolicy", "closed"),
     (
@@ -977,6 +998,25 @@ pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("RuntimeMaxSec", "60s"),
     ("KillMode", "control-group"),
     ("TimeoutStopSec", "5s"),
+];
+
+/// The one-shot unit that runs the firewall leak self-test (UNIT-3, self-test clause). It is the
+/// only shipped unit that may create a network namespace, so it has no `RestrictNamespaces=`
+/// line, and the long-lived helper units do.
+pub const SELFTEST_UNIT: &str = "domovoi-helper-selftest.service";
+
+/// The directives of [`SELFTEST_UNIT`] that must hold exactly these values in `[Service]`.
+pub const SELFTEST_UNIT_DIRECTIVES: &[(&str, &str)] = &[
+    ("Type", "oneshot"),
+    ("RemainAfterExit", "yes"),
+    (
+        "ExecStart",
+        "/usr/local/bin/domovoi helper nft-selftest --if-changed",
+    ),
+    ("NoNewPrivileges", "yes"),
+    ("CapabilityBoundingSet", "CAP_NET_ADMIN CAP_SYS_ADMIN"),
+    ("AmbientCapabilities", ""),
+    ("TimeoutStartSec", "20min"),
 ];
 
 /// The `DeviceAllow=` lines of the helper unit, in order (UNIT-3): read-only access to disks.

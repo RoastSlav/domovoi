@@ -4,48 +4,17 @@
 //! Wire 1.2 is unchanged. Each phase is its own execution; the closed [`ContainCall`] decides
 //! the contract, the target and the six arguments, and nothing else reaches the frame.
 
-use domovoi_core::containment::{ContainDispatch, ContainOutputs};
+use domovoi_core::TargetKey;
+use domovoi_core::containment::ContainDispatch;
 use domovoi_core::ports::LinkError;
-use domovoi_core::{AgentSessionId, CapabilityHandoff, HostId, JournalEpoch, TargetKey};
 use domovoi_proto::messages::{AuthorizationKind, RunCapability};
-use jiff::Timestamp;
-
-use super::WsAgentLink;
 
 /// The contract version containment is requested at.
 const CONTRACT_VERSION: u32 = 1;
 
-impl WsAgentLink {
-    /// Queues one containment request, to exactly the session and journal epoch given.
-    pub(super) async fn contain_dispatch(
-        &self,
-        host: HostId,
-        req: ContainDispatch,
-        expected_session: AgentSessionId,
-        expected_epoch: JournalEpoch,
-        deadline: Timestamp,
-    ) -> Result<CapabilityHandoff, LinkError> {
-        let run = contain_run_capability_of(&req)?;
-        self.queue_capability(host, run, expected_session, expected_epoch, deadline)
-            .await
-    }
-
-    /// Waits for the terminal answer to a request queued by [`Self::contain_dispatch`].
-    pub(super) async fn contain_answer(
-        &self,
-        host: HostId,
-        handoff: CapabilityHandoff,
-        deadline: Timestamp,
-    ) -> Result<ContainOutputs, LinkError> {
-        self.capability_answer(host, handoff, deadline)
-            .await
-            .map(|outputs| ContainOutputs(outputs.0))
-    }
-}
-
 /// The `run_capability` request of one containment call: the wire target of a block is
 /// `ipnet:{canonical}`, of a list `firewall:all`.
-fn contain_run_capability_of(req: &ContainDispatch) -> Result<RunCapability, LinkError> {
+pub(super) fn contain_run_capability_of(req: &ContainDispatch) -> Result<RunCapability, LinkError> {
     let target_text = match req.call().spec() {
         Some(spec) => format!("ipnet:{}", spec.net.canonical()),
         None => "firewall:all".to_owned(),
@@ -73,7 +42,7 @@ mod tests {
     use domovoi_core::attest::{ExpectedSafety, UnverifiedReason};
     use domovoi_core::containment::{BlockSpec, ContainCall, Net, keys};
     use domovoi_core::{AuthorizationKind, ExecutionId, StepId};
-    use jiff::SignedDuration;
+    use jiff::{SignedDuration, Timestamp};
 
     use super::*;
 
