@@ -200,10 +200,10 @@ async fn freshness(
     Ok(None)
 }
 
-/// Only a `skill.<name>` contract runs, and only while the owner enables it and the hub
-/// says it is available on the host.
+/// Only an executable contract runs (a `skill.<name>`, or `unit.restart`), and only while the owner
+/// enables it and the hub says it is available on the host.
 async fn capability(shared: &OpShared, row: &ExecutionRecord) -> Option<Verdict> {
-    if !row.contract.is_skill() {
+    if !crate::plan::is_executable(&row.contract) {
         return stop(StepOutcome::Unavailable, "contract_not_executable");
     }
     let registry = &shared.deps.registry;

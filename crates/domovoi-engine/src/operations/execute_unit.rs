@@ -278,3 +278,96 @@ pub(super) async fn execute_unit_restart(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    fn outputs(verification: &str) -> UnitOutputs {
+        UnitOutputs(BTreeMap::from([
+            (keys::OUT_VERIFICATION.to_owned(), verification.to_owned()),
+            (keys::OUT_INVOCATION_BEFORE.to_owned(), "aa".to_owned()),
+            (keys::OUT_INVOCATION_AFTER.to_owned(), "bb".to_owned()),
+        ]))
+    }
+
+    fn rejected(text: &str) -> End {
+        end_of(Err(LinkError::Rejected(text.to_owned())))
+    }
+
+    fn outcome(end: &End) -> Option<StepOutcome> {
+        match end {
+            End::Settle(outcome, ..) => Some(*outcome),
+            End::Unknown => None,
+        }
+    }
+
+    #[test]
+    fn outcome_mapping_table() {
+        // A verified success, and an unverified one that says so.
+        let verified = end_of(Ok(outputs("verified")));
+        assert!(matches!(
+            &verified,
+            End::Settle(StepOutcome::Succeeded, None, Some(_))
+        ));
+        let unverified = end_of(Ok(outputs("unverified")));
+        let End::Settle(StepOutcome::Succeeded, Some(reason), _) = unverified else {
+            panic!("an unverified success keeps a reason");
+        };
+        assert_eq!(reason, "restarted; the new process could not be checked");
+
+        // The agent's own refusals never count against a rule.
+        for token in REFUSED_FRAMES {
+            assert_eq!(
+                outcome(&rejected(&format!("{token}: some detail"))),
+                Some(StepOutcome::Refused),
+                "{token}"
+            );
+        }
+        // The helper's tokens that prove nothing restarted are `Refused`.
+        for token in [
+            "target_not_found",
+            "target_protected",
+            "target_not_allowlisted",
+            "target_stale",
+            "target_changed: loaded",
+            "read_failed",
+            "platform_untested",
+            "platform_blocked",
+            "restart_budget_exhausted",
+            "target_unsupported: masked",
+        ] {
+            assert_eq!(
+                outcome(&rejected(token)),
+                Some(StepOutcome::Refused),
+                "{token}"
+            );
+        }
+        // A restart that began and did not end well is `Failed`, which counts for the breaker.
+        for token in [
+            "restart_failed",
+            "start_limit_hit",
+            "no_restart_observed",
+            "wrong_start: environment",
+        ] {
+            assert_eq!(
+                outcome(&rejected(token)),
+                Some(StepOutcome::Failed),
+                "{token}"
+            );
+        }
+        // An unrecognised message is `Failed`, cut to 500 characters.
+        let End::Settle(StepOutcome::Failed, Some(reason), _) = rejected(&"x".repeat(900)) else {
+            panic!("an unrecognised answer fails");
+        };
+        assert_eq!(reason.chars().count(), 500);
+        // No usable answer proves nothing either way.
+        assert_eq!(end_of(Err(LinkError::Timeout)), End::Unknown);
+        assert_eq!(
+            end_of(Err(LinkError::Indeterminate("lost".to_owned()))),
+            End::Unknown
+        );
+    }
+}

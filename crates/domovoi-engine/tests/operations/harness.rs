@@ -19,8 +19,8 @@ use domovoi_core::{
 };
 use domovoi_engine::Evidence;
 use domovoi_engine::operations::{
-    ExecutionRequest, OperationDeps, OperationHandle, OperationSeed, OperationService,
-    OperationSettings,
+    AutonomyDeps, ExecutionRequest, OperationDeps, OperationHandle, OperationSeed,
+    OperationService, OperationSettings,
 };
 use domovoi_testkit::build::{T0, manifest};
 use domovoi_testkit::link::{action_caps, evidence_caps, observer_of};
@@ -113,6 +113,8 @@ pub struct World {
     pub shutdown: CancellationToken,
     pub user: UserId,
     pub bus: tokio::sync::broadcast::Sender<domovoi_engine::events::DomainEvent>,
+    /// The unattended-execution dependencies the service is started with, if any.
+    pub autonomy: Option<AutonomyDeps>,
 }
 
 impl Drop for World {
@@ -132,11 +134,34 @@ pub async fn world_with(settings: OperationSettings) -> World {
     world_over(settings, store.clone(), store).await
 }
 
+/// A world over `store` whose service has `autonomy`; `closed` holds the runner until opened.
+pub async fn world_over_with_autonomy(
+    store: Arc<InMemoryStore>,
+    autonomy: AutonomyDeps,
+    closed: bool,
+) -> World {
+    build(
+        OperationSettings::default(),
+        store.clone(),
+        store,
+        closed,
+        Some(autonomy),
+    )
+    .await
+}
+
 /// A world whose runner claims nothing until `world.queue.open()`, so a test can look at,
 /// or claim by hand, what a commit queued.
 pub async fn world_gated() -> World {
     let store = Arc::new(InMemoryStore::new());
-    build(OperationSettings::default(), store.clone(), store, true).await
+    build(
+        OperationSettings::default(),
+        store.clone(),
+        store,
+        true,
+        None,
+    )
+    .await
 }
 
 /// A world whose commits go through `uow`, which must forward to `store`.
@@ -145,7 +170,7 @@ pub async fn world_over(
     store: Arc<InMemoryStore>,
     uow: Arc<dyn UnitOfWork>,
 ) -> World {
-    build(settings, store, uow, false).await
+    build(settings, store, uow, false, None).await
 }
 
 async fn build(
@@ -153,6 +178,7 @@ async fn build(
     store: Arc<InMemoryStore>,
     uow: Arc<dyn UnitOfWork>,
     closed: bool,
+    autonomy: Option<AutonomyDeps>,
 ) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -202,6 +228,7 @@ async fn build(
         shutdown,
         user: UserId::new(),
         bus: tokio::sync::broadcast::channel(64).0,
+        autonomy,
     };
     let (handle, task) = world.start();
     world.handle = Some(handle);
@@ -282,7 +309,7 @@ impl World {
                 clock: self.clock.clone(),
                 shutdown: self.shutdown.clone(),
                 investigate: None,
-                autonomy: None,
+                autonomy: self.autonomy.clone(),
             },
             self.settings.clone(),
         )

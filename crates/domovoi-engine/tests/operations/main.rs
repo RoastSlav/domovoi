@@ -35,6 +35,8 @@ mod meta;
 #[cfg(test)]
 mod plan;
 #[cfg(test)]
+mod plan_unit;
+#[cfg(test)]
 mod policy_shadow;
 #[cfg(test)]
 mod properties;
@@ -51,5 +53,7 @@ mod shadow_env;
 mod sim;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod unit_restart;
 #[cfg(test)]
 mod writer;
