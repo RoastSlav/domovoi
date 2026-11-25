@@ -43,6 +43,9 @@ pub enum HelperCommand {
         #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
         args: Vec<String>,
     },
+    /// Delete the helper's own firewall table when no block is live and every block set is
+    /// empty, so the next request builds it again (root only). Used after a layout change.
+    NftRecreate,
     /// Run the containment drills in a throwaway namespace and record the result (root only;
     /// minutes). Unattended containment is dispatched only after they pass.
     ContainmentDrill,
@@ -96,6 +99,7 @@ mod unix {
             } => nft::selftest(dirs, if_changed, interval_only).await,
             HelperCommand::NftSelftestSender { args } => nft::sender(&args),
             HelperCommand::ContainmentDrill => nft::drill(dirs).await,
+            HelperCommand::NftRecreate => nft::recreate(dirs).await,
         }
     }
 

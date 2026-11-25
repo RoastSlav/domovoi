@@ -58,3 +58,16 @@ pub fn sender(args: &[String]) -> anyhow::Result<ExitCode> {
 pub async fn drill(dirs: HostDirs) -> anyhow::Result<ExitCode> {
     print(command::containment_drill(&env(dirs)?).await)
 }
+
+/// `nft-recreate`: deletes the helper's own empty table so the next request builds it again.
+pub async fn recreate(dirs: HostDirs) -> anyhow::Result<ExitCode> {
+    let path = std::path::Path::new("/etc/domovoi/helper.toml");
+    let table = if path.exists() {
+        domovoi_config::load_helper(path)
+            .map(|(config, _)| config.nft.table)
+            .map_err(|_| anyhow::anyhow!("helper.toml does not load"))?
+    } else {
+        domovoi_config::HelperConfig::default().nft.table
+    };
+    print(command::recreate(&env(dirs)?, &table).await)
+}

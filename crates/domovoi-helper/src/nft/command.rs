@@ -7,15 +7,18 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use domovoi_core::containment::{DrillsState, Verdict};
+use domovoi_core::containment::templates::{TableName, delete_own_table, list_table_args};
+use domovoi_core::containment::{DrillsState, JournalRecord, RecreateReason, Verdict};
 use domovoi_core::identity::HostDirs;
 use domovoi_core::ports::{Clock, HostInspect, ProcessExecutor};
 use jiff::SignedDuration;
 
 use super::drill::{self, DrillsFile};
 use super::exec::Runner;
+use super::journal_file::{Journal, fold};
 use super::selftest::scenario::Host;
 use super::selftest::{self, sender};
+use super::view;
 use crate::start_check::run_start_checks;
 use crate::state::StateLock;
 
@@ -171,4 +174,69 @@ fn prepare_scratch(scratch: &Path) -> Result<(), String> {
         .open(scratch.join(crate::state::LOCK_FILE))
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// `domovoi helper nft-recreate`: the maintenance operation behind a layout, `max_elements` or
+/// default-timeout change. It deletes the helper's own table, and only when no block is live and
+/// every block set is empty; the next request builds the table again from the template. Nothing
+/// else ever deletes the table.
+pub async fn recreate(env: &Env, table: &str) -> Result<Vec<String>, String> {
+    ready(env)?;
+    let table = TableName::parse(table).map_err(|e| e.to_string())?;
+    let dir = env.dirs.helper_dir.as_path();
+    let lock = StateLock::open(dir).map_err(|e| e.to_string())?;
+    let guard = lock.acquire().map_err(|e| e.to_string())?;
+    let journal = Journal::new(dir);
+    let loaded = journal.load().map_err(|e| e.to_string())?;
+    let now = env.clock.now();
+    if fold(&loaded.records).iter().any(|b| b.live(now)) {
+        return Err("a block is still live: release it first".to_owned());
+    }
+    let runner = Runner {
+        exec: env.exec.as_ref(),
+        inspect: env.inspect.as_ref(),
+        timeout: SignedDuration::from_secs(5),
+        netns: None,
+    };
+    let listed = runner
+        .read(list_table_args(&table))
+        .await
+        .map_err(|e| e.to_string())?;
+    if !listed.ok() {
+        return if view::is_absent(listed.exit, &listed.stderr) {
+            Ok(vec![
+                "there is no table; the next request creates it".to_owned(),
+            ])
+        } else {
+            Err("the table could not be read".to_owned())
+        };
+    }
+    let current = view::parse(&listed.stdout).map_err(|e| e.to_string())?;
+    let held = current
+        .sets
+        .iter()
+        .filter(|(name, _)| name.starts_with("blocked"))
+        .any(|(_, set)| !set.members.is_empty());
+    if held {
+        return Err("a block set still holds elements: release them first".to_owned());
+    }
+    let removed = runner
+        .script(&delete_own_table(&table))
+        .await
+        .map_err(|e| e.to_string())?;
+    if !removed.ok() {
+        return Err("the table could not be deleted".to_owned());
+    }
+    journal
+        .append(
+            &guard,
+            &JournalRecord::TableRecreated {
+                reason: RecreateReason::Maintenance,
+                at: now,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(vec![
+        "the table was deleted; the next request creates it from the template".to_owned(),
+    ])
 }
