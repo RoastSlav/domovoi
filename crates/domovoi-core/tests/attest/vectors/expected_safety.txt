@@ -1,0 +1,28 @@
+# accept|refuse<TAB>JSON of an expected_safety value
+accept	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+accept	{"route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202","config_hash":"0101010101010101010101010101010101010101010101010101010101010101","generation":1,"boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","fingerprint":"abababababababababababababababababababababababababababababababab","state":"verified"}
+accept	{"state":"unverified","reason":"key_not_pinned"}
+accept	{"reason":"confirmation_stale","state":"unverified"}
+refuse	{"state":"unverified","reason":"helper absent"}
+refuse	{"state":"unverified","reason":"Key_Not_Pinned"}
+refuse	{"state":"unverified"}
+refuse	{"state":"unverified","reason":"key_not_pinned","extra":1}
+refuse	{"state":"unverified","reason":"key_not_pinned","generation":1}
+refuse	{"state":"unverified","reason":"key_not_pinned","fingerprint":null}
+refuse	{"state":"unverified","reason":"key_not_pinned","reason":"key_mismatch"}
+refuse	{"state":"trusted"}
+refuse	{"state":"Verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202","extra":true}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202","reason":"key_mismatch"}
+refuse	{"state":"verified","fingerprint":"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"ababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5F0C1D2E-3A4B-4C5D-8E9F-0A1B2C3D4E5F","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e3a4b4c5d8e9f0a1b2c3d4e5f","generation":7,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":-1,"config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":"7","config_hash":"0101010101010101010101010101010101010101010101010101010101010101","route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	{"state":"verified","fingerprint":"abababababababababababababababababababababababababababababababab","boot_id":"5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f","generation":7,"config_hash":null,"route_state_hash":"0202020202020202020202020202020202020202020202020202020202020202"}
+refuse	"verified"
+refuse	[]
+refuse	null

@@ -1,0 +1,8 @@
+[safety]
+management_cidrs = ["192.168.1.7/24", "2001:DB8:0:0:0:0:0:0/32", "100.64.0.0/11"]
+protected_units = ["plex", "sshd.service"]
+protected_containers = ["homeassistant"]
+
+[safety.containment]
+max_ttl = "24h"
+max_active = 50
