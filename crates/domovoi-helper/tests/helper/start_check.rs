@@ -104,7 +104,39 @@ fn helper_reports_permission_fault_not_corruption_for_unopenable_lock() {
 }
 
 #[test]
-fn helper_start_accepts_absent_key_and_state_in_this_milestone() {
+fn helper_start_refuses_uninitialised_when_key_and_state_are_both_absent() {
+    let d = dirs();
+    let host = FakeHostInspect::new()
+        .ids(0, 0)
+        .user(crate::common::agent_user(), &[AGENT_ID])
+        .path(&d.helper_dir, root_dir(0o700))
+        .path(d.helper_dir.join("state.lock"), root_file(0o600))
+        .path(d.etc_dir.join("helper.toml"), root_file(0o600))
+        .text(d.etc_dir.join("helper.toml"), crate::common::GOOD_TOML);
+    let refused = refusal(&host);
+    assert_eq!(refused.token, RefusalToken::Uninitialized);
+    assert!(refused.faults.is_empty());
+}
+
+#[test]
+fn helper_start_accepts_a_key_without_a_state_so_attest_can_say_state_missing() {
+    let d = dirs();
+    let host = healthy(&d).lstat_result(d.helper_dir.join("state"), Err(InspectError::NotFound));
+    let host = host.open_result(d.helper_dir.join("state"), Err(InspectError::NotFound));
+    assert!(run_start_checks(&host, &d).is_ok());
+}
+
+#[test]
+fn helper_start_accepts_a_state_without_a_key_so_attest_can_say_key_missing() {
+    let d = dirs();
+    let host =
+        healthy(&d).lstat_result(d.helper_dir.join("attest.key"), Err(InspectError::NotFound));
+    let host = host.open_result(d.helper_dir.join("attest.key"), Err(InspectError::NotFound));
+    assert!(run_start_checks(&host, &d).is_ok());
+}
+
+#[test]
+fn helper_start_accepts_an_initialised_directory() {
     let d = dirs();
     assert!(run_start_checks(&healthy(&d), &d).is_ok());
 }

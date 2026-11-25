@@ -40,13 +40,16 @@ pub fn root_file(mode: u32) -> PathFacts {
     facts(PathKind::File, mode, 0, 0)
 }
 
-/// A host on which every start check passes, with `toml` as `helper.toml`.
+/// A host on which every start check passes (initialised, with a key and a state), with `toml` as
+/// `helper.toml`.
 pub fn healthy_with(dirs: &HostDirs, toml: &str) -> FakeHostInspect {
     FakeHostInspect::new()
         .ids(0, 0)
         .user(agent_user(), &[AGENT_ID])
         .path(&dirs.helper_dir, root_dir(0o700))
         .path(dirs.helper_dir.join("state.lock"), root_file(0o600))
+        .path(dirs.helper_dir.join("attest.key"), root_file(0o600))
+        .path(dirs.helper_dir.join("state"), root_file(0o600))
         .path(dirs.etc_dir.join("helper.toml"), root_file(0o600))
         .text(dirs.etc_dir.join("helper.toml"), toml)
 }
