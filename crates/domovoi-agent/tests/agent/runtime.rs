@@ -29,6 +29,7 @@ fn deps(dir: &tempfile::TempDir) -> AgentDeps {
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
         boundary_in_effect: false,
+        privileged: None,
         skills: SkillRoute::Legacy(Arc::new(FakeProcessExecutor::new())),
     }
 }

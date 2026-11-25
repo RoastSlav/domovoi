@@ -1087,10 +1087,13 @@ name = "domovoi-helper"
 version = "0.0.10"
 dependencies = [
  "async-trait",
+ "bollard",
  "domovoi-config",
  "domovoi-core",
  "domovoi-testkit",
  "ed25519-dalek",
+ "futures",
+ "insta",
  "jiff",
  "nix",
  "proptest",

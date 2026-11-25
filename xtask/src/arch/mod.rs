@@ -19,6 +19,9 @@ mod selftest_rule;
 mod units;
 pub mod wiring;
 
+#[cfg(test)]
+mod read_rules_tests;
+
 use std::fmt;
 use std::path::Path;
 

@@ -1,0 +1,16 @@
+---
+source: crates/domovoi-core/src/helper/read/tests.rs
+expression: spellings
+---
+[
+  "tool_missing",
+  "engine_absent",
+  "engine_denied",
+  "engine_error",
+  "engine_api_refused",
+  "target_not_found",
+  "device_not_allowed",
+  "command_failed",
+  "output_malformed",
+  "timed_out"
+]

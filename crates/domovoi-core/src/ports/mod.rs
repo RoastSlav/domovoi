@@ -11,6 +11,7 @@ pub mod caps;
 pub mod chat;
 pub mod clock;
 pub mod context;
+pub mod docker_read;
 pub mod experience;
 pub mod helper_trust;
 pub mod host_inspect;
@@ -20,6 +21,7 @@ pub mod live;
 pub mod llm;
 pub mod logs;
 pub mod package_files;
+pub mod privileged_reads;
 pub mod process;
 pub mod reconcile;
 pub mod redact;
@@ -46,6 +48,7 @@ pub use chat::{
 };
 pub use clock::Clock;
 pub use context::ContextSource;
+pub use docker_read::{DockerReadApi, DockerReadError};
 pub use experience::ExperienceRead;
 pub use helper_trust::{
     HelperLive, HelperRelay, HelperReport, HelperTrustRead, HelperTrustRepo, LastOutcome,
@@ -61,6 +64,7 @@ pub use llm::{
 };
 pub use logs::{LogLine, LogSource};
 pub use package_files::{ArtifactReader, FileError, PackageFiles};
+pub use privileged_reads::{PrivilegedError, PrivilegedReads};
 pub use process::{ProcessError, ProcessExecutor, ProcessOutput, ProcessSpec};
 pub use reconcile::HostReconciler;
 pub use redact::Redactor;

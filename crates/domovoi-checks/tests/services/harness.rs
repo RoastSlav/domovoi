@@ -14,10 +14,10 @@ use domovoi_checks::framework::{
     Check, CheckContext, CheckError, CheckReport, CheckSettings, CheckState, Observation,
     run_bounded,
 };
-use domovoi_core::ports::ProcessOutput;
+use domovoi_core::ports::{PrivilegedReads, ProcessOutput};
 use domovoi_core::{EvidenceValue, HostId, Severity, SignalClass};
 use domovoi_testkit::build::T0;
-use domovoi_testkit::{FakeClock, FakeProcessExecutor, FixtureHostFs};
+use domovoi_testkit::{FakeClock, FakePrivilegedReads, FakeProcessExecutor, FixtureHostFs};
 use jiff::{SignedDuration, Timestamp};
 use uuid::Uuid;
 
@@ -39,6 +39,7 @@ pub struct Harness {
     pub clock: Arc<FakeClock>,
     pub settings: CheckSettings,
     pub state: CheckState,
+    pub privileged: Option<Arc<FakePrivilegedReads>>,
 }
 
 impl Harness {
@@ -64,6 +65,7 @@ impl Harness {
             clock: Arc::new(FakeClock::new(T0)),
             settings: CheckSettings::default(),
             state: CheckState::new(),
+            privileged: None,
         }
     }
 
@@ -88,6 +90,10 @@ impl Harness {
             commands: &self.commands,
             clock: &*self.clock,
             settings: &self.settings,
+            privileged: self
+                .privileged
+                .as_deref()
+                .map(|p| p as &dyn PrivilegedReads),
             state: &mut self.state,
         };
         run_bounded(check, &mut ctx).await

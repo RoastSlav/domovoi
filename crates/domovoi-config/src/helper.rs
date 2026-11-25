@@ -45,7 +45,7 @@ pub struct HelperConfig {
     /// Rate and time limits.
     #[serde(default)]
     pub limits: LimitsSection,
-    /// `[docker]`: accepted, not interpreted yet.
+    /// `[docker]`: the read endpoint; `write_containers` is accepted, not interpreted yet.
     #[serde(default)]
     pub docker: DockerSection,
     /// `[systemd]`: accepted, not interpreted yet.
@@ -158,6 +158,10 @@ impl Default for LimitsSection {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DockerSection {
+    /// The engine socket `docker.read` opens, as `unix:///absolute/path`. Absent: the helper tries
+    /// the two system sockets.
+    #[serde(default)]
+    pub endpoint: Option<String>,
     /// Containers `docker.write` may restart, by name.
     #[serde(default)]
     pub write_containers: Vec<String>,
@@ -237,6 +241,23 @@ impl HelperConfig {
             .collect()
     }
 
+    /// The socket path of `[docker] endpoint`, `None` when the key is absent. A loaded config
+    /// has validated it, so a value that does not parse also gives `None`.
+    #[must_use]
+    pub fn docker_socket(&self) -> Option<std::path::PathBuf> {
+        self.docker
+            .endpoint
+            .as_deref()
+            .and_then(docker_socket_path)
+            .map(std::path::PathBuf::from)
+    }
+
+    /// The `[smart] devices` patterns, each in the grammar of [`valid_device_pattern`].
+    #[must_use]
+    pub fn smart_device_patterns(&self) -> &[String] {
+        &self.smart.devices
+    }
+
     /// Whether the owner switched write groups on for untested platforms.
     #[must_use]
     pub fn write_opt_in(&self) -> bool {
@@ -292,6 +313,41 @@ fn default_max_elements() -> u32 {
     1000
 }
 
+/// The socket path inside `unix:///path`, or `None` when the text is not that form: an empty path,
+/// a relative path or a `..` segment is refused, as is any other scheme.
+fn docker_socket_path(endpoint: &str) -> Option<&str> {
+    let path = endpoint.strip_prefix("unix://")?;
+    let ok = path.len() > 1
+        && path.starts_with('/')
+        && !path.contains('\0')
+        && !path.split('/').any(|segment| segment == "..");
+    ok.then_some(path)
+}
+
+/// Whether `pattern` is in the device pattern grammar of `[smart] devices`: literal `a-z`, `0-9`
+/// and `/` characters, and the single-character classes `[a-z]` and `[0-9]`. Nothing else is
+/// accepted (no `*`, `?`, `{`, other classes or `.`), and the pattern must not be empty.
+#[must_use]
+pub fn valid_device_pattern(pattern: &str) -> bool {
+    let mut rest = pattern;
+    if rest.is_empty() {
+        return false;
+    }
+    while let Some(c) = rest.chars().next() {
+        if let Some(after) = rest
+            .strip_prefix("[a-z]")
+            .or_else(|| rest.strip_prefix("[0-9]"))
+        {
+            rest = after;
+        } else if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '/' {
+            rest = &rest[1..];
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
 impl Validate for HelperConfig {
     fn validate(&self, issues: &mut Vec<ConfigIssue>) {
         for (index, group) in self.groups.iter().enumerate() {
@@ -299,6 +355,24 @@ impl Validate for HelperConfig {
                 issues.push(ConfigIssue::error(
                     format!("groups[{index}]"),
                     format!("`{group}` is listed more than once; list each group once"),
+                ));
+            }
+        }
+        if let Some(endpoint) = &self.docker.endpoint
+            && docker_socket_path(endpoint).is_none()
+        {
+            issues.push(ConfigIssue::error(
+                "docker.endpoint",
+                "must be `unix://` followed by an absolute socket path without `..`, \
+                 such as `unix:///var/run/docker.sock`",
+            ));
+        }
+        for (index, pattern) in self.smart.devices.iter().enumerate() {
+            if !valid_device_pattern(pattern) {
+                issues.push(ConfigIssue::error(
+                    format!("smart.devices[{index}]"),
+                    "may hold only the characters a-z, 0-9 and `/`, and the classes `[a-z]` and \
+                     `[0-9]`",
                 ));
             }
         }

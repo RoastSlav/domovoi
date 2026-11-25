@@ -83,7 +83,8 @@ fn exchange(socket: &Path) -> Result<HealthAnswer, String> {
     stream
         .read_exact(&mut header)
         .map_err(|e| format!("read: {e}"))?;
-    let len = frame_len(header).map_err(|e| e.to_string())?;
+    let len =
+        frame_len(header, domovoi_core::helper::MAX_RESPONSE_BYTES).map_err(|e| e.to_string())?;
     let mut body = vec![0_u8; len];
     stream
         .read_exact(&mut body)

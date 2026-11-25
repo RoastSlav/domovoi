@@ -44,7 +44,8 @@ fn serve_stub(
             if stream.read_exact(&mut header).await.is_err() {
                 continue;
             }
-            let mut body = vec![0_u8; frame_len(header).unwrap()];
+            let mut body =
+                vec![0_u8; frame_len(header, domovoi_core::helper::MAX_REQUEST_BYTES).unwrap()];
             if stream.read_exact(&mut body).await.is_err() {
                 continue;
             }

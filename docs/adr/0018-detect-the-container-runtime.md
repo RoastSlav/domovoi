@@ -51,3 +51,7 @@ Two optional fields, so the protocol stays at 1.0 and old agents and hubs keep w
 - Keep it off by default with a better error message: still a file edit on the host before anything works.
 - Let the hub also set the endpoint: it would let the web UI point the agent at any socket on the host.
 - Re-detect while running: simpler to reason about when the agent decides once per start; an engine that appears later needs one restart.
+
+## Revision (2026-11-25)
+
+Under the privilege boundary of [0030](0030-three-identities.md) the agent does not hold the engine socket. Docker is read through the helper's `docker.read` group ([0036](0036-helper-read-operations.md)), and the detection result (engine and endpoint) comes from the helper's probe. "The agent's user needs access to the socket" applies only where the boundary is not in effect, or to an owner-set `tcp://` endpoint. Status unchanged.

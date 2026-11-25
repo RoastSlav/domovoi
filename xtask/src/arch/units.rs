@@ -13,8 +13,8 @@ use super::compose::check_compose;
 use super::identity_rules::violation;
 use super::install_script::{self, InstallScript};
 use super::rules::{
-    COMPOSE_DIR, HELPER_UNIT, HELPER_UNIT_DIRECTIVES, INSTALL_SCRIPT, SOCKET_GROUP,
-    SOCKET_LISTEN_STREAMS, UNITS_DIR,
+    COMPOSE_DIR, HELPER_UNIT, HELPER_UNIT_DEVICE_ALLOW, HELPER_UNIT_DIRECTIVES, INSTALL_SCRIPT,
+    SOCKET_GROUP, SOCKET_LISTEN_STREAMS, UNITS_DIR,
 };
 
 /// Whether a missing created-set block in the real `install.sh` is a violation. The unit rules
@@ -183,6 +183,16 @@ fn check_helper_unit(units: &[UnitFile]) -> Vec<Violation> {
                 &format!("[Service] {key} must be exactly `{want}`, found {shown}"),
             ));
         }
+    }
+    if unit.values("Service", "DeviceAllow") != HELPER_UNIT_DEVICE_ALLOW {
+        out.push(violation(
+            "UNIT-3",
+            &unit_at(unit),
+            &format!(
+                "[Service] DeviceAllow lines must be exactly {HELPER_UNIT_DEVICE_ALLOW:?}, found {:?}",
+                unit.values("Service", "DeviceAllow")
+            ),
+        ));
     }
     for key in ["User", "SupplementaryGroups"] {
         for entry in unit.keyed(key) {

@@ -3,7 +3,8 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
-use super::group::ReadGroup;
+use super::group::HelperGroup;
+use super::read::{ContainerRef, DeviceRef};
 
 /// A challenge for `safety.attest`: 32 random bytes, written as 64 lowercase hex characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,11 +67,46 @@ pub enum HelperRequest {
     Health,
     /// Which groups are enabled and what the platform allows.
     Groups,
-    /// A read-group operation; answered `unavailable` until the read milestone.
-    Read {
-        /// The group asked.
-        group: ReadGroup,
+    /// Whether a Docker or Podman socket answers, and which.
+    DockerProbe,
+    /// Every container, running or not.
+    DockerList,
+    /// Container events in a window given as seconds before now: from `since_secs` ago to
+    /// `until_secs` ago, with `since_secs` greater and at most 86 400.
+    DockerEvents {
+        /// Start of the window, in seconds before now.
+        since_secs: u32,
+        /// End of the window, in seconds before now.
+        until_secs: u32,
     },
+    /// The inspect document of one container, with environment values removed.
+    DockerInspect {
+        /// The container.
+        container: ContainerRef,
+    },
+    /// The last lines of one container's output.
+    DockerLogs {
+        /// The container.
+        container: ContainerRef,
+        /// How many lines, 1 to 500.
+        lines: u16,
+    },
+    /// The SMART-capable devices the allowlist admits.
+    SmartScan,
+    /// The SMART report of one allowed device.
+    SmartReport {
+        /// The device.
+        device: DeviceRef,
+    },
+    /// Recent kernel ring buffer lines.
+    KernelLog {
+        /// How far back, 1 to 1 440 minutes.
+        since_minutes: u32,
+        /// How many lines, 1 to 500.
+        lines: u16,
+    },
+    /// Listening sockets with their owning processes.
+    NetListeners,
     /// A safety attestation: the helper signs a report of what it enforces, bound to `nonce`.
     SafetyAttest {
         /// The challenge to bind into the attestation.
@@ -90,4 +126,23 @@ pub struct HelperRequestFrame {
     pub id: Uuid,
     /// The request.
     pub request: HelperRequest,
+}
+
+impl HelperRequest {
+    /// The group an operation belongs to, or `None` for `Health` and `Groups`.
+    #[must_use]
+    pub const fn group(&self) -> Option<HelperGroup> {
+        match self {
+            Self::Health | Self::Groups => None,
+            Self::DockerProbe
+            | Self::DockerList
+            | Self::DockerEvents { .. }
+            | Self::DockerInspect { .. }
+            | Self::DockerLogs { .. } => Some(HelperGroup::DockerRead),
+            Self::SmartScan | Self::SmartReport { .. } => Some(HelperGroup::SmartRead),
+            Self::KernelLog { .. } => Some(HelperGroup::KernelRead),
+            Self::NetListeners => Some(HelperGroup::NetRead),
+            Self::SafetyAttest { .. } | Self::SafetyPublicKey => Some(HelperGroup::SafetyAttest),
+        }
+    }
 }

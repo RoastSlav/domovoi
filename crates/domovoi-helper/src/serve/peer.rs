@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use domovoi_core::helper::frame_len;
+use domovoi_core::helper::{MAX_REQUEST_BYTES, frame_len};
 use domovoi_core::identity::{AGENT_ACCOUNT, RefusalToken};
 use domovoi_core::ports::{Clock, HostInspect};
 use jiff::SignedDuration;
@@ -104,7 +104,7 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> ReadOutcome {
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return ReadOutcome::Closed,
         Err(e) => return ReadOutcome::Failed(e),
     }
-    let len = match frame_len(header) {
+    let len = match frame_len(header, MAX_REQUEST_BYTES) {
         Ok(len) => len,
         Err(err) => return ReadOutcome::Refused(err.token()),
     };

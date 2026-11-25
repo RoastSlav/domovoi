@@ -1,0 +1,46 @@
+---
+source: crates/domovoi-helper/tests/reads/net.rs
+expression: listeners
+---
+[
+    ListenerWire {
+        proto: Udp,
+        addr: "127.0.0.53",
+        port: 53,
+        process: Some(
+            "systemd-resolve",
+        ),
+        pid: Some(
+            612,
+        ),
+    },
+    ListenerWire {
+        proto: Tcp,
+        addr: "0.0.0.0",
+        port: 22,
+        process: Some(
+            "sshd",
+        ),
+        pid: Some(
+            1,
+        ),
+    },
+    ListenerWire {
+        proto: Tcp,
+        addr: "::",
+        port: 443,
+        process: None,
+        pid: None,
+    },
+    ListenerWire {
+        proto: Tcp,
+        addr: "::1",
+        port: 631,
+        process: Some(
+            "cupsd",
+        ),
+        pid: Some(
+            77,
+        ),
+    },
+]

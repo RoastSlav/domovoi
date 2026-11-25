@@ -235,8 +235,17 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/domovoi-helper
 ProtectHome=yes
 PrivateTmp=yes
-PrivateDevices=yes
-CapabilityBoundingSet=CAP_NET_ADMIN
+# Disks and /dev/kmsg are needed by the read operations (smartctl, dmesg); every other
+# device stays closed. The capability set is the widened baseline of ADR 0036: the
+# privileged rows of deploy/test/identities.sh measure it (decision OD-1 is unmeasured
+# until they have run on a real host).
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=block-nvme r
+DeviceAllow=char-nvme r
+DeviceAllow=char-sg r
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_SYSLOG CAP_SYS_PTRACE CAP_DAC_READ_SEARCH
 AmbientCapabilities=
 RuntimeMaxSec=60s
 KillMode=control-group
@@ -608,6 +617,11 @@ place_unit() {
         say "  $prefix/share/domovoi/$pu_name"
         mkdir -p "$prefix/share/domovoi"
         install -m 0644 "$tmp/$pu_name" "$prefix/share/domovoi/$pu_name"
+        if [ "$pu_name" = "domovoi-helper@.service" ]; then
+            say "  Replace the helper unit with it, then run systemctl daemon-reload: SMART, kernel-log"
+            say "  and listening-port reads need its wider device and capability settings. Docker reads"
+            say "  work without the change."
+        fi
     fi
 }
 
@@ -814,10 +828,12 @@ migrate_plan() {
     fi
     say ""
     say "What stops working:"
-    say "  Checks that need root (Docker through its socket, SMART, the journal of every unit)"
-    say "  report errors until the helper's read groups carry them."
-    say "  Skills run as domovoi-skill from now on. Skills whose manifest names another run_as"
-    say "  user stay unavailable."
+    say "  Docker, SMART, the kernel-log fallback and the owning process names of listening ports"
+    say "  are read through the helper and keep working."
+    say "  The check security.fail2ban reads a root-only socket and reports an error until a later"
+    say "  release."
+    say "  Skills run as domovoi-skill from now on. Skills whose manifest names a run_as user have"
+    say "  no runner until the skill runner is installed."
     say ""
     say "Nothing is deleted. To undo this later: sudo sh install.sh --rollback-identity"
     say ""

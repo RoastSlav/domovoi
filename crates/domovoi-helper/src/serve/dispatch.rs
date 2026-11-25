@@ -75,7 +75,11 @@ pub fn unavailable_reason(
 }
 
 /// Answers one decoded request. The request type has no write variant and no free-form field.
-pub(super) async fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> HelperResponse {
+pub(super) async fn dispatch(
+    request: &HelperRequest,
+    ctx: &ServeContext,
+    peer_uid: Option<u32>,
+) -> HelperResponse {
     match request {
         HelperRequest::Health => HelperResponse::Health {
             protocol: domovoi_core::helper::HELPER_PROTOCOL,
@@ -83,9 +87,9 @@ pub(super) async fn dispatch(request: &HelperRequest, ctx: &ServeContext) -> Hel
             pid: std::process::id(),
         },
         HelperRequest::Groups => groups(ctx),
-        HelperRequest::Read { group } => unavailable(group.group(), ctx),
         HelperRequest::SafetyAttest { nonce } => attest(*nonce, ctx).await,
         HelperRequest::SafetyPublicKey => attest_public_key(ctx),
+        read => crate::reads::serve(read, ctx, peer_uid).await,
     }
 }
 

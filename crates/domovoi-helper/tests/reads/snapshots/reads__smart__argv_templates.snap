@@ -1,0 +1,28 @@
+---
+source: crates/domovoi-helper/tests/reads/smart.rs
+expression: "(smart_scan_args(), report, kernel_args(), net_args())"
+---
+(
+    [
+        "--scan-open",
+        "--json",
+    ],
+    [
+        "--all",
+        "--json",
+        "--nocheck=standby",
+        "/dev/sda",
+    ],
+    [
+        "--kernel",
+        "--time-format=iso",
+    ],
+    [
+        "--no-header",
+        "--listening",
+        "--numeric",
+        "--tcp",
+        "--udp",
+        "--processes",
+    ],
+)

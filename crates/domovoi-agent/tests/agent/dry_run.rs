@@ -33,6 +33,7 @@ async fn journal_checks_are_unavailable_in_a_container() {
         redactor: Arc::new(ListRedactor::new(Vec::<String>::new())),
         logs: None,
         boundary_in_effect: false,
+        privileged: None,
         skills: SkillRoute::Legacy(executor.clone()),
     };
 

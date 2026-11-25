@@ -1,4 +1,4 @@
-//! Source scans of the helper and identity rules: HELPER-1, HELPER-2, IDENT-1, ID-2, ID-3.
+//! Source scans of the helper and identity rules: HELPER-1, HELPER-2, IDENT-1, ID-2, ID-3, READ-1.
 //!
 //! They read the same lexed views as the line rules in [`super::scan`]: identifiers from the
 //! code view (comments and literals blanked), literals from the literal view, and the text
@@ -10,9 +10,10 @@ use std::collections::BTreeSet;
 use super::Violation;
 use super::lex::lex;
 use super::rules::{
-    ACCOUNT_CONSTANTS, ACCOUNT_LITERALS, GROUP_CALLS, HELPER_SOCKET_ALLOWED, HELPER_SOCKET_LITERAL,
-    HELPER_SOCKET_NAMES, HELPER_STATE_ALLOWED, HELPER_STATE_LITERALS, IDENTITY_ALLOWED,
-    IDENTITY_CARDS, INSTANCE_LITERAL_FILE, INSTANCE_NAME_SCOPE, SKILL_ACCOUNT_FILE,
+    ACCOUNT_CONSTANTS, ACCOUNT_LITERALS, BOLLARD_ALLOWED, GROUP_CALLS, HELPER_SOCKET_ALLOWED,
+    HELPER_SOCKET_LITERAL, HELPER_SOCKET_NAMES, HELPER_STATE_ALLOWED, HELPER_STATE_LITERALS,
+    IDENTITY_ALLOWED, IDENTITY_CARDS, INSTANCE_LITERAL_FILE, INSTANCE_NAME_SCOPE,
+    SKILL_ACCOUNT_FILE,
 };
 
 /// The skill account literal, which IDENT-1 owns.
@@ -297,6 +298,33 @@ pub fn check_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
     out.sort_by(|a, b| (&a.location, a.rule, &a.message).cmp(&(&b.location, b.rule, &b.message)));
     out.dedup();
     out
+}
+
+/// READ-1: the `bollard` crate is named only in the checks' Docker source and the helper's
+/// read-only Docker client. `rel` is relative to the workspace root; test sources are exempt.
+pub fn check_read_file(rel: &str, text: &str, test_only: bool) -> Vec<Violation> {
+    if test_only
+        || is_test_path(rel)
+        || !rel.starts_with("crates/")
+        || allowed(rel, BOLLARD_ALLOWED)
+    {
+        return Vec::new();
+    }
+    let lexed = lex(text);
+    let skip = cfg_test_lines(&lexed.code);
+    lexed
+        .code
+        .lines()
+        .enumerate()
+        .filter(|(i, code)| !skip.contains(i) && contains_word(code, "bollard"))
+        .map(|(i, _)| {
+            violation(
+                "READ-1",
+                &format!("{rel}:{}", i + 1),
+                "`bollard` is named here",
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -6,15 +6,14 @@
 mod attestation;
 mod frame;
 mod group;
+pub mod read;
 mod request;
 mod response;
 #[cfg(test)]
 mod tests;
 
 pub use attestation::{SignedAttestation, UnsignedToken};
-pub use frame::{
-    FrameError, decode_request, decode_response, encode_frame, frame_len, frame_len_response,
-};
+pub use frame::{FrameError, decode_request, decode_response, encode_frame, frame_len};
 pub use group::{HelperGroup, ReadGroup};
 pub use request::{HelperRequest, HelperRequestFrame, Nonce, NonceError};
 pub use response::{HelperResponse, HelperResponseFrame, UnavailableReason};
@@ -22,10 +21,11 @@ pub use response::{HelperResponse, HelperResponseFrame, UnavailableReason};
 /// This socket's protocol number.
 pub const HELPER_PROTOCOL: u16 = 1;
 /// The most bytes a request frame may announce.
-pub const MAX_FRAME_BYTES: usize = 65_536;
-/// The most bytes an answer frame may announce. Larger than a request: a signed report of up to
-/// 64 KiB travels as hex.
-pub const MAX_RESPONSE_BYTES: usize = 262_144;
+pub const MAX_REQUEST_BYTES: usize = 65_536;
+/// The most bytes an answer frame may announce. Read answers (a container list, a SMART report,
+/// 256 KiB of logs) and a signed report as hex all fit; the helper cuts a payload rather than
+/// send a larger frame.
+pub const MAX_RESPONSE_BYTES: usize = 4_194_304;
 /// Where the socket unit listens.
 pub const HELPER_SOCKET: &str = "/run/domovoi-helper.sock";
 
@@ -34,7 +34,15 @@ pub const HELPER_SOCKET: &str = "/run/domovoi-helper.sock";
 pub(crate) const OPERATIONS: &[&str] = &[
     "health",
     "groups",
-    "read",
+    "docker_probe",
+    "docker_list",
+    "docker_events",
+    "docker_inspect",
+    "docker_logs",
+    "smart_scan",
+    "smart_report",
+    "kernel_log",
+    "net_listeners",
     "safety_attest",
     "safety_public_key",
 ];

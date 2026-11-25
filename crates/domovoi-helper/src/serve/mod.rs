@@ -8,7 +8,7 @@ use std::sync::Arc;
 use domovoi_config::{ConfigIssue, HelperConfig};
 use domovoi_core::helper::{HELPER_PROTOCOL, HelperResponse, HelperResponseFrame, encode_frame};
 use domovoi_core::identity::{HostDirs, RefusalToken};
-use domovoi_core::ports::{Clock, HostInspect, ProcessExecutor};
+use domovoi_core::ports::{Clock, DockerReadApi, HostInspect, ProcessExecutor};
 use jiff::SignedDuration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
@@ -38,6 +38,9 @@ pub struct ServeContext {
     /// Runs `ip` for `safety.attest`. Without one every route read fails and the attestation is
     /// a signed incomplete report.
     pub executor: Option<Arc<dyn ProcessExecutor>>,
+    /// The read-only view of the container engine for `docker.read`. Without one every Docker
+    /// request is answered `engine_absent`.
+    pub engine_api: Option<Arc<dyn DockerReadApi>>,
 }
 
 impl ServeContext {
@@ -58,7 +61,15 @@ impl ServeContext {
             read_deadline: DEFAULT_READ_DEADLINE,
             build: build.into(),
             executor: None,
+            engine_api: None,
         }
+    }
+
+    /// The same context with `api` answering the Docker reads.
+    #[must_use]
+    pub fn with_docker_read(mut self, api: Arc<dyn DockerReadApi>) -> Self {
+        self.engine_api = Some(api);
+        self
     }
 
     /// The same context with `executor` running the route reads of `safety.attest`.
@@ -115,7 +126,7 @@ pub async fn serve_connection<C: Connection>(mut conn: C, ctx: &ServeContext) ->
         return reply(&mut conn, id, response).await;
     }
     let response = match domovoi_core::helper::decode_request(&body) {
-        Ok(frame) => dispatch::dispatch(&frame.request, ctx).await,
+        Ok(frame) => dispatch::dispatch(&frame.request, ctx, conn.peer_uid().ok()).await,
         Err(token) => refused(token),
     };
     reply(&mut conn, id, response).await

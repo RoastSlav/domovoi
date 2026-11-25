@@ -15,7 +15,7 @@ walk through each one; this is the index.
 | [`compose/agent.yml`](compose/agent.yml) | The agent in Docker Compose, with a read-only Docker socket proxy | [Container agent](../docs/book/src/install/container-agent.md) |
 | [`unraid/domovoi-agent.xml`](unraid/domovoi-agent.xml) | An Unraid template for the agent | [Container agent](../docs/book/src/install/container-agent.md#unraid) |
 | [`test/installer.sh`](test/installer.sh) | CI's test of `install.sh` against a fake release, in a container without systemd | |
-| [`test/identities.sh`](test/identities.sh) | The real-account test of the three identities, the helper unit, the self-test and the migration; needs a disposable root machine with systemd as PID 1 | [Privileged identity test](../TESTING.md#privileged-identity-test) |
+| [`test/identities.sh`](test/identities.sh) | The real-account test of the three identities, the helper unit, the helper's read operations (SMART, kernel log, listening sockets, Docker), the self-test and the migration; needs a disposable root machine with systemd as PID 1 | [Privileged identity test](../TESTING.md#privileged-identity-test) |
 
 None of these needs a config file: the hub is set up from its web UI, and an agent is
 set up by its enroll command. The one file `install.sh` writes is the helper's default
