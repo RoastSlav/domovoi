@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use jiff::Timestamp;
 
 use crate::action::{JournalEpoch, PlanHash};
+use crate::attest::Nonce32;
 use crate::capability::catalog::{CatalogPageData, CatalogQuery};
 use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
 use crate::install::{
@@ -412,6 +413,43 @@ pub trait AgentLink: Send + Sync {
     ) -> Result<PackageOutputs, LinkError> {
         Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
     }
+
+    /// Asks `host`'s helper, through its agent, for a signed safety report bound to `nonce`,
+    /// waiting until `deadline`.
+    ///
+    /// The reply carries the bytes exactly as the helper produced them: nothing here parses,
+    /// verifies or trusts them. A missing answer is [`LinkError::Timeout`] and changes no
+    /// outcome; an agent that cannot relay an attestation answers
+    /// [`AttestationReply::Unsigned`] with the token `agent_unsupported`.
+    async fn attest_safety(
+        &self,
+        _host: HostId,
+        _nonce: Nonce32,
+        _deadline: Timestamp,
+    ) -> Result<AttestationReply, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+}
+
+/// What a helper attestation relay returned. Unverified until the hub checks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttestationReply {
+    /// A signed report: the helper's public key, the report bytes and the signature, exactly
+    /// as relayed.
+    Signed {
+        /// The 32 raw public-key bytes the helper presented.
+        public_key: [u8; 32],
+        /// The report bytes that were signed, after the signing prefix.
+        report: Vec<u8>,
+        /// The 64-byte Ed25519 signature.
+        signature: [u8; 64],
+    },
+    /// No signed report: the closed token the helper or the agent answered with. An unsigned
+    /// token is an unverified hint and unlocks nothing.
+    Unsigned {
+        /// The token, for example `uninitialized` or `helper_unavailable`.
+        token: String,
+    },
 }
 
 /// What a link answers to a package operation it does not implement.

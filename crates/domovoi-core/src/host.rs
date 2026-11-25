@@ -135,6 +135,12 @@ impl KeyFingerprint {
     pub fn of_public_key(public_key: &[u8; 32]) -> Self {
         Self::digest(public_key)
     }
+
+    /// Wraps 32 raw fingerprint bytes that are already a hash, as the attestation types carry.
+    #[must_use]
+    pub(crate) const fn from_raw(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
 }
 
 /// The canonical host identity text: `host:{host_id}/{fingerprint}`.
