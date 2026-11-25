@@ -10,6 +10,7 @@
 
 pub mod apply;
 pub mod classify;
+pub mod command;
 pub mod confirm;
 pub mod drill;
 pub mod ensure;

@@ -9,6 +9,8 @@ mod digest;
 mod helper;
 #[cfg(unix)]
 mod helper_keys;
+#[cfg(unix)]
+mod helper_nft;
 mod hub;
 mod hub_run;
 mod notify;
