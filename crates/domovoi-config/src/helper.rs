@@ -51,7 +51,7 @@ pub struct HelperConfig {
     /// `[systemd]`: accepted, not interpreted yet.
     #[serde(default)]
     pub systemd: SystemdSection,
-    /// `[nft]`: accepted, not interpreted yet.
+    /// `[nft]`: the table, its size and the call timeout of the containment group.
     #[serde(default)]
     pub nft: NftSection,
 }
@@ -186,6 +186,9 @@ pub struct NftSection {
     /// The most elements the set may hold, 1 to 10 000. Default 1 000.
     #[serde(default = "default_max_elements")]
     pub max_elements: u32,
+    /// The longest one `nft` or `conntrack` call may run, 1 to 30 seconds. Default `"5s"`.
+    #[serde(default = "default_call_timeout")]
+    pub call_timeout: Duration,
 }
 
 impl Default for NftSection {
@@ -193,6 +196,7 @@ impl Default for NftSection {
         Self {
             table: default_nft_table(),
             max_elements: default_max_elements(),
+            call_timeout: default_call_timeout(),
         }
     }
 }
@@ -333,6 +337,22 @@ fn default_max_elements() -> u32 {
     1000
 }
 
+fn default_call_timeout() -> Duration {
+    Duration::secs(5)
+}
+
+/// The longest `[safety.containment] max_ttl`: one year, the largest timeout `nft` accepted in
+/// tests.
+pub const MAX_TTL_LIMIT_SECS: i64 = 31_536_000;
+
+/// Whether `name` is a table name the containment templates accept: `[a-z][a-z0-9_]{0,31}`.
+fn valid_table_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_lowercase())
+        && name.len() <= 32
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 /// The socket path inside `unix:///path`, or `None` when the text is not that form: an empty path,
 /// a relative path or a `..` segment is refused, as is any other scheme.
 fn docker_socket_path(endpoint: &str) -> Option<&str> {
@@ -402,8 +422,31 @@ impl Validate for HelperConfig {
                 "must be between 1 and 10000",
             ));
         }
-        if self.nft.table.is_empty() {
-            issues.push(ConfigIssue::error("nft.table", "must not be empty"));
+        if !valid_table_name(&self.nft.table) {
+            issues.push(ConfigIssue::error(
+                "nft.table",
+                "must start with a lowercase letter and hold only lowercase letters, digits and \
+                 `_`, at most 32 characters",
+            ));
+        }
+        let call_timeout = self.nft.call_timeout.as_signed().as_secs();
+        if !(1..=30).contains(&call_timeout) {
+            issues.push(ConfigIssue::error(
+                "nft.call_timeout",
+                "must be between 1s and 30s",
+            ));
+        }
+        if self.safety.containment.max_ttl.as_signed().as_secs() > MAX_TTL_LIMIT_SECS {
+            issues.push(ConfigIssue::error(
+                "safety.containment.max_ttl",
+                "must be at most 365 days (31536000s)",
+            ));
+        }
+        if self.safety.containment.max_active > self.nft.max_elements {
+            issues.push(ConfigIssue::error(
+                "safety.containment.max_active",
+                "must not be above nft.max_elements",
+            ));
         }
     }
 }
