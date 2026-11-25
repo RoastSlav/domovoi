@@ -199,6 +199,15 @@ pub const HUMAN_APPROVAL_RESTORE_ALLOWED_PREFIXES: &[&str] =
 /// not an issuer, and M1 has no operational caller (ADR 0021).
 pub const POLICY_PERMIT_ALLOWED_PREFIXES: &[&str] = &["crates/domovoi-hub/src/policy/"];
 
+/// Path prefixes where `PolicyPermit::restore` may be called: loading a stored permit, and test
+/// support. It records no decision and grants nothing (INV-1, ADR 0037).
+pub const POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-store/src/", "crates/domovoi-testkit/"];
+
+/// The one file that may write the `plan:capability-v1` domain line (INV-1, ADR 0037).
+pub const PLAN_CAPABILITY_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-core/src/action/capability_plan.rs"];
+
 /// Path prefixes where `Authorization::human` may be called: only the hub's auth layer
 /// turns an authenticated human into an authorization (INV-1, ADR 0021).
 pub const AUTHORIZATION_HUMAN_ALLOWED_PREFIXES: &[&str] =
@@ -232,6 +241,11 @@ pub const RAW_OPS: &[&str] = &[
     "send_transfer",
     "start_capability",
     "capability_result",
+    "start_unit_call",
+    "unit_call_result",
+    "dispatch_restart",
+    "restart_result",
+    "read_identity",
     "attest_safety",
 ];
 
@@ -244,6 +258,7 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
     "execute::execute_step",
     "AuthorizedPackageTarget::of",
     "execute::execute_package",
+    "execute_unit::execute_unit_restart",
     "OperationCommand::Dispatch",
     "Caller::web",
     "Caller::chat",
@@ -389,6 +404,60 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 1,
         }],
         message: "a package capability's answer is awaited only through `PackageRelay::package_result`, called by the install service's one relay in domovoi-engine/src/packages/execute.rs; the raw `capability_result` call belongs to the runtime capability (ADR 0029)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("start_unit_call"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 2,
+        }],
+        message: "a unit capability is started only through `UnitRelay::dispatch_restart` or `UnitRelay::read_identity`; the raw `start_unit_call` belongs to the runtime capability (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("unit_call_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 2,
+        }],
+        message: "a unit capability's answer is awaited only through `UnitRelay::read_identity` or `UnitRelay::restart_result`; the raw `unit_call_result` belongs to the runtime capability (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("dispatch_restart"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/execute_unit.rs",
+            count: 1,
+        }],
+        message: "a unit restart is handed to an agent only through `UnitRelay::dispatch_restart`, once, in operations/execute_unit.rs (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("restart_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/execute_unit.rs",
+            count: 1,
+        }],
+        message: "a unit restart's answer is awaited only through `UnitRelay::restart_result`, once, in operations/execute_unit.rs (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("read_identity"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/targets/mod.rs",
+            count: 1,
+        }],
+        message: "a unit's identity is read only through `UnitRelay::read_identity`, once, by the target resolver in domovoi-engine/src/targets/mod.rs (ADR 0037)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute_unit::execute_unit_restart"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/effects/dispatch.rs",
+            count: 1,
+        }],
+        message: "`execute_unit::execute_unit_restart` is the operation service's one unit dispatch and is called once, from effects/dispatch.rs (ADR 0037)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -552,6 +621,7 @@ pub const UNZONED_MODULES: &[&str] = &[
     "helper_trust",
     "middleware",
     "packages",
+    "policy",
     "profile",
     "router",
     "runtime",

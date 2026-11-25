@@ -13,18 +13,20 @@ use async_trait::async_trait;
 use domovoi_config::HubConfig;
 use domovoi_core::capability::{
     CapabilityContract, CeilingSummary, ContractId, ContractIndex, ContractMeta, FactId,
-    SkillFloor, TargetQuery, skill_contract,
+    SkillFloor, TargetIdentity, TargetName, TargetQuery, skill_contract,
 };
-use domovoi_core::ports::{CapabilityRegistry, Clock, HostRepo, TargetResolver};
+use domovoi_core::ports::{CapabilityRegistry, Clock, HostRepo, PermitRepo, TargetResolver};
+use domovoi_core::unit::{UnitId, canonical_unit_identity};
 use domovoi_core::{HostId, SkillSummary};
 use domovoi_engine::Evidence;
 use domovoi_engine::policy::FactState;
 use domovoi_engine::policy_shadow::{
-    AutonomyReading, CeilingReading, ContainmentReading, GapReason, HostTarget, ShadowEnvironment,
-    ShadowRecorder,
+    AutonomyFacts, AutonomyReading, CeilingReading, ContainmentReading, GapReason, HostTarget,
+    ShadowEnvironment, ShadowRecorder,
 };
 use domovoi_engine::targets::TargetService;
 use domovoi_store::Store;
+use jiff::SignedDuration;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -95,6 +97,17 @@ pub struct HubShadowEnvironment {
     registry: Arc<HubRegistry>,
     resolver: Arc<dyn TargetResolver>,
     hosts: Arc<dyn HostRepo>,
+    autonomy: Option<AutonomySource>,
+}
+
+/// Where the pause switch and the circuit breaker are read from.
+struct AutonomySource {
+    permits: Arc<dyn PermitRepo>,
+    clock: Arc<dyn Clock>,
+    /// Failures inside the window that open a rule's breaker.
+    failures: u32,
+    /// The window the failures are counted in.
+    window: SignedDuration,
 }
 
 impl HubShadowEnvironment {
@@ -109,7 +122,28 @@ impl HubShadowEnvironment {
             registry,
             resolver,
             hosts,
+            autonomy: None,
         }
+    }
+
+    /// The same environment, reading the pause switch and each rule's circuit breaker from
+    /// `permits`. A rule is suspended once `failures` of its permit-authorized steps ended
+    /// `Failed` or `OutcomeUnknown` inside `window`, counted after its last reset.
+    #[must_use]
+    pub fn with_autonomy(
+        mut self,
+        permits: Arc<dyn PermitRepo>,
+        clock: Arc<dyn Clock>,
+        failures: u32,
+        window: SignedDuration,
+    ) -> Self {
+        self.autonomy = Some(AutonomySource {
+            permits,
+            clock,
+            failures,
+            window,
+        });
+        self
     }
 
     /// The contract of one announced skill on `host`, its class raised by any hub floor.
@@ -199,7 +233,54 @@ impl ShadowEnvironment for HubShadowEnvironment {
     }
 
     async fn autonomy(&self) -> AutonomyReading {
-        AutonomyReading::NotModelled
+        let Some(source) = &self.autonomy else {
+            return AutonomyReading::Reported(AutonomyFacts::default());
+        };
+        let now = source.clock.now();
+        let since = now.checked_sub(source.window).unwrap_or(now);
+        let state = source.permits.autonomy().await;
+        let failures = source.permits.rule_failures(since).await;
+        match (state, failures) {
+            (Ok(state), Ok(failures)) => AutonomyReading::Reported(AutonomyFacts {
+                paused: state.paused,
+                suspended_rules: failures
+                    .into_iter()
+                    .filter(|entry| entry.failures >= source.failures)
+                    .map(|entry| entry.rule)
+                    .collect(),
+            }),
+            // An unreadable switch is read as paused: the safe direction.
+            _ => {
+                tracing::warn!("could not read the autonomy state; reading it as paused");
+                AutonomyReading::Reported(AutonomyFacts {
+                    paused: true,
+                    suspended_rules: BTreeSet::new(),
+                })
+            }
+        }
+    }
+
+    async fn unit_target(&self, host: HostId, typed: &TargetName) -> Result<HostTarget, GapReason> {
+        let unit = self
+            .resolver
+            .resolve_unit(host, typed)
+            .await
+            .map_err(|_| GapReason::Unresolvable)?;
+        Ok(HostTarget {
+            name: typed.clone(),
+            identity: unit.target.identity,
+        })
+    }
+
+    async fn unit_identity(&self, host: HostId, unit: &str) -> Option<TargetIdentity> {
+        let key = self
+            .resolver
+            .resolve(TargetQuery::Host { host })
+            .await
+            .ok()?
+            .host_key;
+        let id = UnitId::parse(unit).ok()?;
+        canonical_unit_identity(host, &key, &id).ok()
     }
 
     async fn publication_index(&self) -> ContractIndex {

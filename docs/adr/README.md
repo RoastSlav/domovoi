@@ -53,3 +53,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0034](0034-skill-runner-process.md) | The skill runner process: crate placement, protocol decisions, wire-neutral `run_as_unsupported` and the runner rules | Proposed |
 | [0035](0035-helper-attestation-boundary.md) | The helper attestation boundary: the hub trust module, the helper relay capability and the rules that guard them | Proposed |
 | [0036](0036-helper-read-operations.md) | Helper read operations: typed read requests, a read-only Docker client, fixed tool spawns and the widened helper unit | Proposed |
+| [0037](0037-permit-issuer-and-unit-restart.md) | Permit issuer, plan family and unit restart: the one issuer, a closed unit call and the rules that guard them | Proposed |

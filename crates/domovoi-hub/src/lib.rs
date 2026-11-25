@@ -16,6 +16,7 @@ pub mod helper_trust;
 pub mod ingest;
 pub mod middleware;
 pub mod packages;
+pub mod policy;
 pub mod profile;
 pub mod router;
 pub mod runtime;

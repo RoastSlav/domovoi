@@ -74,17 +74,38 @@ pub async fn build(
     let Ok(host_target) = env.host_target(host).await else {
         return Built::refused(Verdict::Unevaluable("target_unresolved"));
     };
-    if meta.target_kind != TargetKind::Host {
-        return Built::refused(Verdict::Unevaluable("target_kind_unsupported"));
-    }
+    // A host-level contract acts on the host; a unit contract on the unit the helper resolved.
+    let target = match meta.target_kind {
+        TargetKind::Host => host_target.clone(),
+        TargetKind::Unit => {
+            let Some(typed) = candidate
+                .args
+                .get("unit")
+                .and_then(|text| TargetName::parse(text).ok())
+            else {
+                return Built::refused(Verdict::Unevaluable("target_unresolved"));
+            };
+            match env.unit_target(host, &typed).await {
+                Ok(unit) => unit,
+                Err(_) => return Built::refused(Verdict::Unevaluable("target_unresolved")),
+            }
+        }
+        _ => return Built::refused(Verdict::Unevaluable("target_kind_unsupported")),
+    };
     let Ok(version) = ContractVersion::new(candidate.contract_version) else {
         return Built::refused(Verdict::Unevaluable("contract_version_invalid"));
     };
 
     let mut gaps = Vec::new();
     let args = canonical_args(candidate);
-    let pinned = pinned_identities(candidate, env, &mut gaps).await;
-    let rule_targets = rule_targets(rules, &host_target);
+    let pinned = pinned_identities(
+        candidate,
+        env,
+        meta.target_kind == TargetKind::Unit,
+        &mut gaps,
+    )
+    .await;
+    let rule_targets = rule_targets(rules, &target);
 
     let ceiling = match env.ceiling(host).await {
         CeilingReading::Reported(summary) => Some(summary),
@@ -129,11 +150,11 @@ pub async fn build(
         ContainmentInput::not_applicable()
     };
 
-    // Neither switch exists yet, so "not paused, not broken" are true statements.
-    let AutonomyReading::NotModelled = env.autonomy().await;
-    gaps.push(gap(GapInput::Autonomy, GapReason::NotProducedYet));
+    // The pause switch is read; the circuit breaker is applied by the permit issuer, per
+    // rule, so a step is evaluated here as not broken.
+    let AutonomyReading::Reported(facts) = env.autonomy().await;
     let autonomy = AutonomyState {
-        paused: false,
+        paused: facts.paused,
         circuit_broken: false,
     };
 
@@ -144,8 +165,8 @@ pub async fn build(
         host,
         contract: meta.clone(),
         contract_version: version,
-        target: host_target.name.clone(),
-        target_identity: host_target.identity.clone(),
+        target: target.name.clone(),
+        target_identity: target.identity.clone(),
         args: args.clone(),
         requested_rate_per_hour: None,
         requested_ttl: None,
@@ -164,8 +185,8 @@ pub async fn build(
         host,
         contract: ContractDoc::from_meta(&meta),
         contract_version: candidate.contract_version,
-        target: host_target.name.to_string(),
-        target_identity: host_target.identity.to_string(),
+        target: target.name.to_string(),
+        target_identity: target.identity.to_string(),
         args: args.canonical().to_owned(),
         requested_rate_per_hour: None,
         requested_ttl_secs: None,
@@ -205,11 +226,13 @@ fn canonical_args(candidate: &ShadowCandidate) -> CanonicalArgs {
     CanonicalArgs::from_canonical(text)
 }
 
-/// The identity of every distinct pinned host that resolves. Container and unit subjects are
-/// not resolved here: the sweep makes no live read.
+/// The identity of every distinct pinned host that resolves, and, for a unit contract, of every
+/// pinned unit whose canonical identity can be built. Container subjects are not resolved here:
+/// the sweep makes no live read.
 async fn pinned_identities(
     candidate: &ShadowCandidate,
     env: &dyn ShadowEnvironment,
+    units: bool,
     gaps: &mut Vec<InputGap>,
 ) -> BTreeSet<domovoi_core::capability::TargetIdentity> {
     let hosts: BTreeSet<HostId> = candidate.pinned.iter().map(|p| p.host).collect();
@@ -222,7 +245,20 @@ async fn pinned_identities(
             Err(_) => gaps.push(gap(GapInput::PinnedTargets, GapReason::Unresolvable)),
         }
     }
-    if candidate.pinned.iter().any(|p| p.target.is_some()) {
+    let mut unresolved = false;
+    for subject in candidate.pinned.iter().filter(|p| p.target.is_some()) {
+        let unit = match (&subject.target, units) {
+            (Some(key), true) => env.unit_identity(subject.host, key.as_str()).await,
+            _ => None,
+        };
+        match unit {
+            Some(identity) => {
+                identities.insert(identity);
+            }
+            None => unresolved = true,
+        }
+    }
+    if unresolved {
         gaps.push(gap(GapInput::PinnedTargets, GapReason::NotProducedYet));
     }
     identities

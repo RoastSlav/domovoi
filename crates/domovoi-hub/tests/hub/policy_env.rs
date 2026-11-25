@@ -16,8 +16,9 @@ use domovoi_core::ports::{StateWrite, TargetResolver, Transaction, UnitOfWork};
 use domovoi_core::{CheckKey, ExecutionId, HostId, OperationId, PinnedSubject, Risk, SkillSummary};
 use domovoi_engine::policy::{FactState, Rule, evaluate, evaluate_shadow};
 use domovoi_engine::policy_shadow::{
-    AutonomyReading, CandidateDoc, CeilingReading, ContainmentReading, DecisionEnvelope, GapReason,
-    HostTarget, InputsEnvelope, ShadowEnvironment, Verdict, build, rules_hash,
+    AutonomyFacts, AutonomyReading, CandidateDoc, CeilingReading, ContainmentReading,
+    DecisionEnvelope, GapReason, HostTarget, InputsEnvelope, ShadowEnvironment, Verdict, build,
+    rules_hash,
 };
 use domovoi_testkit::FakeTargetResolver;
 
@@ -106,7 +107,7 @@ impl ShadowEnvironment for PolicyFakeEnv {
     }
 
     async fn autonomy(&self) -> AutonomyReading {
-        AutonomyReading::NotModelled
+        AutonomyReading::Reported(AutonomyFacts::default())
     }
 
     async fn publication_index(&self) -> ContractIndex {
