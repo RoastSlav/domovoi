@@ -4,7 +4,8 @@ use url::Url;
 
 use crate::agent::AgentConfig;
 use crate::hub::{
-    AgentServerSection, HubConfig, LlmKind, LlmProvider, OrchestrationSection, Probe, ProbeKind,
+    AgentServerSection, HubConfig, HubPolicySection, LlmKind, LlmProvider, OrchestrationSection,
+    Probe, ProbeKind,
 };
 use crate::issue::ConfigIssue;
 
@@ -136,7 +137,39 @@ impl Validate for HubConfig {
             }
         }
         orchestration_rules(&self.orchestration, issues);
+        policy_rules(&self.policy, issues);
         self.packages.validate(issues);
+    }
+}
+
+fn policy_rules(section: &HubPolicySection, issues: &mut Vec<ConfigIssue>) {
+    let ttl = section.permit_ttl.as_signed();
+    if ttl < jiff::SignedDuration::from_secs(30) || ttl > jiff::SignedDuration::from_hours(1) {
+        issues.push(ConfigIssue::error(
+            "policy.permit_ttl",
+            "must be between 30 seconds and 1 hour",
+        ));
+    }
+    if !(1..=20).contains(&section.circuit_failures) {
+        issues.push(ConfigIssue::error(
+            "policy.circuit_failures",
+            "must be 1 to 20",
+        ));
+    }
+    let window = section.circuit_window.as_signed();
+    if window < jiff::SignedDuration::from_hours(1)
+        || window > jiff::SignedDuration::from_hours(30 * 24)
+    {
+        issues.push(ConfigIssue::error(
+            "policy.circuit_window",
+            "must be between 1 hour and 30 days",
+        ));
+    }
+    if section.max_permits_per_hour > 120 {
+        issues.push(ConfigIssue::error(
+            "policy.max_permits_per_hour",
+            "must be 0 to 120",
+        ));
     }
 }
 
@@ -348,6 +381,9 @@ impl Validate for AgentConfig {
                 "agent.packages_dir",
                 "must be an absolute path such as \"/var/lib/domovoi-packages\"",
             ));
+        }
+        if let Some(unattended) = &self.unattended {
+            unattended.validate(issues);
         }
         if let Some(packages) = &self.packages {
             crate::validate_packages::package_rules(packages, issues);

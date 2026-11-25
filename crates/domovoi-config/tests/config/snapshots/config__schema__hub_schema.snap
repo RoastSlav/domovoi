@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -301,11 +302,33 @@ expression: "HubConfig::json_schema()"
       ]
     },
     "HubPolicySection": {
-      "description": "`[policy]`. Record, for every Execution step, what the active policy and its shadow\nrules would decide. Nothing is enforced.",
+      "description": "`[policy]`. Shadow recording and the guardrails of bounded unattended execution.",
       "type": "object",
       "properties": {
+        "circuit_failures": {
+          "description": "How many `Failed` or `OutcomeUnknown` results of permit-authorized steps suspend a rule\nwithin `circuit_window`. 1 to 20. Default 2.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 2,
+          "minimum": 0
+        },
+        "circuit_window": {
+          "description": "The window the circuit breaker counts failures in. 1 hour to 30 days. Default `24h`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "max_permits_per_hour": {
+          "description": "How many permits the hub issues per rolling hour, all rules together. 0 to 120; `0`\nmeans no permit is ever issued. Default 12.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 12,
+          "minimum": 0
+        },
+        "permit_ttl": {
+          "description": "How long a policy permit stays valid, capped by the step's own approval window.\n30 seconds to 1 hour. Default `5m`.",
+          "$ref": "#/$defs/Duration"
+        },
         "shadow": {
-          "description": "Record, for every Execution step, what the active policy and its shadow rules would\ndecide. Nothing is enforced. Default `false`.",
+          "description": "Record, for every Execution step, what the active policy and its shadow rules would\ndecide. Nothing is enforced by this switch. Default `false`.",
           "type": "boolean",
           "default": false
         }

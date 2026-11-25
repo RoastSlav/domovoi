@@ -9,6 +9,8 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use url::Url;
 
+mod unattended;
+
 use crate::duration::Duration;
 use crate::secret::{Secret, Secrets};
 
@@ -37,7 +39,12 @@ pub struct AgentConfig {
     /// Package installation. Omit to disable: nothing is installed or advertised.
     #[serde(default)]
     pub packages: Option<crate::packages::PackagesSection>,
+    /// The ceiling on what a policy-labelled request may do. Omit to accept none.
+    #[serde(default)]
+    pub unattended: Option<UnattendedSection>,
 }
+
+pub use unattended::{UnattendedAllow, UnattendedSection};
 
 /// `[agent]`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]

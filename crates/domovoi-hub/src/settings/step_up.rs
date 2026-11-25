@@ -75,6 +75,22 @@ pub const STEP_UP_SETTINGS: &[StepUpRule] = &[
         why: "lowering the pre-upgrade backup count can remove recovery points",
     },
     StepUpRule {
+        path: PathRule::Exact("policy.permit_ttl"),
+        why: "a longer permit lifetime widens how long an unattended action stays authorized",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.circuit_failures"),
+        why: "raising the failure count delays the circuit breaker that suspends a rule",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.circuit_window"),
+        why: "shrinking the window lets the circuit breaker forget failures sooner",
+    },
+    StepUpRule {
+        path: PathRule::Exact("policy.max_permits_per_hour"),
+        why: "raising the permit rate widens how much runs unattended",
+    },
+    StepUpRule {
         path: PathRule::Under("packages"),
         why: "package installation can put code on hosts",
     },

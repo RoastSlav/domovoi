@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 10
 expression: "AgentConfig::json_schema()"
 ---
 {
@@ -57,6 +58,17 @@ expression: "AgentConfig::json_schema()"
     "policy": {
       "description": "What skills this agent is willing to run.",
       "$ref": "#/$defs/PolicySection"
+    },
+    "unattended": {
+      "description": "The ceiling on what a policy-labelled request may do. Omit to accept none.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnattendedSection"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "additionalProperties": false,
@@ -433,6 +445,91 @@ expression: "AgentConfig::json_schema()"
       "required": [
         "id",
         "public_key"
+      ]
+    },
+    "UnattendedAllow": {
+      "description": "One `[[unattended.allow]]` entry.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "Constrained argument values. Not accepted for `unit.restart`.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": null
+        },
+        "capability": {
+          "description": "The exact contract id, such as `unit.restart`. No wildcard.",
+          "type": "string"
+        },
+        "max_active": {
+          "description": "For contracts that bound concurrent runs. Not accepted for `unit.restart`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        },
+        "max_per_hour": {
+          "description": "How many policy-labelled executions of this contract per rolling hour. At least 1.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "max_ttl": {
+          "description": "For contracts that bound a lifetime. Not accepted for `unit.restart`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targets": {
+          "description": "Canonical targets (unit ids for `unit.restart`). `\"*\"` must be written explicitly.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "capability",
+        "targets",
+        "max_per_hour"
+      ]
+    },
+    "UnattendedSection": {
+      "description": "`[unattended]`. With no section, no `policy`-labelled request is accepted.",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "What may run unattended, one entry per contract.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UnattendedAllow"
+          }
+        },
+        "enabled": {
+          "description": "Master switch. When `false` every policy-labelled request is refused.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled"
       ]
     }
   }
