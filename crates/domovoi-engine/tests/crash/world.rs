@@ -273,6 +273,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
                 clock: clock.clone(),
                 shutdown: shutdown.clone(),
                 investigate: None,
+                autonomy: None,
             },
             OperationSettings::default(),
         );

@@ -98,6 +98,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
                 ..InvestigateSettings::default()
             },
         }),
+        autonomy: None,
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

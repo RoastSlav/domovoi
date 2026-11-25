@@ -69,7 +69,8 @@ impl EffectHandler for DispatchHandler {
             return defer(shared, held, operation, Some(step), again, false).await;
         }
         let registry = &shared.deps.registry;
-        if !row.contract.is_skill() {
+        let is_unit_restart = row.contract.as_str() == "unit.restart";
+        if !row.contract.is_skill() && !is_unit_restart {
             let ending = ending(StepOutcome::Unavailable).because("contract_not_executable");
             return outcome(settle(shared, ending).await);
         }
@@ -94,6 +95,22 @@ impl EffectHandler for DispatchHandler {
         let Some(session) = shared.deps.observer.observe_snapshot(row.host) else {
             return wait_for_agent(shared, held, &snapshot, step).await;
         };
+        // The one place the boundary type is built: a row with neither a person's approval nor a
+        // stored permit is refused here, whichever contract it names.
+        let authorized = match crate::operations::execute::AuthorizedStep::of(row.clone()) {
+            Ok(authorized) => authorized,
+            Err(err) => {
+                let ending = ending(StepOutcome::Refused).because(err.to_string());
+                return outcome(settle(shared, ending).await);
+            }
+        };
+        if is_unit_restart {
+            let sent = crate::operations::execute_unit::execute_unit_restart(
+                shared, held, authorized, session,
+            )
+            .await;
+            return concluded(shared, held, operation, step, sent).await;
+        }
         let Some(skill) = row
             .contract
             .skill_name()
@@ -111,31 +128,43 @@ impl EffectHandler for DispatchHandler {
                 return outcome(settle(shared, ending(StepOutcome::Refused).because(reason)).await);
             }
         };
-        let authorized = match crate::operations::execute::AuthorizedStep::of(row) {
-            Ok(authorized) => authorized,
-            Err(err) => {
-                let ending = ending(StepOutcome::Refused).because(err.to_string());
-                return outcome(settle(shared, ending).await);
-            }
-        };
+        // Only the unit restart may be authorized by a permit; a skill never is.
+        if row.permit().is_some() {
+            let reason = "a policy permit cannot authorize a skill";
+            return outcome(settle(shared, ending(StepOutcome::Refused).because(reason)).await);
+        }
         let sent = crate::operations::execute::execute_step(
             shared, held, authorized, skill, args, session,
         )
         .await;
-        match sent {
-            Ok(()) => EffectOutcome::Handled,
-            Err(ExecuteError::Expired) => {
-                outcome(settle(shared, ending(StepOutcome::NotRun).because(EXPIRED)).await)
-            }
-            Err(err) => {
-                tracing::debug!(%err, %step, "an execution was not dispatched");
-                if still_held(shared, held).await {
-                    EffectOutcome::Retry {
-                        error: err.to_string(),
-                    }
-                } else {
-                    EffectOutcome::Handled
+        concluded(shared, held, operation, step, sent).await
+    }
+}
+
+/// What the effect reports once a dispatch returned: handled, settled as expired, or retried.
+async fn concluded(
+    shared: &OpShared,
+    held: Held,
+    operation: domovoi_core::OperationId,
+    step: domovoi_core::StepId,
+    sent: Result<(), ExecuteError>,
+) -> EffectOutcome {
+    match sent {
+        Ok(()) => EffectOutcome::Handled,
+        Err(ExecuteError::Expired) => {
+            let ending = Ending::new(operation, step, StepOutcome::NotRun)
+                .because(EXPIRED)
+                .holding(held);
+            outcome(settle(shared, ending).await)
+        }
+        Err(err) => {
+            tracing::debug!(%err, %step, "an execution was not dispatched");
+            if still_held(shared, held).await {
+                EffectOutcome::Retry {
+                    error: err.to_string(),
                 }
+            } else {
+                EffectOutcome::Handled
             }
         }
     }

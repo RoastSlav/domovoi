@@ -145,6 +145,7 @@ pub async fn spawn(
                 triage,
                 settings: InvestigateSettings::default(),
             }),
+            autonomy: None,
         },
         OperationSettings::default(),
     )

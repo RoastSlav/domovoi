@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use domovoi_core::capability::{ContractVersion, TargetIdentity, skill_input_schema};
+use domovoi_core::capability::{
+    ContractVersion, EXECUTABLE_BUILTINS, TargetIdentity, skill_input_schema,
+};
 use domovoi_core::meta::{PlanInput, PlanStepInput};
 use domovoi_core::ports::{CapabilityRegistry, HostRepo, Redactor, TargetResolver};
 use domovoi_core::triage::MAX_PROPOSALS;
@@ -16,16 +18,18 @@ use super::refusal::{PlanRefusal, PlanRefusalCode as Code};
 use super::resolve::{Refuse, resolve_host};
 use super::schema::check_schema;
 use super::scope::{PlanScope, PriorRun};
+use super::unit::UnitBinding;
 
 /// Longest reason kept on a planned step.
-const REASON_MAX: usize = 200;
+pub(super) const REASON_MAX: usize = 200;
 /// The refusal a check returns: code, message and an optional hint.
-type Fail = (Code, String, Option<String>);
+pub(super) type Fail = (Code, String, Option<String>);
 
-/// Whether a plan may name this capability today: only the `skill.` family can be run.
+/// Whether a plan may name this capability today: the `skill.` family, and the built-ins on the
+/// closed `EXECUTABLE_BUILTINS` list (`unit.restart`). `container.restart` is on neither.
 #[must_use]
 pub fn is_executable(id: &ContractId) -> bool {
-    id.is_skill()
+    id.is_skill() || EXECUTABLE_BUILTINS.contains(&id.as_str())
 }
 
 /// A step that passed every check; what the store-time validation re-checks and stores.
@@ -53,6 +57,8 @@ pub struct PlannedStep {
     pub retry_of: Option<RetryOf>,
     /// An availability sentence worth telling the model, when there is one.
     pub note: Option<String>,
+    /// What a `unit.restart` step is bound to; `None` for a skill.
+    pub unit: Option<UnitBinding>,
 }
 
 /// The result of validating one call.
@@ -141,11 +147,19 @@ impl PlanValidator<'_> {
                 format!("`{id}` cannot be run from a plan yet"),
             ));
         }
-        let Capability::Skill(skill) = capability else {
-            return Err(fail(
-                Code::NotExecutable,
-                format!("`{id}` cannot be run from a plan yet"),
-            ));
+        let skill = match capability {
+            Capability::Skill(skill) => skill,
+            Capability::Builtin if id.as_str() == "unit.restart" => {
+                return self
+                    .check_unit(scope, staged, accepted, step, (host, &label), &id)
+                    .await;
+            }
+            Capability::Builtin => {
+                return Err(fail(
+                    Code::NotExecutable,
+                    format!("`{id}` cannot be run from a plan yet"),
+                ));
+            }
         };
         let subject = pick_subject(scope, host, step)?;
         let resolved = resolve_host(self.resolver, host, &label)
@@ -188,6 +202,7 @@ impl PlanValidator<'_> {
             identity: resolved.identity,
             retry_of,
             note,
+            unit: None,
         })
     }
 
@@ -258,7 +273,11 @@ impl PlanValidator<'_> {
     }
 
     /// Check 9: availability. Not allowed on host and unavailable are notes, not refusals.
-    async fn availability(&self, host: HostId, id: &ContractId) -> Result<Option<String>, Fail> {
+    pub(super) async fn availability(
+        &self,
+        host: HostId,
+        id: &ContractId,
+    ) -> Result<Option<String>, Fail> {
         let state = self.registry.availability(host, id).await;
         match state {
             Availability::Available => Ok(None),
@@ -274,11 +293,11 @@ impl PlanValidator<'_> {
     }
 }
 
-fn plain((code, message): Refuse) -> Fail {
+pub(super) fn plain((code, message): Refuse) -> Fail {
     (code, message, None)
 }
 
-fn fail(code: Code, message: impl Into<String>) -> Fail {
+pub(super) fn fail(code: Code, message: impl Into<String>) -> Fail {
     (code, message.into(), None)
 }
 
@@ -352,12 +371,12 @@ fn check_args(skill: &SkillSummary, args: &BTreeMap<String, String>) -> Result<(
     })
 }
 
-struct RunKey<'a> {
-    contract: &'a ContractId,
-    host: HostId,
-    check: &'a CheckKey,
-    target: Option<&'a TargetKey>,
-    args: &'a BTreeMap<String, String>,
+pub(super) struct RunKey<'a> {
+    pub(super) contract: &'a ContractId,
+    pub(super) host: HostId,
+    pub(super) check: &'a CheckKey,
+    pub(super) target: Option<&'a TargetKey>,
+    pub(super) args: &'a BTreeMap<String, String>,
 }
 
 fn same_prior(run: &PriorRun, key: &RunKey<'_>) -> bool {
@@ -381,7 +400,7 @@ fn is_failure(outcome: StepOutcome) -> bool {
 }
 
 /// Checks 11 to 13: duplicates and retries. Returns the carried `retry_of`.
-fn check_history(
+pub(super) fn check_history(
     scope: &PlanScope,
     staged: &[PlannedStep],
     accepted: &[PlannedStep],

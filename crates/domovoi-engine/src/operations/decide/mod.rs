@@ -15,6 +15,7 @@ mod effects;
 mod events;
 mod execution;
 mod finish;
+mod permit;
 mod resolution;
 mod status;
 mod steps;
@@ -217,6 +218,9 @@ pub fn decide(
             turn::turn_finished(&mut work, step, ended, evidence)?;
         }
         OperationEvent::ExecutionAuthorized { step } => execution::authorized(&mut work, step)?,
+        OperationEvent::ExecutionAuthorizedByPolicy { step } => {
+            permit::authorized_by_policy(&mut work, step)?;
+        }
         OperationEvent::ExecutionDenied { step } => execution::denied(&mut work, step)?,
         OperationEvent::ExecutionExpired { step } => execution::expired(&mut work, step)?,
         OperationEvent::WaitingForAgent { step } => execution::waiting_for_agent(&mut work, step)?,

@@ -282,6 +282,7 @@ impl World {
                 clock: self.clock.clone(),
                 shutdown: self.shutdown.clone(),
                 investigate: None,
+                autonomy: None,
             },
             self.settings.clone(),
         )

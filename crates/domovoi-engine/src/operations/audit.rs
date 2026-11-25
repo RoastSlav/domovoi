@@ -15,6 +15,8 @@ pub const OPERATION_RESUMED: &str = "operation.resumed";
 pub const EXECUTION_PROPOSED: &str = "execution.proposed";
 /// A person approved an execution.
 pub const EXECUTION_APPROVED: &str = "execution.approved";
+/// A policy permit authorized an execution.
+pub const POLICY_PERMIT_ISSUED: &str = "policy.permit_issued";
 /// A person denied an execution.
 pub const EXECUTION_DENIED: &str = "execution.denied";
 /// An approval window closed before anyone decided.

@@ -135,6 +135,7 @@ async fn world() -> World {
             clock: clock.clone(),
             shutdown: shutdown.clone(),
             investigate: None,
+            autonomy: None,
         },
         OperationSettings::default(),
     );

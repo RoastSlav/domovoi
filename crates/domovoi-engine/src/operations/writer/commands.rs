@@ -106,6 +106,17 @@ pub(crate) enum OperationCommand {
         chat_token: Option<String>,
         reply: Reply<()>,
     },
+    /// The permit issuer authorized an execution from an enforced policy `Allow`. The engine
+    /// only carries the authorization it was handed; it never builds one.
+    AuthorizeByPolicy {
+        held: Held,
+        operation: OperationId,
+        step: StepId,
+        authorization: Authorization,
+        /// The enforced decision document, stored with the permit.
+        decision: String,
+        reply: Reply<()>,
+    },
     /// Replaces the chat token hash of a step still awaiting approval.
     RotateToken {
         operation: OperationId,

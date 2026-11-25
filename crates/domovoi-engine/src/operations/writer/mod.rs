@@ -26,6 +26,7 @@ use tokio::sync::mpsc;
 
 pub(crate) use commands::{Conclusion, DispatchAnswer, Held, OperationCommand, Reply, TurnEnd};
 pub(crate) use commit::queue_reconcile;
+use dispatch::reconcile_host;
 pub(crate) use summary::queue_resolution;
 
 use commit::{Applied, Change, Edit, apply, finish_held};
@@ -133,6 +134,18 @@ pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
                 provenance,
                 chat_token,
             );
+            answer(shared, change, reply).await;
+        }
+        OperationCommand::AuthorizeByPolicy {
+            held,
+            operation,
+            step,
+            authorization,
+            decision,
+            reply,
+        } => {
+            let change =
+                execution::authorize_by_policy(held, operation, step, authorization, decision);
             answer(shared, change, reply).await;
         }
         OperationCommand::RotateToken {
@@ -430,22 +443,6 @@ async fn finish_held_effect(shared: &OpShared, held: Held) -> Result<(), Operati
         .parse()
         .map_err(|_| OperationError::Store("an effect names no operation".to_owned()))?;
     finish_held(shared, held, operation, None).await
-}
-
-/// Queues a reconcile for each execution dispatched to `host`.
-async fn reconcile_host(shared: &OpShared, host: domovoi_core::HostId) {
-    let rows = match shared.deps.operations.dispatched_on(host).await {
-        Ok(rows) => rows,
-        Err(err) => {
-            tracing::warn!(%err, %host, "could not list the executions dispatched to a host");
-            return;
-        }
-    };
-    for row in rows {
-        if let Err(err) = queue_reconcile(shared, row.operation, row.step).await {
-            tracing::warn!(%err, step = %row.step, "could not queue a reconcile");
-        }
-    }
 }
 
 /// The statuses that hold one of the `max_running` slots. A paused operation keeps its slot.
