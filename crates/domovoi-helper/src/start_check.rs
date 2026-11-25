@@ -55,12 +55,36 @@ fn facts_of(
 
 /// Runs the start checks over `dirs`.
 ///
+/// Order: the paths of the table ([`check_paths`]); the helper must be initialised, which means
+/// the key or the state exists (`uninitialized` when neither does; with only one of them the
+/// helper still starts, so `safety.attest` can say which is missing); `helper.toml` must parse
+/// (`helper_config_invalid`).
+pub fn run_start_checks(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<(), StartRefusal> {
+    check_paths(inspect, dirs)?;
+    check_initialised(inspect, dirs)?;
+    check_config(inspect, dirs)
+}
+
+fn check_initialised(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<(), StartRefusal> {
+    let absent = |name: &str| {
+        matches!(
+            inspect.lstat(&dirs.helper_dir.join(name)),
+            Err(domovoi_core::ports::InspectError::NotFound)
+        )
+    };
+    if absent("attest.key") && absent("state") {
+        return Err(StartRefusal::bare(RefusalToken::Uninitialized));
+    }
+    Ok(())
+}
+
+/// The permission part of the start checks, which `safety.attest` repeats on every request.
+///
 /// Order: the `domovoi-agent` account must resolve (`agent_account_missing`); the state directory
 /// must exist (`uninitialized`); every checked path must match the table
 /// (`helper_state_permissions`, with all faults listed, and an unopenable lock reported as a
-/// permission fault, never as corruption); `helper.toml` must parse (`helper_config_invalid`).
-/// The absence of the key and the state file does not refuse start in this milestone.
-pub fn run_start_checks(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<(), StartRefusal> {
+/// permission fault, never as corruption). An absent key or state file is not a fault here.
+pub fn check_paths(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<(), StartRefusal> {
     let agent = match inspect.user(AGENT_ACCOUNT) {
         Ok(Some(account)) => (account.uid, account.gid),
         Ok(None) | Err(_) => return Err(StartRefusal::bare(RefusalToken::AgentAccountMissing)),
@@ -94,7 +118,7 @@ pub fn run_start_checks(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<()
         };
         return Err(StartRefusal { token, faults });
     }
-    check_config(inspect, dirs)
+    Ok(())
 }
 
 fn check_config(inspect: &dyn HostInspect, dirs: &HostDirs) -> Result<(), StartRefusal> {

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use domovoi_config::{ConfigIssue, HelperConfig};
 use domovoi_core::helper::{HELPER_PROTOCOL, HelperResponse, HelperResponseFrame, encode_frame};
 use domovoi_core::identity::{HostDirs, RefusalToken};
-use domovoi_core::ports::{Clock, HostInspect};
+use domovoi_core::ports::{Clock, HostInspect, ProcessExecutor};
 use jiff::SignedDuration;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use uuid::Uuid;
@@ -35,6 +35,9 @@ pub struct ServeContext {
     pub read_deadline: SignedDuration,
     /// The build string `health` reports.
     pub build: String,
+    /// Runs `ip` for `safety.attest`. Without one every route read fails and the attestation is
+    /// a signed incomplete report.
+    pub executor: Option<Arc<dyn ProcessExecutor>>,
 }
 
 impl ServeContext {
@@ -54,7 +57,15 @@ impl ServeContext {
             dirs,
             read_deadline: DEFAULT_READ_DEADLINE,
             build: build.into(),
+            executor: None,
         }
+    }
+
+    /// The same context with `executor` running the route reads of `safety.attest`.
+    #[must_use]
+    pub fn with_process_executor(mut self, executor: Arc<dyn ProcessExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
     }
 }
 
@@ -104,7 +115,7 @@ pub async fn serve_connection<C: Connection>(mut conn: C, ctx: &ServeContext) ->
         return reply(&mut conn, id, response).await;
     }
     let response = match domovoi_core::helper::decode_request(&body) {
-        Ok(frame) => dispatch::dispatch(&frame.request, ctx),
+        Ok(frame) => dispatch::dispatch(&frame.request, ctx).await,
         Err(token) => refused(token),
     };
     reply(&mut conn, id, response).await
