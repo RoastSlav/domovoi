@@ -51,6 +51,7 @@ mod unix {
     use domovoi_core::identity::HostDirs;
     use domovoi_helper::adopt::adopt_stdin_connection;
     use domovoi_helper::inspect::UnixHostInspect;
+    use domovoi_helper::reads::docker::client::BollardDockerRead;
     use domovoi_helper::repair::{
         RepairOutcome, TerminalConfirm, UnixRepairOps, render_plan, render_remaining, run_repair,
     };
@@ -82,14 +83,22 @@ mod unix {
 
     async fn serve(dirs: HostDirs) -> anyhow::Result<ExitCode> {
         let conn = adopt_stdin_connection()?;
+        let config = load_config(Path::new(HELPER_TOML));
+        let endpoint = config
+            .as_ref()
+            .ok()
+            .and_then(HelperConfig::docker_socket)
+            .map(|path| format!("unix://{}", path.display()));
+        let docker = BollardDockerRead::new(endpoint.as_deref());
         let ctx = ServeContext::new(
-            load_config(Path::new(HELPER_TOML)),
+            config,
             Arc::new(UnixHostInspect::new()),
             Arc::new(SystemClock),
             dirs,
             env!("CARGO_PKG_VERSION"),
         )
-        .with_process_executor(keys::route_reader());
+        .with_process_executor(keys::route_reader())
+        .with_docker_read(Arc::new(docker));
         match serve_connection(conn, &ctx).await {
             ServeOutcome::Failed(why) => anyhow::bail!("serving the connection failed: {why}"),
             _ => Ok(ExitCode::SUCCESS),

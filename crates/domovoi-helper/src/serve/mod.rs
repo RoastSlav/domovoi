@@ -40,7 +40,7 @@ pub struct ServeContext {
     pub executor: Option<Arc<dyn ProcessExecutor>>,
     /// The read-only view of the container engine for `docker.read`. Without one every Docker
     /// request is answered `engine_absent`.
-    pub docker: Option<Arc<dyn DockerReadApi>>,
+    pub engine_api: Option<Arc<dyn DockerReadApi>>,
 }
 
 impl ServeContext {
@@ -61,14 +61,14 @@ impl ServeContext {
             read_deadline: DEFAULT_READ_DEADLINE,
             build: build.into(),
             executor: None,
-            docker: None,
+            engine_api: None,
         }
     }
 
     /// The same context with `api` answering the Docker reads.
     #[must_use]
     pub fn with_docker_read(mut self, api: Arc<dyn DockerReadApi>) -> Self {
-        self.docker = Some(api);
+        self.engine_api = Some(api);
         self
     }
 

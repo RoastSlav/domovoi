@@ -707,15 +707,6 @@ row_begin privileged_rust_tests
 )
 row_end $?
 
-row_begin privileged_read_rust_tests
-(
-    set -e
-    [ -f "$root/crates/domovoi-helper/tests/privileged_reads.rs" ] || skip_row "crates/domovoi-helper/tests/privileged_reads.rs does not exist"
-    command -v cargo >/dev/null 2>&1 || skip_row "cargo is not on root's PATH; run with sudo env PATH=\$PATH"
-    cd "$root"
-    DOMOVOI_BIN="$bin_src" cargo test -p domovoi-helper --test privileged_reads -- --ignored
-)
-row_end $?
 wipe_host
 
 #

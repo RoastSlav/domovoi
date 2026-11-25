@@ -96,7 +96,7 @@ async fn docker(
 ) -> Result<HelperResponse, ReadFailure> {
     use domovoi_core::helper::read::{MAX_CONTAINERS, MAX_EVENTS, MAX_LOG_TEXT_BYTES};
 
-    let Some(api) = ctx.docker.as_deref() else {
+    let Some(api) = ctx.engine_api.as_deref() else {
         return Err(ReadFailure::bare(ReadToken::EngineAbsent));
     };
     let fail = |err: DockerReadError| docker_failure(&err);
