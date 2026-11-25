@@ -93,6 +93,8 @@ pub fn decode_request(body: &[u8]) -> Result<HelperRequestFrame, RefusalToken> {
         "safety_attest" => &["nonce"],
         "unit_identity" => &["name"],
         "unit_restart" => &["id", "identity_hash"],
+        "firewall_apply" | "firewall_confirm" => &["block", "source", "ttl_s", "expected_safety"],
+        "firewall_rollback" => &["block", "source", "ttl_s"],
         _ => &[],
     };
     if request
