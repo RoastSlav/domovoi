@@ -320,3 +320,28 @@ fn finish(parsed: Parsed) -> Result<Report, ReportError> {
         computed_at: at,
     }))
 }
+
+/// Validates one repeated-key line (`key=value`) in isolation, with the grammar the full parser
+/// applies to that line.
+///
+/// # Errors
+///
+/// The [`ReportError`] the full parser would give for the line.
+pub fn check_line(line: &str) -> Result<(), ReportError> {
+    let (key_text, value) = line.split_once('=').ok_or(ReportError::NoEquals(1))?;
+    let (key, repeats) = KEY_ORDER
+        .iter()
+        .copied()
+        .find(|(name, _)| *name == key_text)
+        .ok_or_else(|| ReportError::UnknownKey(key_text.to_owned()))?;
+    if !repeats {
+        return Err(ReportError::UnknownKey(format!(
+            "{key_text} (not a repeated key)"
+        )));
+    }
+    if canonical_repeated(key, value)? == value {
+        Ok(())
+    } else {
+        Err(bad(key, value))
+    }
+}

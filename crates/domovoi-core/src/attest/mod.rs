@@ -42,7 +42,7 @@ pub use gate::{confirmation_current, covered, gate, permit_identity_current};
 pub use hash::{Hash32, HashError, ZERO_HASH, domain_bytes, domain_hash, signing_bytes};
 pub use identity::{IdentityError, IdentityMatch, SafetyIdentity, compare};
 pub use lines::{EndpointRoute, LinkPeer, LocalAddr, Route, Rule};
-pub use parse::parse_report;
+pub use parse::{check_line, parse_report};
 pub use reason::{IncompleteReason, UnverifiedReason, UnverifiedReasonError};
 pub use report::{
     CompleteReport, IncompleteReport, Report, ReportError, RouteLines, render_complete,
