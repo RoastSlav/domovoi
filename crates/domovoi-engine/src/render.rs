@@ -74,6 +74,12 @@ pub fn digest(digest: &Digest) -> String {
             continue;
         }
         _ = writeln!(out, "**{}**", host.host);
+        if host.lines.is_empty() {
+            _ = writeln!(
+                out,
+                "- no metric changes; see open incidents and advisories below"
+            );
+        }
         for line in &host.lines {
             _ = writeln!(out, "- {line}");
         }

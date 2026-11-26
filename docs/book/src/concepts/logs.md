@@ -7,7 +7,7 @@ The Logs page shows what the hub itself was doing: checks that ran, incidents th
 Lines come out oldest first, so the newest one is at the bottom:
 
 ```text
-12:04:11 INFO domovoi_hub.checks: disk.usage on /srv is 91% full
+12:04:11 INFO domovoi_hub.checks: disk.free on /srv is 91% full
 12:05:02 ERROR domovoi_hub.chat: gateway rejected key=[REDACTED]
 ```
 

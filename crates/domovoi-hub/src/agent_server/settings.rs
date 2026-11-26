@@ -39,6 +39,11 @@ impl ServerSettings {
         let public_url = match &server.public_url {
             Some(url) => url.clone(),
             None => {
+                tracing::warn!(
+                    hub = %config.hub.name,
+                    "[agent_server] public_url is not set; agents are told to dial the hub's name; \
+                     set it to an address they can reach"
+                );
                 let text = format!("wss://{}:{}", config.hub.name, server.bind.port());
                 Url::parse(&text).map_err(|e| {
                     AgentServerError::Settings(format!(

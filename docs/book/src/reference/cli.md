@@ -211,7 +211,7 @@ Runs every enabled check once on this host and prints what each one saw, plus it
 
 ```sh
 domovoi check run --config /etc/domovoi/agent.toml
-domovoi check run --only disk.usage --json
+domovoi check run --only disk.free --json
 ```
 
 ### `domovoi notify test`

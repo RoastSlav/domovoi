@@ -2361,7 +2361,8 @@ read_secret_file() { # FLAG FILE DEST
         fail_with 2 "cannot read the mode of $2"
     case "$rs_stat" in
     "600 $(id -u)" | "400 $(id -u)") ;;
-    *) fail_with 2 "$2 must have mode 0600 or 0400 and be owned by the user running this script (found mode ${rs_stat%% *}, owner uid ${rs_stat#* }); run: chmod 600 $2" ;;
+    "600 "* | "400 "*) fail_with 2 "$2 is owned by uid ${rs_stat#* }, not by the user running this script (uid $(id -u)); run: chown $(id -u) $2" ;;
+    *) fail_with 2 "$2 has mode ${rs_stat%% *}; it must be 0600 or 0400 so nobody else can read it; run: chmod 600 $2" ;;
     esac
     sed -n '1{s/\r$//;p;q}' "$2" >"$3" ||
         fail_with 2 "cannot read $2"
