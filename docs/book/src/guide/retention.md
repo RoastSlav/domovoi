@@ -10,6 +10,8 @@ Domovoi keeps raw data for a limited time and keeps the records that explain wha
 | `notifications_days` | 30 days | the notification state of a resolved incident | held alerts and the state of open incidents |
 | `triage_cache_days` | 90 days | cached triage reports | |
 | `resolved_advisories_days` | 30 days | advisories, counted from resolving | open advisories |
+| `operation_journal_days` | 180 days | not applied: accepted and shown, but no purge reads it | |
+| `execution_outputs_days` | 30 days | not applied: raw execution output is kept only in the audit log's 4 KiB excerpt | |
 | `retracted_facts_days` | 30 days | the content of a retracted fact or relation (its tombstone stays) | |
 
 Operations and their resolution summaries are kept, and so is the audit log: neither has a day count here. Incidents, metric samples and `llm_usage` are kept as well. The 4 KiB output excerpt recorded on an execution's audit event belongs to the audit log and is kept with it.
