@@ -457,7 +457,6 @@ async fn assemble(
                 signals: store.clone(),
                 notes: store.clone(),
                 hosts: store.clone(),
-                actions: store.clone(),
                 cache: store.clone(),
                 usage: store.clone(),
                 admission: store.clone(),
@@ -716,7 +715,6 @@ async fn assemble(
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
-        actions: store.clone(),
         hosts: store.clone(),
         notes: store.clone(),
         advisories: store.clone(),

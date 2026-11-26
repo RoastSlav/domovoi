@@ -135,21 +135,6 @@ async fn incident_detail_ack_and_mute() {
 }
 
 #[tokio::test]
-async fn action_list_exposes_the_plan_hash() {
-    let a = api().await;
-    let login = a.admin().await;
-    let action = a.propose(Risk::Write).await;
-
-    let listed = a.get("/api/v1/actions", &login).await;
-
-    assert_eq!(listed.status, StatusCode::OK);
-    assert_eq!(
-        listed.body["items"][0]["plan_hash"],
-        action.plan_hash_for_approval().to_string()
-    );
-}
-
-#[tokio::test]
 async fn sse_stream_emits_incident_update() {
     let a = api().await;
     let login = a.admin().await;

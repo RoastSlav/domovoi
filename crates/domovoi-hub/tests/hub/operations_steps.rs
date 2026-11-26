@@ -2,7 +2,7 @@
 
 use axum::http::StatusCode;
 use domovoi_core::ports::{AggregateRef, EffectStatus};
-use domovoi_core::{ApprovalChannel, OperationId, Risk, StepId};
+use domovoi_core::{ApprovalChannel, OperationId, StepId};
 use jiff::SignedDuration;
 use serde_json::{Value, json};
 
@@ -352,26 +352,6 @@ async fn deny_step_refuses_the_execution() {
         StatusCode::CONFLICT,
         "a denied step cannot be approved"
     );
-}
-
-#[tokio::test]
-async fn listing_legacy_actions_creates_no_operations_rows() {
-    let a = api_with_operations().await;
-    let login = a.admin().await;
-    a.propose(Risk::Write).await;
-    a.propose(Risk::Destructive).await;
-    let head = a.head_seq().await;
-
-    let actions = a.get("/api/v1/actions", &login).await;
-    assert_eq!(actions.body["items"].as_array().unwrap().len(), 2);
-    let detail = a
-        .get(&format!("/api/v1/incidents/{}", a.incident.id()), &login)
-        .await;
-    assert_eq!(detail.body["actions"].as_array().unwrap().len(), 2);
-    assert_eq!(detail.body["operations"], json!([]));
-    let operations = a.get("/api/v1/operations", &login).await;
-    assert_eq!(operations.body["items"], json!([]));
-    assert_eq!(a.head_seq().await, head, "reading wrote nothing");
 }
 
 #[tokio::test]

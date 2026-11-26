@@ -3,7 +3,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use domovoi_core::ports::{ActionFilter, IncidentFilter, OperationFilter, Page, Presence};
+use domovoi_core::ports::{IncidentFilter, OperationFilter, Page, Presence};
 use domovoi_core::{Host, Incident, IncidentGroup, IncidentStatus, Verdict};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -29,8 +29,6 @@ pub struct OverviewDto {
     pub incidents_open: u32,
     /// The incidents that are not resolved, counted by the group the list filters on.
     pub incident_groups: IncidentGroupsDto,
-    /// Actions waiting for a person to approve or deny them.
-    pub approvals_waiting: u32,
     /// Hosts with an enrolled agent that is not connected.
     pub hosts_offline: u32,
     /// Hosts counted.
@@ -43,8 +41,6 @@ pub struct OverviewDto {
     pub operations_waiting_user: u32,
     /// Operations that are paused, for whatever reason, including an unknown result.
     pub operations_paused: u32,
-    /// Classic actions whose result is unknown.
-    pub actions_outcome_unknown: u32,
     /// Everything that waits for the owner: incidents that need action, approvals, questions,
     /// paused operations, unknown results and offline hosts.
     pub attention_total: u32,
@@ -159,19 +155,6 @@ pub(super) async fn show(
         })
         .count();
 
-    let proposed = ActionFilter {
-        host: only,
-        status: Some("proposed".to_owned()),
-        ..ActionFilter::default()
-    };
-    let waiting = state.deps.actions.list(&proposed, &page).await?.items.len();
-
-    let unknown = ActionFilter {
-        host: only,
-        status: Some("outcome_unknown".to_owned()),
-        ..ActionFilter::default()
-    };
-    let unknown = state.deps.actions.list(&unknown, &page).await?.items.len();
     let running = operations_in(&state, "running", only, &page).await?;
     let waiting_approval = operations_in(&state, "waiting_approval", only, &page).await?;
     let waiting_user = operations_in(&state, "waiting_user", only, &page).await?;
@@ -187,11 +170,9 @@ pub(super) async fn show(
     let groups = IncidentGroupsDto::of(&incidents);
     let attention_total = [
         groups.needs_action,
-        count(waiting),
         count(waiting_approval),
         count(waiting_user),
         count(paused),
-        count(unknown),
         count(offline),
     ]
     .into_iter()
@@ -201,14 +182,12 @@ pub(super) async fn show(
         incidents_action_needed: count(action_needed),
         incidents_open: count(incidents.len()),
         incident_groups: groups,
-        approvals_waiting: count(waiting),
         hosts_offline: count(offline),
         hosts_total: count(hosts.len()),
         operations_running: count(running),
         operations_waiting_approval: count(waiting_approval),
         operations_waiting_user: count(waiting_user),
         operations_paused: count(paused),
-        actions_outcome_unknown: count(unknown),
         attention_total,
         as_of_seq,
     }))

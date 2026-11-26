@@ -365,7 +365,6 @@ async fn snapshots_carry_as_of_seq() {
     let uris = [
         "/api/v1/incidents".to_owned(),
         format!("/api/v1/incidents/{id}"),
-        "/api/v1/actions".to_owned(),
         "/api/v1/overview".to_owned(),
     ];
     for uri in uris {

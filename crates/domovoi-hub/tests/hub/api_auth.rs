@@ -274,7 +274,6 @@ async fn unauthenticated_requests_get_401() {
         "/api/v1/session",
         "/api/v1/incidents",
         &format!("/api/v1/incidents/{}", a.incident.id()),
-        "/api/v1/actions",
         "/api/v1/hosts",
         "/api/v1/hosts/nas/skills",
         "/api/v1/notes",
