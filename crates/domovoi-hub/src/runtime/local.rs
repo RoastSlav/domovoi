@@ -11,12 +11,14 @@ use super::{RuntimeError, adapters};
 use crate::agent_server::AgentServer;
 
 /// What a local agent needs to save as its identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalEnrollment {
     /// The agent's id.
     pub agent_id: AgentId,
     /// The hub's own host, which the local agent watches.
     pub host_id: HostId,
+    /// The name of that host: `[hub] name`, whatever the agent's own `host_name` says.
+    pub host_name: String,
     /// SHA-256 of the hub certificate, kept for parity with a remote identity.
     pub hub_fingerprint: [u8; 32],
 }
@@ -73,9 +75,15 @@ impl LocalAgents {
                 agent.agent
             }
         };
+        let host_name = self
+            .store
+            .get_host(host)
+            .await?
+            .map_or_else(|| host.to_string(), |found| found.name.to_string());
         Ok(LocalEnrollment {
             agent_id,
             host_id: host,
+            host_name,
             hub_fingerprint: self.server.fingerprint(),
         })
     }

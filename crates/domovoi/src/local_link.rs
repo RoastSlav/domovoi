@@ -56,10 +56,21 @@ pub async fn run_agent(
         .await?
         .clone()
         .ok_or_else(|| anyhow::anyhow!("the hub stopped before the local agent started"))?;
+    let own_name = config.agent.host_name.to_string();
     local_identity(&config.agent.state_dir, |public_key| async move {
         registrar
             .register(public_key, env!("CARGO_PKG_VERSION"))
             .await
+            .inspect(|enrolled| {
+                if enrolled.host_name != own_name {
+                    tracing::warn!(
+                        hub_name = %enrolled.host_name,
+                        agent_host_name = %own_name,
+                        "the in-hub agent runs as the hub's own host: it is named by [hub] name, \
+                         and the agent's host_name is ignored"
+                    );
+                }
+            })
             .map(|enrolled| Registered {
                 agent_id: enrolled.agent_id,
                 host_id: enrolled.host_id,

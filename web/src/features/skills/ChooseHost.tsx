@@ -5,9 +5,12 @@ import { hostConnectionMeta, hostConnectionOf } from "../../design/tone";
 import { Icon } from "../../design/icons";
 import styles from "./skills.module.css";
 
-/** Hosts with an agent first; a hub-only host has no skills, so it goes last. */
+/** Connected hosts first, then the rest with an agent; a hub-only host has no skills, last. */
 function skillHostOrder(hosts: readonly Host[]): Host[] {
-  const rank = (host: Host) => (hostConnectionOf(host) === "hub_only" ? 1 : 0);
+  const rank = (host: Host) => {
+    const state = hostConnectionOf(host);
+    return state === "hub_only" ? 2 : state === "connected" ? 0 : 1;
+  };
   return [...hosts].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, "en", { numeric: true }),
   );

@@ -205,6 +205,8 @@ The two services stay separate. Because the hub and the agent then share `/etc/d
 
 The hub can instead run an agent for its own machine in the same process, with the `--with-local-agent` flag. [`deploy/systemd/single-box.conf`](https://github.com/RoastSlav/domovoi/blob/main/deploy/systemd/single-box.conf) is a drop-in that does this. The local agent then runs inside the hub's sandbox as the `domovoi` user, so SMART, journal checks and skills that switch users report errors, and the boundary is not in effect. It needs an agent config file, which the drop-in describes. Prefer two services unless you need a single process.
 
+The in-hub agent is the agent of the hub's own host, so that host is named by `[hub] name`. The `host_name` in the agent config is ignored, and the hub logs a warning at start when the two differ.
+
 ## Next
 
 - [Unattended install](unattended.md), for scripts and automation agents

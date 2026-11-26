@@ -194,6 +194,14 @@ test("a_hub_only_host_sorts_last_under_all_hosts_and_its_card_is_not_a_link", as
   expect(within(hosts).getByText("No agent here, so no skills.")).toBeVisible();
 });
 
+test("a_connected_host_is_listed_before_one_whose_agent_is_offline", async () => {
+  route("GET /api/v1/hosts", () => [{ ...nas, id: "host-a", name: "aaa", connected: false }, nas]);
+  renderAt("/skills", "/skills", <SkillsPage />);
+
+  const hosts = await screen.findByRole("navigation", { name: "Hosts" });
+  expect(hosts.textContent?.indexOf("nas")).toBeLessThan(hosts.textContent?.indexOf("aaa") ?? 0);
+});
+
 test("skill_detail_opens_from_the_list_with_parameters_and_readme", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas]);
