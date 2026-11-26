@@ -5,10 +5,13 @@
 #
 # It downloads the release archive for this machine, checks its SHA-256, installs the
 # binary, and for --role hub or --role agent creates the users, directories and systemd
-# units. It writes exactly one config file, /etc/domovoi/helper.toml, and only when it is
-# absent. It never starts the hub or the agent; the only things it starts are the helper
-# and skill runner sockets of an agent on a systemd host, the second one only after the
-# self-test passes. Running it again upgrades the binary and leaves everything else alone.
+# units. A hub on a systemd host is enabled and started, and the installer waits until it is
+# ready (--no-start skips that). The agent is never started; the only things started for it
+# are the helper and skill runner sockets on a systemd host, the second one only after the
+# self-test passes. For the hub it can write /etc/domovoi/hub.env (only the keys named by
+# --public-url, --bind and --agent-url) and create the admin account (--admin-password-file).
+# For an agent it writes exactly one config file, /etc/domovoi/helper.toml, and only when it
+# is absent. Running it again upgrades the binary and leaves everything else alone.
 #
 # An agent on a systemd host with no hub gets three identities: the unprivileged
 # domovoi-agent account runs the agent, the group-less domovoi-skill account is for skills,
@@ -42,6 +45,26 @@ Options:
   --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local);
                        an absolute path
   --no-service         install only the binary and examples: no user, directories or unit
+  --no-start           with --role hub: install the unit but do not start the hub. Without it
+                       a hub on a systemd host is enabled, started, and waited for until
+                       GET /readyz answers; an upgrade restarts a hub that was running
+  --public-url URL     with --role hub: the exact address people open, such as
+                       https://domovoi.lan or http://192.168.1.50:7420 (writes
+                       DOMOVOI_WEB__PUBLIC_URL to /etc/domovoi/hub.env)
+  --bind lan|loopback|HOST:PORT
+                       with --role hub: where the web UI listens (DOMOVOI_WEB__BIND). lan is
+                       0.0.0.0:7420 and, without --public-url, derives
+                       http://<this machine's IPv4>:7420; loopback is 127.0.0.1:7420
+  --agent-url URL      with --role hub: the wss://HOST:7421 address agents dial
+                       (DOMOVOI_AGENT_SERVER__PUBLIC_URL); with --bind lan it defaults to the
+                       host of the public URL
+  --admin-password-file FILE
+                       with --role hub, on a fresh install only: create the admin account
+                       before the first start from the first line of FILE (a regular file,
+                       mode 0600 or 0400, owned by you; at least 12 characters), so no setup
+                       link is needed. An existing admin or an upgrade is never changed
+  --admin-password-stdin
+                       the same, reading the first line of standard input (not with curl | sh)
   --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
                        confirmation that exists, the typed word of --migrate-identity, is
                        not skipped by it: that step needs a terminal by design
@@ -71,16 +94,20 @@ Environment:
                            writable, else ~/.cache/domovoi-install.log)
   DOMOVOI_MIN_FREE_MB      free disk space needed in the temp directory and the prefix
                            (default: 200)
-  NO_COLOR                 set it to turn colours off
+  DOMOVOI_READY_TIMEOUT    seconds to wait for the hub to answer /readyz after the start
+                           (default: 60)
+  NO_COLOR                set it to turn colours off
 
 Exit codes:
   0   done
-  2   usage: a bad flag or value
+  2   usage: a bad flag or value (including a bad URL, or a password file that is not a
+      regular file with mode 0600 or 0400 owned by you)
   10  preflight: this machine cannot take the install, or an older version without
       --force-downgrade
   20  download or checksum
   30  install: the binary or its files
-  40  service: users, directories, units or sockets
+  40  service: users, directories, units or sockets; the hub did not become ready; the
+      admin account could not be created
   50  self-test failed
   1   anything else
 USAGE
@@ -109,6 +136,22 @@ result_done=0
 next_list=""
 role=""
 version="latest"
+start=1
+public_url=""
+bind_opt=""
+agent_url=""
+admin_pw_file=""
+admin_pw_stdin=0
+hub_env="/etc/domovoi/hub.env"
+set_public_url=""
+set_bind=""
+set_agent_url=""
+have_systemd=0
+started=0
+admin_created=0
+hub_fresh_data=1
+web_url=""
+setup_url=""
 bin=""
 layout=""
 c_bold=""
@@ -221,9 +264,18 @@ emit_result() { # OK CODE
     if [ "$log_keep" -eq 1 ]; then er_log="$log_file"; fi
     er_plan="[]"
     if [ -n "$tmp" ] && [ -f "$tmp/plan" ]; then er_plan="$(lines_to_json <"$tmp/plan")"; fi
-    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"next_steps":%s,"plan":%s,"error":"%s"}' \
+    er_urls="{"
+    if [ -n "$web_url" ]; then er_urls="$er_urls\"web\":\"$(json_escape "$web_url")\""; fi
+    if [ -n "$setup_url" ]; then er_urls="$er_urls${web_url:+,}\"setup\":\"$(json_escape "$setup_url")\""; fi
+    er_urls="$er_urls}"
+    er_admin=false
+    er_started=false
+    if [ "$admin_created" -eq 1 ]; then er_admin=true; fi
+    if [ "$started" -eq 1 ]; then er_started=true; fi
+    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"urls":%s,"admin_created":%s,"started":%s,"next_steps":%s,"plan":%s,"error":"%s"}' \
         "$1" "$2" "$(json_escape "$role")" "$(json_escape "$version")" \
         "$(json_escape "${layout:-$role}")" "$(json_escape "$bin")" "$(json_escape "$er_log")" \
+        "$er_urls" "$er_admin" "$er_started" \
         "$(printf '%s\n' "$next_list" | lines_to_json)" "$er_plan" "$(json_escape "$last_error")")"
 }
 
@@ -1500,7 +1552,28 @@ build_plan() {
         plan_dir /var/lib/domovoi 0750 domovoi:domovoi
         plan_unit domovoi-hub.service hub_unit
         plan_add reload "systemctl daemon-reload (when systemd is present)"
-        plan_add note "the hub is not started; the next steps are printed at the end"
+        if [ -n "$set_public_url$set_bind$set_agent_url" ]; then
+            plan_add write "$hub_env (mode 0640, owner root:domovoi when created); only these keys, other lines kept:"
+            if [ -n "$set_bind" ]; then plan_add set "  DOMOVOI_WEB__BIND=$set_bind"; fi
+            if [ -n "$set_public_url" ]; then plan_add set "  DOMOVOI_WEB__PUBLIC_URL=$set_public_url"; fi
+            if [ -n "$set_agent_url" ]; then plan_add set "  DOMOVOI_AGENT_SERVER__PUBLIC_URL=$set_agent_url"; fi
+        fi
+        if [ -s "$tmp/admin.pw" ]; then
+            if [ -e /etc/systemd/system/domovoi-hub.service ] || [ -n "$(ls -A /var/lib/domovoi 2>/dev/null)" ]; then
+                plan_add skip "the admin account (this hub already has data; no password is reset)"
+            else
+                plan_add create "the admin account via 'hub set-password --password-stdin' as domovoi, before the first start"
+            fi
+        fi
+        if [ "$start" -eq 0 ]; then
+            plan_add note "the hub is not started (--no-start); the next steps are printed at the end"
+        elif [ "$have_systemd" -eq 0 ]; then
+            plan_add note "the hub is not started: this machine has no systemd; the next steps are printed at the end"
+        elif [ -e /etc/systemd/system/domovoi-hub.service ]; then
+            plan_add restart "domovoi-hub if it is running, then wait up to ${DOMOVOI_READY_TIMEOUT:-60} s for GET /readyz"
+        else
+            plan_add start "systemctl enable --now domovoi-hub, then wait up to ${DOMOVOI_READY_TIMEOUT:-60} s for GET /readyz"
+        fi
     elif [ "$migrate" -eq 1 ]; then
         plan_add migrate "the agent moves from root to domovoi-agent (see the plan above); the typed word is asked for"
     else
@@ -1548,6 +1621,307 @@ print_plan() {
     done <"$tmp/plan"
 }
 
+# --- Hub settings: hub.env, admin account, start -------------------------------------------
+# The value of the last KEY= line of FILE, or nothing.
+env_get() { # FILE KEY
+    [ -r "$1" ] || return 0
+    sed -n "s/^$2=//p" "$1" | tail -n 1
+}
+
+# Sets KEY=VALUE in FILE: the first KEY= line is replaced, further ones are dropped, and the
+# line is appended when there is none. Every other line is kept as it is.
+env_set() { # FILE KEY VALUE
+    es_new="$tmp/env.new"
+    EV="$3" awk -v key="$2" '
+        index($0, key "=") == 1 { if (!done) { print key "=" ENVIRON["EV"]; done = 1 }; next }
+        { print }
+        END { if (!done) print key "=" ENVIRON["EV"] }' "$1" >"$es_new"
+    cat "$es_new" >"$1"
+}
+
+# The primary IPv4 address of this machine, or nothing.
+detect_ip() {
+    di=""
+    if command -v ip >/dev/null 2>&1; then
+        di="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n 1)"
+    fi
+    if [ -z "$di" ] && command -v hostname >/dev/null 2>&1; then
+        di="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | grep -v '^127\.' | head -n 1)"
+    fi
+    printf '%s\n' "$di" | grep -E '^[0-9]+(\.[0-9]+){3}$' || true
+}
+
+# The host part of an http, https or wss URL, brackets kept for IPv6.
+url_host() {
+    uh="${1#*://}"
+    uh="${uh%%/*}"
+    case "$uh" in
+    \[*) printf '%s\n' "${uh%%]*}]" ;;
+    *) printf '%s\n' "${uh%%:*}" ;;
+    esac
+}
+
+# Refuses a URL the hub config would reject, before anything changes. SCHEMES is a grep -E
+# alternation such as "https?".
+check_url() { # FLAG VALUE SCHEMES
+    printf '%s\n' "$2" | grep -Eq "^($3)://(\[[0-9A-Fa-f:]+\]|[A-Za-z0-9._-]+)(:[0-9]{1,5})?/?\$" ||
+        fail_with 2 "$1 $2 is not usable: it must look like $4, with no path, spaces or quotes"
+}
+
+# Checks the hub settings flags and works out what to write. Sets $set_public_url, $set_bind,
+# $set_agent_url; the ones that are empty are left as they are. Exit 2 for a bad value.
+resolve_net() {
+    set_public_url=""
+    set_bind=""
+    set_agent_url=""
+    rn_lan=0
+    if [ -n "$public_url" ]; then
+        check_url --public-url "$public_url" "https?" "https://domovoi.lan or http://192.168.1.50:7420"
+        set_public_url="${public_url%/}"
+    fi
+    if [ -n "$agent_url" ]; then
+        check_url --agent-url "$agent_url" "wss" "wss://192.168.1.50:7421"
+        set_agent_url="${agent_url%/}"
+    fi
+    case "$bind_opt" in
+    "") ;;
+    lan)
+        rn_lan=1
+        set_bind="0.0.0.0:7420"
+        ;;
+    loopback) set_bind="127.0.0.1:7420" ;;
+    *)
+        printf '%s\n' "$bind_opt" | grep -Eq '^([0-9]{1,3}(\.[0-9]{1,3}){3}|\[[0-9A-Fa-f:]+\]):[0-9]{1,5}$' ||
+            fail_with 2 "--bind $bind_opt is not usable: use lan, loopback, or a numeric HOST:PORT such as 192.168.1.50:7420"
+        rn_port="${bind_opt##*:}"
+        [ "$rn_port" -ge 1 ] && [ "$rn_port" -le 65535 ] ||
+            fail_with 2 "--bind $bind_opt has a port outside 1 to 65535"
+        set_bind="$bind_opt"
+        ;;
+    esac
+    rn_have_public="$(env_get "$hub_env" DOMOVOI_WEB__PUBLIC_URL)"
+    if [ "$rn_lan" -eq 1 ] && [ -z "$set_public_url" ] && [ -z "$rn_have_public" ]; then
+        rn_ip="$(detect_ip)"
+        [ -n "$rn_ip" ] ||
+            fail_with 2 "--bind lan could not find this machine's IPv4 address; pass --public-url http://ADDRESS:7420"
+        set_public_url="http://$rn_ip:7420"
+        say "Derived the web address $set_public_url from this machine's address; pass --public-url to choose another."
+    fi
+    rn_have_agent="$(env_get "$hub_env" DOMOVOI_AGENT_SERVER__PUBLIC_URL)"
+    if [ "$rn_lan" -eq 1 ] && [ -z "$set_agent_url" ] && [ -z "$rn_have_agent" ]; then
+        rn_pub="${set_public_url:-$rn_have_public}"
+        if [ -n "$rn_pub" ]; then
+            set_agent_url="wss://$(url_host "$rn_pub"):7421"
+            say "Derived the agent address $set_agent_url from the web address; pass --agent-url to choose another."
+        fi
+    fi
+    rn_eff="${set_public_url:-$rn_have_public}"
+    case "$rn_eff" in
+    http://127.* | http://localhost* | "http://[::1]"*) ;;
+    http://*)
+        warn "the web address $rn_eff is plain http on a network address: the login and the session travel unencrypted. Put a reverse proxy with TLS in front and use its https address with --public-url."
+        ;;
+    esac
+}
+
+# Checks the password source and copies its first line to $tmp/admin.pw (0600, never argv).
+prepare_admin_password() {
+    if [ -n "$admin_pw_file" ] && [ "$admin_pw_stdin" -eq 1 ]; then
+        fail_with 2 "use either --admin-password-file or --admin-password-stdin, not both"
+    fi
+    if [ -n "$admin_pw_file" ]; then
+        [ -f "$admin_pw_file" ] && [ ! -L "$admin_pw_file" ] ||
+            fail_with 2 "--admin-password-file $admin_pw_file must be a regular file, not a link or a directory"
+        pw_stat="$(stat -c '%a %u' "$admin_pw_file" 2>/dev/null)" ||
+            fail_with 2 "cannot read the mode of $admin_pw_file"
+        case "$pw_stat" in
+        "600 $(id -u)" | "400 $(id -u)") ;;
+        *) fail_with 2 "$admin_pw_file must have mode 0600 or 0400 and be owned by the user running this script (found mode ${pw_stat%% *}, owner uid ${pw_stat#* }); run: chmod 600 $admin_pw_file" ;;
+        esac
+        sed -n '1{s/\r$//;p;q}' "$admin_pw_file" >"$tmp/admin.pw" ||
+            fail_with 2 "cannot read $admin_pw_file"
+    else
+        if [ -t 0 ]; then
+            fail_with 2 "--admin-password-stdin needs the password piped in, for example: printf '%s\\n' \"\$PW\" | sh install.sh ..."
+        fi
+        sed -n '1{s/\r$//;p;q}' >"$tmp/admin.pw" || fail_with 2 "cannot read the password from standard input"
+    fi
+    chmod 0600 "$tmp/admin.pw"
+    [ -s "$tmp/admin.pw" ] && [ "$(tr -d '\r\n' <"$tmp/admin.pw" | wc -c)" -gt 0 ] ||
+        fail_with 2 "the admin password is empty"
+}
+
+# Writes the keys the flags named to hub.env, creating it (0640 root:domovoi) when absent.
+# Other lines and keys not named are left as they are.
+write_hub_env() {
+    [ -n "$set_public_url$set_bind$set_agent_url" ] || return 0
+    if [ ! -e "$hub_env" ]; then
+        : >"$hub_env"
+        chmod 0640 "$hub_env"
+        chown root:domovoi "$hub_env"
+        say "Created $hub_env"
+    fi
+    for we_pair in "DOMOVOI_WEB__BIND|$set_bind" "DOMOVOI_WEB__PUBLIC_URL|$set_public_url" \
+        "DOMOVOI_AGENT_SERVER__PUBLIC_URL|$set_agent_url"; do
+        we_key="${we_pair%%|*}"
+        we_val="${we_pair#*|}"
+        [ -n "$we_val" ] || continue
+        if [ "$(env_get "$hub_env" "$we_key")" = "$we_val" ]; then
+            say "$hub_env already has $we_key=$we_val"
+        else
+            env_set "$hub_env" "$we_key" "$we_val"
+            say "Set $we_key=$we_val in $hub_env"
+        fi
+    done
+}
+
+# Runs a command as the domovoi user with the same home the unit gives it.
+run_as_domovoi() {
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u domovoi -- env HOME=/var/lib/domovoi "$@"
+    elif command -v setpriv >/dev/null 2>&1; then
+        setpriv --reuid=domovoi --regid=domovoi --init-groups env HOME=/var/lib/domovoi "$@"
+    elif command -v su >/dev/null 2>&1; then
+        case "$*" in
+        *"'"*) fail "cannot run $* as domovoi through su: the path has a quote" ;;
+        esac
+        su -s /bin/sh domovoi -c "HOME=/var/lib/domovoi exec $*"
+    else
+        fail "cannot run a command as the domovoi user: none of runuser, setpriv or su is available"
+    fi
+}
+
+# Creates the admin account with `hub set-password --password-stdin`, as the hub user and
+# before the first start. Only on a fresh data directory; an existing admin is never reset.
+create_admin() {
+    [ -s "$tmp/admin.pw" ] || return 0
+    if [ "$upgrade" -eq 1 ] || [ "$hub_fresh_data" -eq 0 ]; then
+        say "Skipped the admin account: this hub already has data, so an admin may exist and its password is never reset here."
+        return 0
+    fi
+    if run_as_domovoi "$bin" hub set-password --password-stdin <"$tmp/admin.pw" >"$tmp/setpw.out" 2>&1; then
+        admin_created=1
+        say "Created the admin account (user name: admin)."
+    else
+        show_file_err "$tmp/setpw.out"
+        fail "could not create the admin account (the hub's message is above; the password needs at least 12 characters)"
+    fi
+    rm -f "$tmp/admin.pw"
+}
+
+# Where the hub answers on this machine: its bind address with a wildcard turned to loopback.
+local_web_url() {
+    lw="$(env_get "$hub_env" DOMOVOI_WEB__BIND)"
+    [ -n "$lw" ] || lw="127.0.0.1:7420"
+    case "$lw" in
+    0.0.0.0:*) lw="127.0.0.1:${lw#*:}" ;;
+    "[::]:"*) lw="[::1]:${lw#\[::\]:}" ;;
+    esac
+    printf 'http://%s\n' "$lw"
+}
+
+# The address to tell the user: the public URL, else the bind address (a wildcard becomes
+# this machine's address).
+user_web_url() {
+    uw="$(env_get "$hub_env" DOMOVOI_WEB__PUBLIC_URL)"
+    if [ -n "$uw" ]; then
+        printf '%s\n' "$uw"
+        return 0
+    fi
+    uw="$(env_get "$hub_env" DOMOVOI_WEB__BIND)"
+    [ -n "$uw" ] || uw="127.0.0.1:7420"
+    case "$uw" in
+    0.0.0.0:* | "[::]:"*)
+        uw_ip="$(detect_ip)"
+        printf 'http://%s:%s\n' "${uw_ip:-127.0.0.1}" "${uw##*:}"
+        ;;
+    *) printf 'http://%s\n' "$uw" ;;
+    esac
+}
+
+# One probe of GET URL/readyz.
+probe_ready() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsS -m 3 -o /dev/null "$1/readyz" >/dev/null 2>&1
+    else
+        wget -q -T 3 -O /dev/null "$1/readyz" >/dev/null 2>&1
+    fi
+}
+
+# Hides a setup token in text on stdin.
+redact_tokens() {
+    sed 's/token=[0-9a-fA-F][0-9a-fA-F]*/token=REDACTED/g'
+}
+
+# Waits up to $DOMOVOI_READY_TIMEOUT seconds for GET URL/readyz, with a progress line every
+# five seconds. On timeout it shows the last journal lines and stops with exit 40.
+wait_ready() {
+    wr_url="$1"
+    wr_max="${DOMOVOI_READY_TIMEOUT:-60}"
+    wr_i=0
+    say "Waiting for the hub to answer at $wr_url/readyz (up to $wr_max s)..."
+    while ! probe_ready "$wr_url"; do
+        if [ "$wr_i" -ge "$wr_max" ]; then
+            journalctl -u domovoi-hub -n 30 --no-pager 2>&1 | redact_tokens >"$tmp/journal.out" || true
+            show_file_err "$tmp/journal.out"
+            fail_with 40 "the hub did not answer $wr_url/readyz within $wr_max s; the last log lines are above. Check: systemctl status domovoi-hub"
+        fi
+        sleep 1
+        wr_i=$((wr_i + 1))
+        if [ $((wr_i % 5)) -eq 0 ]; then
+            say "  still waiting for the hub ($wr_i of $wr_max s)"
+        fi
+    done
+    say "The hub is ready."
+}
+
+# Starts the hub after a fresh install, or restarts it after an upgrade when it was running,
+# then waits until it is ready. Sets $started.
+start_hub() {
+    sh_url="$(local_web_url)"
+    if [ "$upgrade" -eq 1 ]; then
+        if ! systemctl is-active --quiet domovoi-hub; then
+            say "domovoi-hub is not running, so it was left stopped. Start it with: systemctl start domovoi-hub"
+            return 0
+        fi
+        say "Restarting domovoi-hub to run the new binary."
+        systemctl restart domovoi-hub || fail "systemctl restart domovoi-hub failed; see: systemctl status domovoi-hub"
+    else
+        systemctl enable --now domovoi-hub || fail "systemctl enable --now domovoi-hub failed; see: systemctl status domovoi-hub"
+        say "Enabled and started domovoi-hub."
+    fi
+    if [ -z "$(env_get "$hub_env" DOMOVOI_WEB__BIND)" ] && [ -f /etc/domovoi/hub.toml ] &&
+        grep -Eq '^[[:space:]]*bind[[:space:]]*=' /etc/domovoi/hub.toml; then
+        say "The listen address is set in /etc/domovoi/hub.toml, so the wait for /readyz is skipped."
+        started=1
+        return 0
+    fi
+    wait_ready "$sh_url"
+    started=1
+}
+
+# The newest single-use setup token in the journal, or nothing.
+journal_setup_token() {
+    journalctl -u domovoi-hub -o cat --no-pager 2>/dev/null |
+        sed -n 's/.*\/setup?token=\([0-9a-fA-F][0-9a-fA-F]*\).*/\1/p' | tail -n 1
+}
+
+# Sets $setup_url to the setup link, built on the address people open. Retries for a few
+# seconds because the hub prints it just after it is ready.
+find_setup_link() {
+    fs_i=0
+    fs_tok=""
+    while [ "$fs_i" -lt 8 ]; do
+        fs_tok="$(journal_setup_token)"
+        [ -z "$fs_tok" ] || break
+        fs_i=$((fs_i + 1))
+        sleep 1
+    done
+    if [ -n "$fs_tok" ]; then
+        setup_url="$web_url/setup?token=$fs_tok"
+    fi
+}
+
 # --- Final summary ------------------------------------------------------------------------
 record_next() {
     next_list="$next_list${next_list:+
@@ -1557,6 +1931,43 @@ record_next() {
 ns() {
     say_always "  $1"
     record_next "$1"
+}
+
+# The summary of a hub that is running: the address to open, how to sign in, what is left for
+# a person, and the commands to check on it. The setup link is a secret: it is printed here
+# and put in the JSON result, and the log file gets a placeholder.
+hub_started_summary() {
+    web_url="$(user_web_url)"
+    if [ "$upgrade" -eq 1 ]; then
+        say_always "The hub was restarted on the new version and answers at $web_url"
+    else
+        say_always "The hub is running. Open: $web_url"
+        if [ "$admin_created" -eq 1 ]; then
+            say_always "  Sign in as admin with the password you supplied; there is no setup link."
+        else
+            find_setup_link
+            if [ -n "$setup_url" ]; then
+                say_always "  Create the admin account with this single-use link (valid 24 hours):"
+                log_line "  <setup link: not written to the log>"
+                printf '  %s\n' "$setup_url"
+            else
+                say_always "  The setup link was not found in the journal yet. Get it with:"
+                say_always "    journalctl -u domovoi-hub -o cat | grep '/setup?token='"
+            fi
+        fi
+        say_always ""
+        say_always "Still to do by hand:"
+        ns "Settings: add the Discord bot token and channel (create the bot in the Discord developer portal)"
+        ns "Settings: add an LLM provider and its API key"
+        if [ -z "$(env_get "$hub_env" DOMOVOI_AGENT_SERVER__PUBLIC_URL)" ]; then
+            ns "Settings, Hub: set the Agent server URL (wss://HOST:7421), the address agents dial"
+        fi
+        ns "Hosts, Add host: enroll each machine you want to watch (install.sh --role agent on it)"
+    fi
+    say_always ""
+    say_always "Check on it:"
+    ns "systemctl status domovoi-hub"
+    ns "journalctl -u domovoi-hub -f"
 }
 finish_summary() {
     say_always ""
@@ -1646,6 +2057,33 @@ while [ $# -gt 0 ]; do
         ;;
     --no-service)
         service=0
+        shift
+        ;;
+    --no-start)
+        start=0
+        shift
+        ;;
+    --public-url | --bind | --agent-url | --admin-password-file)
+        [ $# -ge 2 ] || fail "$1 needs a value"
+        case "$1" in
+        --public-url) public_url="$2" ;;
+        --bind) bind_opt="$2" ;;
+        --agent-url) agent_url="$2" ;;
+        *) admin_pw_file="$2" ;;
+        esac
+        shift 2
+        ;;
+    --public-url=* | --bind=* | --agent-url=* | --admin-password-file=*)
+        case "$1" in
+        --public-url=*) public_url="${1#*=}" ;;
+        --bind=*) bind_opt="${1#*=}" ;;
+        --agent-url=*) agent_url="${1#*=}" ;;
+        *) admin_pw_file="${1#*=}" ;;
+        esac
+        shift
+        ;;
+    --admin-password-stdin)
+        admin_pw_stdin=1
         shift
         ;;
     --yes)
@@ -1744,6 +2182,21 @@ fi
 
 validate_inputs
 
+case "${DOMOVOI_READY_TIMEOUT:-60}" in
+"" | *[!0-9]* | 0) fail_with 2 "DOMOVOI_READY_TIMEOUT must be a whole number of seconds, not ${DOMOVOI_READY_TIMEOUT:-}" ;;
+esac
+if [ -n "$public_url$bind_opt$agent_url$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then
+    [ "$role" = "hub" ] ||
+        fail_with 2 "--public-url, --bind, --agent-url and the admin password flags go with --role hub"
+    [ "$service" -eq 1 ] ||
+        fail_with 2 "--public-url, --bind, --agent-url and the admin password flags need the service install; they cannot be used with --no-service"
+fi
+if [ "$role" = "hub" ] && [ "$service" -eq 1 ]; then
+    resolve_net
+    if [ -n "$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then prepare_admin_password; fi
+fi
+if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then have_systemd=1; fi
+
 bin_dir="$prefix/bin"
 bin="$bin_dir/domovoi"
 RELEASE_BASE="${RELEASE_BASE%/}"
@@ -1753,6 +2206,9 @@ if [ "$dry_run" -eq 1 ]; then
     step_total=2
 else
     step_total=$((4 + service))
+    if [ "$role" = "hub" ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
+        step_total=$((step_total + 1))
+    fi
 fi
 
 step preflight "Checking this machine"
@@ -1837,10 +2293,18 @@ if [ -e "/etc/systemd/system/$unit_name" ]; then
 fi
 
 if [ "$role" = "hub" ]; then
+    if [ -n "$(ls -A /var/lib/domovoi 2>/dev/null)" ]; then hub_fresh_data=0; fi
     create_hub_layout
+    write_hub_env
+    create_admin
     place_unit "$unit_name" hub_unit 0
-    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+    if [ "$have_systemd" -eq 1 ]; then
         systemctl daemon-reload
+    fi
+    if [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
+        step start "Starting the hub"
+        fail_code=40
+        start_hub
     fi
 else
     classify_host
@@ -1867,6 +2331,11 @@ legacy)
 esac
 
 say_always ""
+if [ "$role" = "hub" ] && [ "$started" -eq 1 ]; then
+    hub_started_summary
+    finish_summary
+    exit 0
+fi
 say_always "Next steps:"
 if [ "$upgrade" -eq 1 ]; then
     ns "systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
@@ -1876,6 +2345,9 @@ elif [ "$role" = "hub" ]; then
     ns "sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"
     say_always ""
     say_always "No config file is needed: everything is set in the web UI."
+    if [ "$admin_created" -eq 1 ]; then
+        say_always "The admin account (user name: admin) exists already, so there is no setup link."
+    fi
 elif [ "$layout" = "fresh" ] || [ "$layout" = "migrated" ]; then
     say_always "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here,"
     say_always "     with sudo: the files it writes are handed to the domovoi-agent account automatically."
