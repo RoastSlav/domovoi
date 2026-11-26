@@ -12,6 +12,7 @@ use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
+use super::audit_note::note;
 use super::dto::{
     AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage, IncidentQuery,
     IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
@@ -191,6 +192,14 @@ pub(super) async fn ack(
         .ack(&auth.caller(), parse_id(&id)?)
         .await
         .map_err(command)?;
+    note(
+        &state,
+        format!("user:{}", auth.0.user.id),
+        "incident.acked",
+        format!("incident:{id}"),
+        serde_json::Value::Null,
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

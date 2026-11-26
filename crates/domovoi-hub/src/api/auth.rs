@@ -6,7 +6,9 @@ use axum::Json;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use serde_json::json;
 
+use super::audit_note::note;
 use super::dto_admin::{LoginRequest, SessionDto, SetupRequest, UserDto};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
@@ -61,8 +63,32 @@ pub(super) async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Response, ApiError> {
     let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
-    let new = state.auth.login(ip, &req.username, &req.password).await?;
-    Ok(with_cookie(&state, new))
+    match state.auth.login(ip, &req.username, &req.password).await {
+        Ok(new) => {
+            note(
+                &state,
+                format!("user:{}", new.user.id),
+                "auth.login",
+                format!("user:{}", new.user.id),
+                json!({ "ip": ip.to_string() }),
+            )
+            .await;
+            Ok(with_cookie(&state, new))
+        }
+        Err(err) => {
+            // The name is what the caller typed: cut it, and never record the password.
+            let name: String = req.username.chars().take(64).collect();
+            note(
+                &state,
+                format!("web:{ip}"),
+                "auth.login_failed",
+                format!("username:{name}"),
+                json!({ "ip": ip.to_string(), "reason": err.to_string() }),
+            )
+            .await;
+            Err(err.into())
+        }
+    }
 }
 
 /// Ends the session and clears the cookie.
@@ -104,5 +130,13 @@ pub(super) async fn setup(
         .auth
         .setup(&req.token, &req.username, &req.password)
         .await?;
+    note(
+        &state,
+        format!("user:{}", new.user.id),
+        "auth.setup",
+        format!("user:{}", new.user.id),
+        json!({ "username": new.user.username }),
+    )
+    .await;
     Ok(with_cookie(&state, new))
 }

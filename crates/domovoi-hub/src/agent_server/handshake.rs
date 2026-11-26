@@ -122,6 +122,19 @@ async fn enroll_agent(
     };
     hosts.put_agent(&agent).await?;
     tracing::info!(%host, agent = %agent.agent, "agent enrolled");
+    let event = AuditEvent {
+        at: now,
+        actor: "system:agent_server".to_owned(),
+        kind: "agent.enrolled".to_owned(),
+        subject: format!("host:{host}"),
+        detail: serde_json::json!({
+            "agent": agent.agent.to_string(),
+            "release": agent.version,
+        }),
+    };
+    if let Err(err) = inner.deps.audit.append(&event).await {
+        tracing::error!(%err, %host, "could not record the enrollment");
+    }
     let enrolled = Message::Enrolled(Enrolled {
         agent_id: agent.agent,
         host_id: host,

@@ -26,6 +26,7 @@ pub mod notes_import;
 pub mod packages;
 
 mod audit;
+mod audit_note;
 mod auth;
 mod autonomy;
 mod capability;

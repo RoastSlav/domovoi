@@ -75,6 +75,49 @@ async fn audit_list_returns_rows_newest_first_with_hashes() {
     }
 }
 
+/// The audit kinds in the log, newest first.
+async fn kinds(a: &Api, login: &crate::api_harness::Login) -> Vec<String> {
+    let reply = a.get("/api/v1/audit?limit=200", login).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    items(&reply.body)
+        .iter()
+        .map(|row| row["kind"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn setup_login_failed_login_and_ack_are_audited() {
+    let a = api().await;
+    let login = a.admin().await;
+    assert!(kinds(&a, &login).await.contains(&"auth.setup".to_owned()));
+
+    let bad = a.login("not the password").await;
+    assert_eq!(bad.status, StatusCode::UNAUTHORIZED, "{}", bad.text);
+    let good = a.login(crate::api_harness::PASSWORD).await;
+    assert_eq!(good.status, StatusCode::OK, "{}", good.text);
+
+    let acked = a
+        .post(
+            &format!("/api/v1/incidents/{}/ack", a.incident.id()),
+            &login,
+            json!({}),
+        )
+        .await;
+    assert_eq!(acked.status, StatusCode::NO_CONTENT, "{}", acked.text);
+
+    let found = kinds(&a, &login).await;
+    for kind in ["auth.login", "auth.login_failed", "incident.acked"] {
+        assert!(found.contains(&kind.to_owned()), "{kind} in {found:?}");
+    }
+    let reply = a.get("/api/v1/audit?kind=auth.login_failed", &login).await;
+    let row = &items(&reply.body)[0];
+    assert!(
+        !row.to_string().contains(crate::api_harness::PASSWORD)
+            && !row.to_string().contains("not the password"),
+        "no password in the row: {row}"
+    );
+}
+
 #[tokio::test]
 async fn audit_list_pages_with_a_cursor_and_a_limit() {
     let a = api().await;
