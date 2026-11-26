@@ -10,7 +10,7 @@ export function ApprovalsPage() {
     <>
       <PageHeader
         title="Approvals"
-        docs="concepts/actions.html"
+        docs="concepts/operations.html#approval"
         intro="Nothing runs until you approve it. Approvals are decided on the operation that asks."
       />
       <Section title="Waiting for you">

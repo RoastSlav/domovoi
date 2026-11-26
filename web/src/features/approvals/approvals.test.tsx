@@ -18,7 +18,10 @@ test("approvals_page_explains_that_nothing_runs_until_approved", async () => {
   expect(await screen.findByText(/^Nothing runs until you approve it\./)).toBeVisible();
   expect(
     screen.getByRole("link", { name: "Learn more about approvals (opens in a new tab)" }),
-  ).toHaveAttribute("href", "https://RoastSlav.github.io/domovoi/concepts/actions.html");
+  ).toHaveAttribute(
+    "href",
+    "https://RoastSlav.github.io/domovoi/concepts/operations.html#approval",
+  );
   expect(await screen.findByText("Approve on the operation")).toBeVisible();
   expect(screen.getByRole("link", { name: "operations" })).toHaveAttribute("href", "/operations");
   expect(screen.queryByRole("button", { name: "Approve" }), "no action can be approved").toBeNull();

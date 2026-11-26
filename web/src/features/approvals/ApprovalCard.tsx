@@ -155,7 +155,7 @@ export function ApprovalCard({
             </Cluster>
             <Cluster>
               <StatusPill meta={risk} />
-              <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
+              <InfoTip title={`${risk.label} risk`} learnMore="concepts/operations.html#approval">
                 {risk.hint}
               </InfoTip>
               {!plan.waiting && <StatusPill meta={plan.stateMeta} />}

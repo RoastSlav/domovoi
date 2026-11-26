@@ -14,7 +14,7 @@ export function PlanTag({ planHash }: { planHash: string }) {
   return (
     <Cluster>
       <Tag>Plan {planHash.slice(0, 8)}</Tag>
-      <InfoTip title="Plan code" learnMore="concepts/actions.html">
+      <InfoTip title="Plan code" learnMore="concepts/operations.html#approval">
         {PLAN_HASH_HINT}
       </InfoTip>
     </Cluster>

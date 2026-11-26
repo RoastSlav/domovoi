@@ -6,7 +6,7 @@ import styles from "./overlay.module.css";
 
 /**
  * A small info button that opens a longer explanation on click or Enter, so it also works
- * on touch. `learnMore` is a page in the book, like `concepts/actions.html`.
+ * on touch. `learnMore` is a page in the book, like `concepts/operations.html#approval`.
  *
  * Use it for a concept that needs a sentence or two (what a risk level allows, what "known
  * condition" means). A few words on hover are a `Tooltip`; one line under an input is the
