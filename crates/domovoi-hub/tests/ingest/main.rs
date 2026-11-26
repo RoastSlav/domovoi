@@ -160,6 +160,18 @@ async fn rate_limit_returns_429() {
 }
 
 #[tokio::test]
+async fn unauthenticated_traffic_does_not_spend_the_rate_limit() {
+    let harness = Harness::new(WebhookAuth::Hmac);
+    for _ in 0..70 {
+        let response = harness.send(BODY, None).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+    // A flood that cannot sign in must not make the real monitor's alert a 429.
+    assert_eq!(harness.hmac(BODY).await.status(), StatusCode::ACCEPTED);
+    assert_eq!(harness.sink.batches().len(), 1);
+}
+
+#[tokio::test]
 async fn unknown_host_creates_external_host() {
     let harness = Harness::new(WebhookAuth::Hmac);
     assert_eq!(harness.hmac(BODY).await.status(), StatusCode::ACCEPTED);
