@@ -4,11 +4,20 @@
 #   curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub
 #
 # It downloads the release archive for this machine, checks its SHA-256, installs the
-# binary, and for --role hub or --role agent creates the users, directories and systemd
+# binary, and for --role hub, agent or both creates the users, directories and systemd
 # units. A hub on a systemd host is enabled and started, and the installer waits until it is
 # ready (--no-start skips that). For the hub it can write /etc/domovoi/hub.env (only the keys
 # named by --public-url, --bind and --agent-url) and create the admin account
 # (--admin-password-file).
+#
+# --role both is for the machine that runs the hub and should also be watched by it: it
+# installs the hub exactly as --role hub does and starts it (which creates its TLS
+# certificate), stops it for a moment to make a 15 minute enrollment token with
+# `domovoi hub token create` as the hub user (the command needs the database), starts it
+# again, then enrolls and starts an agent on wss://127.0.0.1:7421 and waits until it is
+# connected. The agent keeps the root layout a host with a hub gets. The token is held in a
+# file in the installer's private temporary directory, removed when the script ends, and is
+# never printed, logged or put in an argument list.
 #
 # An agent is started only when it is enrolled in the same run: --hub, --fingerprint and a
 # token (--token-file FILE or DOMOVOI_ENROLL_TOKEN; never a flag value, so it stays out of
@@ -43,11 +52,16 @@ record_dir="/etc/domovoi/identity-migration"
 
 usage() {
     cat <<'USAGE'
-Usage: install.sh --role hub|agent [options]
+Usage: install.sh --role hub|agent|both [options]
        install.sh --rollback-identity
 
 Options:
-  --role hub|agent     what this machine runs (required)
+  --role hub|agent|both
+                       what this machine runs (required). both sets up the hub and an agent
+                       that watches this same machine, and enrolls it: the hub is started,
+                       stopped for a moment to make a 15 minute enrollment token for the agent,
+                       started again, and the agent is enrolled, started and waited for. All the
+                       hub flags apply, --name names the host, and --no-start is refused
   --version vX.Y.Z     the release to install (default: the latest)
   --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local);
                        an absolute path
@@ -62,9 +76,10 @@ Options:
                        with --role hub: where the web UI listens (DOMOVOI_WEB__BIND). lan is
                        0.0.0.0:7420 and, without --public-url, derives
                        http://<this machine's IPv4>:7420; loopback is 127.0.0.1:7420
-  --agent-url URL      with --role hub: the wss://HOST:7421 address agents dial
+  --agent-url URL      with --role hub or both: the wss://HOST:7421 address agents dial
                        (DOMOVOI_AGENT_SERVER__PUBLIC_URL); with --bind lan it defaults to the
-                       host of the public URL
+                       host of the public URL. With --role both the agent of this machine dials
+                       it too (default: wss://127.0.0.1:7421)
   --admin-password-file FILE
                        with --role hub, on a fresh install only: create the admin account
                        before the first start from the first line of FILE (a regular file,
@@ -83,7 +98,7 @@ Options:
                        come from DOMOVOI_ENROLL_TOKEN. A token is never taken from a flag:
                        --token VALUE is refused, because it would land in the shell history
                        and the process list
-  --name NAME          with --role agent: the host's name in Domovoi, as in the Add host dialog
+  --name NAME          with --role agent or both: the host's name in Domovoi, as in the Add host dialog
                        (lower-case letters, digits and dashes; default: this machine's short
                        host name, cleaned up)
   --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
@@ -172,6 +187,9 @@ enroll_fp=""
 enroll_name=""
 token_file=""
 enroll_on=0
+hub_part=0
+hub_stopped=0
+both_wait=0
 enrolled_host=""
 agent_started=0
 agent_timeout=30
@@ -334,6 +352,9 @@ on_exit() {
     fi
     if [ "$oe_rc" -ne 0 ] && [ "$log_keep" -eq 1 ] && [ -n "$log_file" ]; then
         printf 'install.sh: the log is %s\n' "$log_file" >&2
+    fi
+    if [ "$hub_stopped" -eq 1 ]; then
+        systemctl start domovoi-hub >/dev/null 2>&1 || true
     fi
     if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
     exit "$oe_rc"
@@ -1394,13 +1415,22 @@ preflight_local() {
             pf_add ok systemd "present"
         else
             pf_add warn systemd "not present: units are skipped and an agent keeps the root layout"
-            if [ "$enroll_on" -eq 1 ]; then
+            if [ "$enroll_on" -eq 1 ] && [ "$role" = "agent" ]; then
                 pf_add fail enroll "enrolling starts the agent through systemd, which this machine does not run; leave out --hub, --fingerprint and the token and enroll by hand"
             fi
         fi
         pf_need_accounts=0
         pf_adduser_ok=0
-        if [ "$role" = "hub" ]; then
+        if [ "$role" = "both" ] && [ "$pf_systemd" -eq 0 ]; then
+            pf_add fail systemd "--role both runs the hub and the agent through systemd, which this machine does not run"
+        fi
+        if [ "$role" = "both" ] && [ "$pf_systemd" -eq 1 ] && [ "$pf_stat" -eq 1 ]; then
+            classify_host
+            if [ "$layout" = "migrated" ]; then
+                pf_add fail agent "an agent that runs as domovoi-agent is installed here; it cannot share /etc/domovoi with the hub. Install the hub alone with --role hub, or move the agent to another machine"
+            fi
+        fi
+        if [ "$hub_part" -eq 1 ]; then
             pf_adduser_ok=1
             if ! id domovoi >/dev/null 2>&1; then pf_need_accounts=1; fi
         elif [ "$pf_systemd" -eq 1 ] && [ "$pf_stat" -eq 1 ]; then
@@ -1423,7 +1453,7 @@ preflight_local() {
                 pf_add fail useradd "useradd is needed to create the system accounts"
             fi
         fi
-        if [ "$role" = "hub" ]; then
+        if [ "$hub_part" -eq 1 ]; then
             for pf_port in 7420 7421; do
                 pf_busy="$(port_state "$pf_port")"
                 case "$pf_busy" in
@@ -1584,7 +1614,7 @@ build_plan() {
     plan_add update "$prefix/share/domovoi/examples (the release examples)"
     if [ "$service" -eq 0 ]; then
         plan_add skip "user, directories and systemd units (--no-service)"
-    elif [ "$role" = "hub" ]; then
+    elif [ "$hub_part" -eq 1 ]; then
         plan_account domovoi
         plan_dir /etc/domovoi 0750 root:domovoi
         plan_dir /var/lib/domovoi 0750 domovoi:domovoi
@@ -1612,6 +1642,7 @@ build_plan() {
         else
             plan_add start "systemctl enable --now domovoi-hub, then wait up to ${DOMOVOI_READY_TIMEOUT:-60} s for GET /readyz"
         fi
+        if [ "$role" = "both" ]; then plan_both_agent; fi
     elif [ "$migrate" -eq 1 ]; then
         plan_add migrate "the agent moves from root to domovoi-agent (see the plan above); the typed word is asked for"
     else
@@ -1650,6 +1681,21 @@ build_plan() {
         esac
         if [ "$enroll_on" -eq 1 ]; then plan_enroll; fi
     fi
+}
+
+# The agent lines of the plan for --role both: the root layout, the unit, and the token dance.
+plan_both_agent() {
+    plan_dir /etc/domovoi/skills 0750 root:root
+    plan_dir /var/lib/domovoi-agent 0700 root:root
+    plan_unit domovoi-agent.service legacy_agent_unit
+    plan_add note "the agent runs as root on this host: the hub and the agent share /etc/domovoi"
+    if [ -e "$agent_unit_path" ] && [ -e /etc/domovoi/agent.toml ]; then
+        plan_add keep "the agent here is already enrolled; it is restarted if it is running, not enrolled again"
+        return 0
+    fi
+    plan_add token "stop the hub, make a 15 minute enrollment token for $enroll_name with 'hub token create' as domovoi, start the hub again (the token stays in a private temporary file)"
+    plan_add enroll "domovoi agent enroll --hub $enroll_hub --name $enroll_name (the token goes only in the environment of that command)"
+    plan_add start "systemctl enable --now domovoi-agent, then wait up to $agent_timeout s for 'agent status' to show connected"
 }
 
 # The enrollment lines of the plan. The token itself is never named.
@@ -1984,15 +2030,44 @@ default_host_name() {
         cut -c1-63 | sed -e 's/-$//' | head -n 1
 }
 
+# Settles $enroll_name: the flag, else this machine's cleaned-up short host name; exit 2 when
+# it is not a name Domovoi accepts.
+resolve_enroll_name() {
+    if [ -z "$enroll_name" ]; then
+        enroll_name="$(default_host_name)"
+        [ -n "$enroll_name" ] ||
+            fail_with 2 "could not make a host name from this machine's name; pass --name"
+        say "Using the host name $enroll_name; pass --name to choose another."
+    fi
+    printf '%s\n' "$enroll_name" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' ||
+        fail_with 2 "--name $enroll_name is not usable: use lower-case letters, digits and dashes, at most 63, not starting or ending with a dash"
+}
+
 # Checks the enrollment flags and the token, before anything is looked at or changed. Sets
 # $enroll_on to 1 when the agent is to be enrolled and started, and leaves the token in
 # $tmp/enroll.tok (0600). Exit 2 for a bad or incomplete set.
 resolve_enroll() {
     re_env=0
     if [ -n "${DOMOVOI_ENROLL_TOKEN:-}" ]; then re_env=1; fi
+    if [ "$role" = "both" ]; then
+        [ -z "$enroll_hub$enroll_fp$token_file" ] ||
+            fail_with 2 "--role both makes its own enrollment token and the agent dials this hub; --hub, --fingerprint and --token-file go with --role agent. --name and --agent-url are the flags --role both takes"
+        [ "$start" -eq 1 ] ||
+            fail_with 2 "--no-start cannot be used with --role both: the hub has to run for the agent to enroll. Use --role hub --no-start, then enroll by hand"
+        if [ "$service" -eq 0 ]; then
+            [ -z "$enroll_name" ] ||
+                fail_with 2 "--name needs the service install; it cannot be used with --no-service"
+            return 0
+        fi
+        resolve_enroll_name
+        enroll_hub="wss://127.0.0.1:7421"
+        if [ -n "$agent_url" ]; then enroll_hub="${agent_url%/}"; fi
+        enroll_on=1
+        return 0
+    fi
     if [ "$role" != "agent" ]; then
         [ -z "$enroll_hub$enroll_fp$enroll_name$token_file" ] ||
-            fail_with 2 "--hub, --fingerprint, --name and --token-file go with --role agent"
+            fail_with 2 "--hub, --fingerprint, --name and --token-file go with --role agent (--name also with --role both)"
         return 0
     fi
     re_given=0
@@ -2019,14 +2094,7 @@ resolve_enroll() {
     enroll_hub="${enroll_hub%/}"
     printf '%s\n' "$enroll_fp" | grep -Eq '^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{64}$' ||
         fail_with 2 "--fingerprint must be 64 hex digits, with or without colons, as the hub prints it"
-    if [ -z "$enroll_name" ]; then
-        enroll_name="$(default_host_name)"
-        [ -n "$enroll_name" ] ||
-            fail_with 2 "could not make a host name from this machine's name; pass --name"
-        say "Using the host name $enroll_name; pass --name to choose another."
-    fi
-    printf '%s\n' "$enroll_name" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' ||
-        fail_with 2 "--name $enroll_name is not usable: use lower-case letters, digits and dashes, at most 63, not starting or ending with a dash"
+    resolve_enroll_name
     if [ -n "$token_file" ]; then
         read_secret_file --token-file "$token_file" "$tmp/enroll.tok"
     else
@@ -2126,6 +2194,84 @@ enroll_and_start_agent() {
     wait_agent_link
 }
 
+# --- --role both: the agent of the machine the hub runs on -------------------------------
+# After the first start of the hub (which makes its TLS certificate): stops the hub, makes a
+# 15 minute token with `hub token create` as the hub user (the command needs the database the
+# running hub holds), starts the hub again and waits until it is ready. The token and the
+# fingerprint go to $enroll_fp and $tmp/enroll.tok; nothing about them is printed or logged.
+both_make_token() {
+    say "Making a one-time enrollment token for $enroll_name. The hub is stopped for a moment: the command needs its database."
+    systemctl stop domovoi-hub || fail "systemctl stop domovoi-hub failed; see: systemctl status domovoi-hub"
+    hub_stopped=1
+    mt_rc=0
+    : >"$tmp/token.out"
+    chmod 0600 "$tmp/token.out"
+    run_as_domovoi "$bin" hub token create "$enroll_name" --ttl 15m >"$tmp/token.out" 2>&1 </dev/null || mt_rc=$?
+    mt_start=0
+    systemctl start domovoi-hub || mt_start=1
+    hub_stopped=0
+    if [ "$mt_start" -eq 0 ]; then
+        if [ -z "$(env_get "$hub_env" DOMOVOI_WEB__BIND)" ] && [ -f /etc/domovoi/hub.toml ] &&
+            grep -Eq '^[[:space:]]*bind[[:space:]]*=' /etc/domovoi/hub.toml; then
+            say "The listen address is set in /etc/domovoi/hub.toml, so the wait for /readyz is skipped."
+        else
+            wait_ready "$(local_web_url)"
+        fi
+    fi
+    if [ "$mt_rc" -ne 0 ]; then
+        scrub_token <"$tmp/token.out" >"$tmp/token.shown"
+        show_file_err "$tmp/token.shown"
+        agent_hint enroll
+        fail_with 40 "could not make an enrollment token (the hub's message is above); the hub is running"
+    fi
+    [ "$mt_start" -eq 0 ] || {
+        agent_hint enroll
+        fail_with 40 "could not start the hub again after making the token; see: systemctl status domovoi-hub"
+    }
+    mt_tok="$(sed -n 's/.* --token \([A-Za-z0-9_-]*\) .*/\1/p' "$tmp/token.out" | head -n 1)"
+    mt_fp="$(sed -n 's/^Hub fingerprint: *//p' "$tmp/token.out" | head -n 1 | tr -d ' \r')"
+    rm -f "$tmp/token.out" "$tmp/token.shown"
+    if [ -z "$mt_tok" ] || ! printf '%s\n' "$mt_tok" | grep -Eq '^[A-Za-z0-9_-]{8,512}$' ||
+        ! printf '%s\n' "$mt_fp" | grep -Eq '^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{64}$'; then
+        mt_tok=""
+        agent_hint enroll
+        fail_with 40 "$bin hub token create printed no token or fingerprint this installer can read; the hub is running"
+    fi
+    (umask 077 && printf '%s\n' "$mt_tok" >"$tmp/enroll.tok")
+    chmod 0600 "$tmp/enroll.tok"
+    mt_tok=""
+    enroll_fp="$mt_fp"
+}
+
+# The agent of --role both, after the hub: the root layout of a host that has a hub, the
+# unit, then (when the hub runs and this agent is not enrolled yet) the token, the enrollment
+# and the start. An agent that is already enrolled is only restarted when it is running.
+both_agent_part() {
+    layout="hub"
+    ba_enrolled=0
+    if [ -e "$agent_unit_path" ] && [ -e /etc/domovoi/agent.toml ]; then ba_enrolled=1; fi
+    create_legacy_agent_layout
+    place_unit domovoi-agent.service legacy_agent_unit 0
+    systemctl daemon-reload
+    if [ "$ba_enrolled" -eq 1 ]; then
+        if systemctl is-active --quiet domovoi-agent; then
+            systemctl restart domovoi-agent || warn "the agent did not restart; check: systemctl status domovoi-agent"
+            say "Restarted domovoi-agent to run the new binary."
+        fi
+        say "The agent on this machine is already enrolled, so it was not enrolled again."
+        return 0
+    fi
+    if [ "$started" -ne 1 ]; then
+        say "The hub is not running, so the agent was not enrolled."
+        both_wait=1
+        return 0
+    fi
+    step enroll "Enrolling and starting the agent"
+    fail_code=40
+    both_make_token
+    enroll_and_start_agent
+}
+
 # --- Final summary ------------------------------------------------------------------------
 record_next() {
     next_list="$next_list${next_list:+
@@ -2166,12 +2312,27 @@ hub_started_summary() {
         if [ -z "$(env_get "$hub_env" DOMOVOI_AGENT_SERVER__PUBLIC_URL)" ]; then
             ns "Settings, Hub: set the Agent server URL (wss://HOST:7421), the address agents dial"
         fi
-        ns "Hosts, Add host: enroll each machine you want to watch (install.sh --role agent on it)"
+        if [ "$role" = "both" ]; then
+            ns "Hosts, Add host: enroll any other machine you want to watch (install.sh --role agent on it)"
+        else
+            ns "Hosts, Add host: enroll each machine you want to watch (install.sh --role agent on it)"
+        fi
+    fi
+    if [ "$role" = "both" ] && [ -n "$enrolled_host" ]; then
+        say_always ""
+        say_always "The agent of this machine is enrolled as host $enrolled_host and connected."
+    elif [ "$role" = "both" ]; then
+        say_always ""
+        say_always "The agent of this machine was set up earlier and is enrolled; it was not enrolled again."
     fi
     say_always ""
     say_always "Check on it:"
     ns "systemctl status domovoi-hub"
     ns "journalctl -u domovoi-hub -f"
+    if [ "$role" = "both" ]; then
+        ns "systemctl status domovoi-agent"
+        ns "$bin agent status"
+    fi
 }
 # The summary of an agent that was enrolled and is connected.
 agent_started_summary() {
@@ -2404,12 +2565,13 @@ if [ "$rollback" -eq 1 ]; then
 fi
 
 case "$role" in
-hub | agent) ;;
+hub | both) hub_part=1 ;;
+agent) ;;
 "")
     usage >&2
     fail "--role is required"
     ;;
-*) fail "--role takes hub or agent, not $role" ;;
+*) fail "--role takes hub, agent or both, not $role" ;;
 esac
 
 if [ "$migrate" -eq 1 ]; then
@@ -2423,12 +2585,12 @@ case "${DOMOVOI_READY_TIMEOUT:-60}" in
 "" | *[!0-9]* | 0) fail_with 2 "DOMOVOI_READY_TIMEOUT must be a whole number of seconds, not ${DOMOVOI_READY_TIMEOUT:-}" ;;
 esac
 if [ -n "$public_url$bind_opt$agent_url$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then
-    [ "$role" = "hub" ] ||
-        fail_with 2 "--public-url, --bind, --agent-url and the admin password flags go with --role hub"
+    [ "$hub_part" -eq 1 ] ||
+        fail_with 2 "--public-url, --bind, --agent-url and the admin password flags go with --role hub or both"
     [ "$service" -eq 1 ] ||
         fail_with 2 "--public-url, --bind, --agent-url and the admin password flags need the service install; they cannot be used with --no-service"
 fi
-if [ "$role" = "hub" ] && [ "$service" -eq 1 ]; then
+if [ "$hub_part" -eq 1 ] && [ "$service" -eq 1 ]; then
     resolve_net
     if [ -n "$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then prepare_admin_password; fi
 fi
@@ -2448,7 +2610,7 @@ if [ "$dry_run" -eq 1 ]; then
     step_total=2
 else
     step_total=$((4 + service))
-    if [ "$role" = "hub" ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
+    if [ "$hub_part" -eq 1 ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
         step_total=$((step_total + 1))
     fi
     if [ "$enroll_on" -eq 1 ]; then step_total=$((step_total + 1)); fi
@@ -2522,7 +2684,11 @@ if [ "$service" -eq 0 ]; then
     exit 0
 fi
 
-step service "Setting up the $role service"
+if [ "$role" = "both" ]; then
+    step service "Setting up the hub and the agent services"
+else
+    step service "Setting up the $role service"
+fi
 fail_code=40
 if [ "$migrate" -eq 1 ]; then
     migrate_apply
@@ -2531,11 +2697,12 @@ if [ "$migrate" -eq 1 ]; then
 fi
 
 unit_name="domovoi-$role.service"
+if [ "$role" = "both" ]; then unit_name="domovoi-hub.service"; fi
 if [ -e "/etc/systemd/system/$unit_name" ]; then
     upgrade=1
 fi
 
-if [ "$role" = "hub" ]; then
+if [ "$hub_part" -eq 1 ]; then
     if [ -n "$(ls -A /var/lib/domovoi 2>/dev/null)" ]; then hub_fresh_data=0; fi
     create_hub_layout
     write_hub_env
@@ -2549,6 +2716,7 @@ if [ "$role" = "hub" ]; then
         fail_code=40
         start_hub
     fi
+    if [ "$role" = "both" ]; then both_agent_part; fi
 else
     classify_host
     case "$layout" in
@@ -2579,7 +2747,7 @@ legacy)
 esac
 
 say_always ""
-if [ "$role" = "hub" ] && [ "$started" -eq 1 ]; then
+if [ "$hub_part" -eq 1 ] && [ "$started" -eq 1 ] && [ "$both_wait" -eq 0 ]; then
     hub_started_summary
     finish_summary
     exit 0
@@ -2590,9 +2758,16 @@ if [ "$enroll_on" -eq 1 ]; then
     exit 0
 fi
 say_always "Next steps:"
-if [ "$upgrade" -eq 1 ]; then
+if [ "$role" = "both" ] && [ "$upgrade" -eq 1 ]; then
+    ns "systemctl restart domovoi-hub    # runs the new binary; config and data are kept"
+    if [ "$both_wait" -eq 1 ]; then
+        ns "Run this installer again with --role both once the hub is running: it enrolls the agent of this machine"
+    else
+        ns "systemctl restart domovoi-agent"
+    fi
+elif [ "$upgrade" -eq 1 ]; then
     ns "systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
-elif [ "$role" = "hub" ]; then
+elif [ "$hub_part" -eq 1 ]; then
     ns "systemctl enable --now domovoi-hub"
     ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
     ns "sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"
