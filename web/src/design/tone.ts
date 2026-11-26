@@ -259,17 +259,6 @@ export function incidentBadgeMeta(
   return incident.verdict ? verdictMeta(incident.verdict) : severityMeta(incident.severity);
 }
 
-/**
- * How a badge value of unknown vocabulary is shown: the chat card sends a verdict, a
- * severity or "resolved" in one field.
- */
-export function badgeMeta(value: string): StatusMeta {
-  if (value === "resolved") {
-    return INCIDENT_STATUSES.resolved;
-  }
-  return Object.hasOwn(VERDICTS, value) ? verdictMeta(value) : severityMeta(value);
-}
-
 /** How the effective status of a fact or relation is shown. */
 export function knowledgeStatusMeta(status: string): StatusMeta {
   return lookup(KNOWLEDGE_STATUSES, status);

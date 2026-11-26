@@ -1,13 +1,5 @@
 import type { Capability } from "../../api/types";
 
-/** The sentence a person reads for one capability state, when the table has no room. */
-export function capabilitySentence(capability: Capability): string {
-  if (capability.state === "available") {
-    return "Implementations the hub would offer here.";
-  }
-  return capability.describe;
-}
-
 /** The catalogue's state in words: a partial list proves nothing about what a host lacks. */
 export function catalogueSentence(capability: Capability): string {
   switch (capability.catalogue.state) {

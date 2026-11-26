@@ -14,7 +14,7 @@ import { PageTitleProvider } from "./PageTitle";
 import { RightSlotHost, RightSlotProvider } from "./rightSlot";
 import { Sidebar } from "./Sidebar";
 import { VisibilityProvider } from "./VisibilityProvider";
-import { TopBar, TopBarSlot } from "./TopBar";
+import { TopBar } from "./TopBar";
 import { useSidebarRail } from "./useSidebarRail";
 
 /** Says "Back online" once live updates return, but only if the person saw them paused. */
@@ -43,7 +43,6 @@ export function Layout() {
   const [openFor, setOpenFor] = useState<string | null>(null);
   const open = openFor === location.key;
   const menu = useRef<HTMLButtonElement>(null);
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
   const { rail, toggle } = useSidebarRail();
   const palette = useCommandPalette();
   useBackOnlineToast(live.paused);
@@ -88,7 +87,6 @@ export function Layout() {
                   menu={menu}
                   sheetOpen={open}
                   onMenu={() => setOpenFor(open ? null : location.key)}
-                  slot={setSlot}
                 />
                 <div className={styles.body}>
                   <main id="main" className={styles.main} tabIndex={-1} data-slot-inert>
@@ -102,11 +100,9 @@ export function Layout() {
                         <UpdateBanner />
                         <SetupBanner />
                       </div>
-                      <TopBarSlot.Provider value={slot}>
-                        <Suspense fallback={<PageSkeleton />}>
-                          <Outlet />
-                        </Suspense>
-                      </TopBarSlot.Provider>
+                      <Suspense fallback={<PageSkeleton />}>
+                        <Outlet />
+                      </Suspense>
                     </div>
                   </main>
                   <RightSlotHost />

@@ -1,9 +1,4 @@
 /* Placement for the Packages tab. Tokens only. */
-.stack {
-  display: grid;
-  gap: var(--space-6);
-}
-
 .fileRow {
   display: flex;
   flex-wrap: wrap;
@@ -31,8 +26,4 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
   align-items: center;
-}
-
-.mono {
-  overflow-wrap: anywhere;
 }

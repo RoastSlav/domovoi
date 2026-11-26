@@ -77,12 +77,6 @@
   min-height: var(--space-2);
 }
 
-.more {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
-  gap: 0 var(--space-6);
-}
-
 @media (max-width: 480px) {
   .disk {
     grid-template-columns: minmax(0, 1fr) auto;

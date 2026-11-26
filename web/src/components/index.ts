@@ -4,7 +4,7 @@
  */
 
 // Status
-export { BadgePill, StatusPill } from "./StatusPill";
+export { StatusPill } from "./StatusPill";
 export { Tag } from "./Tag";
 export { Count } from "./Count";
 export { toneStripe } from "./ToneStripe";

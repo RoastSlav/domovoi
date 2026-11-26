@@ -65,10 +65,6 @@
   fill: none;
 }
 
-.failure {
-  padding: var(--space-3);
-}
-
 /* Node: the tone decides three colours, set once per class and read by every part. */
 .tone-danger {
   --n-bg: var(--tone-danger-bg);

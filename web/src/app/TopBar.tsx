@@ -1,5 +1,4 @@
-import { createContext, useContext, type ReactNode, type Ref } from "react";
-import { createPortal } from "react-dom";
+import type { Ref } from "react";
 import { Link } from "react-router";
 import { IconButton } from "../components";
 import { Icon } from "../design/icons";
@@ -9,19 +8,6 @@ import { OperatorToggle } from "./OperatorToggle";
 import { useTrail } from "./PageTitle";
 import { SIDEBAR_ID } from "./Sidebar";
 import styles from "./topbar.module.css";
-
-/** The element in the top bar that holds the current page's actions. */
-export const TopBarSlot = createContext<HTMLElement | null>(null);
-
-/**
- * Puts a page's actions in the top bar, where they stay in reach while the page scrolls.
- * Use it for the one or two actions that belong to the whole page; everything else stays in
- * the page's `PageHeader`. Outside the shell it renders nothing.
- */
-export function TopBarActions({ children }: { children: ReactNode }) {
-  const slot = useContext(TopBarSlot);
-  return slot ? createPortal(children, slot) : null;
-}
 
 /** Where the page is: its section, and on a page about one thing, a way back and its name. */
 function Breadcrumb() {
@@ -54,14 +40,11 @@ export function TopBar({
   menu,
   sheetOpen,
   onMenu,
-  slot,
 }: {
   /** The Menu button, so focus can return to it when the sheet closes. */
   menu: Ref<HTMLButtonElement>;
   onMenu: () => void;
   sheetOpen: boolean;
-  /** Receives the element that `TopBarActions` fills. */
-  slot: (element: HTMLElement | null) => void;
 }) {
   return (
     <header className={styles.topbar} data-slot-inert>
@@ -71,7 +54,6 @@ export function TopBar({
         </span>
       </Link>
       <Breadcrumb />
-      <div ref={slot} className={styles.actions} />
       <OperatorToggle />
       <div className={styles.hostSelect}>
         <HostSelect />

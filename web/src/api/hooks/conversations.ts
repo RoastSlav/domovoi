@@ -6,7 +6,6 @@ import {
   defined,
   type ConversationDetail,
   type ConversationPage,
-  type ConversationSummary,
   type ScopeChoice,
   type SentMessage,
 } from "../types";
@@ -125,21 +124,6 @@ export function useCancelTurn(id: string) {
       void client.invalidateQueries({ queryKey: keys.conversation(id) });
       void client.invalidateQueries({ queryKey: keys.conversations });
     },
-  });
-}
-
-/** Attaches an operation for read-only context, or detaches it with `null`. */
-export function useSetConversationOperation(id: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (operationId: string | null) =>
-      call<ConversationSummary>(
-        api.PUT("/api/v1/conversations/{id}/operation", {
-          params: { path: { id } },
-          body: { operation_id: operationId },
-        }),
-      ),
-    onSuccess: () => void client.invalidateQueries({ queryKey: keys.conversations }),
   });
 }
 

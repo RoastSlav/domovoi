@@ -318,7 +318,7 @@ All in `src/components/`, exported from `index.ts`; pages import from that barre
 page needs something the kit lacks, add it to the kit, to this list and to `/dev/design`.
 
 - **Status:** `StatusPill` (every status; 20 px, `sm` 18 px, radius pill, 12 px/500, dot then
-  label; the hint is its tooltip), `BadgePill`, `Tag` (non-status labels: radius 4, raised
+  label; the hint is its tooltip), `Tag` (non-status labels: radius 4, raised
   background, muted 12 px), `Count` (a filled number: 18 px minimum, pill, 11 px/600 tabular,
   a solid tone or neutral raised), `toneStripe`.
 - **Feedback:** `useActionFeedback` (every mutation), `useToast` (bottom right, overlay

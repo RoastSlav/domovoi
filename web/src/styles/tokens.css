@@ -21,7 +21,6 @@
   --palette-char-800: #22201d;
   --palette-char-750: #262320;
   --palette-char-700: #2c2925;
-  --palette-char-600: #3a3631;
   --palette-char-400: #7a7166;
   --palette-char-300: #8a8175;
   --palette-sand-100: #ece6dc;
@@ -37,8 +36,6 @@
   /* Walnut: the brown that frames. */
   --palette-walnut-300: #c09a7a;
   --palette-walnut-600: #6f5440;
-  --palette-walnut-700: #4d4037;
-  --palette-walnut-800: #3b3029;
 
   /* Status hues, light ramps: tint, border, text/solid. */
   --palette-brick-100: #f6e3de;
@@ -101,10 +98,7 @@
   --palette-scrim-light: rgb(42 38 34 / 40%);
   --palette-scrim-dark: rgb(0 0 0 / 60%);
   --palette-shade-1: rgb(42 38 34 / 6%);
-  --palette-shade-2: rgb(42 38 34 / 10%);
   --palette-shade-3: rgb(42 38 34 / 24%);
-  --palette-shade-dark-1: rgb(0 0 0 / 30%);
-  --palette-shade-dark-2: rgb(0 0 0 / 40%);
   --palette-shade-dark-3: rgb(0 0 0 / 60%);
   --palette-highlight-light: rgb(255 255 255 / 70%);
   --palette-highlight-dark: rgb(255 255 255 / 4%);
@@ -217,7 +211,6 @@
   --color-sidebar-bg: var(--color-surface);
   --color-sidebar-text: var(--color-text);
   --color-sidebar-text-muted: var(--color-text-muted);
-  --color-sidebar-border: var(--color-border);
   --color-sidebar-raised: var(--color-surface-raised);
   --color-sidebar-accent: var(--color-accent);
 

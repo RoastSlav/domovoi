@@ -91,8 +91,6 @@ export type HostChecks = Schemas["HostChecksDto"];
 export type HostDocker = Schemas["HostDockerDto"];
 /** One check on a host. */
 export type HostCheck = Schemas["HostCheckDto"];
-/** One check's settings. */
-export type CheckSettings = Schemas["CheckSettingsDto"];
 /** What the hub knows a machine looks like while it behaves normally. */
 export type Profile = Schemas["ProfileDto"];
 /** One tool output inside a profile; a failed one is a visible gap. */
@@ -244,8 +242,6 @@ export type ManagementPaths = Schemas["ManagementPathsDto"];
 export type KnowledgeRelation = Schemas["RelationDto"];
 /** One page of relations. */
 export type KnowledgeRelationPage = Schemas["RelationPageDto"];
-/** A relation the owner asserts. */
-export type KnowledgeRelationInput = Schemas["RelationInput"];
 /** A thing the owner names so facts can be about it. */
 export type KnowledgeEntity = Schemas["EntityDto"];
 
@@ -274,8 +270,6 @@ export type PolicyVersionDetail = Schemas["VersionDetailDto"];
 export type PolicyVersionPage = Schemas["VersionPageDto"];
 /** The stored draft rule set. */
 export type PolicyDraft = Schemas["DraftDetailDto"];
-/** The draft in the overview, without its rules. */
-export type PolicyDraftSummary = Schemas["DraftSummaryDto"];
 /** The answer to saving a draft. */
 export type PolicyDraftSaved = Schemas["DraftSavedDto"];
 /** One policy rule as the hub stores it. */
@@ -284,12 +278,8 @@ export type PolicyRule = Schemas["RuleDto"];
 export type PolicyPreview = Schemas["PreviewDto"];
 /** One conflict or note in a publication report. */
 export type PolicyFinding = Schemas["FindingDto"];
-/** One problem found in a rule set. */
-export type PolicyValidation = Schemas["ValidationDto"];
 /** A conflict somebody acknowledged when publishing. */
 export type PolicyAck = Schemas["AckDto"];
-/** The findings of a publication report. */
-export type PolicyReport = Schemas["PolicyReportDto"];
 /** A change to a locked rule. */
 export type LockChange = Schemas["LockChangeDto"];
 /** What a simulation found. */
