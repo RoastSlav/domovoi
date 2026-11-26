@@ -9949,6 +9949,7 @@
           "describe",
           "catalogue",
           "root_agent",
+          "in_container",
           "runner_installed",
           "from_hello_skills"
         ],
@@ -9980,6 +9981,10 @@
           "from_hello_skills": {
             "type": "boolean",
             "description": "Whether the implementation came from `hello.skills[]`."
+          },
+          "in_container": {
+            "type": "boolean",
+            "description": "Whether the agent runs in a container. A label, never a refusal."
           },
           "reason": {
             "type": [
@@ -12031,7 +12036,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "`agent`, `container_agent` or `external`."
+            "description": "`local`, `remote`, `container_agent` (a remote host whose live agent reports that it\nruns in a container) or `external`."
           },
           "last_seen": {
             "type": [

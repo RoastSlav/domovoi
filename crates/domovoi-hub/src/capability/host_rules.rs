@@ -72,6 +72,7 @@ pub(super) fn runner_refusal(words: &HostWords) -> Option<UnavailableReason> {
     }
     match words.runner {
         RunnerState::Ready => None,
+        RunnerState::Absent if words.in_container => Some(UnavailableReason::AgentInContainer),
         RunnerState::Absent => Some(UnavailableReason::SkillRunnerMissing),
         RunnerState::Unsupported => Some(UnavailableReason::SkillRunnerUnsupported),
         RunnerState::Failed => Some(UnavailableReason::SkillRunnerError),

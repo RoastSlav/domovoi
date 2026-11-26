@@ -2595,6 +2595,8 @@ export interface components {
             execution: string;
             /** @description Whether the implementation came from `hello.skills[]`. */
             from_hello_skills: boolean;
+            /** @description Whether the agent runs in a container. A label, never a refusal. */
+            in_container: boolean;
             /** @description The reason code of a refusal, when it has one. */
             reason?: string | null;
             /** @description Whether the agent runs as root. A label, never a refusal. */
@@ -3388,7 +3390,10 @@ export interface components {
             id: string;
             /** @description When this hub first rejected the agent's protocol, as RFC 3339; absent otherwise. */
             incompatible_since?: string | null;
-            /** @description `agent`, `container_agent` or `external`. */
+            /**
+             * @description `local`, `remote`, `container_agent` (a remote host whose live agent reports that it
+             *     runs in a container) or `external`.
+             */
             kind: string;
             /** @description When it was last seen, while disconnected. */
             last_seen?: string | null;

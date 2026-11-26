@@ -31,7 +31,7 @@ export function SetupBanner() {
   const missing = [
     !getIn(values, "discord") && "Discord",
     !getIn(values, "llm.primary") && "a model",
-    !hosts.data.some((h) => h.kind === "remote") && "a host",
+    !hosts.data.some((h) => h.kind === "remote" || h.kind === "container_agent") && "a host",
   ].filter((item): item is string => Boolean(item));
   if (missing.length === 0) {
     return null;

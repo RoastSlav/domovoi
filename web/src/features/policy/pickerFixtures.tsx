@@ -17,6 +17,7 @@ export function entry(contract: string, title: string, effect: string, extra = {
     effect,
     execution: "agent",
     from_hello_skills: false,
+    in_container: false,
     root_agent: false,
     runner_installed: false,
     state: "available",

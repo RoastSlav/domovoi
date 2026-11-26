@@ -45,6 +45,7 @@ pub(crate) async fn run_session(
         skills: hello.skills,
         catalog_hash: hello.catalog_hash.map(|hash| hex::encode(hash.as_bytes())),
         runs_as_root: hello.runs_as_root,
+        in_container: hello.in_container,
         skill_runner_status: hello.skill_runner_status,
         helper_status: hello.helper_status,
         helper_identity: hello

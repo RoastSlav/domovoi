@@ -507,6 +507,7 @@ async fn agent_status_is_recorded_per_session() {
         helper_identity: None,
         skill_runner_status: SkillRunnerStatus::Absent,
         runs_as_root: true,
+        in_container: false,
         ceiling_hash: None,
         ceiling_summary: None,
     };

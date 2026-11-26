@@ -73,6 +73,8 @@ pub struct CapabilityDto {
     pub catalogue: CatalogueDto,
     /// Whether the agent runs as root. A label, never a refusal.
     pub root_agent: bool,
+    /// Whether the agent runs in a container. A label, never a refusal.
+    pub in_container: bool,
     /// Whether the agent reported a working isolated skill runner.
     pub runner_installed: bool,
     /// Whether the implementation came from `hello.skills[]`.
@@ -94,6 +96,7 @@ impl From<AvailabilityEntry> for CapabilityDto {
             describe: entry.state.describe(),
             catalogue: CatalogueDto::from(&entry.catalogue),
             root_agent: entry.root_agent,
+            in_container: entry.in_container,
             runner_installed: entry.runner_installed,
             from_hello_skills: entry.from_hello_skills,
         }

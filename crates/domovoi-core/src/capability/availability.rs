@@ -93,6 +93,10 @@ pub enum UnavailableReason {
     /// `container.restart`: Docker write access needs its own helper decision and has no
     /// dispatch path, for either authorization kind.
     DockerWriteUnsupported,
+    /// The agent runs inside a container, so it cannot reach the host's helper or skill
+    /// runner. The true cause of a refusal that would otherwise read as a missing helper
+    /// or runner.
+    AgentInContainer,
 }
 
 impl Availability {
@@ -208,6 +212,7 @@ impl UnavailableReason {
             Self::CatalogueInconsistent => "catalogue_inconsistent",
             Self::ContainerRuntimeUnavailable => "container_runtime_unavailable",
             Self::DockerWriteUnsupported => "docker_write_unsupported",
+            Self::AgentInContainer => "agent_in_container",
         }
     }
 
@@ -229,6 +234,9 @@ impl UnavailableReason {
             Self::ContainerRuntimeUnavailable => "this host has no usable container runtime",
             Self::DockerWriteUnsupported => {
                 "Docker write access needs its own helper decision and is not available"
+            }
+            Self::AgentInContainer => {
+                "this agent runs in a container and cannot reach the host's helper or skill runner"
             }
         }
     }
@@ -257,6 +265,8 @@ pub struct AvailabilityEntry {
     pub catalogue: CatalogueState,
     /// `hello.runs_as_root`: a label about the agent, never a refusal.
     pub root_agent: bool,
+    /// `hello.in_container`: a label about the agent, never a refusal by itself.
+    pub in_container: bool,
     /// The isolated skill runner exists on this host, whatever this contract's path is.
     pub runner_installed: bool,
     /// The implementation came from `hello.skills` rather than a catalogue page.
@@ -271,6 +281,7 @@ impl AvailabilityEntry {
         state: Availability,
         catalogue: CatalogueState,
         root_agent: bool,
+        in_container: bool,
         runner_installed: bool,
         from_hello_skills: bool,
     ) -> Self {
@@ -285,6 +296,7 @@ impl AvailabilityEntry {
             state,
             catalogue,
             root_agent,
+            in_container,
             runner_installed,
             from_hello_skills,
         }

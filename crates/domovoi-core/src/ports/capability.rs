@@ -26,6 +26,8 @@ pub const DISABLED_REASON: &str = "the skill is disabled on this host";
 pub struct HostWords {
     /// `hello.runs_as_root`: a label about the agent, never a refusal by itself.
     pub runs_as_root: bool,
+    /// `hello.in_container`: a label about the agent, never a refusal by itself.
+    pub in_container: bool,
     /// What the isolated skill runner reported about itself.
     pub runner: RunnerState,
     /// What the privileged helper reported about itself.

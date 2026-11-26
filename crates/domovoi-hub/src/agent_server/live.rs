@@ -38,6 +38,8 @@ pub(crate) struct Live {
     pub catalog_hash: Option<String>,
     /// `hello.runs_as_root`: a label about the agent, never a refusal by itself.
     pub runs_as_root: bool,
+    /// `hello.in_container`, refreshed by each `agent_status`.
+    pub in_container: bool,
     /// What the agent's isolated skill runner reported about itself.
     pub skill_runner_status: SkillRunnerStatus,
     /// What the agent's privileged helper reported about itself.

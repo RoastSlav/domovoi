@@ -93,7 +93,7 @@ export const HOST_KINDS: Table<HostKind> = {
   container_agent: {
     label: "Container agent",
     tone: "neutral",
-    hint: "An agent that runs in a container and watches its host through mounts.",
+    hint: "An agent that runs in a container and watches its host through mounts. It cannot restart host services, block network sources or run skills in the isolated runner.",
     icon: "server",
   },
   external: {
