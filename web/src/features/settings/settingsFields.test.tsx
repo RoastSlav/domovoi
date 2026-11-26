@@ -134,6 +134,25 @@ test("sensitive_save_prompts_for_password", async () => {
   });
 });
 
+test("a_403_the_form_did_not_expect_opens_the_password_prompt", async () => {
+  const user = userEvent.setup();
+  route("PATCH /api/v1/settings", (init) => {
+    const body = init.body as { password?: string };
+    return body.password === "right password!"
+      ? { revision: 4, applied: true }
+      : failure(403, "forbidden", "enter your password to make this change");
+  });
+  renderSection("incidents");
+  const field = await screen.findByLabelText("Failing runs before an incident opens");
+  await user.clear(field);
+  await user.type(field, "5");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  const dialog = await screen.findByRole("dialog", { name: "Confirm with your password" });
+  await user.type(within(dialog).getByLabelText("Password"), "right password!");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Back online")).toBeVisible();
+});
+
 test("fallback_model_section_tests_the_secondary_slot", async () => {
   const user = userEvent.setup();
   route("POST /api/v1/settings/test/llm", () => ({

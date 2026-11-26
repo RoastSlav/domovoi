@@ -118,8 +118,13 @@ export function EditorForm({
       );
       setAsking(false);
     } catch (error) {
-      if (asking && error instanceof ApiFailure && error.status === 403) {
-        setPasswordError("That password is not right.");
+      if (error instanceof ApiFailure && error.status === 403) {
+        // The hub wants the password for this change even though the form did not know:
+        // ask now instead of leaving a toast with no way to answer it.
+        if (asking) {
+          setPasswordError("That password is not right.");
+        }
+        setAsking(true);
         return;
       }
       setAsking(false);

@@ -92,6 +92,19 @@ test("a_hub_that_sends_no_retention_block_shows_the_fallback", async () => {
   expect(await screen.findByText("This hub did not report its retention settings.")).toBeVisible();
 });
 
+test("is_sensitive_matches_the_hub_step_up_list_for_cli_metrics_packages_and_policy", () => {
+  expect(isSensitive({ llm: { primary: { cli: { command: "/bin/x" } } } })).toBe(true);
+  expect(isSensitive({ llm: { secondary: { cli: { args: ["-p"] } } } })).toBe(true);
+  expect(isSensitive({ llm: { primary: { model: "m" } } })).toBe(false);
+  expect(isSensitive({ metrics: { enabled: true } })).toBe(true);
+  expect(isSensitive({ packages: { enabled: true } })).toBe(true);
+  expect(isSensitive({ policy: { permit_ttl: "1h" } })).toBe(true);
+  expect(isSensitive({ policy: { circuit_failures: 3 } })).toBe(true);
+  expect(isSensitive({ policy: { circuit_window: "1h" } })).toBe(true);
+  expect(isSensitive({ policy: { max_permits_per_hour: 3 } })).toBe(true);
+  expect(isSensitive({ policy: { shadow: true } })).toBe(false);
+});
+
 test("is_sensitive_covers_retention_and_backup_counts_and_keeps_the_old_rules", () => {
   expect(isSensitive({ retention: { signals_days: 5 } })).toBe(true);
   expect(isSensitive({ backup: { keep: 5 } })).toBe(true);
