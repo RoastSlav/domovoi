@@ -75,10 +75,10 @@ check "an unknown unit name is refused" \
 fns="$work/install-functions.sh"
 grep '^\(say\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
 for fn in err fail_with failed_checks runner_service_unit render_runner_service runner_prefix_ok \
-    runner_dirs place_unit start_sockets; do
+    runner_dirs place_unit start_sockets manifest_add mkdir_rec rollback_disarm; do
     sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
 done
-check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 14
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 17
 
 rendered="$work/rendered.service"
 render_with() {
@@ -130,7 +130,7 @@ STUB
 chmod 0755 "$stub/domovoi"
 sockets_run() {
     : >"$work/systemctl.log"
-    sh -c ". '$fns'; systemctl() { echo \"\$*\" >>'$work/systemctl.log'; }; bin='$stub/domovoi'; tmp='$work'; $1" \
+    sh -c ". '$fns'; systemctl() { echo \"\$*\" >>'$work/systemctl.log'; }; bin='$stub/domovoi'; tmp='$work'; rollback_armed=0; $1" \
         >"$work/sockets.out" 2>&1
 }
 check "agent dirs sets the two runner directories and adds them to the created-set" \
@@ -170,7 +170,7 @@ check "that failure names the check" grep -q "ST-13" "$work/sockets.out"
 # An edited runner unit is kept; the new text is written beside it.
 mkdir -p /etc/systemd/system
 echo "# edited" >/etc/systemd/system/domovoi-skill-runner@.service
-sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; record_dir=/nonexistent; place_unit domovoi-skill-runner@.service render_runner_service 0" \
+sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; record_dir=/nonexistent; place_unit domovoi-skill-runner@.service render_runner_service 0" \
     >"$work/place.out" 2>&1 || true
 check "an edited runner unit is kept" test "$(cat /etc/systemd/system/domovoi-skill-runner@.service)" = "# edited"
 check "the kept runner unit is reported" grep -q "Kept /etc/systemd/system/domovoi-skill-runner@.service" "$work/place.out"

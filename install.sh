@@ -40,6 +40,16 @@
 # absent, never changes an account or a mode it finds, and reports what is wrong instead.
 # An agent that already runs as root keeps running as root until the owner runs
 # --migrate-identity.
+#
+# A fresh install that fails before anything is started is undone: every account, directory,
+# file and unit that this run created is removed again, newest first, and nothing that was
+# there before is touched (--keep-on-failure turns that off). An upgrade, a migration and a
+# failure after the hub, the agent or a helper socket was started are never rolled back.
+#
+# --uninstall takes the installation off the machine: it stops and disables every Domovoi
+# unit, removes the unit files, the binary and DIR/share/domovoi, and keeps the configuration,
+# the data, the skills, the accounts and the identity-migration record, saying where they are.
+# --purge adds the removal of those too, after a typed confirmation or --yes.
 set -eu
 
 REPO="RoastSlav/domovoi"
@@ -59,6 +69,7 @@ record_dir="/etc/domovoi/identity-migration"
 usage() {
     cat <<'USAGE'
 Usage: install.sh --role hub|agent|both [options]
+       install.sh --uninstall [--purge] [--yes] [--prefix DIR] [--dry-run] [--json]
        install.sh --rollback-identity
 
 Options:
@@ -112,9 +123,9 @@ Options:
                        The old data directory is left untouched and the new hub refuses to open
                        it, so the installer does not restart the hub and prints how to move the
                        directory aside and set the hub up again
-  --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
-                       confirmation that exists, the typed word of --migrate-identity, is
-                       not skipped by it: that step needs a terminal by design
+  --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The typed word
+                       of --migrate-identity is not skipped by it: that step needs a terminal
+                       by design. The typed word of --purge is, because --purge is explicit
   --dry-run            run the preflight, print every file, user, unit and directory the
                        install would create or change, and exit 0 without changing anything
                        or downloading the archive (the latest version is still looked up)
@@ -123,6 +134,26 @@ Options:
   --quiet              print errors and the final summary only
   --verbose            print the details of each step
   --force-downgrade    allow installing an older version than the one found
+  --keep-on-failure    do not undo a failed fresh install: leave what it created in place, for
+                       debugging. Without it, a fresh install that fails before the first
+                       service is started removes everything that run created (accounts,
+                       directories, files, units, the binary) and prints "Rolled back"
+  --uninstall          remove what the installer put in place (--role is not used): stop and
+                       disable the hub, agent, helper and skill runner units, delete the unit
+                       files, DIR/bin/domovoi and DIR/share/domovoi. The configuration
+                       (/etc/domovoi), the data (/var/lib/domovoi*), the skills, the accounts
+                       and the identity-migration record are KEPT, and the summary lists them.
+                       Works with --prefix, --dry-run, --json, --quiet and --yes
+  --purge              with --uninstall: also delete /etc/domovoi, /var/lib/domovoi,
+                       /var/lib/domovoi-agent, /var/lib/domovoi-packages, /var/lib/domovoi-helper,
+                       the install log, any skills or packages directory this installer made
+                       elsewhere, the systemd drop-ins /etc/systemd/system/domovoi-*.d and the
+                       domovoi, domovoi-agent and domovoi-skill accounts and groups, but only
+                       the accounts the installer created (it records them in
+                       /etc/domovoi/installer-created; without that record, only an account
+                       that looks like a system account). Destructive: it lists what it will
+                       delete with the data sizes, then needs --yes or the word purge typed on
+                       the terminal
   --print-unit NAME    print a systemd unit and exit: hub, agent, helper-socket,
                        helper-service, runner-socket, runner-service, or agent-legacy
                        (the root agent unit used where the privilege boundary cannot be
@@ -151,14 +182,18 @@ Environment:
 Exit codes:
   0   done
   2   usage: a bad flag or value (including a bad URL, a literal --token, an incomplete
-      --hub, --fingerprint and token set, or a password or token file that is not a
-      regular file with mode 0600 or 0400 owned by you)
+      --hub, --fingerprint and token set, a password or token file that is not a
+      regular file with mode 0600 or 0400 owned by you, --purge without --uninstall, or
+      --purge with neither --yes nor a terminal to type the confirmation on)
   10  preflight: this machine cannot take the install, an older version without
-      --force-downgrade, or a hub database from before 0.1.0 without --accept-data-reset
+      --force-downgrade, or a hub database from before 0.1.0 without --accept-data-reset.
+      With --uninstall: nothing is installed, a path it would remove is a symbolic link, or
+      it was not run as root
   20  download or checksum
   30  install: the binary or its files
   40  service: users, directories, units or sockets; the hub did not become ready; the
-      admin account could not be created; the agent could not be enrolled or did not connect
+      admin account could not be created; the agent could not be enrolled or did not connect.
+      With --uninstall: a service could not be stopped or an account could not be removed
   50  self-test failed
   1   anything else
 USAGE
@@ -219,6 +254,14 @@ web_url=""
 setup_url=""
 bin=""
 layout=""
+uninstall=0
+purge=0
+keep_on_failure=0
+rollback_armed=0
+rolled_back=0
+un_errors=0
+un_has_marker=0
+installer_marker="/etc/domovoi/installer-created"
 c_bold=""
 c_red=""
 c_green=""
@@ -339,39 +382,22 @@ emit_result() { # OK CODE
     if [ "$admin_created" -eq 1 ]; then er_admin=true; fi
     if [ "$started" -eq 1 ]; then er_started=true; fi
     if [ "$agent_started" -eq 1 ]; then er_agent=true; fi
-    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"urls":%s,"admin_created":%s,"started":%s,"enrolled_host":"%s","agent_started":%s,"next_steps":%s,"plan":%s,"error":"%s"}' \
+    er_mode=install
+    er_purge=false
+    er_rolled=false
+    er_removed="[]"
+    er_kept="[]"
+    if [ "$uninstall" -eq 1 ]; then er_mode=uninstall; fi
+    if [ "$purge" -eq 1 ]; then er_purge=true; fi
+    if [ "$rolled_back" -eq 1 ]; then er_rolled=true; fi
+    if [ -n "$tmp" ] && [ -f "$tmp/removed" ]; then er_removed="$(lines_to_json <"$tmp/removed")"; fi
+    if [ -n "$tmp" ] && [ -f "$tmp/kept" ]; then er_kept="$(lines_to_json <"$tmp/kept")"; fi
+    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"urls":%s,"admin_created":%s,"started":%s,"enrolled_host":"%s","agent_started":%s,"next_steps":%s,"plan":%s,"error":"%s","mode":"%s","purge":%s,"rolled_back":%s,"removed":%s,"kept":%s}' \
         "$1" "$2" "$(json_escape "$role")" "$(json_escape "$version")" \
         "$(json_escape "${layout:-$role}")" "$(json_escape "$bin")" "$(json_escape "$er_log")" \
         "$er_urls" "$er_admin" "$er_started" "$(json_escape "$enrolled_host")" "$er_agent" \
-        "$(printf '%s\n' "$next_list" | lines_to_json)" "$er_plan" "$(json_escape "$last_error")")"
-}
-
-# The EXIT trap: closes the open step, prints the JSON result, points at the log, and removes
-# the temp directory. A script that dies without calling fail still ends with a documented code.
-on_exit() {
-    oe_rc=$?
-    trap - EXIT INT TERM
-    if [ "$oe_rc" -ne 0 ] && [ -z "$last_error" ]; then
-        last_error="stopped unexpectedly; see the log"
-        oe_rc="${fail_code:-1}"
-    fi
-    if [ "$result_pending" -eq 1 ]; then
-        if [ "$oe_rc" -eq 0 ]; then
-            step_end
-            emit_result true 0
-        else
-            if [ -n "$step_name" ]; then json_step fail "$last_error"; fi
-            emit_result false "$oe_rc"
-        fi
-    fi
-    if [ "$oe_rc" -ne 0 ] && [ "$log_keep" -eq 1 ] && [ -n "$log_file" ]; then
-        printf 'install.sh: the log is %s\n' "$log_file" >&2
-    fi
-    if [ "$hub_stopped" -eq 1 ]; then
-        systemctl start domovoi-hub >/dev/null 2>&1 || true
-    fi
-    if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
-    exit "$oe_rc"
+        "$(printf '%s\n' "$next_list" | lines_to_json)" "$er_plan" "$(json_escape "$last_error")" \
+        "$er_mode" "$er_purge" "$er_rolled" "$er_removed" "$er_kept")"
 }
 
 hub_unit() {
@@ -691,15 +717,99 @@ mutations_per_hour = 0
 EOF
 }
 
+# --- What this run created: the rollback manifest and the installer record ------------------
+# A fresh install that fails before the first service is started is undone from the manifest,
+# $tmp/created, one KIND|VALUE line per item this run created (file, dir, tree, user or group),
+# appended as each is made and removed again newest first. Nothing that was already there is
+# ever written to it, so the undo cannot touch it. A tree is removed whole; a dir only when it
+# is empty. The record /etc/domovoi/installer-created lives on: it lists the accounts and the
+# unusual directories the installer created, for --uninstall --purge.
+manifest_add() { # KIND VALUE
+    if [ "$rollback_armed" -eq 1 ]; then printf '%s|%s\n' "$1" "$2" >>"$tmp/created"; fi
+}
+
+# Starts recording, only for a run that can be undone as a whole: not a migration, not an
+# upgrade (a binary is there already), and not where a hub or an agent unit is installed. For
+# an agent that also needs a fresh layout, so one that shares the machine with a hub is not.
+arm_rollback() {
+    [ "$migrate" -eq 0 ] || return 0
+    [ "$state" = "fresh" ] || return 0
+    [ ! -e /etc/systemd/system/domovoi-hub.service ] && [ ! -e "$agent_unit_path" ] || return 0
+    if [ "$role" = "agent" ] && [ "$service" -eq 1 ]; then
+        classify_host
+        case "$layout" in
+        fresh | nosystemd) ;;
+        *) return 0 ;;
+        esac
+    fi
+    rollback_armed=1
+    : >"$tmp/created"
+}
+
+# Stops recording and forgets the manifest: a service is about to be started, so a failure
+# from here on is handled by hand, as it always was.
+rollback_disarm() {
+    rollback_armed=0
+    if [ -n "$tmp" ]; then : >"$tmp/created"; fi
+}
+
+# Creates DIR and the parents that are missing, recording each one that was not there.
+mkdir_rec() {
+    mr_missing=""
+    mr_dir="$1"
+    while [ ! -e "$mr_dir" ] && [ ! -L "$mr_dir" ] && [ "$mr_dir" != "/" ] && [ "$mr_dir" != "." ]; do
+        mr_missing="$mr_dir
+$mr_missing"
+        mr_dir="$(dirname "$mr_dir")"
+    done
+    mkdir -p "$1"
+    printf '%s\n' "$mr_missing" | while IFS= read -r mr_path; do
+        if [ -n "$mr_path" ]; then manifest_add dir "$mr_path"; fi
+    done
+}
+
+group_exists() { getent group "$1" >/dev/null 2>&1 || grep -q "^$1:" /etc/group 2>/dev/null; }
+
+# Notes an account this run created (GROUP_EXISTED is 1 when the group was there before).
+record_account() { # NAME GROUP_EXISTED
+    manifest_add user "$1"
+    printf 'user %s\n' "$1" >>"$tmp/marker-new"
+    if [ "$2" -eq 0 ]; then
+        manifest_add group "$1"
+        printf 'group %s\n' "$1" >>"$tmp/marker-new"
+    fi
+}
+
+# Appends what is waiting in $tmp/marker-new to the installer record, once /etc/domovoi exists.
+flush_marker() {
+    [ -s "$tmp/marker-new" ] && [ -d /etc/domovoi ] && [ ! -L "$installer_marker" ] || return 0
+    if [ ! -e "$installer_marker" ]; then
+        : >"$installer_marker"
+        chmod 0600 "$installer_marker"
+        chown root:root "$installer_marker"
+        manifest_add file "$installer_marker"
+    fi
+    while IFS= read -r fm_line; do
+        grep -qxF "$fm_line" "$installer_marker" || printf '%s\n' "$fm_line" >>"$installer_marker"
+    done <"$tmp/marker-new"
+    : >"$tmp/marker-new"
+}
+
 # Creates DIR with MODE and OWNER only when it does not exist, so a second run keeps
 # whatever was changed since.
 make_dir() {
     if [ ! -d "$1" ]; then
-        mkdir -p "$1"
+        mkdir_rec "$1"
+        manifest_add tree "$1"
         chmod "$2" "$1"
         chown "$3" "$1"
         say "Created $1"
+        case "$1" in
+        /etc/domovoi | /etc/domovoi/skills | /var/lib/domovoi | /var/lib/domovoi-agent | /var/lib/domovoi-packages | /var/lib/domovoi-helper) ;;
+        *) printf 'dir %s\n' "$1" >>"$tmp/marker-new" ;;
+        esac
     fi
+    flush_marker
 }
 
 # Copies each starter skill that is not in the agent's skills directory yet, so a new
@@ -712,6 +822,7 @@ add_starter_skills() {
         dest="/etc/domovoi/skills/$(basename "$skill")"
         [ ! -e "$dest" ] || continue
         cp -R "$skill" "$dest"
+        manifest_add tree "$dest"
         chown -R root:root "$dest"
         chmod -R go-w "$dest"
         if [ "${2:-}" = "normalise" ]; then
@@ -732,6 +843,8 @@ normalise_tree() {
 
 create_hub_layout() {
     if ! id domovoi >/dev/null 2>&1; then
+        chl_group=0
+        if group_exists domovoi; then chl_group=1; fi
         if command -v useradd >/dev/null 2>&1; then
             nologin="$(command -v nologin || echo /usr/sbin/nologin)"
             useradd --system --user-group --home-dir /var/lib/domovoi --no-create-home \
@@ -742,10 +855,12 @@ create_hub_layout() {
         else
             fail "cannot create the domovoi user: neither useradd nor adduser is available"
         fi
+        record_account domovoi "$chl_group"
         say "Created the domovoi system user."
     fi
     make_dir /etc/domovoi 0750 root:domovoi
     make_dir /var/lib/domovoi 0750 domovoi:domovoi
+    flush_marker
 }
 
 # Today's agent layout: everything owned by root. Used where the privilege boundary cannot
@@ -845,6 +960,7 @@ $(printf '%s\n' "$ea_found" | sed "s/^/  $ea_name: /")"
             useradd --system --user-group --no-create-home --home-dir /var/lib/domovoi-agent \
                 --shell "$ea_nologin" domovoi-agent
         fi
+        record_account domovoi-agent 0
         say "Created the domovoi-agent system user."
     fi
     if id domovoi-skill >/dev/null 2>&1; then
@@ -852,8 +968,10 @@ $(printf '%s\n' "$ea_found" | sed "s/^/  $ea_name: /")"
     else
         useradd --system --user-group --no-create-home --home-dir /nonexistent \
             --shell "$ea_nologin" domovoi-skill
+        record_account domovoi-skill 0
         say "Created the domovoi-skill system user."
     fi
+    flush_marker
 }
 
 # Records a problem found by check_path or the tree checks.
@@ -936,6 +1054,7 @@ write_helper_toml() {
     if [ ! -e /etc/domovoi/helper.toml ] && [ ! -L /etc/domovoi/helper.toml ]; then
         helper_toml >"$tmp/helper.toml"
         install -m 0600 -o root -g root "$tmp/helper.toml" /etc/domovoi/helper.toml
+        manifest_add file /etc/domovoi/helper.toml
         say "Created /etc/domovoi/helper.toml (read groups only; no write group is enabled)"
     fi
 }
@@ -950,8 +1069,9 @@ place_unit() {
     pu_path="/etc/systemd/system/$pu_name"
     "$pu_func" | sed "s|/usr/local/bin/domovoi|$bin|" >"$tmp/$pu_name"
     if [ ! -e "$pu_path" ]; then
-        mkdir -p /etc/systemd/system
+        mkdir_rec /etc/systemd/system
         install -m 0644 "$tmp/$pu_name" "$pu_path"
+        manifest_add file "$pu_path"
         say "Installed $pu_path"
     elif cmp -s "$tmp/$pu_name" "$pu_path"; then
         say "$pu_path is up to date."
@@ -1075,6 +1195,7 @@ start_sockets() {
     # The leak self-test judges the firewall write group. It takes minutes, so it starts without
     # blocking; the helper socket is ordered after it. A failure leaves the firewall group
     # refused and never stops the install.
+    rollback_disarm
     systemctl enable domovoi-helper-selftest.service || true
     systemctl start --no-block domovoi-helper-selftest.service || say "The firewall self-test did not start; run: sudo $bin helper nft-selftest"
     systemctl enable --now domovoi-helper.socket
@@ -1097,6 +1218,579 @@ start_sockets() {
         ss_failed="$(failed_checks "$tmp/runner-selftest.out")"
         fail_with 50 "the self-test failed with the skill runner socket up (${ss_failed:-see the report above}); the skill runner socket is disabled, so skills stay unavailable, and the helper socket keeps running"
     fi
+}
+
+# Undoes what a failed fresh install created, newest first, from $tmp/created. It removes only
+# what the manifest names, never a path that is a symbolic link's target, and it carries on
+# when one removal fails. INT and TERM are ignored while it runs, so an interrupted rollback
+# still finishes; it never changes the exit code of the script.
+rollback_run() {
+    set +e
+    trap '' INT TERM
+    : >"$tmp/removed"
+    : >"$tmp/rb-failed"
+    sed '1!G;h;$!d' "$tmp/created" >"$tmp/created.rev"
+    while IFS='|' read -r rb_kind rb_val; do
+        case "$rb_val" in
+        /?*) ;;
+        *) continue ;;
+        esac
+        case "$rb_kind" in
+        file)
+            if [ -f "$rb_val" ] || [ -L "$rb_val" ]; then
+                if rm -f -- "$rb_val"; then printf '%s\n' "$rb_val" >>"$tmp/removed"; else printf '%s\n' "$rb_val" >>"$tmp/rb-failed"; fi
+            fi
+            ;;
+        dir)
+            if [ -d "$rb_val" ] && [ ! -L "$rb_val" ] && rmdir -- "$rb_val" 2>/dev/null; then
+                printf '%s\n' "$rb_val" >>"$tmp/removed"
+            fi
+            ;;
+        tree)
+            if [ -L "$rb_val" ]; then
+                if rm -f -- "$rb_val"; then printf '%s\n' "$rb_val" >>"$tmp/removed"; else printf '%s\n' "$rb_val" >>"$tmp/rb-failed"; fi
+            elif [ -e "$rb_val" ]; then
+                if rm -rf -- "$rb_val"; then printf '%s\n' "$rb_val" >>"$tmp/removed"; else printf '%s\n' "$rb_val" >>"$tmp/rb-failed"; fi
+            fi
+            ;;
+        user)
+            if id "$rb_val" >/dev/null 2>&1; then
+                if userdel "$rb_val" >/dev/null 2>&1 || deluser "$rb_val" >/dev/null 2>&1; then
+                    printf 'user %s\n' "$rb_val" >>"$tmp/removed"
+                else
+                    printf 'user %s\n' "$rb_val" >>"$tmp/rb-failed"
+                fi
+            fi
+            ;;
+        group)
+            if group_exists "$rb_val"; then
+                if groupdel "$rb_val" >/dev/null 2>&1 || delgroup "$rb_val" >/dev/null 2>&1; then
+                    printf 'group %s\n' "$rb_val" >>"$tmp/removed"
+                else
+                    printf 'group %s\n' "$rb_val" >>"$tmp/rb-failed"
+                fi
+            fi
+            ;;
+        esac
+    done <"$tmp/created.rev"
+    if [ "$have_systemd" -eq 1 ] && grep -q '^/etc/systemd/system/' "$tmp/removed"; then
+        systemctl daemon-reload >/dev/null 2>&1
+    fi
+    trap - INT TERM
+}
+
+# The failure handling of a run that recorded what it created: undoes it, or with
+# --keep-on-failure lists it and leaves it. Prints what was done and how to try again.
+rollback_finish() {
+    [ -s "$tmp/created" ] || return 0
+    if [ "$keep_on_failure" -eq 1 ]; then
+        say_always ""
+        say_always "Left in place (--keep-on-failure); nothing was undone. This run had created:"
+        cut -d'|' -f2 "$tmp/created" | while IFS= read -r rf_item; do say_always "  $rf_item"; done
+        return 0
+    fi
+    rollback_run
+    if [ -s "$tmp/removed" ]; then
+        rolled_back=1
+        say_always ""
+        say_always "Rolled back: this run had created the following, and it is removed again:"
+        while IFS= read -r rf_item; do say_always "  $rf_item"; done <"$tmp/removed"
+        say_always "Nothing that was on this machine before the run was touched."
+        record_next "Fix the cause above, then run install.sh again with the same options (--keep-on-failure leaves a failed install in place for debugging)"
+        say_always "Fix the cause above, then run install.sh again with the same options."
+        say_always "Add --keep-on-failure to leave a failed install in place for debugging."
+    fi
+    if [ -s "$tmp/rb-failed" ]; then
+        say_always ""
+        say_always "These could not be removed; remove them by hand:"
+        while IFS= read -r rf_item; do say_always "  $rf_item"; done <"$tmp/rb-failed"
+    fi
+}
+
+# The EXIT trap: undoes a failed fresh install, closes the open step, prints the JSON result,
+# points at the log, and removes the temp directory. A script that dies without calling fail
+# still ends with a documented code. It stays textually after the code that creates the paths
+# of the created-set, because it holds the one `systemctl start` that is not a service start.
+on_exit() {
+    oe_rc=$?
+    trap - EXIT INT TERM
+    if [ "$oe_rc" -ne 0 ] && [ -z "$last_error" ]; then
+        last_error="stopped unexpectedly; see the log"
+        oe_rc="${fail_code:-1}"
+    fi
+    if [ "$oe_rc" -ne 0 ] && [ "$rollback_armed" -eq 1 ]; then
+        rollback_finish
+    fi
+    if [ "$result_pending" -eq 1 ]; then
+        if [ "$oe_rc" -eq 0 ]; then
+            step_end
+            emit_result true 0
+        else
+            if [ -n "$step_name" ]; then json_step fail "$last_error"; fi
+            emit_result false "$oe_rc"
+        fi
+    fi
+    if [ "$oe_rc" -ne 0 ] && [ "$log_keep" -eq 1 ] && [ -n "$log_file" ]; then
+        printf 'install.sh: the log is %s\n' "$log_file" >&2
+    fi
+    if [ "$hub_stopped" -eq 1 ]; then
+        systemctl start domovoi-hub >/dev/null 2>&1 || true
+    fi
+    if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+    exit "$oe_rc"
+}
+
+# --- Uninstall ----------------------------------------------------------------------------
+# --uninstall removes what install.sh puts in place and keeps what the owner made or the
+# running system filled: configuration, data, skills, accounts and the identity-migration
+# record. --purge removes those too. Only the fixed set below is ever touched, no path is
+# followed through a symbolic link, and every path is checked before the first change.
+un_units="domovoi-agent.service domovoi-hub.service domovoi-skill-runner.socket domovoi-helper.socket domovoi-helper-selftest.service domovoi-skill-runner@.service domovoi-helper@.service"
+un_data_dirs="/var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper"
+un_accounts="domovoi domovoi-agent domovoi-skill"
+un_log="/var/log/domovoi-install.log"
+
+un_exists() { [ -e "$1" ] || [ -L "$1" ]; }
+un_keep() { printf '%s\n' "$1" >>"$tmp/kept"; plan_add keep "$1"; }
+un_removed() { printf '%s\n' "$1" >>"$tmp/removed"; say "Removed $1"; }
+un_marker_has() { [ "$un_has_marker" -eq 1 ] && grep -qxF "$1 $2" "$tmp/un-marker"; }
+
+# The disk space under PATH, for the list of what a purge deletes.
+un_size() {
+    us_kb="$(du -sk "$1" 2>/dev/null | awk 'NR == 1 { print $1 }')" || us_kb=""
+    case "$us_kb" in
+    "" | *[!0-9]*) printf 'size unknown\n' ;;
+    *)
+        if [ "$us_kb" -ge 1024 ]; then printf '%s MB\n' $((us_kb / 1024)); else printf '%s KB\n' "$us_kb"; fi
+        ;;
+    esac
+}
+
+# Whether PATH, a directory the installer recorded outside its own set, may be deleted: an
+# absolute path at least two levels deep that is not a system directory.
+un_safe_dir() {
+    case "$1" in
+    /?*) ;;
+    *) return 1 ;;
+    esac
+    case "$1" in
+    *..* | *[[:space:]]* | *"'"* | *'"'*) return 1 ;;
+    /bin | /boot | /dev | /etc | /home | /lib | /lib64 | /mnt | /media | /opt | /proc | /root | /run | /sbin | /srv | /sys | /tmp | /usr | /var) return 1 ;;
+    /usr/bin | /usr/lib | /usr/local | /usr/local/bin | /usr/sbin | /usr/share | /var/lib | /var/log | /var/tmp | /var/cache | /etc/systemd | /etc/systemd/system) return 1 ;;
+    esac
+    [ "$(printf '%s' "$1" | tr -cd '/' | wc -c)" -ge 2 ]
+}
+
+# Decides whether the account $1 may be removed by --purge. Sets $uac_ok to 1 or 0 and the
+# reason to $uac_why. With the installer record, only an account it lists; without one, only
+# an account that looks like a system account made for this program.
+un_account_check() {
+    uac_ok=0
+    uac_why=""
+    uac_uid="$(id -u "$1")"
+    if [ "$uac_uid" -eq 0 ]; then
+        uac_why="its uid is 0"
+        return 0
+    fi
+    if [ "$un_has_marker" -eq 1 ]; then
+        if un_marker_has user "$1"; then
+            uac_ok=1
+        else
+            uac_why="not created by the installer (it is not in $installer_marker)"
+        fi
+        return 0
+    fi
+    uac_line="$(getent passwd "$1")"
+    uac_shell="$(printf '%s\n' "$uac_line" | cut -d: -f7)"
+    uac_home="$(printf '%s\n' "$uac_line" | cut -d: -f6)"
+    uac_style=1
+    if [ "$uac_uid" -ge 1000 ]; then uac_style=0; fi
+    case "$uac_shell" in
+    */nologin | */false) ;;
+    *) uac_style=0 ;;
+    esac
+    case "$uac_home" in
+    /var/lib/domovoi | /var/lib/domovoi-agent | /nonexistent) ;;
+    *) uac_style=0 ;;
+    esac
+    if [ "$uac_style" -eq 1 ]; then
+        uac_ok=1
+    else
+        uac_why="no installer record, and it does not look like a system account (uid $uac_uid, shell ${uac_shell:-none}, home ${uac_home:-none})"
+    fi
+}
+
+# Looks at the machine and writes the plan: what is stopped and removed, what is kept (and
+# where), and, with --purge, what is deleted with its size. Reads only. Stops with exit 10
+# when a path it would touch is a symbolic link, or when nothing is installed.
+un_detect() {
+    : >"$tmp/plan"
+    : >"$tmp/removed"
+    : >"$tmp/kept"
+    : >"$tmp/un-units"
+    : >"$tmp/un-dropins"
+    : >"$tmp/un-purge-dirs"
+    un_refuse=""
+    un_found=0
+    un_kept_any=0
+    un_helper=0
+    un_has_marker=0
+    if [ -f "$installer_marker" ] && [ ! -L "$installer_marker" ] && cp "$installer_marker" "$tmp/un-marker" 2>/dev/null; then
+        un_has_marker=1
+    fi
+    for ud_unit in $un_units; do
+        ud_path="/etc/systemd/system/$ud_unit"
+        un_exists "$ud_path" || continue
+        printf '%s\n' "$ud_unit" >>"$tmp/un-units"
+        un_found=1
+        if [ -L "$ud_path" ]; then un_refuse="$un_refuse $ud_path"; fi
+        case "$ud_unit" in
+        domovoi-helper*) un_helper=1 ;;
+        esac
+    done
+    if [ "$have_systemd" -eq 1 ]; then
+        while IFS= read -r ud_unit; do
+            case "$ud_unit" in
+            *@.service) plan_add stop "every running instance of $ud_unit" ;;
+            *) plan_add stop "$ud_unit (systemctl disable --now)" ;;
+            esac
+        done <"$tmp/un-units"
+    elif [ -s "$tmp/un-units" ]; then
+        plan_add note "no systemd on this host: no service is stopped; stop a hub or agent you started by hand yourself"
+    fi
+    while IFS= read -r ud_unit; do
+        plan_add remove "/etc/systemd/system/$ud_unit"
+    done <"$tmp/un-units"
+    if [ -s "$tmp/un-units" ] && [ "$have_systemd" -eq 1 ]; then plan_add reload "systemctl daemon-reload"; fi
+    : >"$tmp/un-custom"
+    if un_exists "$bin"; then
+        un_found=1
+        if [ -L "$bin" ]; then un_refuse="$un_refuse $bin"; fi
+        plan_add remove "$bin"
+    fi
+    if un_exists "$prefix/share/domovoi"; then
+        un_found=1
+        if [ -L "$prefix/share/domovoi" ]; then un_refuse="$un_refuse $prefix/share/domovoi"; fi
+        plan_add remove "$prefix/share/domovoi (the release examples and any saved unit text)"
+    fi
+    if [ -d /var/lib/domovoi-helper ] || [ "$un_helper" -eq 1 ]; then
+        un_helper=1
+        if [ -x "$bin" ]; then
+            plan_add cleanup "$bin helper nft-recreate (deletes the helper's own firewall table if it holds no block)"
+        fi
+    fi
+    ud_dropins=""
+    for ud_path in /etc/systemd/system/domovoi-*.d; do
+        if un_exists "$ud_path"; then
+            ud_dropins="$ud_dropins $ud_path"
+            if [ -L "$ud_path" ]; then un_refuse="$un_refuse $ud_path"; fi
+        fi
+    done
+    # What stays, or goes with --purge.
+    ud_keepers="/etc/domovoi $un_data_dirs"
+    ud_custom=""
+    if [ "$purge" -eq 1 ] && [ -x "$bin" ] && [ -d /etc/domovoi ]; then
+        ud_dirs_out="$("$bin" agent dirs 2>/dev/null </dev/null)" || ud_dirs_out=""
+        ud_custom="$(printf '%s\n' "$ud_dirs_out" | sed -n -e 's/^skills_dir=//p' -e 's/^packages_dir=//p')"
+    fi
+    if [ "$un_has_marker" -eq 1 ]; then
+        ud_custom="$ud_custom
+$(sed -n 's/^dir //p' "$tmp/un-marker")"
+    fi
+    for ud_path in $ud_keepers; do
+        un_exists "$ud_path" || continue
+        un_kept_any=1
+        if [ "$purge" -eq 1 ]; then
+            if [ -L "$ud_path" ]; then un_refuse="$un_refuse $ud_path"; fi
+            un_found=1
+            printf '%s\n' "$ud_path" >>"$tmp/un-purge-dirs"
+            plan_add delete "$ud_path ($(un_size "$ud_path"))"
+        else
+            case "$ud_path" in
+            /etc/domovoi) un_keep "$ud_path (configuration, skills, the installer record and the identity-migration record; --purge deletes it)" ;;
+            *) un_keep "$ud_path (data, $(un_size "$ud_path"); --purge deletes it)" ;;
+            esac
+        fi
+    done
+    printf '%s\n' "$ud_custom" | sort -u | while IFS= read -r ud_path; do
+        [ -n "$ud_path" ] || continue
+        case "$ud_path" in
+        /etc/domovoi/skills | /var/lib/domovoi-packages) continue ;;
+        esac
+        printf '%s\n' "$ud_path"
+    done >"$tmp/un-custom"
+    while IFS= read -r ud_path; do
+        un_exists "$ud_path" || continue
+        if [ "$purge" -eq 1 ] && un_marker_has dir "$ud_path" && un_safe_dir "$ud_path" && [ ! -L "$ud_path" ]; then
+            un_found=1
+            printf '%s\n' "$ud_path" >>"$tmp/un-purge-dirs"
+            plan_add delete "$ud_path ($(un_size "$ud_path")), made by the installer for the skills or packages"
+        elif [ "$purge" -eq 1 ]; then
+            un_keep "$ud_path (a skills or packages directory from the agent configuration; the installer did not make it, so it is not deleted)"
+        else
+            un_kept_any=1
+            un_keep "$ud_path (a skills or packages directory from the installer record; --purge deletes it)"
+        fi
+    done <"$tmp/un-custom"
+    if [ "$purge" -eq 1 ]; then
+        for ud_path in $ud_dropins; do
+            printf '%s\n' "$ud_path" >>"$tmp/un-dropins"
+            un_found=1
+            plan_add delete "$ud_path (systemd drop-in)"
+        done
+        if un_exists "$un_log"; then plan_add delete "$un_log"; fi
+    else
+        for ud_path in $ud_dropins; do
+            un_keep "$ud_path (a systemd drop-in; --purge deletes it)"
+        done
+    fi
+    # Accounts.
+    : >"$tmp/un-accounts"
+    for ud_name in $un_accounts; do
+        id "$ud_name" >/dev/null 2>&1 || continue
+        un_account_check "$ud_name"
+        if [ "$purge" -eq 1 ]; then
+            if [ "$uac_ok" -eq 1 ]; then
+                un_found=1
+                printf '%s\n' "$ud_name" >>"$tmp/un-accounts"
+                plan_add delete "account $ud_name and its group (created by the installer)"
+            else
+                un_keep "account $ud_name ($uac_why); it is left as it is"
+            fi
+        else
+            un_kept_any=1
+            un_keep "account $ud_name (--purge deletes the ones the installer created)"
+        fi
+    done
+    if [ -n "$un_refuse" ]; then
+        fail_with 10 "refusing to go on: these are symbolic links, and --uninstall never follows a link:$un_refuse. Nothing was changed. Remove or replace the link by hand and run again"
+    fi
+    if [ "$un_found" -eq 0 ]; then
+        if [ "$un_kept_any" -eq 1 ]; then
+            fail_with 10 "nothing to uninstall: no unit, binary or examples of Domovoi are left under $prefix or /etc/systemd/system. The configuration, data and accounts are still there; run with --purge to delete them"
+        fi
+        fail_with 10 "nothing to uninstall: no Domovoi installation was found (looked for the units in /etc/systemd/system, $bin, $prefix/share/domovoi, /etc/domovoi and /var/lib/domovoi*)"
+    fi
+}
+
+# Prints the plan of the uninstall (dry run, or the list before a purge asks). With a second
+# argument of "always" it is shown even with --quiet.
+print_un_plan() { # HEADING [always]
+    pu_say=say
+    if [ "${2:-}" = "always" ]; then pu_say=say_always; fi
+    "$pu_say" "$1"
+    while IFS= read -r pl_line; do
+        "$pu_say" "  $pl_line"
+    done <"$tmp/plan"
+}
+
+# Asks for the typed word on the terminal. --yes skips it: --purge was passed on purpose.
+purge_confirm() {
+    [ "$yes" -eq 0 ] || return 0
+    ( : </dev/tty ) 2>/dev/null ||
+        fail_with 2 "--purge deletes data and asks for confirmation on the terminal; pass --yes to confirm without one"
+    printf 'Type purge to delete all of the above, anything else to stop: ' >/dev/tty
+    IFS= read -r pc_answer </dev/tty || pc_answer=""
+    [ "$pc_answer" = "purge" ] || fail_with 2 "not confirmed; nothing was changed"
+}
+
+# Stops and disables every unit that exists, sockets before the instances they spawned.
+un_stop_services() {
+    if [ "$have_systemd" -eq 0 ]; then
+        say "No systemd on this host, so no service was stopped."
+        return 0
+    fi
+    while IFS= read -r us_unit; do
+        case "$us_unit" in
+        *@.service) continue ;;
+        esac
+        if systemctl disable --now "$us_unit" >"$tmp/un.out" 2>&1; then
+            say "Stopped and disabled $us_unit"
+        else
+            show_file_err "$tmp/un.out"
+            warn "could not stop and disable $us_unit"
+            un_errors=$((un_errors + 1))
+        fi
+    done <"$tmp/un-units"
+    while IFS= read -r us_unit; do
+        case "$us_unit" in
+        *@.service)
+            us_glob="${us_unit%.service}*.service"
+            systemctl stop "$us_glob" >/dev/null 2>&1 || true
+            systemctl reset-failed "$us_glob" >/dev/null 2>&1 || true
+            say "Stopped every running instance of $us_unit"
+            ;;
+        esac
+    done <"$tmp/un-units"
+}
+
+# Deletes the helper's own firewall table when it holds no block. The command is the helper's
+# `nft-recreate`; it stops with a message when a block is live, which is only reported.
+un_nft_cleanup() {
+    [ "$un_helper" -eq 1 ] && [ -x "$bin" ] || return 0
+    if "$bin" helper nft-recreate >"$tmp/nft.out" 2>&1 </dev/null; then
+        say "The helper's firewall table was cleaned up (a table that held no block is deleted)."
+    else
+        show_file_err "$tmp/nft.out"
+        warn "the helper's firewall table was not cleaned up (the message is above)"
+    fi
+}
+
+# Removes the unit files, the wants links enabling them made, and reloads systemd.
+un_remove_units() {
+    while IFS= read -r ur_unit; do
+        rm -f -- "/etc/systemd/system/$ur_unit"
+        for ur_wants in multi-user.target.wants sockets.target.wants; do
+            if [ -L "/etc/systemd/system/$ur_wants/$ur_unit" ]; then rm -f -- "/etc/systemd/system/$ur_wants/$ur_unit"; fi
+        done
+        un_removed "/etc/systemd/system/$ur_unit"
+    done <"$tmp/un-units"
+    while IFS= read -r ur_dropin; do
+        if [ -d "$ur_dropin" ] && [ ! -L "$ur_dropin" ]; then
+            rm -rf -- "$ur_dropin"
+            un_removed "$ur_dropin"
+        fi
+    done <"$tmp/un-dropins"
+    if [ "$have_systemd" -eq 1 ] && [ -s "$tmp/un-units" ]; then
+        if ! systemctl daemon-reload; then
+            warn "systemctl daemon-reload failed"
+            un_errors=$((un_errors + 1))
+        fi
+    fi
+}
+
+# Removes the binary and the examples directory.
+un_remove_files() {
+    if un_exists "$bin"; then
+        rm -f -- "$bin"
+        un_removed "$bin"
+    fi
+    if [ -d "$prefix/share/domovoi" ] && [ ! -L "$prefix/share/domovoi" ]; then
+        rm -rf -- "$prefix/share/domovoi"
+        un_removed "$prefix/share/domovoi"
+    fi
+}
+
+# Removes one account and its group: userdel, then groupdel for a group that is left empty and
+# was made for the account.
+un_remove_account() {
+    ura_name="$1"
+    if userdel "$ura_name" >"$tmp/un.out" 2>&1 || deluser "$ura_name" >>"$tmp/un.out" 2>&1; then
+        un_removed "account $ura_name"
+    else
+        show_file_err "$tmp/un.out"
+        warn "could not remove the account $ura_name"
+        un_errors=$((un_errors + 1))
+        return 0
+    fi
+    if [ "$un_has_marker" -eq 1 ] && ! un_marker_has group "$ura_name"; then return 0; fi
+    ura_gid="$(getent group "$ura_name" | cut -d: -f3)"
+    if [ "$un_has_marker" -eq 0 ] && { [ -z "$ura_gid" ] || [ "$ura_gid" -ge 1000 ]; }; then return 0; fi
+    if group_exists "$ura_name" && [ -z "$(getent group "$ura_name" | cut -d: -f4)" ]; then
+        if groupdel "$ura_name" >/dev/null 2>&1 || delgroup "$ura_name" >/dev/null 2>&1; then
+            un_removed "group $ura_name"
+        else
+            warn "could not remove the group $ura_name"
+            un_errors=$((un_errors + 1))
+        fi
+    fi
+}
+
+# The destructive part of --purge: configuration, data, drop-ins, the install log, accounts.
+un_purge() {
+    if [ -s "$tmp/un-purge-dirs" ]; then
+        while IFS= read -r up_path; do
+            if [ -d "$up_path" ] && [ ! -L "$up_path" ]; then
+                rm -rf -- "$up_path"
+                un_removed "$up_path"
+            fi
+        done <"$tmp/un-purge-dirs"
+    fi
+    while IFS= read -r up_name; do
+        un_remove_account "$up_name"
+    done <"$tmp/un-accounts"
+    if un_exists "$un_log"; then
+        # Nothing is written to the log once it is gone, or this run would make it again.
+        if [ "$log_file" = "$un_log" ]; then
+            log_file=""
+            log_keep=0
+        fi
+        rm -f -- "$un_log"
+        printf '%s\n' "$un_log" >>"$tmp/removed"
+        say "Removed $un_log"
+    fi
+}
+
+# The whole of --uninstall.
+run_uninstall() {
+    fail_code=10
+    version=""
+    bin_dir="$prefix/bin"
+    bin="$bin_dir/domovoi"
+    case "$prefix" in
+    /?*) ;;
+    *) fail_with 2 "--prefix must be an absolute path, not $prefix" ;;
+    esac
+    case "$prefix" in
+    *..* | *[[:space:]]*) fail_with 2 "--prefix must not contain .. or spaces" ;;
+    esac
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then have_systemd=1; fi
+    if [ "$dry_run" -eq 1 ]; then
+        step_total=2
+    else
+        step_total=$((4 + purge))
+    fi
+    if [ "$dry_run" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
+        fail_with 10 "--uninstall must run as root (sudo); --dry-run shows the plan without it"
+    fi
+    step detect "Looking for a Domovoi installation"
+    un_detect
+    if [ "$dry_run" -eq 1 ]; then
+        step plan "Planning the uninstall"
+        print_un_plan "Plan for the uninstall$(if [ "$purge" -eq 1 ]; then printf ' with --purge'; fi) (dry run; nothing is changed):"
+        say ""
+        say "Dry run: nothing was changed."
+        if [ "$log_keep" -eq 1 ]; then say_always "Log file: $log_file"; fi
+        return 0
+    fi
+    if [ "$purge" -eq 1 ]; then
+        print_un_plan "This will delete everything below, and the data cannot be brought back:" always
+        purge_confirm
+    else
+        print_un_plan "Uninstalling:"
+    fi
+    step stop "Stopping the services"
+    fail_code=40
+    un_stop_services
+    un_nft_cleanup
+    step units "Removing the unit files"
+    un_remove_units
+    step files "Removing the binary and the examples"
+    un_remove_files
+    if [ "$purge" -eq 1 ]; then
+        step purge "Deleting the configuration, the data and the accounts"
+        un_purge
+    fi
+    say_always ""
+    if [ "$purge" -eq 1 ]; then
+        say_always "Purged: Domovoi is removed from this machine."
+    else
+        say_always "Uninstalled the program. These were kept on purpose:"
+        while IFS= read -r uk_line; do
+            say_always "  $uk_line"
+        done <"$tmp/kept"
+        record_next "sudo sh install.sh --uninstall --purge    # also deletes the configuration, the data and the accounts the installer created"
+    fi
+    if [ "$un_helper" -eq 1 ]; then
+        say_always ""
+        say_always "The helper's firewall table is deleted only when it holds no block. Check what is left with:"
+        ns "nft list tables    # a table named domovoi that remains holds an active block: nft delete table inet domovoi"
+    fi
+    if [ "$un_errors" -gt 0 ]; then
+        fail_with 40 "the uninstall finished with $un_errors problem(s); see the messages above"
+    fi
+    if [ "$log_keep" -eq 1 ]; then say_always "Log file: $log_file"; fi
+    say_always "Done."
 }
 
 # Prints one line for a path --migrate-identity will create or change.
@@ -1646,6 +2340,9 @@ build_plan() {
         plan_add replace "$bin (${installed_version:-unknown version} -> $version)"
     fi
     plan_add update "$prefix/share/domovoi/examples (the release examples)"
+    if [ "$state" = "fresh" ]; then
+        plan_add note "if this fails before the first service is started, what this run created is removed again (--keep-on-failure keeps it)"
+    fi
     if [ "$service" -eq 0 ]; then
         plan_add skip "user, directories and systemd units (--no-service)"
     elif [ "$hub_part" -eq 1 ]; then
@@ -1898,6 +2595,7 @@ write_hub_env() {
     [ -n "$set_public_url$set_bind$set_agent_url" ] || return 0
     if [ ! -e "$hub_env" ]; then
         : >"$hub_env"
+        manifest_add file "$hub_env"
         chmod 0640 "$hub_env"
         chown root:domovoi "$hub_env"
         say "Created $hub_env"
@@ -1942,6 +2640,12 @@ create_admin() {
     fi
     if run_as_domovoi "$bin" hub set-password --password-stdin <"$tmp/admin.pw" >"$tmp/setpw.out" 2>&1; then
         admin_created=1
+        # The hub's database now exists; a data directory that was there already does not own it.
+        if [ "$rollback_armed" -eq 1 ]; then
+            find /var/lib/domovoi -mindepth 1 -maxdepth 1 | while IFS= read -r ca_path; do
+                manifest_add tree "$ca_path"
+            done
+        fi
         say "Created the admin account (user name: admin)."
     else
         show_file_err "$tmp/setpw.out"
@@ -2019,6 +2723,7 @@ wait_ready() {
 # Starts the hub after a fresh install, or restarts it after an upgrade when it was running,
 # then waits until it is ready. Sets $started.
 start_hub() {
+    rollback_disarm
     sh_url="$(local_web_url)"
     if [ "$upgrade" -eq 1 ]; then
         if ! systemctl is-active --quiet domovoi-hub; then
@@ -2216,6 +2921,8 @@ ensure_agent_journal() { # [step]
         fail_with 40 "creating the agent's action journal failed (the message is above); run it by hand: sudo $bin agent journal init"
     fi
     show_file "$tmp/journal.out"
+    manifest_add file "$(agent_state_dir)/action-journal.json"
+    manifest_add file "$(agent_state_dir)/action-journal.bin"
     ej_created=1
 }
 
@@ -2268,6 +2975,8 @@ wait_agent_link() {
 enroll_and_start_agent() {
     es_tok="$(cat "$tmp/enroll.tok")"
     es_rc=0
+    es_had_toml=0
+    if [ -e "$agent_toml" ]; then es_had_toml=1; fi
     DOMOVOI_ENROLL_TOKEN="$es_tok" "$bin" agent enroll --hub "$enroll_hub" \
         --fingerprint "$enroll_fp" --name "$enroll_name" >"$tmp/enroll.out" 2>&1 </dev/null || es_rc=$?
     scrub_token <"$tmp/enroll.out" >"$tmp/enroll.shown"
@@ -2277,8 +2986,10 @@ enroll_and_start_agent() {
         fail_with 40 "enrolling the agent failed (the message is above); the token may be used up or expired, or the fingerprint or address may be wrong"
     fi
     show_file "$tmp/enroll.shown"
+    if [ "$es_had_toml" -eq 0 ]; then manifest_add file "$agent_toml"; fi
     enrolled_host="$enroll_name"
     ensure_agent_journal step
+    rollback_disarm
     systemctl enable --now domovoi-agent || {
         agent_hint connect
         fail_with 40 "systemctl enable --now domovoi-agent failed; see: systemctl status domovoi-agent"
@@ -2608,6 +3319,18 @@ while [ $# -gt 0 ]; do
         force_downgrade=1
         shift
         ;;
+    --keep-on-failure)
+        keep_on_failure=1
+        shift
+        ;;
+    --uninstall)
+        uninstall=1
+        shift
+        ;;
+    --purge)
+        purge=1
+        shift
+        ;;
     --migrate-identity)
         migrate=1
         shift
@@ -2643,6 +3366,31 @@ done
 
 [ "$quiet" -eq 0 ] || [ "$verbose" -eq 0 ] || fail "--quiet and --verbose cannot be used together"
 
+if [ "$purge" -eq 1 ] && [ "$uninstall" -eq 0 ]; then
+    fail_with 2 "--purge goes with --uninstall"
+fi
+if [ "$uninstall" -eq 1 ]; then
+    uc_bad=""
+    if [ -n "$role" ]; then uc_bad="$uc_bad --role"; fi
+    if [ "$version" != "latest" ]; then uc_bad="$uc_bad --version"; fi
+    if [ "$service" -eq 0 ]; then uc_bad="$uc_bad --no-service"; fi
+    if [ "$start" -eq 0 ]; then uc_bad="$uc_bad --no-start"; fi
+    if [ "$migrate" -eq 1 ]; then uc_bad="$uc_bad --migrate-identity"; fi
+    if [ "$rollback" -eq 1 ]; then uc_bad="$uc_bad --rollback-identity"; fi
+    if [ "$keep_on_failure" -eq 1 ]; then uc_bad="$uc_bad --keep-on-failure"; fi
+    if [ "$accept_reset" -eq 1 ]; then uc_bad="$uc_bad --accept-data-reset"; fi
+    if [ "$force_downgrade" -eq 1 ]; then uc_bad="$uc_bad --force-downgrade"; fi
+    if [ -n "$public_url$bind_opt$agent_url$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then
+        uc_bad="$uc_bad --public-url/--bind/--agent-url/--admin-password-*"
+    fi
+    if [ -n "$enroll_hub$enroll_fp$enroll_name$token_file" ]; then uc_bad="$uc_bad --hub/--fingerprint/--name/--token-file"; fi
+    [ -z "$uc_bad" ] || fail_with 2 "--uninstall cannot be combined with:$uc_bad. It removes an installation; it does not install"
+    if [ "$purge" -eq 1 ] && [ "$yes" -eq 0 ] && [ "$dry_run" -eq 0 ]; then
+        ( : </dev/tty ) 2>/dev/null ||
+            fail_with 2 "--purge deletes data and asks you to type the word purge on the terminal, and there is none here; pass --yes to confirm without one"
+    fi
+fi
+
 tmp="$(mktemp -d)" || fail_with 10 "cannot create a temporary directory"
 setup_log
 exec 3>&1
@@ -2661,6 +3409,11 @@ if [ "$rollback" -eq 1 ]; then
         fail_with 10 "--rollback-identity needs a systemd host"
     fi
     rollback_apply
+    exit 0
+fi
+
+if [ "$uninstall" -eq 1 ]; then
+    run_uninstall
     exit 0
 fi
 
@@ -2771,17 +3524,22 @@ say "  gh attestation verify $name.tar.gz --repo $REPO"
 
 step install "Installing the binary"
 fail_code=30
+arm_rollback
 tar -C "$tmp" -xzf "$tmp/$name.tar.gz"
 [ -f "$tmp/$name/domovoi" ] || fail "$name.tar.gz has no domovoi binary"
 "$tmp/$name/domovoi" version >/dev/null 2>&1 || fail "the downloaded binary does not run on this machine"
 
-mkdir -p "$bin_dir"
+mkdir_rec "$bin_dir"
+if [ ! -e "$bin" ] && [ ! -L "$bin" ]; then manifest_add file "$bin"; fi
 install -m 0755 "$tmp/$name/domovoi" "$bin"
 say "Installed $("$bin" version | head -n 1) to $bin"
 
 if [ -d "$tmp/$name/examples" ]; then
     examples="$prefix/share/domovoi/examples"
-    mkdir -p "$examples"
+    examples_new=0
+    if [ ! -e "$examples" ] && [ ! -L "$examples" ]; then examples_new=1; fi
+    mkdir_rec "$examples"
+    if [ "$examples_new" -eq 1 ]; then manifest_add tree "$examples"; fi
     cp -R "$tmp/$name/examples/." "$examples/"
 fi
 

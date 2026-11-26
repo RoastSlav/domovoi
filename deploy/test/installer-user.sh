@@ -338,17 +338,17 @@ hfns="$work/hub-functions.sh"
 : >"$hfns"
 for fn in say log_line say_always err warn fail_with fail show_file_err env_get env_set detect_ip url_host \
     check_url resolve_net prepare_admin_password write_hub_env create_admin local_web_url user_web_url \
-    probe_ready redact_tokens wait_ready start_hub journal_setup_token find_setup_link; do
+    probe_ready redact_tokens wait_ready start_hub journal_setup_token find_setup_link manifest_add rollback_disarm; do
     if grep -q "^$fn() {.*}\$" "$installer"; then
         grep "^$fn() {.*}\$" "$installer" >>"$hfns"
     else
         sed -n "/^$fn() {/,/^}/p" "$installer" >>"$hfns"
     fi
 done
-check "the hub functions were extracted" test "$(grep -c '^[a-z_]*() {' "$hfns")" -eq 25
+check "the hub functions were extracted" test "$(grep -c '^[a-z_]*() {' "$hfns")" -eq 27
 hubrun() { # SCRIPT: runs it with the extracted functions, no-op sleep and chown, and a temp dir
     mkdir -p "$work/ht"
-    sh -c "set -eu; . '$hfns'; sleep() { :; }; chown() { :; }; tmp='$work/ht'; log_file='$work/hub.log'; hub_env='$work/hub.env'; quiet=0; json=0; upgrade=0; hub_fresh_data=1; admin_created=0; started=0; setup_url=''; public_url=''; bind_opt=''; agent_url=''; $1" \
+    sh -c "set -eu; . '$hfns'; sleep() { :; }; chown() { :; }; tmp='$work/ht'; log_file='$work/hub.log'; hub_env='$work/hub.env'; quiet=0; json=0; upgrade=0; hub_fresh_data=1; rollback_armed=0; admin_created=0; started=0; setup_url=''; public_url=''; bind_opt=''; agent_url=''; $1" \
         >"$work/hub.out" 2>"$work/hub.err"
 }
 net_run() { # PUBLIC BIND AGENT: resolve the flags and write hub.env
@@ -575,7 +575,7 @@ efns="$work/enroll-functions.sh"
 for fn in say log_line say_always err warn fail_with fail show_file show_file_err ns env_get \
     local_web_url probe_ready redact_tokens wait_ready check_url read_secret_file default_host_name \
     resolve_enroll_name resolve_enroll scrub_token agent_hint wait_agent_link enroll_and_start_agent \
-    both_make_token check_schema_reset ver_cmp agent_state_dir journal_exists ensure_agent_journal heal_agent_journal; do
+    both_make_token check_schema_reset ver_cmp agent_state_dir journal_exists ensure_agent_journal heal_agent_journal manifest_add rollback_disarm; do
     if grep -q "^$fn() {.*}\$" "$installer"; then
         grep "^$fn() {.*}\$" "$installer" >>"$efns"
     else
@@ -584,7 +584,7 @@ for fn in say log_line say_always err warn fail_with fail show_file show_file_er
 done
 # record_next has a line that starts with a closing brace, so it is stubbed rather than extracted.
 printf '%s\n' 'record_next() { :; }' >>"$efns"
-check "the enrollment functions were extracted" test "$(grep -c '^[a-z_]*() {' "$efns")" -eq 32
+check "the enrollment functions were extracted" test "$(grep -c '^[a-z_]*() {' "$efns")" -eq 34
 elog="$work/elog"
 jdir="$work/agent-state"
 mkdir -p "$elog" "$work/et" "$work/estub"
@@ -644,7 +644,7 @@ erun() { # SCRIPT: runs it with the extracted functions and the stubs
     if [ -z "${keep_journal:-}" ]; then rm -rf "$jdir"; fi
     printf '%s\n' "$tok" >"$work/et/enroll.tok"
     chmod 0600 "$work/et/enroll.tok"
-    sh -c "set -eu; . '$efns'; sleep() { :; }; $estubs; tmp='$work/et'; log_file='$work/e.log'; hub_env='$work/e.env'; quiet=0; json=0; bin='$work/estub/domovoi'; agent_toml='$work/agent.toml'; agent_unit_path='$work/agent.unit'; enroll_hub=wss://hub.lan:7421; enroll_fp='$fp'; enroll_name=nas; agent_timeout=3; enrolled_host=''; agent_started=0; hub_stopped=0; role=agent; $1" \
+    sh -c "set -eu; . '$efns'; sleep() { :; }; $estubs; tmp='$work/et'; log_file='$work/e.log'; hub_env='$work/e.env'; quiet=0; json=0; bin='$work/estub/domovoi'; agent_toml='$work/agent.toml'; agent_unit_path='$work/agent.unit'; enroll_hub=wss://hub.lan:7421; enroll_fp='$fp'; enroll_name=nas; agent_timeout=3; enrolled_host=''; agent_started=0; hub_stopped=0; rollback_armed=0; role=agent; $1" \
         >"$work/e.out" 2>"$work/e.err"
 }
 no_token_anywhere() {
