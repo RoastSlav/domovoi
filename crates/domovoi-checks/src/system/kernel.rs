@@ -199,7 +199,11 @@ impl Check for KernelErrors {
     }
 
     fn class(&self) -> SignalClass {
-        SignalClass::Normal
+        SignalClass::Immediate
+    }
+
+    fn resolves_itself(&self) -> bool {
+        false
     }
 
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {

@@ -20,6 +20,8 @@ A signal goes to the first of these that applies:
 
 To decide that two targets are about the same thing, Domovoi lowercases them and strips URL schemes, credentials, ports, paths and domains, replica suffixes (`plex-1`, `plex_2`) and compose project prefixes (`media_plex_1`). `plex`, `plex-1`, `media_plex_1` and `https://plex.example:32400` are all `plex`.
 
+An **event** check, one that reports something that happened (a new listener, an SSH login, a failed `sudo`, a kernel error, a reboot, a new container), never sends a recovery. Its incident stays open until a person dismisses or resolves it; acknowledging keeps it open. See [Event checks and state checks](../reference/checks.md#event-checks-and-state-checks).
+
 A grouped incident resolves only when every source in it has recovered. If the web check comes back while the container is still unhealthy, the incident stays open.
 
 ## Confirmation and flaps
@@ -28,7 +30,7 @@ A new incident starts **pending**. It opens after 2 consecutive firing signals, 
 
 ## Quiet incidents and mutes
 
-Every 30 seconds the manager checks the time. A muted incident whose mute has ended opens again. With a TTL configured, an incident that has not fired for that long resolves.
+Every 30 seconds the manager checks the time. A muted incident whose mute has ended opens again. With a TTL configured, an incident that has not fired for that long resolves; this includes event incidents, so leave the TTL unset if you want them to wait for a person.
 
 ## When you are not told
 

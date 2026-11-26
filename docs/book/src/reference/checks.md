@@ -25,7 +25,7 @@ An unknown threshold key is an error that names the key. Every check is enabled 
 | `temperature.cpu` | `/sys/class/hwmon`, `/sys/class/thermal` | 1m | normal | hottest CPU sensor at or above 88 °C (warning) or 95 °C (critical) |
 | `system.reboot` | `/proc/sys/kernel/random/boot_id` | 1m | immediate | the boot id changed since the last run |
 | `system.reboot_required` | `/var/run/reboot-required` | 1h | normal | the file exists |
-| `kernel.errors` | kernel journal | 1m | normal | a known error pattern appears |
+| `kernel.errors` | kernel journal | 1m | immediate | a known error pattern appears |
 | `power.supply` | `/sys/class/power_supply` | 30s | normal, immediate on battery | running on battery; low battery; charge limit not applied |
 | `container.expected_down` | Docker | 1m | normal | a learned container is missing or not running |
 | `container.unhealthy` | Docker | 1m | normal | a container's health check fails |
@@ -80,6 +80,10 @@ The hottest CPU sensor. The check reads hwmon devices whose driver is `coretemp`
 - **Target:** none (the whole host).
 - **Evidence:** `max_c`, `sensor` (driver and label), `sensors` (how many were read).
 - **Facts:** `temperature.cpu.max_c` (°C).
+
+## Event checks and state checks
+
+A **state** check describes how things are now: a full disk, a failed unit. When a later run no longer reports the target, the agent sends a `resolved` signal and the incident closes by itself. An **event** check reports something that happened: a quiet run proves nothing about it. Six checks are events: `system.reboot`, `kernel.errors`, `container.new`, `security.ssh_login`, `security.sudo_failure` and `security.new_port`. The agent never sends a recovery for them, so their incidents stay open until a person acknowledges, dismisses or resolves them. Acknowledging keeps the incident open; dismissing or resolving closes it. The incident counts further events of the same target (a second login by the same user) instead of opening another card.
 
 ## `system.reboot`
 
@@ -267,7 +271,7 @@ Watches listening sockets in `/proc/1/net/{tcp,tcp6,udp,udp6}`, which is the hos
 - UDP sockets count when they are unconnected and bound outside the ephemeral range in `/proc/sys/net/ipv4/ip_local_port_range`, so client sockets are ignored.
 - Loopback listeners are ignored.
 
-The first run learns every listener without reporting it. Later, a listener seen for the first time fires once, with warning severity, and is learned after two runs. Learned listeners gone for `expiry_days` are forgotten.
+The first run learns every listener without reporting it. Later, a listener seen for the first time fires once, with warning severity, and is learned after two runs, so it does not alert again. The incident stays open until a person dismisses or resolves it, even when the listener stops. Learned listeners gone for `expiry_days` are forgotten.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

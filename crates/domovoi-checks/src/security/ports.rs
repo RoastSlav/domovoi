@@ -211,6 +211,10 @@ impl Check for NewPorts {
         SignalClass::Immediate
     }
 
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let thresholds: PortThresholds = ctx.settings.thresholds()?;
         let now = ctx.clock.now();

@@ -606,3 +606,58 @@ async fn failing_check_keeps_its_state_as_before() {
     );
     run.shutdown.cancel();
 }
+
+/// A check that reports one thing that happened, so a quiet run is no recovery.
+struct EventCheck;
+
+#[async_trait]
+impl Check for EventCheck {
+    fn key(&self) -> CheckKey {
+        key("security.ssh_login")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_secs(60)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Immediate
+    }
+
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
+    async fn run(&self, _ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        Ok(CheckReport::default())
+    }
+}
+
+#[test]
+fn event_check_never_sends_a_recovery_while_a_state_check_does() {
+    use std::collections::BTreeSet;
+
+    use domovoi_agent::scheduler::signals_for;
+
+    let now = jiff::Timestamp::UNIX_EPOCH;
+    let previous = BTreeSet::from(["kuker".to_owned()]);
+    let host = HostId::new();
+    // Several quiet runs in a row: the event incident is never resolved by the agent.
+    for _ in 0..3 {
+        let (signals, _) = signals_for(host, &EventCheck, &report(vec![]), &previous, now);
+        assert!(signals.is_empty(), "an event check sends no recovery");
+        let quiet = report(vec![ok("kuker")]);
+        let (signals, _) = signals_for(host, &EventCheck, &quiet, &previous, now);
+        assert!(
+            signals.is_empty(),
+            "an observation that is fine is no recovery either"
+        );
+    }
+    // A state check resolves the same way it always did.
+    let state = ScriptedCheck::new("disk.free", vec![]);
+    let (signals, _) = signals_for(host, &state, &report(vec![]), &previous, now);
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0].status(), SignalStatus::Resolved);
+    let (signals, _) = signals_for(host, &state, &report(vec![ok("kuker")]), &previous, now);
+    assert_eq!(signals[0].status(), SignalStatus::Resolved);
+}

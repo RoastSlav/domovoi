@@ -52,6 +52,10 @@ impl Check for Reboot {
         SignalClass::Immediate
     }
 
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let boot_id = read(ctx.fs, "/proc/sys/kernel/random/boot_id")
             .await?

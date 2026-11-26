@@ -87,6 +87,10 @@ impl Check for SshLogins {
         SignalClass::Immediate
     }
 
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let lines = journal_since_cursor(ctx, JournalScope::Units(&self.units)).await?;
         let mut by_user: BTreeMap<String, (u64, SshLogin, Network)> = BTreeMap::new();

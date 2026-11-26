@@ -117,6 +117,14 @@ pub trait Check: Send + Sync {
     fn default_cadence(&self) -> SignedDuration;
     /// The class of its observations unless an observation overrides it.
     fn class(&self) -> SignalClass;
+    /// Whether the incident this check opens closes by itself when a later run no longer
+    /// reports the target. A state check (a disk that is full, a unit that failed) does. An
+    /// event check (a new listener, a login, a kernel error, a reboot) reports a thing that
+    /// happened once, so a quiet run is no recovery: it returns `false` and the incident
+    /// stays open until a person acknowledges, dismisses or resolves it.
+    fn resolves_itself(&self) -> bool {
+        true
+    }
     /// Runs once. The scheduler calls this through [`run_bounded`].
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError>;
 }

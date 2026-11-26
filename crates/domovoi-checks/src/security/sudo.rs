@@ -76,6 +76,10 @@ impl Check for SudoFailures {
         SignalClass::Immediate
     }
 
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let lines = journal_since_cursor(ctx, JournalScope::Identifiers(&self.identifiers)).await?;
         let mut by_user: BTreeMap<String, (u64, String)> = BTreeMap::new();

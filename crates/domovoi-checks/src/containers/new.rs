@@ -55,6 +55,10 @@ impl Check for NewContainers {
         SignalClass::Immediate
     }
 
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let containers = visible(&self.deps).await?;
         let now = ctx.clock.now();

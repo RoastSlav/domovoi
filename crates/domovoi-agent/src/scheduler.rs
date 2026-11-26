@@ -4,7 +4,9 @@
 //!   at most [`MAX_CONCURRENT`] run at once, and every wait goes through the `Clock`.
 //! - A firing observation becomes a `firing` signal on every run; the hub folds repeats.
 //! - A target that was firing and is now fine, or no longer reported, gets one `resolved`
-//!   signal. A check that errors changes nothing, so its incidents stay as they were.
+//!   signal, except for an event check (`Check::resolves_itself` is false), whose incidents
+//!   only a person closes. A check that errors changes nothing, so its incidents stay as
+//!   they were.
 //! - Each run's signals are one spool batch, and check state is saved only once that batch
 //!   is on disk.
 //! - Digest facts (latest per key) go to the hub once an hour.
@@ -136,7 +138,7 @@ pub fn signals_for(
                 now,
             );
             signals.push(signal.with_class(class).with_evidence(obs.evidence.clone()));
-        } else if previous.contains(&name) {
+        } else if previous.contains(&name) && check.resolves_itself() {
             let signal = Signal::resolved(
                 SourceKind::Agent,
                 host,
@@ -148,7 +150,13 @@ pub fn signals_for(
             signals.push(signal.with_class(class).with_evidence(obs.evidence.clone()));
         }
     }
-    for gone in previous.difference(&seen) {
+    // An event check never reports a recovery; only a person closes its incident.
+    let gone_targets = if check.resolves_itself() {
+        previous.difference(&seen).cloned().collect()
+    } else {
+        Vec::new()
+    };
+    for gone in &gone_targets {
         let target = (gone != NO_TARGET)
             .then(|| TargetKey::parse(gone).ok())
             .flatten();
