@@ -20,15 +20,7 @@ sudo systemctl restart domovoi-hub
 
 `--version v0.9.9` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced without changing anything. Unlike the installer it leaves the unit files, users and examples alone, so use the installer when a release changes them. Run it with `sudo` when the binary is in `/usr/local/bin`. It works on Linux x86-64 and 64-bit ARM, the platforms with release builds.
 
-**An agent that still runs as root.** A routine rerun of the installer, or `domovoi upgrade`, never moves an agent to the three-identities layout. The agent keeps running as root, and the host is labelled "privilege boundary not in effect" in the installer's output, in `domovoi agent selftest` and on the hub. The move is a separate step you choose, with its own plan and a typed confirmation:
-
-```sh
-sudo sh install.sh --role agent --migrate-identity
-```
-
-See [Binary and systemd](binary.md#already-installed) for what it changes and how to roll it back. After it, Docker, SMART, the kernel-log fallback and listening-port process names keep working through the helper; `security.fail2ban` reports an error.
-
-**A host that was already migrated.** The installer keeps a helper unit that differs from this release's and saves the new text under `<prefix>/share/domovoi/domovoi-helper@.service`. Replace the unit with it and run `sudo systemctl daemon-reload` (then `domovoi agent selftest`, which reports the old unit as `unit_modified` until you do): the new unit gives the helper the device access and capabilities that SMART, kernel-log and listening-socket reads need. Docker reads work without it. Until you replace it, those three answer `command_failed`. An agent already on the new layout is checked on every rerun: the installer reports any path with a wrong mode or owner and changes nothing.
+**An agent on the three-identities layout.** The installer keeps a helper unit that differs from this release's and saves the new text under `<prefix>/share/domovoi/domovoi-helper@.service`. Replace the unit with it and run `sudo systemctl daemon-reload` (then `domovoi agent selftest`, which reports the old unit as `unit_modified` until you do): the new unit gives the helper the device access and capabilities that SMART, kernel-log and listening-socket reads need. Docker reads work without it. Until you replace it, those three answer `command_failed`. An agent already on the new layout is checked on every rerun: the installer reports any path with a wrong mode or owner and changes nothing.
 
 **The skill runner's unit.** Running the installer again re-renders the skill runner unit with the current `skills_dir` and `packages_dir` from `agent.toml`. A unit you edited is kept and the new text is written beside it. If you change either directory in `agent.toml` and do not run the installer, the unit still names the old ones: the agent reports `runner_roots_differ` and skills stop, and `domovoi agent selftest` reports `unit_modified` naming `bind_paths` (check ST-07). Run the installer again, then restart the agent. `domovoi upgrade` replaces only the binary, so new runner processes use the new version at once while a running agent keeps the old protocol until you restart it; the agent shows `runner_protocol_mismatch` in between.
 

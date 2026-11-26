@@ -197,7 +197,7 @@ expect_rc "a verbose install succeeds" 0 --role agent --no-service --prefix "$p"
 check "text has no colour codes off a terminal" sh -c "! grep -q \"\$(printf '\\033')\" '$work/out'"
 expect_rc "--yes and DOMOVOI_NONINTERACTIVE are accepted" 0 --role agent --no-service --prefix "$p" --version v9.9.1 --yes
 DOMOVOI_NONINTERACTIVE=1 expect_rc "DOMOVOI_NONINTERACTIVE=1 is accepted" 0 --role agent --no-service --prefix "$p" --version v9.9.1
-expect_rc "--yes does not replace the typed word of --migrate-identity" 2 --role agent --no-service --prefix "$p" --yes --migrate-identity
+expect_rc "--migrate-identity is an unknown option" 2 --role agent --no-service --prefix "$p" --migrate-identity
 
 # --json: only JSON on stdout, one result at the end.
 check_json() { # FILE: every line is JSON, the last is the one result
@@ -523,7 +523,6 @@ expect_trio "a name with an underscore is refused" 2 --role agent --name my_nas
 expect_trio "a name that starts with a dash is refused" 2 --role agent --name=-nas
 expect_trio "--no-start with the trio is refused" 2 --role agent --no-start
 expect_trio "--no-service with the trio is refused" 2 --role agent --no-service --prefix "$fresh"
-expect_trio "--migrate-identity with the trio is refused" 2 --role agent --migrate-identity
 expect_trio "the trio does not go with --role hub" 2 --role hub
 rc=0
 DOMOVOI_AGENT_TIMEOUT=soon sh "$installer" --role agent --dry-run >"$work/out" 2>"$work/err" || rc=$?
@@ -807,7 +806,7 @@ for word in "--uninstall" "--purge" "--keep-on-failure"; do
 done
 expect_rc "--purge without --uninstall exits 2" 2 --role agent --no-service --prefix "$p" --purge
 check "--purge without --uninstall says what it goes with" grep -q -- "--purge goes with --uninstall" "$work/err"
-for conflict in "--role hub" "--role agent" "--migrate-identity" "--rollback-identity" "--version v9.9.0" \
+for conflict in "--role hub" "--role agent" "--version v9.9.0" \
     "--no-service" "--no-start" "--keep-on-failure" "--public-url https://domovoi.example" \
     "--bind lan" "--hub wss://hub.lan:7421" "--name nas" "--accept-data-reset" "--force-downgrade"; do
     # shellcheck disable=SC2086 # the words of $conflict are separate arguments on purpose

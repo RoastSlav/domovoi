@@ -44,7 +44,7 @@ domovoi.example.net {
 - **Agents pin the hub's certificate** at enrollment, and the hub knows each agent by its key. Keep the hub's `tls/` directory in your backups; losing it means enrolling every agent again.
 - **Revoke** a host you retire, on **Hosts**. Its key is then refused.
 - **Limit risk per host** with `[policy] allow_risk` in `agent.toml`. The default allows `read` and `write` skills. Add `destructive` only where you want such skills to be possible at all.
-- **Run the agent as `domovoi-agent`.** A fresh install does; an older root agent should be [migrated](../install/binary.md#already-installed).
+- **Run the agent as `domovoi-agent`.** A fresh install on a systemd host with no hub does.
 - **Keep skills owned by root and not writable by others.** The agent refuses group- or world-writable entries, and folders that anyone can write to.
 
 ## Docker
@@ -74,7 +74,7 @@ domovoi.example.net {
 
 ## The service
 
-The packaged hub unit runs as the unprivileged `domovoi` user with a read-only system, no access to home directories and no new privileges. A fresh agent install runs as the unprivileged `domovoi-agent` user, with the root helper behind its own socket (see [Security model](../security.md#three-identities-on-one-host)); an agent installed earlier still runs as root until you [migrate it](../install/binary.md#already-installed). The agent unit keeps `/usr` and `/etc` read-only either way. See [Binary and systemd](../install/binary.md#the-units).
+The packaged hub unit runs as the unprivileged `domovoi` user with a read-only system, no access to home directories and no new privileges. A fresh agent install runs as the unprivileged `domovoi-agent` user, with the root helper behind its own socket (see [Security model](../security.md#three-identities-on-one-host)); an agent on a host with a hub runs as root. The agent unit keeps `/usr` and `/etc` read-only either way. See [Binary and systemd](../install/binary.md#the-units).
 
 ### Units and drop-ins
 

@@ -32,7 +32,7 @@ The agent stops retrying, with an error that says what to do, when the hub answe
 
 ## Config file and account
 
-`agent.toml` is written with mode `0644` and owned by root. The agent runs as the unprivileged `domovoi-agent` account on the three-identities layout and reaches the file through the group of `/etc/domovoi` (mode 0750), so it must be readable by that group. A `0640` file is normalised by the identity migration, and `domovoi agent selftest` reports it on a migrated host.
+`agent.toml` is written with mode `0644` and owned by root. The agent runs as the unprivileged `domovoi-agent` account on the three-identities layout and reaches the file through the group of `/etc/domovoi` (mode 0750), so it must be readable by that group. `domovoi agent selftest` reports a `0640` file.
 
 ## Helper probe
 
@@ -132,11 +132,11 @@ Tool output is redacted, then capped at 64 KiB.
 
 | Tool | Source |
 | --- | --- |
-| `docker_ps`, `docker_logs`, `docker_inspect` | The Docker Engine API. Inspect output lists environment variable names only, never their values. On a migrated host the agent does not hold the socket: it asks the helper's `docker.read` group (see below). |
+| `docker_ps`, `docker_logs`, `docker_inspect` | The Docker Engine API. Inspect output lists environment variable names only, never their values. On the three-identities layout the agent does not hold the socket: it asks the helper's `docker.read` group (see below). |
 | `docker_events` | The last 24 hours of container events kept by `container.expected_down`. |
 | `host_overview` | Uptime, load, memory, swap and disks from `/proc` and `statvfs`. |
-| `journal`, `smart_report` | `journalctl` and `smartctl` through the fixed command templates. On a migrated host `smart_report` asks the helper, and `journal` with the kernel option asks the helper's kernel log when `journalctl --dmesg` cannot open the journal. |
-| `listening_ports` | `/proc/1/net/*`, loopback excluded. On a migrated host each listener also shows its owning process when the helper's `net.read` group answers; if it does not, the list is shown without it. |
+| `journal`, `smart_report` | `journalctl` and `smartctl` through the fixed command templates. On the three-identities layout `smart_report` asks the helper, and `journal` with the kernel option asks the helper's kernel log when `journalctl --dmesg` cannot open the journal. |
+| `listening_ports` | `/proc/1/net/*`, loopback excluded. On the three-identities layout each listener also shows its owning process when the helper's `net.read` group answers; if it does not, the list is shown without it. |
 | `run_read_skill` | A skill from the local catalogue whose risk is `read`; any other risk is refused. |
 
 `incident_history` and `notes_search` are answered by the hub, so the agent replies `unknown_tool`.

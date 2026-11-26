@@ -54,7 +54,7 @@ Run `sudo domovoi agent selftest --installer` to see every check. [Command line]
 
 ### The host says "privilege boundary not in effect"
 
-The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: an agent installed before the three-identities layout (it runs as root), a hub on the same host, a container install (the host is also labelled a container agent, and write capabilities are refused with `agent_in_container`), or no systemd. For an old root agent, `sudo sh install.sh --role agent --migrate-identity` moves it ([Binary and systemd](install/binary.md#already-installed)). The host gets no unattended execution until the boundary is in effect.
+The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: a hub on the same host, a container install (the host is also labelled a container agent, and write capabilities are refused with `agent_in_container`), or no systemd. The host gets no unattended execution until the boundary is in effect.
 
 ### The helper refuses to start
 
@@ -84,7 +84,7 @@ A check or tool that reads through the helper shows the helper's token. Each one
 | `engine_denied` | The socket exists but the helper may not open it. Check the socket's owner and any security module (SELinux, AppArmor) that confines the helper. |
 | `engine_api_refused` | The engine or a proxy in front of it answered 403 or 405 to a read. Allow `GET` on containers, images, events and logs. |
 | `device_not_allowed` | The device is not in `[smart] devices` in `helper.toml`. Add a pattern such as `/dev/sd[a-z]` and restart nothing: the helper reads the file at every request. |
-| `command_failed` | The tool failed; the detail shows the first line of its error. `Operation not permitted` or `Permission denied` on an already migrated host usually means the installed helper unit is older than the release; see [Upgrading](install/upgrading.md). |
+| `command_failed` | The tool failed; the detail shows the first line of its error. `Operation not permitted` or `Permission denied` on a host with the three-identities layout usually means the installed helper unit is older than the release; see [Upgrading](install/upgrading.md). |
 | `group_disabled` (shown as "switched off") | The group is not in `groups` in `helper.toml`. Add it back to use that read. |
 
 ### Skills are unavailable: the skill runner
@@ -107,7 +107,7 @@ Read the runner's own messages with `sudo journalctl -u 'domovoi-skill-runner@*'
 sudo systemctl reset-failed 'domovoi-skill-runner@*'
 ```
 
-**A skill is refused with `run_as_unsupported`.** The failure reads `run_as_unsupported: <skill> names run_as <user>; only domovoi-skill is supported on this host`. A migrated host runs skills only as `domovoi-skill`. Remove the `run_as` line from the manifest (or set it to `domovoi-skill`), run `domovoi check skills`, and restart the agent. `domovoi agent selftest` lists every affected skill. The hub shows the skill as failed with this message; it does not show the reason separately.
+**A skill is refused with `run_as_unsupported`.** The failure reads `run_as_unsupported: <skill> names run_as <user>; only domovoi-skill is supported on this host`. An agent on the three-identities layout runs skills only as `domovoi-skill`. Remove the `run_as` line from the manifest (or set it to `domovoi-skill`), run `domovoi check skills`, and restart the agent. `domovoi agent selftest` lists every affected skill. The hub shows the skill as failed with this message; it does not show the reason separately.
 
 **Skills stopped working after I edited `agent.toml` or a unit.** The runner gets its two directories from its unit, not from `agent.toml`. Run the installer again to re-render it. `unit_modified` with `bind_paths` means the unit and the file disagree. A drop-in that removes the unit's mount mask makes the runner fail closed, so skills stop; remove it.
 

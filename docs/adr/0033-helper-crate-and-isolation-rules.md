@@ -12,7 +12,7 @@ The root helper is a root process. The agent is a network program with a hub lin
 1. **A crate, `domovoi-helper`, with edges to `domovoi-core` and `domovoi-config` only.** It holds the helper runtime (adopting the connection from fd 0, the peer check, the closed request dispatch), the start checks, the repair command, the state lock and atomic write, the host inspection adapter, the isolation self-test and the safety attestation. Pure types, the tier function and the check evaluators live in `domovoi-core` and do no I/O. The agent has a small client module and a state-ownership module. The `domovoi` binary is the composition root: it has the edge to `domovoi-helper` and injects the process executor (R3, R6). The external allowlist of the crate is in `xtask/src/arch/rules.rs`; the crate has no `unsafe`.
 2. **Host paths are one list.** Who owns which directory, with which mode, is one table in `domovoi-core` read by the installer, the start check, the self-test and the repair command, so they cannot disagree.
 3. **The helper spawns only through the `ProcessExecutor` port.** Only `domovoi-runner` spawns processes (R3, R4). The helper reads systemd state and runs its fixed programs (`ip`, `smartctl`, `dmesg`, `ss`, `nft`) through the injected executor, never a shell and never from a path that arrived in a request ([0036](0036-helper-read-operations.md)). The self-test runs agent-side checks as the agent account through the same executor, started with `setpriv --reuid --regid --init-groups`, because the executor's `run_as` would leave the account without its supplementary groups.
-4. **The identity migration is explicit.** A routine rerun of the installer never moves an existing single-account install to the three-identity layout, because the migration removes root access from checks the owner may rely on. It needs the flag `--migrate-identity`, a printed plan and a typed confirmation at a terminal, and it can be rolled back with `--rollback-identity`. Until then the host is labelled "privilege boundary not in effect".
+4. **Existing single-account installs are not converted.** The installer sets up the three-identity layout on a fresh agent host and leaves a host with a hub, or without systemd, with the root agent layout, labelled "privilege boundary not in effect".
 5. **A wrong directory, key or state mode refuses start and is never repaired at start.** The only repair is the owner-confirmed local command `domovoi helper repair`.
 6. **Rules.** Each has a card in `xtask/src/arch/rules.rs` and a test that feeds it a failing input.
 
@@ -44,5 +44,5 @@ The root helper is a root process. The agent is a network program with a hub lin
 ## Alternatives considered
 
 - Modules of `domovoi-agent`: links the agent's network stack into a root process and puts the helper beside package handling.
-- Migrating on a routine rerun of the installer: removes root access from checks the owner may rely on, without being asked.
+- Converting an existing root agent in place: the project has no released installs to convert.
 - Repairing a wrong mode at start: hides a possibly compromised directory.

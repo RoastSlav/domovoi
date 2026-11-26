@@ -65,8 +65,8 @@ for pair in hub:domovoi-hub.service agent:domovoi-agent.service \
 done
 check "the agent unit runs as domovoi-agent" \
     sh -c "sh '$installer' --print-unit agent | grep -qx 'User=domovoi-agent'"
-check "the legacy agent unit keeps running as root" \
-    sh -c "! sh '$installer' --print-unit agent-legacy | grep -Eq '^(User|Group)='"
+check "the root agent unit keeps running as root" \
+    sh -c "! sh '$installer' --print-unit agent-root | grep -Eq '^(User|Group)='"
 check "an unknown unit name is refused" \
     sh -c "! sh '$installer' --print-unit runner >/dev/null 2>&1"
 
@@ -170,7 +170,7 @@ check "that failure names the check" grep -q "ST-13" "$work/sockets.out"
 # An edited runner unit is kept; the new text is written beside it.
 mkdir -p /etc/systemd/system
 echo "# edited" >/etc/systemd/system/domovoi-skill-runner@.service
-sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; record_dir=/nonexistent; place_unit domovoi-skill-runner@.service render_runner_service 0" \
+sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; place_unit domovoi-skill-runner@.service render_runner_service" \
     >"$work/place.out" 2>&1 || true
 check "an edited runner unit is kept" test "$(cat /etc/systemd/system/domovoi-skill-runner@.service)" = "# edited"
 check "the kept runner unit is reported" grep -q "Kept /etc/systemd/system/domovoi-skill-runner@.service" "$work/place.out"
@@ -308,7 +308,7 @@ check "starter skills copied on first install" test -f /etc/domovoi/skills/alpha
 check "starter skill is not writable by others" sh -c "! find /etc/domovoi/skills/alpha -perm -022 | grep -q ."
 check "no agent.toml written" test ! -e /etc/domovoi/agent.toml
 check "agent unit installed (the root unit: there is no systemd here)" \
-    sh -c "sh '$installer' --print-unit agent-legacy | cmp -s - /etc/systemd/system/domovoi-agent.service"
+    sh -c "sh '$installer' --print-unit agent-root | cmp -s - /etc/systemd/system/domovoi-agent.service"
 check "agent next steps printed" grep -q "Add host" "$work/out"
 check "agent next steps list the journal init after the enroll and before the start" \
     sh -c "a=\$(grep -n 'Add host' '$work/out' | head -n 1 | cut -d: -f1); b=\$(grep -n 'agent journal init' '$work/out' | head -n 1 | cut -d: -f1); c=\$(grep -n 'sudo systemctl enable --now domovoi-agent' '$work/out' | head -n 1 | cut -d: -f1); test -n \"\$a\" && test -n \"\$b\" && test -n \"\$c\" && test \"\$a\" -lt \"\$b\" && test \"\$b\" -lt \"\$c\""
@@ -355,25 +355,19 @@ sh "$installer" --role hub --json >"$work/json.out" 2>/dev/null
 check "json install is only JSON lines ending in one result" check_json "$work/json.out"
 check "json result names the binary" sh -c "grep -q '\"binary\":\"/usr/local/bin/domovoi\"' '$work/json.out'"
 
-# The identity migration and its rollback need systemd and say so before touching anything.
+# The options of the removed identity migration are unknown.
 if run_install --role agent --migrate-identity; then
-    fail "migrate-identity is refused without systemd"
+    fail "--migrate-identity is rejected"
 else
-    pass "migrate-identity is refused without systemd"
+    pass "--migrate-identity is rejected"
 fi
-check "migrate-identity explains it needs systemd" grep -q "needs a systemd host" "$work/out"
-check "migrate-identity changed nothing" test "$(mode_of /var/lib/domovoi-agent)" = 700
+check "--migrate-identity is reported as an unknown option" grep -q "unknown option: --migrate-identity" "$work/out"
 if run_install --rollback-identity; then
-    fail "rollback-identity is refused without systemd"
+    fail "--rollback-identity is rejected"
 else
-    pass "rollback-identity is refused without systemd"
+    pass "--rollback-identity is rejected"
 fi
-# --yes never prompts, and it is not a way past the typed word of --migrate-identity.
-if run_install --role agent --yes --migrate-identity; then
-    fail "--yes does not bypass the migration's confirmation"
-else
-    pass "--yes does not bypass the migration's confirmation"
-fi
+check "--print-unit agent-legacy is refused" sh -c "! sh '$installer' --print-unit agent-legacy >/dev/null 2>&1"
 
 # An older version than the one installed is refused without --force-downgrade.
 before="$(sha256sum /usr/local/bin/domovoi)"
@@ -980,7 +974,6 @@ echo "keep me" >/etc/domovoi.sentinel
 echo "keep me" >/var/lib/domovoi.sentinel
 echo "[Unit]" >/etc/systemd/system/my-own.service
 mkdir -p /etc/systemd/system/my-own.service.d
-echo "keep me" >/var/lib/domovoi-agent/identity-migration.json
 unrelated_ok() {
     test "$(cat /etc/domovoi.sentinel)" = "keep me" && test "$(cat /var/lib/domovoi.sentinel)" = "keep me" &&
         test -e /etc/systemd/system/my-own.service && test -d /etc/systemd/system/my-own.service.d
@@ -1019,7 +1012,6 @@ check "uninstall: the configuration is kept" test -f /etc/domovoi/installer-crea
 check "uninstall: the data directories are kept" sh -c "test -d /var/lib/domovoi && test -d /var/lib/domovoi-agent && test -d /var/lib/domovoi-packages && test -d /var/lib/domovoi-helper"
 check "uninstall: the skills directory is kept" test -d /etc/domovoi/skills
 check "uninstall: the directories outside the tree are kept" sh -c "test -d /srv/dt-skills && test -d /srv/dt-packages"
-check "uninstall: the identity-migration record is kept" test -f /var/lib/domovoi-agent/identity-migration.json
 check "uninstall: the accounts are kept" sh -c "id domovoi >/dev/null && id domovoi-agent >/dev/null && id domovoi-skill >/dev/null"
 check "uninstall: the drop-in is kept without --purge" test -f /etc/systemd/system/domovoi-hub.service.d/override.conf
 check "uninstall: unrelated files are untouched" unrelated_ok

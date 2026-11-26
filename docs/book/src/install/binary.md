@@ -54,13 +54,13 @@ Every run starts with a preflight that prints one line per check: Linux, the arc
 
 `--dry-run` runs the preflight, prints the plan (every file, user, unit and directory the install would create or change) and exits 0, without changing anything or downloading the archive. Use it to see what a command will do.
 
-The installer asks no question except where a human must answer (`--migrate-identity` and `--purge` on a terminal). `--yes` or `DOMOVOI_NONINTERACTIVE=1` makes sure it never asks.
+The installer asks no question except where a human must answer (`--purge` on a terminal). `--yes` or `DOMOVOI_NONINTERACTIVE=1` makes sure it never asks.
 
 ### Output, log and failures
 
 `--quiet` prints errors and the final summary only, `--verbose` adds the details of each step, and `--json` prints JSON lines instead of text (see [Unattended install](unattended.md#the-json-output)). The full text of every run goes to `/var/log/domovoi-install.log`, or `~/.cache/domovoi-install.log` when that is not writable; `DOMOVOI_INSTALL_LOG` names another file. The log never holds the setup link or a token.
 
-A fresh install that fails before the first service starts is undone: the accounts, directories, files, units and binary that this run created are removed again, newest first, and the installer prints "Rolled back". Nothing that was there before is touched. `--keep-on-failure` leaves a failed install in place for debugging. An upgrade, an identity migration, and a failure after a service was started are never rolled back; the installer says what to run instead.
+A fresh install that fails before the first service starts is undone: the accounts, directories, files, units and binary that this run created are removed again, newest first, and the installer prints "Rolled back". Nothing that was there before is touched. `--keep-on-failure` leaves a failed install in place for debugging. An upgrade and a failure after a service was started are never rolled back; the installer says what to run instead.
 
 ### A hub from before 0.1.0
 
@@ -99,29 +99,9 @@ The host shows as connected within a few seconds. The agent dials the hub on por
 
 The helper and the skill runner start on demand when the agent connects to their sockets, so you never enable them by hand. The helper reads Docker, SMART, the kernel log and listening sockets for the agent, so those checks and tools work on a fresh install. It has no write operation, so skills that need privileged access (restarting a container or a unit, vacuuming the journal) report errors. See [What a skill can reach](../guide/skills.md#what-a-skill-can-reach).
 
-### Already installed
-
-An agent that already runs as root keeps running as root. A plain run of the installer replaces the binary and nothing else; it prints "privilege boundary not in effect" and the command below. Nothing about the agent's behaviour changes until you move it.
-
-```sh
-sudo sh install.sh --role agent --migrate-identity
-```
-
-The migration is never done by a routine rerun, because it takes root access away from checks you may rely on. It needs a terminal, shows the full plan first (accounts to create, every path whose owner or mode will change, the new unit, and what stops working) and asks you to type `migrate`. There is no `--yes`. It then saves the old unit and the old owners and modes under `/etc/domovoi/identity-migration/`, stops the agent, applies the layout, starts the agent and checks that it runs as `domovoi-agent`.
-
-What changes: Docker, SMART, the kernel-log fallback and the owning process names of listening ports are read through the helper's read groups and keep working. The check `security.fail2ban` reads a root-only socket and reports an error. Skills run as `domovoi-skill` through the skill runner, so a skill that names a `run_as` user has no runner until the skill runner is installed, or until you edit its manifest. The journal needs only the `systemd-journal` group, which the agent keeps. If the migration fails midway it rolls itself back. To roll back later:
-
-```sh
-sudo sh install.sh --role agent --rollback-identity
-```
-
-Rollback restores the saved unit and owners and stops the helper socket. The accounts, `/var/lib/domovoi-helper`, `helper.toml` and the helper unit files stay, unused; nothing deletes them.
-
-The migration refuses when a drop-in under `/etc/systemd/system/domovoi-agent.service.d/` sets `User=`, `Group=` or `SupplementaryGroups=`: it names the file, and you remove it yourself.
-
 ### Where the boundary does not apply
 
-These hosts keep today's agent, labelled "privilege boundary not in effect", and the installer does not touch their layout:
+These hosts run the agent as root, labelled "privilege boundary not in effect", and the installer does not touch their layout:
 
 - no systemd on the host;
 - a hub on the same host: both roles share `/etc/domovoi`, which the hub makes `root:domovoi` and the agent layout needs as `root:domovoi-agent`. Run the agent on its own host to get the boundary;
@@ -148,9 +128,7 @@ A host in this state gets no unattended execution.
 | `--force-downgrade` | Allow installing an older version than the one found. |
 | `--keep-on-failure` | Do not undo a failed fresh install. |
 | `--uninstall`, `--purge` | Remove the installation. See [Upgrading and uninstalling](upgrading.md#uninstalling). |
-| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket`, `runner-service` and `agent-legacy` (the root agent unit used where the boundary cannot be set up). |
-| `--migrate-identity` | Move an existing root agent to the three-identities layout, after a printed plan and a typed confirmation. Agent role, root, needs a terminal. |
-| `--rollback-identity` | Undo that migration from the saved record. |
+| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket`, `runner-service` and `agent-root` (the root agent unit used where the boundary cannot be set up). |
 
 ## Verify the download
 
@@ -207,7 +185,7 @@ Claude Code runs on Node.js, whose JIT the unit's `MemoryDenyWriteExecute=yes` b
 MemoryDenyWriteExecute=no
 ```
 
-On a fresh install the agent runs as `domovoi-agent`, not root. Its unit keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state and the packages directory. An agent installed earlier still runs as root until you migrate it (see above). Do not change these units with `systemctl edit`: the self-test reports any drop-in as `unit_modified`, and it will block skills. See [Hardening](../guide/hardening.md).
+On a fresh install the agent runs as `domovoi-agent`, not root. Its unit keeps `/usr` and `/etc` read-only, gives it a private `/tmp`, and lets it write only its own state and the packages directory. Do not change these units with `systemctl edit`: the self-test reports any drop-in as `unit_modified`, and it will block skills. See [Hardening](../guide/hardening.md).
 
 The helper runs as root in its own sandbox, one process per connection. `domovoi helper serve` is started by the socket and is not meant to be run by hand.
 
