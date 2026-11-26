@@ -5,10 +5,13 @@ on:
     paths:
       - "Dockerfile"
       - "docker/**"
-      - "deploy/**"
       - ".dockerignore"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -27,10 +30,11 @@ jobs:
           push: false
           load: true
           tags: domovoi:ci
-          # Web dependencies and the web build stay cached while their inputs are unchanged; the Rust
-          # layer rebuilds whenever any source file changes.
-          cache-from: type=gha,scope=hub-image
-          cache-to: type=gha,scope=hub-image,mode=max
+          # The build checks how the image is wired, not how fast the binary is: no LTO, so the
+          # Rust build takes minutes instead of a quarter of an hour. Nothing is cached, because
+          # the layers that would be worth keeping rebuild on any source change.
+          build-args: |
+            PROFILE=smoke
       - name: version
         run: docker run --rm domovoi:ci version
       - name: selftest --offline

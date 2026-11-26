@@ -134,6 +134,14 @@ codegen-units = 1
 strip = "symbols"
 panic = "abort"
 
+# The container smoke test checks how the image is wired, not how fast the binary is, so it
+# skips the link-time optimisation and builds the crates in parallel.
+[profile.smoke]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 1
+
 # Line tables keep backtraces readable while cutting link time and target/ size, which
 # dominate local builds (most of all on Windows).
 [profile.dev]

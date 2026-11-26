@@ -13,15 +13,18 @@ FROM rust:1.97-alpine AS build
 RUN apk add --no-cache musl-dev
 # Use the image's toolchain instead of downloading the one pinned in rust-toolchain.toml.
 ENV RUSTUP_TOOLCHAIN=1.97.0 CARGO_TERM_COLOR=always
+# The cargo profile to build with. CI passes `smoke`, which skips link-time optimisation.
+ARG PROFILE=release
 WORKDIR /src
 COPY . .
 COPY --from=web /src/web/dist web/dist
-RUN cargo build --release --locked --package domovoi --features embed-ui
+RUN cargo build --profile "$PROFILE" --locked --package domovoi --features embed-ui \
+    && mkdir -p /out/bin && cp "target/$PROFILE/domovoi" /out/bin/domovoi
 # The data directory, owned by the runtime user (distroless nonroot is 65532).
 RUN mkdir -p /out/var/lib/domovoi && chown 65532:65532 /out/var/lib/domovoi && chmod 0750 /out/var/lib/domovoi
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /src/target/release/domovoi /usr/local/bin/domovoi
+COPY --from=build /out/bin/domovoi /usr/local/bin/domovoi
 COPY --from=build --chown=65532:65532 /out/var/lib/domovoi /var/lib/domovoi
 # No config file is needed; open the setup link from the logs. A hub.toml mounted at
 # /etc/domovoi/hub.toml, and DOMOVOI_* variables, are read when present.
