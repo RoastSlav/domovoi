@@ -147,6 +147,12 @@
   max-width: 48ch;
 }
 
+/* A link inside running text is told apart from its words by more than a colour that is too
+   close to them (axe link-in-text-block): underline it, as markdown links are. */
+.emptyBody a {
+  text-decoration: underline;
+}
+
 .emptyBody > :first-child {
   margin-top: 0;
 }
