@@ -348,7 +348,6 @@ scrape_configs:
 | `domovoi_triage_runs_total` | `outcome` | Triage results (`report`, `cached`, `skipped`, `failed`) |
 | `domovoi_llm_tokens_total` | `provider`, `direction` | Model tokens (`input`, `output`) |
 | `domovoi_llm_cost_usd_total` | | Model cost in US dollars, as reported by the provider |
-| `domovoi_actions_total` | `status` | Action status changes |
 | `domovoi_agents_connected` | | Agents with a live session |
 | `domovoi_delivery_failures_total` | `gateway` | Chat deliveries that failed after retries |
 | `domovoi_notify_state_errors_total` | `op` | Notification state reads and writes that failed (`read`, `write`) |
