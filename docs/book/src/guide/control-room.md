@@ -8,7 +8,7 @@ The Control room is the first page. It has four tiles, each a link to the list b
 
 | Tile                 | What it counts                                                                                                                                                                                                                                                               |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Needs you            | Everything the attention centre lists, as one number. It sums incident groups that need action, operations waiting for approval, operations waiting for an answer, paused operations (including those with an unknown result) and offline or incompatible hosts. |
+| Needs you            | The attention centre's items, as one number. It sums incident groups that need action, operations waiting for approval, operations waiting for an answer, paused operations (including those with an unknown result) and offline or incompatible hosts. It does not count block items (see below). |
 | Running now          | Operations that are running. It opens the Operations page filtered to running.                                                                                                                                                                                               |
 | Waiting for approval | Operations with a step waiting for approval. Nothing runs until you decide.                                                                                                                                                                                       |
 | Hosts online         | Hosts whose agent is connected now, out of the hosts that have or should have an agent. The hub's own machine is not counted.                                                                                                                                                |
@@ -22,15 +22,16 @@ The attention centre and the "Needs you" list read the same items in one fixed o
 | Order | Item                                              | Heading         |
 | ----- | ------------------------------------------------- | --------------- |
 | 1     | An operation whose result is unknown              | Act now         |
-| 2     | An incompatible host                              | Act now         |
-| 3     | A critical incident                               | Act now         |
-| 4     | An offline host                                   | Act now         |
-| 5     | An approval, the longest waiting first            | Waiting for you |
-| 6     | A question from an operation                      | Waiting for you |
-| 7     | A paused operation                                | Waiting for you |
-| 8     | A host that is expected to be incompatible        | Waiting for you |
-| 9     | A warning incident                                | Worth a look    |
-| 10    | Any other incident                                | Worth a look    |
+| 2     | Blocks lost on a host (see [Blocking a network source](containment.md)) | Act now |
+| 3     | An incompatible host                              | Act now         |
+| 4     | A critical incident                               | Act now         |
+| 5     | An offline host                                   | Act now         |
+| 6     | An approval, the longest waiting first            | Waiting for you |
+| 7     | A question from an operation                      | Waiting for you |
+| 8     | A paused operation                                | Waiting for you |
+| 9     | A host that is expected to be incompatible        | Waiting for you |
+| 10    | A warning incident, or blocking is off on a host  | Worth a look    |
+| 11    | Any other incident                                | Worth a look    |
 
 Within a position, the most recent item comes first.
 

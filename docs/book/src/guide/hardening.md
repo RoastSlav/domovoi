@@ -51,7 +51,7 @@ domovoi.example.net {
 
 - **Never mount `docker.sock` into a container**, the agent's included: access to the socket is root on the host. The [container agent](../install/container-agent.md) reads Docker through a socket proxy that only allows reads. It gets no helper and no skill runner, so it cannot change the host; the hub refuses those capabilities with `agent_in_container`.
 - **Do not add `domovoi-agent` to the `docker` group.** On the three-identities layout the root helper reads the socket for the agent, through five read-only calls ([Read operations](../reference/helper.md#read-operations)). If you want the agent to use a socket proxy instead, set a `tcp://` `endpoint` in `agent.toml`; that connection stays direct.
-- **The helper unit is wider than before.** To read disks, the kernel log and other users' sockets it keeps six capabilities and read access to disk devices; see [Helper](../reference/helper.md#the-units). Remove a read group from `helper.toml` if you do not want it used, knowing the unit's capabilities stay.
+- **The helper unit is the widest of the three.** To read disks, the kernel log and other users' sockets it keeps six capabilities and read access to disk devices; see [Helper](../reference/helper.md#the-units). Remove a read group from `helper.toml` if you do not want it used, knowing the unit's capabilities stay.
 - Allow `POST` on the proxy only if you use container skills that change containers, and keep the proxy on a network only the agent shares.
 
 ## Secrets

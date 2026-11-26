@@ -20,7 +20,9 @@ Knowledge facts have no day count except the retracted ones. Kept: the tombstone
 
 Values must be between 1 and 3650 days. Zero is refused, so a mistyped setting cannot delete everything at the next purge. A key set in `hub.toml` or the environment is locked in the settings page, which shows where each value came from.
 
-The purge runs daily at 03:30 local time. All of its deletes happen in one transaction, so a failure deletes nothing and the next day's run tries again.
+Finished package install jobs and finished network blocks are kept for `[packages] job_history_days` (180 days by default) and purged in the same daily run, each in its own step.
+
+The purge runs daily at 03:30 in the hub's time zone. The retention deletes above happen in one transaction, so a failure deletes nothing and the next day's run tries again.
 
 ## What deletion guarantees
 

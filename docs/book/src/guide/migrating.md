@@ -35,7 +35,7 @@ curl -fsS -X POST http://127.0.0.1:7422/hooks/generic \
     --data "{\"check\":\"backup.nightly\",\"target\":\"photos\",\"status\":\"$status\",\"severity\":\"warning\",\"summary\":\"Nightly backup of /srv/photos\"}"
 ```
 
-This posts to the agent's [local relay](webhooks.md#agent-relay), so the script needs no route or credentials for the hub. Sending `resolved` closes the incident. The same payload can go straight to a [hub webhook](webhooks.md#generic-json) instead.
+This posts to the agent's [local relay](webhooks.md#agent-relay), which is on only when `[local_webhooks]` is set in `agent.toml`. The script needs no route or credentials for the hub. Sending `resolved` closes the incident. The same payload can go straight to a [hub webhook](webhooks.md#generic-json) instead.
 
 Use a stable `check` and `target`: together they decide which incident a signal belongs to. Put changing values, such as an exit code or a size, in `evidence`.
 
