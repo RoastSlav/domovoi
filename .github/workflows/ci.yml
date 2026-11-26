@@ -524,7 +524,7 @@ jobs:
           shared-key: rust
           save-if: ${{ github.event_name == 'push' }}
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -878,7 +878,7 @@ jobs:
         with:
           shared-key: coverage
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2
         with:
           tool: cargo-llvm-cov,cargo-nextest
       - run: cargo llvm-cov nextest --workspace --locked --no-tests=pass --lcov --output-path lcov.info
