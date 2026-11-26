@@ -76,8 +76,8 @@ pub struct Unsupported {
 
 /// Runtime changes the agent reports after `welcome`.
 ///
-/// The hub answers nothing and records the values for the session. Prompt 25 consumes them;
-/// this milestone only carries them honestly.
+/// The hub answers nothing and records the values for the session; they replace what `welcome`
+/// and `hello` reported.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentStatus {
     /// What the agent knows about the helper now.

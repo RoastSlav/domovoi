@@ -8,8 +8,8 @@ use serde_json::Value;
 /// A protocol value that may be a variant this build knows, or one it does not.
 ///
 /// It serialises as the raw string it decoded from, and remembers the parsed variant when
-/// this build knows it. Use it only for data enums whose values can come from a skill, a
-/// package or a later milestone; authority and state enums stay closed.
+/// this build knows it. Use it only for data enums whose values can come from a skill or a
+/// package; authority and state enums stay closed.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Open<T> {
     raw: String,
