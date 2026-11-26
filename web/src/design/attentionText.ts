@@ -1,9 +1,8 @@
-import { actionStatusMeta, hostConnectionMeta } from "./tone";
+import { hostConnectionMeta } from "./tone";
 
 /** What the owner is told to do about an attention item, one plain sentence ("" when the title says it all). */
 export type AttentionWhy =
   | { kind: "result_unknown_operation" }
-  | { kind: "result_unknown_action" }
   | { kind: "question" }
   | { kind: "paused"; reason: string | undefined }
   | { kind: "host"; connection: string };
@@ -13,8 +12,6 @@ export function attentionWhy(why: AttentionWhy): string {
   switch (why.kind) {
     case "result_unknown_operation":
       return "It may have run on the host. Check the host before continuing.";
-    case "result_unknown_action":
-      return actionStatusMeta("outcome_unknown").hint ?? "";
     case "question":
       return "";
     case "host":

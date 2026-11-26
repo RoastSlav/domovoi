@@ -1,10 +1,4 @@
-import type {
-  Action,
-  Host,
-  IncidentSummary,
-  OperationDetail,
-  OperationSummary,
-} from "../api/types";
+import type { Host, IncidentSummary, OperationDetail, OperationSummary } from "../api/types";
 import type { ContainmentStatus } from "../api/types";
 import { route } from "./apiMock";
 import { EMPTY_PAGE } from "./attentionFixtures";
@@ -16,7 +10,6 @@ import { operationDetail } from "./operationFixtures";
 export interface Served {
   /** Each host's blocks by host name; a host not listed has none and no gate answer. */
   containment?: Record<string, ContainmentStatus>;
-  actions?: Partial<Record<string, Action[]>>;
   details?: Record<string, OperationDetail>;
   hosts?: Host[];
   incidents?: IncidentSummary[];
@@ -40,10 +33,6 @@ export function serveAttention(served: Served = {}): void {
     (init) => served.containment?.[init.params?.path?.name ?? ""] ?? containmentStatus(),
   );
   route("GET /api/v1/incidents", () => ({ ...EMPTY_PAGE, items: served.incidents ?? [] }));
-  route("GET /api/v1/actions", (init) => ({
-    ...EMPTY_PAGE,
-    items: served.actions?.[String(init.params?.query?.status)] ?? [],
-  }));
   route("GET /api/v1/operations", (init) => {
     const status = String(init.params?.query?.status);
     return {

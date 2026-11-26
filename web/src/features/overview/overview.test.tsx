@@ -28,8 +28,7 @@ test("tiles_show_attention_running_approvals_and_hosts_and_lead_to_their_lists",
     overview({
       attention_total: 6,
       operations_running: 1,
-      approvals_waiting: 1,
-      operations_waiting_approval: 2,
+      operations_waiting_approval: 3,
     }),
   );
   open();
@@ -197,8 +196,8 @@ test("control_room_follows_the_host_selector", async () => {
   expect(calls.find((call) => call.route === "GET /api/v1/overview")?.init.params?.query).toEqual({
     host: "pi",
   });
-  const sources = calls.filter((call) => /\/(incidents|actions|operations)$/.test(call.route));
-  expect(sources.length).toBeGreaterThanOrEqual(7);
+  const sources = calls.filter((call) => /\/(incidents|operations)$/.test(call.route));
+  expect(sources.length).toBeGreaterThanOrEqual(5);
   for (const call of sources) {
     expect(call.init.params?.query, call.route).toMatchObject({ host: "pi" });
   }

@@ -39,23 +39,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/actions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Actions, newest first. */
-        get: operations["list_actions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/advisories": {
         parameters: {
             query?: never;
@@ -2208,63 +2191,6 @@ export interface components {
             /** @description Target pattern with `*` allowed at the ends; null matches any target. */
             target_pattern?: string | null;
         };
-        /** @description An action. */
-        ActionDto: {
-            /** @description Who approved it, if anyone. */
-            approved_by?: string | null;
-            /** @description Arguments by parameter name. */
-            args: {
-                [key: string]: string;
-            };
-            /** @description When it was proposed. */
-            created_at: string;
-            /** @description When the approval window closes. */
-            expires_at: string;
-            /** @description The host it runs on. */
-            host_id: string;
-            /** @description Action id. */
-            id: string;
-            /** @description The incident it is for. */
-            incident_id: string;
-            /**
-             * @description Whether this action belongs to the retired approval path, which survives only as
-             *     read-only history: always true.
-             */
-            legacy: boolean;
-            /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
-            plan_binding: components["schemas"]["PlanBinding"];
-            /**
-             * @description The plan hash of this action's own family: what an approval covers and what the
-             *     dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
-             */
-            plan_hash: string;
-            /** @description The stored legacy v1 plan hash, for audit display. */
-            plan_hash_v1?: string | null;
-            /** @description Who proposed it, for example `system:triage`. */
-            proposed_by: string;
-            /** @description Why it was rejected or failed. */
-            reason?: string | null;
-            /** @description `read`, `write` or `destructive`. */
-            risk: string;
-            /** @description Skill name. */
-            skill: string;
-            /** @description The status name, for example `proposed` or `verified`. */
-            status: string;
-            /** @description When it last changed. */
-            updated_at: string;
-        };
-        /** @description One page of actions, newest first. */
-        ActionPage: {
-            /**
-             * Format: int64
-             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
-             */
-            as_of_seq: number;
-            /** @description The actions. */
-            items: components["schemas"]["ActionDto"][];
-            /** @description Pass as `cursor` for the next page; absent on the last. */
-            next_cursor?: string | null;
-        };
         /** @description An open advisory. */
         AdvisoryDto: {
             /** @description When it was raised. */
@@ -3501,8 +3427,6 @@ export interface components {
         };
         /** @description Everything about one incident. */
         IncidentDetail: {
-            /** @description Actions for this incident, newest first. */
-            actions: components["schemas"]["ActionDto"][];
             /**
              * Format: int64
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
@@ -4103,16 +4027,6 @@ export interface components {
         /** @description What needs the operator right now, as counts. Each count stops at 200. */
         OverviewDto: {
             /**
-             * Format: int32
-             * @description Classic actions whose result is unknown.
-             */
-            actions_outcome_unknown: number;
-            /**
-             * Format: int32
-             * @description Actions waiting for a person to approve or deny them.
-             */
-            approvals_waiting: number;
-            /**
              * Format: int64
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
              */
@@ -4351,11 +4265,6 @@ export interface components {
             /** @description The target, for example `plex`. */
             target?: string | null;
         };
-        /**
-         * @description Which plan-hash family an action's displayed hash belongs to.
-         * @enum {string}
-         */
-        PlanBinding: "v1" | "v2";
         /** @description Plan a job: what it would do on each host, without doing anything. */
         PlanRequestDto: {
             /** @description One to sixteen host ids, each once. */
@@ -5154,11 +5063,6 @@ export interface components {
             description: string;
             /** @description Whether the hub may run and suggest this skill on the host. */
             enabled: boolean;
-            /**
-             * @description When the hub last sent this skill to the host's agent, as RFC 3339; absent when it
-             *     never has.
-             */
-            last_used?: string | null;
             /** @description Hash of the full manifest the agent has, as hex. */
             manifest_hash: string;
             /** @description Skill name. */
@@ -5768,69 +5672,6 @@ export interface operations {
                 };
             };
             /** @description No such rule */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    list_actions: {
-        parameters: {
-            query?: {
-                /** @description Only this status name, for example `proposed`. */
-                status?: string;
-                /** @description Only actions on this host, by name. */
-                host?: string;
-                /**
-                 * @description `true`: only actions that are no longer waiting for approval; `false`: only those
-                 *     that are.
-                 */
-                decided?: boolean;
-                /** @description Only actions that last changed at or after this time, RFC 3339. */
-                since?: string;
-                /** @description The `next_cursor` of the previous page. */
-                cursor?: string;
-                /** @description Page size, 1 to 200. Default 50. */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActionPage"];
-                };
-            };
-            /** @description Unknown status, or a time that does not parse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Not logged in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description No such host */
             404: {
                 headers: {
                     [name: string]: unknown;

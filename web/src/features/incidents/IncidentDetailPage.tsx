@@ -1,8 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Link, useParams } from "react-router";
 import { useIncident } from "../../api/hooks/incidents";
-import { useHostNames } from "../../api/hooks/hosts";
-import { ApiFailure, type Action } from "../../api/types";
+import { ApiFailure } from "../../api/types";
 import { usePageName } from "../../app/PageTitle";
 import { useMediaQuery } from "../../app/useMediaQuery";
 import {
@@ -15,8 +14,6 @@ import {
   Text,
 } from "../../components";
 import { IncidentOperations } from "../operations/IncidentOperations";
-import { useActionOutcomes } from "../approvals/useActionOutcomes";
-import { ActionSections } from "./ActionSections";
 import { IncidentChat } from "./IncidentChat";
 import { IncidentControls } from "./IncidentControls";
 import { IncidentDetails } from "./IncidentDetails";
@@ -37,8 +34,6 @@ const SimilarOperations = lazy(() =>
 /** From this width the page has two columns: what is going on on the left, what to do on the right. */
 export const TWO_COLUMN_QUERY = "(min-width: 1100px)";
 
-const NO_ACTIONS: Action[] = [];
-
 /** Where the chat box would be, when there is no model to ask: one line and the way to fix it. */
 function NoModel({ line }: { line: string }) {
   return (
@@ -52,19 +47,17 @@ function NoModel({ line }: { line: string }) {
  * One incident, readable in one screen: what is going on and why (triage's report), the
  * evidence, and what to approve. On a wide screen the story is on the left (report, evidence,
  * steps by hand, details, chat) and what to do and what happened on the right (actions to
- * decide, running and earlier actions, tools, timeline); the page scrolls as one. On a
+ * decide, running, tools, timeline); the page scrolls as one. On a
  * narrow one the same parts follow each other in the order of `data-slot` in the CSS, with
  * what needs a decision straight after the report.
  */
 export function IncidentDetailPage() {
   const { id = "" } = useParams();
   const incident = useIncident(id);
-  const hosts = useHostNames();
   const wide = useMediaQuery(TWO_COLUMN_QUERY);
   const modelOff = useModelOff();
   usePageName(incident.data?.incident.title);
   useStatusNews(id, incident.data?.incident.status);
-  useActionOutcomes(incident.data?.actions ?? NO_ACTIONS, hosts);
 
   if (!incident.data) {
     if (incident.error instanceof ApiFailure && incident.error.status === 404) {
@@ -95,7 +88,7 @@ export function IncidentDetailPage() {
   }
 
   const data = incident.data;
-  const { card, report, actions, timeline, host, tools_used } = data;
+  const { card, report, timeline, host, tools_used } = data;
   const summary = data.incident;
   // With a report its summary and cause are shown above; the card's details repeat them.
   const details = report ? report.details : card.details;
@@ -144,7 +137,6 @@ export function IncidentDetailPage() {
         </div>
 
         <aside className={styles.side} aria-label="Actions and history">
-          <ActionSections actions={actions} host={host} />
           <div className={styles.slot} data-slot="tools">
             <ToolsUsed tools={tools_used} />
           </div>

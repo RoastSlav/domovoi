@@ -7,7 +7,7 @@ import {
   offlineHost,
   summary,
 } from "../../test/attentionFixtures";
-import { action, incident, nas } from "../../test/fixtures";
+import { incident, nas } from "../../test/fixtures";
 import { attentionItems, type AttentionInputs } from "./attentionModel";
 
 const NAMES = new Map([[nas.id, "nas"]]);
@@ -15,8 +15,6 @@ const NAMES = new Map([[nas.id, "nas"]]);
 function inputs(parts: Partial<AttentionInputs> = {}): AttentionInputs {
   return {
     incidents: [],
-    proposed: [],
-    unknownActions: [],
     waitingApproval: [],
     waitingUser: [],
     paused: [],
@@ -49,13 +47,11 @@ describe("attention ranking", () => {
         ],
         waitingUser: [summary("o6", "waiting_user")],
         waitingApproval: [summary("o5", "waiting_approval")],
-        unknownActions: [action({ id: "a1", status: "outcome_unknown" })],
       }),
     );
 
     expect(items.map((item) => [item.key, item.rank, item.tier])).toEqual([
       ["operation:o0", 0, 0],
-      ["action:a1", 1, 0],
       ["host:host-h2", 2, 0],
       ["incident:i3", 3, 0],
       ["host:host-h4", 4, 0],
@@ -68,24 +64,19 @@ describe("attention ranking", () => {
     ]);
   });
 
-  it("a_result_unknown_operation_and_a_result_unknown_action_come_before_everything_else", () => {
+  it("a_result_unknown_operation_comes_before_everything_else", () => {
     const items = attentionItems(
       inputs({
         incidents: [sick("crit", "critical", "2026-01-01T00:00:00Z")],
         hosts: [incompatibleHost("bad")],
         waitingApproval: [summary("wait", "waiting_approval")],
-        unknownActions: [action({ id: "act", status: "outcome_unknown" })],
         paused: [summary("unk", "paused", { pause_reason: { type: "outcome_unknown" } })],
       }),
     );
 
-    expect(items.slice(0, 2).map((item) => item.key)).toEqual(["operation:unk", "action:act"]);
-    expect(items.slice(0, 2).map((item) => item.meta.label)).toEqual([
-      "Result unknown",
-      "Result unknown",
-    ]);
+    expect(items[0]?.key).toBe("operation:unk");
+    expect(items[0]?.meta.label).toBe("Result unknown");
     expect(items[0]?.why).toBe("It may have run on the host. Check the host before continuing.");
-    expect(items[1]?.href).toBe("/incidents/inc-1");
   });
 
   it("an_incompatible_host_is_its_own_row_ahead_of_an_offline_one_and_never_reads_as_offline", () => {
@@ -131,32 +122,17 @@ describe("attention ranking", () => {
     ]);
   });
 
-  it("approvals_list_operations_first_oldest_waiting_first_then_classic_actions_by_expiry", () => {
+  it("approvals_list_the_oldest_waiting_operation_first", () => {
     const items = attentionItems(
       inputs({
         waitingApproval: [
           summary("new", "waiting_approval", { updated_at: "2026-01-02T12:00:00Z" }),
           summary("old", "waiting_approval", { updated_at: "2026-01-02T09:00:00Z" }),
         ],
-        proposed: [
-          action({ id: "late", expires_at: "2026-02-01T00:00:00Z" }),
-          action({
-            id: "soon",
-            expires_at: "2026-01-05T00:00:00Z",
-            created_at: "2025-01-01T00:00:00Z",
-          }),
-        ],
       }),
     );
 
-    expect(items.map((item) => item.key)).toEqual([
-      "operation:old",
-      "operation:new",
-      "action:soon",
-      "action:late",
-    ]);
-    expect(items[2]?.href).toBe("/approvals");
-    expect(items[2]?.expiresAt).toBe("2026-01-05T00:00:00Z");
+    expect(items.map((item) => item.key)).toEqual(["operation:old", "operation:new"]);
   });
 
   it("other_ranks_order_by_recency_with_unknown_times_last_and_keys_as_the_tie_break", () => {
@@ -177,14 +153,12 @@ describe("attention ranking", () => {
       inputs({
         incidents: [sick("inc-1", "critical", "2026-01-01T00:00:00Z")],
         waitingApproval: [summary("op", "waiting_approval", { incidents: ["inc-1"] })],
-        proposed: [action({ id: "act", incident_id: "inc-1" })],
       }),
     );
 
     expect(items.map((item) => [item.kind, item.key])).toEqual([
       ["incident", "incident:inc-1"],
       ["approval", "operation:op"],
-      ["approval", "action:act"],
     ]);
   });
 

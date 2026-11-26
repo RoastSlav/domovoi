@@ -1,8 +1,7 @@
-import type { Action, Execution } from "../../api/types";
+import type { Execution } from "../../api/types";
 import type { StatusMeta } from "../../design/status";
-import { actionStatusMeta, executionStateMeta } from "../../design/tone";
+import { executionStateMeta } from "../../design/tone";
 
-/** Everything an approval card shows, whether it comes from an operation step or a legacy action. */
 /** Who authorized an execution, as one line; `null` while nobody has. */
 export function authorizationText(
   authorization: Execution["authorization"] | undefined,
@@ -19,10 +18,10 @@ export function authorizationText(
   return null;
 }
 
+/** Everything an approval card shows about one operation step. */
 export interface ApprovalPlan {
-  /** Action id or step id (keys, aria). */
+  /** Step id (keys, aria). */
   id: string;
-  family: "step" | "action";
   /** Display name: `skillName(contract)`. */
   skill: string;
   contract: string;
@@ -33,7 +32,7 @@ export interface ApprovalPlan {
   args: Record<string, string>;
   /** `read`, `write`, `destructive` or `unknown` (a missing risk is unknown). */
   risk: string;
-  /** Execution state (step) or action status (action). */
+  /** Execution state. */
   state: string;
   stateMeta: StatusMeta;
   waiting: boolean;
@@ -41,8 +40,6 @@ export interface ApprovalPlan {
   planHash: string;
   planBinding: string;
   expiresAt: string;
-  createdAt: string | null;
-  suggestedBy: string | null;
   approvedBy: string | null;
   /** Who authorized it, in words: a person in the web UI, or a policy and its rules. */
   authorizedBy: string | null;
@@ -63,7 +60,6 @@ export function planFromExecution(execution: Execution, host?: string): Approval
   const skill = skillName(execution.contract);
   return {
     id: execution.step,
-    family: "step",
     skill,
     contract: execution.contract,
     contractVersion: execution.contract_version,
@@ -79,45 +75,11 @@ export function planFromExecution(execution: Execution, host?: string): Approval
     planHash: execution.plan_hash,
     planBinding: execution.plan_binding,
     expiresAt: execution.expires_at,
-    createdAt: null,
-    suggestedBy: null,
     approvedBy: execution.approved_by ?? null,
     authorizedBy: authorizationText(execution.authorization),
     approvedAt: execution.approved_at ?? null,
     reason: execution.reason ?? null,
     confirmRequired: (execution.confirm_required as boolean | undefined) ?? true,
     confirmText: skill,
-  };
-}
-
-/** The plan of a legacy action. */
-export function planFromAction(action: Action, host?: string): ApprovalPlan {
-  return {
-    id: action.id,
-    family: "action",
-    skill: action.skill,
-    contract: action.skill,
-    contractVersion: null,
-    host,
-    check: null,
-    target: null,
-    args: action.args,
-    risk: action.risk,
-    state: action.status,
-    stateMeta: actionStatusMeta(action.status),
-    // A legacy action can no longer be decided; it is history.
-    waiting: false,
-    inFlight: action.status === "approved" || action.status === "dispatched",
-    planHash: action.plan_hash,
-    planBinding: action.plan_binding,
-    expiresAt: action.expires_at,
-    createdAt: action.created_at,
-    suggestedBy: action.proposed_by,
-    approvedBy: null,
-    authorizedBy: null,
-    approvedAt: null,
-    reason: action.reason ?? null,
-    confirmRequired: action.risk === "destructive",
-    confirmText: action.skill,
   };
 }

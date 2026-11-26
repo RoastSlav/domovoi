@@ -138,115 +138,6 @@
         }
       }
     },
-    "/api/v1/actions": {
-      "get": {
-        "tags": [
-          "actions"
-        ],
-        "summary": "Actions, newest first.",
-        "operationId": "list_actions",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Only this status name, for example `proposed`.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "host",
-            "in": "query",
-            "description": "Only actions on this host, by name.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "decided",
-            "in": "query",
-            "description": "`true`: only actions that are no longer waiting for approval; `false`: only those\nthat are.",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "since",
-            "in": "query",
-            "description": "Only actions that last changed at or after this time, RFC 3339.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "description": "The `next_cursor` of the previous page.",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Page size, 1 to 200. Default 50.",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "One page",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionPage"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Unknown status, or a time that does not parse",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not logged in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such host",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/advisories": {
       "get": {
         "tags": [
@@ -9047,141 +8938,6 @@
           }
         }
       },
-      "ActionDto": {
-        "type": "object",
-        "description": "An action.",
-        "required": [
-          "id",
-          "incident_id",
-          "host_id",
-          "skill",
-          "risk",
-          "args",
-          "status",
-          "plan_hash",
-          "plan_binding",
-          "proposed_by",
-          "expires_at",
-          "created_at",
-          "updated_at",
-          "legacy"
-        ],
-        "properties": {
-          "approved_by": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Who approved it, if anyone."
-          },
-          "args": {
-            "type": "object",
-            "description": "Arguments by parameter name.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "created_at": {
-            "type": "string",
-            "description": "When it was proposed."
-          },
-          "expires_at": {
-            "type": "string",
-            "description": "When the approval window closes."
-          },
-          "host_id": {
-            "type": "string",
-            "description": "The host it runs on."
-          },
-          "id": {
-            "type": "string",
-            "description": "Action id."
-          },
-          "incident_id": {
-            "type": "string",
-            "description": "The incident it is for."
-          },
-          "legacy": {
-            "type": "boolean",
-            "description": "Whether this action belongs to the retired approval path, which survives only as\nread-only history: always true."
-          },
-          "plan_binding": {
-            "$ref": "#/components/schemas/PlanBinding",
-            "description": "Which binding family `plan_hash` belongs to: `v1` or `v2`."
-          },
-          "plan_hash": {
-            "type": "string",
-            "description": "The plan hash of this action's own family: what an approval covers and what the\ndispatch guard re-checks. New actions use v2; a legacy action keeps v1."
-          },
-          "plan_hash_v1": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The stored legacy v1 plan hash, for audit display."
-          },
-          "proposed_by": {
-            "type": "string",
-            "description": "Who proposed it, for example `system:triage`."
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why it was rejected or failed."
-          },
-          "risk": {
-            "type": "string",
-            "description": "`read`, `write` or `destructive`."
-          },
-          "skill": {
-            "type": "string",
-            "description": "Skill name."
-          },
-          "status": {
-            "type": "string",
-            "description": "The status name, for example `proposed` or `verified`."
-          },
-          "updated_at": {
-            "type": "string",
-            "description": "When it last changed."
-          }
-        }
-      },
-      "ActionPage": {
-        "type": "object",
-        "description": "One page of actions, newest first.",
-        "required": [
-          "items",
-          "as_of_seq"
-        ],
-        "properties": {
-          "as_of_seq": {
-            "type": "integer",
-            "format": "int64",
-            "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
-            "minimum": 0
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ActionDto"
-            },
-            "description": "The actions."
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Pass as `cursor` for the next page; absent on the last."
-          }
-        }
-      },
       "AdvisoryDto": {
         "type": "object",
         "description": "An open advisory.",
@@ -12323,19 +12079,11 @@
           "host",
           "card",
           "timeline",
-          "actions",
           "operations",
           "tools_used",
           "as_of_seq"
         ],
         "properties": {
-          "actions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ActionDto"
-            },
-            "description": "Actions for this incident, newest first."
-          },
           "as_of_seq": {
             "type": "integer",
             "format": "int64",
@@ -13830,30 +13578,16 @@
           "incidents_action_needed",
           "incidents_open",
           "incident_groups",
-          "approvals_waiting",
           "hosts_offline",
           "hosts_total",
           "operations_running",
           "operations_waiting_approval",
           "operations_waiting_user",
           "operations_paused",
-          "actions_outcome_unknown",
           "attention_total",
           "as_of_seq"
         ],
         "properties": {
-          "actions_outcome_unknown": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Classic actions whose result is unknown.",
-            "minimum": 0
-          },
-          "approvals_waiting": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Actions waiting for a person to approve or deny them.",
-            "minimum": 0
-          },
           "as_of_seq": {
             "type": "integer",
             "format": "int64",
@@ -14366,14 +14100,6 @@
             "description": "The target, for example `plex`."
           }
         }
-      },
-      "PlanBinding": {
-        "type": "string",
-        "description": "Which plan-hash family an action's displayed hash belongs to.",
-        "enum": [
-          "v1",
-          "v2"
-        ]
       },
       "PlanRequestDto": {
         "type": "object",
@@ -16530,13 +16256,6 @@
             "type": "boolean",
             "description": "Whether the hub may run and suggest this skill on the host."
           },
-          "last_used": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "When the hub last sent this skill to the host's agent, as RFC 3339; absent when it\nnever has."
-          },
           "manifest_hash": {
             "type": "string",
             "description": "Hash of the full manifest the agent has, as hex."
@@ -17775,10 +17494,6 @@
     {
       "name": "incidents",
       "description": "Incidents and their triage"
-    },
-    {
-      "name": "actions",
-      "description": "Retired legacy actions, read only"
     },
     {
       "name": "operations",

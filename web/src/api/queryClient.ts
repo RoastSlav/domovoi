@@ -27,7 +27,6 @@ export const keys = {
   followUps: (id: string) => ["incidents", "followups", id] as const,
   ackRules: ["ack-rules"] as const,
   actions: ["actions"] as const,
-  actionList: (filters: object) => ["actions", "list", filters] as const,
   overview: ["overview"] as const,
   overviewFor: (host: string | undefined) => ["overview", host ?? ""] as const,
   hosts: ["hosts"] as const,

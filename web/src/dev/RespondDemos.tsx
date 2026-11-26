@@ -1,8 +1,6 @@
-import type { Action } from "../api/types";
 import {
   ChatThread,
   DataTable,
-  Grid,
   KeyValueList,
   Menu,
   Section,
@@ -12,36 +10,10 @@ import {
   Timeline,
 } from "../components";
 import { TIMELINE_KINDS, timelineMeta } from "../design/timeline";
-import { VOCABULARIES, incidentStateMeta } from "../design/tone";
-import { ActionCard } from "../features/approvals/ActionCard";
+import { incidentStateMeta } from "../design/tone";
 import { Demo, Group } from "./Demo";
 
 const NOW = Date.now();
-
-function values(vocabulary: string): string[] {
-  return VOCABULARIES.find((v) => v.name === vocabulary)?.values ?? [];
-}
-
-function sample(overrides: Partial<Action>): Action {
-  return {
-    id: `demo-${overrides.status}-${overrides.risk}-${overrides.expires_at}`,
-    incident_id: "demo",
-    host_id: "demo",
-    skill: "restart_container",
-    risk: "write",
-    args: { name: "web", compose_file: "/srv/stacks/media/docker-compose.yml" },
-    status: "proposed",
-    plan_hash: "9f2c1a4b".repeat(8),
-    plan_hash_v1: "1a4b9f2c".repeat(8),
-    plan_binding: "v2",
-    proposed_by: "system:triage",
-    expires_at: new Date(NOW + 45 * 60_000).toISOString(),
-    created_at: new Date(NOW - 15 * 60_000).toISOString(),
-    updated_at: new Date(NOW).toISOString(),
-    legacy: false,
-    ...overrides,
-  };
-}
 
 const TIMELINE_SUMMARIES: Record<string, string> = {
   "status.changed": "open → acked",
@@ -69,31 +41,6 @@ export function RespondDemos() {
   ];
   return (
     <Group title="Respond">
-      <Demo name="ActionCard: every status (legacy actions are read-only)">
-        <Grid min="lg">
-          {values("Action status").map((status) => (
-            <ActionCard
-              key={status}
-              host="nas-01"
-              action={sample({ status, reason: "exit code 1: no such container" })}
-              why={
-                status === "proposed" ? "The container stopped answering health checks." : undefined
-              }
-            />
-          ))}
-        </Grid>
-      </Demo>
-      <Demo name="ActionCard: every risk; the last one expires in under ten minutes">
-        <Grid min="lg">
-          {values("Skill risk").map((risk) => (
-            <ActionCard key={risk} host="nas-01" action={sample({ risk })} showIncident />
-          ))}
-          <ActionCard
-            host="nas-01"
-            action={sample({ expires_at: new Date(NOW + 9 * 60_000).toISOString() })}
-          />
-        </Grid>
-      </Demo>
       <Demo name="Timeline: every known kind, an action step and an unknown kind; long ones collapse">
         <Timeline label="Demo timeline" items={timeline} />
       </Demo>
@@ -107,7 +54,7 @@ export function RespondDemos() {
           onClear={() => undefined}
         />
       </Demo>
-      <Demo name="ChatThread: a conversation with tools and a proposed action, then thinking">
+      <Demo name="ChatThread: a conversation with tools, then thinking">
         <ChatThread
           turns={[
             { role: "user", text: "Why is nas-01 slow?" },
@@ -115,7 +62,6 @@ export function RespondDemos() {
               role: "assistant",
               text: "The **media** container is restarting in a loop.\n\n- 14 restarts in the last hour\n- `exit code 137` each time",
               tools: [{ name: "read logs", host: "nas-01" }, { name: "list containers" }],
-              extra: <ActionCard host="nas-01" action={sample({})} />,
             },
           ]}
           pending="Is it out of memory?"

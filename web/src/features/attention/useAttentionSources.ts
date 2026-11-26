@@ -1,8 +1,7 @@
-import { useActions } from "../../api/hooks/actions";
 import { useHosts } from "../../api/hooks/hosts";
 import { useIncidents } from "../../api/hooks/incidents";
 import { useOperations } from "../../api/hooks/operations";
-import type { Action, Host, IncidentSummary, OperationSummary } from "../../api/types";
+import type { Host, IncidentSummary, OperationSummary } from "../../api/types";
 import { useContainmentSources } from "../containment/useContainmentSources";
 import type { ContainmentAttentionInput } from "../containment/containmentItems";
 import { attentionItems, type AttentionInputs, type AttentionItem } from "./attentionModel";
@@ -50,11 +49,9 @@ export interface SourcePart<T> {
   retry: () => void;
 }
 
-/** The seven sources. */
+/** The sources of the attention list. */
 export interface SourcesParts {
   incidents: SourcePart<IncidentSummary>;
-  proposed: SourcePart<Action>;
-  unknownActions: SourcePart<Action>;
   waitingApproval: SourcePart<OperationSummary>;
   waitingUser: SourcePart<OperationSummary>;
   paused: SourcePart<OperationSummary>;
@@ -68,8 +65,6 @@ export interface SourcesParts {
 export function summarizeSources(parts: SourcesParts): AttentionState {
   const all: SourcePart<unknown>[] = [
     parts.incidents,
-    parts.proposed,
-    parts.unknownActions,
     parts.waitingApproval,
     parts.waitingUser,
     parts.paused,
@@ -78,8 +73,6 @@ export function summarizeSources(parts: SourcesParts): AttentionState {
   ];
   const inputs: AttentionInputs = {
     incidents: parts.incidents.rows ?? [],
-    proposed: parts.proposed.rows ?? [],
-    unknownActions: parts.unknownActions.rows ?? [],
     waitingApproval: parts.waitingApproval.rows ?? [],
     waitingUser: parts.waitingUser.rows ?? [],
     paused: parts.paused.rows ?? [],
@@ -129,8 +122,6 @@ function part<T>(
  */
 export function useAttentionSources(host: string | undefined): AttentionState {
   const incidents = useIncidents({ host, group: "needs_action" });
-  const proposed = useActions({ status: "proposed", host });
-  const unknown = useActions({ status: "outcome_unknown", host });
   const waitingApproval = useOperations({ status: "waiting_approval", host });
   const waitingUser = useOperations({ status: "waiting_user", host });
   const paused = useOperations({ status: "paused", host });
@@ -141,8 +132,6 @@ export function useAttentionSources(host: string | undefined): AttentionState {
   );
   return summarizeSources({
     incidents: part("incidents", incidents, incidents.data?.pages[0]?.items, incidents.hasNextPage),
-    proposed: part("approvals", proposed, proposed.data?.items),
-    unknownActions: part("unknown results", unknown, unknown.data?.items),
     waitingApproval: part(
       "operations waiting for approval",
       waitingApproval,

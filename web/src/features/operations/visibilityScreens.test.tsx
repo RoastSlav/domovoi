@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Action, Execution, Host, OperationDetail, OperationSummary } from "../../api/types";
+import type { Execution, Host, OperationDetail, OperationSummary } from "../../api/types";
 import type { TraceStep } from "../../api/operationTrace";
 import { stepOutcomeMeta, riskMeta } from "../../design/tone";
 import { PROFILE_IDS, type ProfileId } from "../../design/visibility";
@@ -674,21 +674,9 @@ function summary(id: string, status: string, over: Partial<OperationSummary> = {
   } as OperationSummary;
 }
 
-const legacyAction = {
-  id: "a1",
-  skill: "restart_container",
-  host_id: nas.id,
-  incident_id: "inc-9",
-  status: "proposed",
-  legacy: true,
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-} as unknown as Action;
-
-function serveList(items: OperationSummary[], actions: Action[] = []) {
+function serveList(items: OperationSummary[]) {
   route("GET /api/v1/hosts", () => [nas as Host]);
   route("GET /api/v1/operations", () => ({ items, next_cursor: null, as_of_seq: 1 }));
-  route("GET /api/v1/actions", () => ({ items: actions, next_cursor: null, as_of_seq: 1 }));
 }
 
 const LIST_OPERATIONS = [
@@ -705,7 +693,7 @@ describe("operations list", () => {
       const scenarios: { name: string; wait: () => Promise<unknown>; serve: () => void }[] = [
         {
           name: "populated",
-          serve: () => serveList(LIST_OPERATIONS, [legacyAction]),
+          serve: () => serveList(LIST_OPERATIONS),
           wait: () => screen.findByText("Goal o1"),
         },
         {
@@ -746,8 +734,7 @@ describe("operations list", () => {
           });
         }
         if (scenario.name === "populated") {
-          expect(seen[0]?.rows).toBe(LIST_OPERATIONS.length + 1 + 1);
-          expect(seen[0]?.text).toContain("Legacy");
+          expect(seen[0]?.rows).toBe(LIST_OPERATIONS.length + 1);
         }
       }
     },
@@ -941,7 +928,7 @@ describe("P0 is visible in every profile", () => {
       await expectP0Everywhere({
         expectedIds: ["operations.table", "operations.state"],
         render: async (profile) => {
-          serveList(LIST_OPERATIONS, [legacyAction]);
+          serveList(LIST_OPERATIONS);
           const view = renderWithProfile(profile, "/operations", "/operations", <OperationsPage />);
           await screen.findByText("Goal o1");
           return view;

@@ -1,5 +1,4 @@
 import type {
-  Action,
   AuditRow,
   AuditVerification,
   Host,
@@ -46,28 +45,6 @@ export function incident(overrides: Partial<IncidentSummary> = {}): IncidentSumm
   };
 }
 
-/** A proposed action, overridable. */
-export function action(overrides: Partial<Action> = {}): Action {
-  return {
-    id: "act-1",
-    incident_id: "inc-1",
-    host_id: nas.id,
-    skill: "restart_container",
-    risk: "write",
-    args: { name: "web" },
-    status: "proposed",
-    plan_hash: "9f2c1a4b".repeat(8),
-    plan_hash_v1: "1a4b9f2c".repeat(8),
-    plan_binding: "v2",
-    proposed_by: "system:triage",
-    expires_at: "2099-01-01T00:00:00Z",
-    created_at: T0,
-    updated_at: T0,
-    legacy: false,
-    ...overrides,
-  };
-}
-
 /** The detail of `incident()` after triage. */
 export function detail(): IncidentDetail {
   return {
@@ -88,7 +65,6 @@ export function detail(): IncidentDetail {
       { at: T0, kind: "incident.opened", summary: "Disk /srv crossed 90%" },
       { at: "2026-10-31T12:01:00Z", kind: "triage.report", summary: "ACTION_NEEDED" },
     ],
-    actions: [action()],
     tools_used: [],
     as_of_seq: 0,
   };
@@ -100,14 +76,12 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     incidents_action_needed: 0,
     incidents_open: 0,
     incident_groups: { needs_action: 0, monitor: 0, pending: 0, expected: 0, handled: 0 },
-    approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 2,
     operations_running: 0,
     operations_waiting_approval: 0,
     operations_waiting_user: 0,
     operations_paused: 0,
-    actions_outcome_unknown: 0,
     attention_total: 0,
     as_of_seq: 0,
     ...overrides,

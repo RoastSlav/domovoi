@@ -18,7 +18,6 @@ vi.mock("../../api/events", async (original) => ({
 const QUIET = {
   incidents_action_needed: 0,
   incidents_open: 0,
-  approvals_waiting: 0,
   hosts_offline: 0,
   hosts_total: 1,
 };

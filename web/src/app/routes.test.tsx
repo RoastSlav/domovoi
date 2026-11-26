@@ -25,7 +25,6 @@ beforeEach(() => {
   route("GET /api/v1/overview", () => ({
     incidents_action_needed: 0,
     incidents_open: 0,
-    approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 1,
   }));
@@ -126,7 +125,6 @@ test("an_old_settings_about_link_lands_on_the_merged_about_and_updates_section",
 test("new_routes_render_their_pages", async () => {
   const page = { items: [], next_cursor: null, as_of_seq: 1 };
   route("GET /api/v1/operations", () => page);
-  route("GET /api/v1/actions", () => page);
   const { unmount } = renderApp("/attention");
   expect(await heading("Attention")).toBeVisible();
   expect(document.title).toBe("Attention · Domovoi");
@@ -137,7 +135,6 @@ test("new_routes_render_their_pages", async () => {
 
 test("operations_routes_render_their_pages", async () => {
   route("GET /api/v1/operations", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
   const { unmount } = renderApp("/operations");
   expect(await heading("Operations")).toBeVisible();
   unmount();

@@ -12,7 +12,6 @@ describe("the operations catalogue demos", () => {
       screen.getAllByRole("group", { name: "Action restart_container" }).length,
     ).toBeGreaterThan(8);
     expect(screen.getByText("Risk unknown")).toBeVisible();
-    expect(screen.getByText("v1 binding")).toBeVisible();
     expect(screen.getAllByRole("button", { name: /Close Step inspector/ })).toHaveLength(2);
   });
 });

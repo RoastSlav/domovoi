@@ -13,7 +13,6 @@ import {
   type Column,
 } from "../../components";
 import { riskMeta } from "../../design/tone";
-import { SkillRuns } from "./SkillRuns";
 import { paramLimits, paramType, verificationText } from "./skillText";
 
 type Param = Skill["params"][number];
@@ -71,8 +70,8 @@ function Facts({ skill }: { skill: Skill }) {
   );
 }
 
-/** Everything about one skill: facts, parameters, README and its recent runs on `host`. */
-export function SkillBody({ skill, host }: { host: string; skill: Skill }) {
+/** Everything about one skill: facts, parameters, README. */
+export function SkillBody({ skill }: { skill: Skill }) {
   return (
     <Stack gap={4}>
       <Text muted block>
@@ -106,7 +105,6 @@ export function SkillBody({ skill, host }: { host: string; skill: Skill }) {
           </Text>
         )}
       </Section>
-      <SkillRuns host={host} skill={skill.name} />
     </Stack>
   );
 }

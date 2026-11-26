@@ -1,9 +1,8 @@
-import type { Action, Host, IncidentSummary, OperationSummary } from "../../api/types";
+import type { Host, IncidentSummary, OperationSummary } from "../../api/types";
 import { attentionWhy } from "../../design/attentionText";
 import { containmentItems, type ContainmentAttentionInput } from "../containment/containmentItems";
 import type { StatusMeta } from "../../design/status";
 import {
-  actionStatusMeta,
   hostConnectionMeta,
   hostConnectionOf,
   operationStatusMeta,
@@ -15,7 +14,7 @@ import {
 export type AttentionKind =
   "result_unknown" | "approval" | "question" | "paused" | "incident" | "host" | "containment";
 /** Which list the item came from. */
-export type AttentionSource = "operation" | "action" | "incident" | "host" | "containment";
+export type AttentionSource = "operation" | "incident" | "host" | "containment";
 /** The urgency tier: 0 act now, 1 waiting for you, 2 worth a look. */
 export type Tier = 0 | 1 | 2;
 
@@ -49,8 +48,6 @@ export interface AttentionItem {
 /** What the items are built from: each source's loaded rows. */
 export interface AttentionInputs {
   incidents: readonly IncidentSummary[];
-  proposed: readonly Action[];
-  unknownActions: readonly Action[];
   waitingApproval: readonly OperationSummary[];
   waitingUser: readonly OperationSummary[];
   paused: readonly OperationSummary[];
@@ -168,20 +165,6 @@ export function attentionItems(inputs: AttentionInputs): AttentionItem[] {
   const items: AttentionItem[] = [
     ...operationItems(inputs.paused, pausedItem),
     ...containmentItems(inputs.containment ?? []),
-    ...inputs.unknownActions.map((action) =>
-      item(1, {
-        key: `action:${action.id}`,
-        kind: "result_unknown",
-        source: "action",
-        title: actionTitle(action, inputs.hostNames),
-        meta: actionStatusMeta("outcome_unknown"),
-        hostIds: [action.host_id],
-        href: `/incidents/${action.incident_id}`,
-        since: action.created_at,
-        expiresAt: null,
-        why: attentionWhy({ kind: "result_unknown_action" }),
-      }),
-    ),
     ...inputs.hosts.flatMap((host) => {
       const state = hostAttention(host);
       return state ? [hostItem(host, state)] : [];
@@ -208,20 +191,6 @@ export function attentionItems(inputs: AttentionInputs): AttentionItem[] {
         why: "",
       }),
     ),
-    ...inputs.proposed.map((action) =>
-      item(5, {
-        key: `action:${action.id}`,
-        kind: "approval",
-        source: "action",
-        title: actionTitle(action, inputs.hostNames),
-        meta: actionStatusMeta("proposed"),
-        hostIds: [action.host_id],
-        href: "/approvals",
-        since: action.created_at,
-        expiresAt: action.expires_at,
-        why: "",
-      }),
-    ),
     ...operationItems(inputs.waitingUser, (op) =>
       item(6, {
         ...operationBase(op),
@@ -238,8 +207,4 @@ export function attentionItems(inputs: AttentionInputs): AttentionItem[] {
       (a.rank === 5 ? byApprovalOrder(a, b) : byRecency(a, b)) ||
       a.key.localeCompare(b.key),
   );
-}
-
-function actionTitle(action: Action, hostNames: ReadonlyMap<string, string>): string {
-  return `${action.skill} on ${hostNames.get(action.host_id) ?? "a host"}`;
 }

@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
-import { useActions } from "../../api/hooks/actions";
 import { useHostNames } from "../../api/hooks/hosts";
 import { useOperations } from "../../api/hooks/operations";
 import { useSelectedHost } from "../../app/HostContext";
@@ -8,7 +7,6 @@ import {
   Button,
   EmptyState,
   FilterChips,
-  InlineMessage,
   PageHeader,
   QueryBoundary,
   Skeleton,
@@ -18,8 +16,7 @@ import {
   type Chip,
 } from "../../components";
 import { operationStatusMeta } from "../../design/tone";
-import { mergeRows } from "./operationRows";
-import { OperationsTable } from "./OperationsTable";
+import { OperationsTable, type OperationRow } from "./OperationsTable";
 import styles from "./operations.module.css";
 
 const STATUSES = ["waiting_approval", "waiting_user", "paused", "running"] as const;
@@ -34,8 +31,8 @@ const CHIPS: Chip<ChipValue>[] = [
 ];
 
 /**
- * What Domovoi is investigating and fixing: operations, and the old actions labelled Legacy,
- * newest first. The hub filters by status and host; the page only merges the two sources.
+ * What Domovoi is investigating and fixing: operations, newest first. The hub filters by
+ * status and host.
  */
 export function OperationsPage() {
   const [params, setParams] = useSearchParams();
@@ -47,26 +44,16 @@ export function OperationsPage() {
     status: status === "all" ? undefined : status,
     host,
   });
-  // Classic actions have no status like the others: only "all" and "waiting for approval" apply.
-  const legacyApplies = status === "all" || status === "waiting_approval";
-  const actions = useActions(
-    { host, status: status === "waiting_approval" ? "proposed" : undefined },
-    legacyApplies,
-  );
 
   const pages = operations.data?.pages;
   const operationItems = useMemo(() => pages?.flatMap((page) => page.items) ?? [], [pages]);
-  const legacyItems = actions.data?.items;
   const rows = useMemo(
-    () =>
-      mergeRows({
-        operations: operationItems,
-        legacy: legacyApplies ? (legacyItems ?? []).filter((action) => action.legacy) : [],
-        hostNames,
-        moreOperations: operations.hasNextPage,
-        moreLegacy: Boolean(actions.data?.next_cursor),
-      }),
-    [operationItems, legacyItems, legacyApplies, hostNames, operations.hasNextPage, actions.data],
+    (): OperationRow[] =>
+      operationItems.map((operation) => ({
+        operation,
+        hosts: operation.hosts.map((id) => hostNames.get(id) ?? id),
+      })),
+    [operationItems, hostNames],
   );
 
   const choose = (value: ChipValue) => {
@@ -78,7 +65,6 @@ export function OperationsPage() {
     }
     setParams(next, { replace: true });
   };
-  const legacyLoading = legacyApplies && actions.isPending;
 
   return (
     <VisibilityPage page="operations">
@@ -91,19 +77,6 @@ export function OperationsPage() {
         <Visible category="P1" id="operations.filters">
           <FilterChips label="Status" options={CHIPS} value={status} onChange={choose} />
         </Visible>
-        {legacyApplies && actions.isError && (
-          <Visible category="P0" id="operations.state">
-            <InlineMessage
-              tone="warning"
-              title="Could not load classic actions"
-              action={
-                <Button size="sm" onClick={() => void actions.refetch()}>
-                  Retry
-                </Button>
-              }
-            />
-          </Visible>
-        )}
         <Visible category="P0" id="operations.state">
           <QueryBoundary
             query={operations}
@@ -111,18 +84,13 @@ export function OperationsPage() {
             loading={<Skeleton shape="rows" count={6} />}
           >
             {() =>
-              rows.length === 0 && legacyLoading ? (
-                <Skeleton shape="rows" count={6} />
-              ) : rows.length === 0 ? (
+              rows.length === 0 ? (
                 <EmptyState
                   icon="play"
                   title={status === "all" ? "No operations yet" : "No operations in this state"}
                   action={<Link to="/approvals">Go to Approvals</Link>}
                 >
-                  <p>
-                    With orchestration on, each new incident is investigated as an operation.
-                    Classic approvals stay on the Approvals page.
-                  </p>
+                  <p>With orchestration on, each new incident is investigated as an operation.</p>
                 </EmptyState>
               ) : (
                 <Stack gap={3}>

@@ -1,4 +1,3 @@
-import type { Action } from "../../api/types";
 import { Text } from "../../components";
 import styles from "./approvals.module.css";
 
@@ -6,7 +5,7 @@ import styles from "./approvals.module.css";
  * What an action would run with, as `key = value` lines in mono, so a person sees the exact
  * arguments before approving. A skill without arguments says so instead of showing nothing.
  */
-export function ActionArgs({ args }: { args: Action["args"] }) {
+export function ActionArgs({ args }: { args: Readonly<Record<string, string>> }) {
   const entries = Object.entries(args);
   if (entries.length === 0) {
     return (

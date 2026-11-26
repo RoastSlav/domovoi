@@ -143,8 +143,8 @@ describe("attention page", () => {
     open("/attention?host=nas");
 
     await screen.findByText("Nothing needs you");
-    const asked = calls.filter((call) => /\/(incidents|actions|operations)$/.test(call.route));
-    expect(asked.length).toBeGreaterThanOrEqual(6);
+    const asked = calls.filter((call) => /\/(incidents|operations)$/.test(call.route));
+    expect(asked.length).toBeGreaterThanOrEqual(4);
     for (const call of asked) {
       expect(call.init.params?.query, call.route).toMatchObject({ host: "nas" });
     }

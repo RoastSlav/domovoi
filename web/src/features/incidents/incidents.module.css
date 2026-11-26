@@ -53,10 +53,9 @@
 }
 
 /*
- * One column on a phone, in the order of the `data-slot`s below: what is going on, what
- * waits for a decision, the evidence, what is running, steps by hand, earlier actions,
- * details, chat, tools, timeline. `.main` and `.side` disappear (display: contents) so their
- * slots sort together; 24 px between slots.
+ * One column on a phone, in the order of the `data-slot`s below: what is going on, the
+ * operations, the evidence, steps by hand, details, chat, tools, timeline. `.main` and
+ * `.side` disappear (display: contents) so their slots sort together; 24 px between slots.
  */
 .detail {
   display: flex;
@@ -90,24 +89,12 @@
   order: 2;
 }
 
-.slot[data-slot="waiting"] {
-  order: 2;
-}
-
 .slot[data-slot="evidence"] {
   order: 3;
 }
 
-.slot[data-slot="progress"] {
-  order: 4;
-}
-
 .slot[data-slot="byhand"] {
   order: 5;
-}
-
-.slot[data-slot="earlier"] {
-  order: 6;
 }
 
 .slot[data-slot="details"] {
@@ -195,92 +182,6 @@
 .details[data-folded] {
   max-height: calc(var(--leading-base) * 7);
   overflow: hidden;
-}
-
-/* Action cards: 12 px apart. */
-.actionCards {
-  display: grid;
-  gap: var(--space-3);
-}
-
-/* Compact rows: one bordered list, a row per action or tool. */
-.list {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  list-style: none;
-}
-
-.item {
-  padding: var(--space-2) var(--space-3);
-}
-
-.item + .item {
-  border-top: 1px solid var(--color-border);
-}
-
-.actionRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--space-6);
-  font-size: var(--text-sm);
-}
-
-.actionLine {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.skill {
-  font-family: var(--font-mono);
-  font-weight: var(--weight-medium);
-}
-
-/* The arguments in full on a second line, muted mono, wrapping. */
-.argsLine {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--leading-xs);
-  overflow-wrap: anywhere;
-}
-
-.rowWhen {
-  display: inline-flex;
-  min-width: 3.5rem;
-  justify-content: flex-end;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.rowNote,
-.rowWarning,
-.rowFailure {
-  margin: 0;
-  font-size: var(--text-xs);
-  line-height: var(--leading-xs);
-}
-
-.rowNote {
-  color: var(--color-text-muted);
-}
-
-.rowWarning {
-  color: var(--tone-warning-fg);
-  overflow-wrap: anywhere;
-}
-
-.rowFailure {
-  color: var(--tone-danger-fg);
-  overflow-wrap: anywhere;
 }
 
 /* Tools: 28 px rows, name and calls; failures only when there are some. */

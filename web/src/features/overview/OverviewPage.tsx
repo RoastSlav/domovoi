@@ -114,7 +114,7 @@ function HostsSection({
 function NeedsYou({ host }: { host: string | undefined }) {
   const state = useAttentionSources(host);
   const rows = state.items.filter((item) => item.kind !== "approval").slice(0, PREVIEW_ROWS);
-  const approvals = state.inputs.waitingApproval.length + state.inputs.proposed.length;
+  const approvals = state.inputs.waitingApproval.length;
   return (
     <Stack gap={3}>
       <SourceFailures failed={state.failed} />
@@ -135,8 +135,8 @@ function NeedsYou({ host }: { host: string | undefined }) {
 /** The approval cards, decided in place; the attention centre has the rest. */
 function Approvals({ host }: { host: string | undefined }) {
   const state = useAttentionSources(host);
-  const { waitingApproval, proposed, hostNames } = state.inputs;
-  const total = waitingApproval.length + proposed.length;
+  const { waitingApproval, hostNames } = state.inputs;
+  const total = waitingApproval.length;
   const limit = 3;
   if (total === 0) {
     return state.allLoaded ? (
@@ -149,7 +149,6 @@ function Approvals({ host }: { host: string | undefined }) {
     <Stack gap={3}>
       <ApprovalGroup
         operations={waitingApproval}
-        actions={proposed}
         hostNames={hostNames}
         limit={limit}
         emphasis="secondary"

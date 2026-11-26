@@ -24,10 +24,6 @@ export type Turn = Schemas["TurnDto"];
 export type Report = Schemas["ReportDto"];
 /** How the latest triage run went. */
 export type TriageState = Schemas["TriageStateDto"];
-/** A proposed or finished action. */
-export type Action = Schemas["ActionDto"];
-/** One page of actions. */
-export type ActionPage = Schemas["ActionPage"];
 /** The counts the navigation shows: incidents, approvals and offline hosts. */
 export type Overview = Schemas["OverviewDto"];
 /** A host and whether its agent is connected. */

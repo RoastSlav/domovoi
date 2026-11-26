@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { OperationTrace, TraceStep } from "../../api/operationTrace";
-import type { Action, Execution, OperationSummary } from "../../api/types";
+import type { Execution, OperationSummary } from "../../api/types";
 import failedVerification from "../../test/fixtures/operation-trace/failed-verification-new-cycle.json";
 import outcomeUnknown from "../../test/fixtures/operation-trace/outcome-unknown-paused.json";
 import { operationBanner } from "./banner";
 import { formatBudget, fromApiLimit, limitFor, toApiLimit } from "./budget";
-import { mergeRows } from "./operationRows";
 import {
   awaitingExecutions,
   buildTree,
@@ -29,87 +28,9 @@ function step(id: string, over: Partial<TraceStep> = {}): TraceStep {
   };
 }
 
-function summary(id: string, updated_at: string): OperationSummary {
-  return {
-    id,
-    kind: "investigate",
-    goal: `goal ${id}`,
-    status: "running",
-    waiting_for: [],
-    cycle: 0,
-    incidents: [],
-    hosts: ["host-nas"],
-    created_at: updated_at,
-    updated_at,
-  };
-}
-
-function action(id: string, updated_at: string): Action {
-  return {
-    id,
-    skill: "restart_container",
-    host_id: "host-nas",
-    incident_id: `inc-${id}`,
-    status: "proposed",
-    legacy: true,
-    updated_at,
-    created_at: updated_at,
-  } as unknown as Action;
-}
-
 function execution(over: Partial<Execution> = {}): Execution {
   return { step: "s", host_id: "host-nas", state: "awaiting_approval", ...over } as Execution;
 }
-
-describe("merging rows", () => {
-  it("merge_lists_operations_and_legacy_actions_newest_first", () => {
-    const rows = mergeRows({
-      operations: [summary("o1", "2026-01-03T00:00:00Z"), summary("o2", "2026-01-01T00:00:00Z")],
-      legacy: [action("a1", "2026-01-02T00:00:00Z"), action("a2", "2026-01-03T00:00:00Z")],
-      hostNames: names,
-      moreOperations: false,
-      moreLegacy: false,
-    });
-    expect(rows.map((row) => row.id)).toEqual(["o1", "a2", "a1", "o2"]);
-  });
-
-  it("merge_hides_rows_older_than_the_oldest_loaded_row_of_a_source_with_more_pages", () => {
-    const rows = mergeRows({
-      operations: [summary("o1", "2026-01-05T00:00:00Z"), summary("o2", "2026-01-03T00:00:00Z")],
-      legacy: [action("a1", "2026-01-04T00:00:00Z"), action("a2", "2026-01-01T00:00:00Z")],
-      hostNames: names,
-      moreOperations: true,
-      moreLegacy: false,
-    });
-    expect(rows.map((row) => row.id)).toEqual(["o1", "a1", "o2"]);
-  });
-
-  it("merge_shows_everything_when_both_sources_are_complete", () => {
-    const rows = mergeRows({
-      operations: [summary("o1", "2026-01-05T00:00:00Z")],
-      legacy: [action("a2", "2026-01-01T00:00:00Z")],
-      hostNames: names,
-      moreOperations: false,
-      moreLegacy: false,
-    });
-    expect(rows).toHaveLength(2);
-  });
-
-  it("merge_marks_legacy_rows_and_points_them_at_their_incident", () => {
-    const [row] = mergeRows({
-      operations: [],
-      legacy: [action("a1", "2026-01-01T00:00:00Z")],
-      hostNames: names,
-      moreOperations: false,
-      moreLegacy: false,
-    });
-    expect(row).toMatchObject({
-      kind: "legacy",
-      href: "/incidents/inc-a1",
-      goal: "restart_container on nas",
-    });
-  });
-});
 
 describe("banner", () => {
   const trace = outcomeUnknown as unknown as OperationTrace;
