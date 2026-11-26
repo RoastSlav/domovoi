@@ -7,7 +7,7 @@
 //! into one read-only view, the `CapabilityRegistry` port the engine and the API consume.
 //!
 //! The registry never evaluates policy, never approves and never dispatches: it answers
-//! "is this contract here, and enabled" only (RW-10). Enforcing enablement at the final
+//! "is this contract here, and enabled" only. Enforcing enablement at the final
 //! boundary stays with the engine (`collect_evidence`, `execute`), which asks
 //! [`Enablement::is_disabled`] through the registry.
 

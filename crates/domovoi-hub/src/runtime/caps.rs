@@ -399,7 +399,7 @@ pub fn contain_caps(link: Arc<dyn AgentLink>) -> ContainCaps {
 }
 
 /// The capability registry is the one place the compiled contracts, the agent's catalogue, hub
-/// enablement, the skill floors and the ceiling meet (RW-10). The engine gets it beside the narrow
+/// enablement, the skill floors and the ceiling meet. The engine gets it beside the narrow
 /// capabilities, never the link itself (ADR 0023).
 pub(super) async fn registry(
     link: &Arc<dyn AgentLink>,

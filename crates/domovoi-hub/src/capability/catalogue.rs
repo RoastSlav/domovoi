@@ -3,7 +3,7 @@
 //! One walk asks the agent for pages of ids and versions until its cursor ends, under one
 //! deadline and one page bound, and then decides how much of the list it has proved. Nothing
 //! here understands a contract: a page says which implementations exist, never what they may
-//! do (RW-07). An incomplete walk is reported as an incomplete walk, so a contract missing
+//! do. An incomplete walk is reported as an incomplete walk, so a contract missing
 //! from it is never read as missing from the host.
 
 use std::collections::BTreeMap;

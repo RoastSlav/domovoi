@@ -89,7 +89,7 @@ pub(super) const MAX_CATALOG_PAGE: u32 = 100;
 /// One wire entry as the core type, or why its id or version is unreadable.
 ///
 /// The descriptor is ignored on purpose: it is opaque at the wire layer, and deriving a
-/// contract from it would let an agent define its own authority (RW-07).
+/// contract from it would let an agent define its own authority.
 pub(super) fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, String> {
     let contract = ContractId::parse(&entry.contract)
         .map_err(|err| format!("{:?}: {}", entry.contract, err))?;
