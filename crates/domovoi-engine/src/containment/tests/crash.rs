@@ -68,3 +68,32 @@ async fn a_block_survives_a_crash_at_every_commit_and_is_never_applied_twice() {
         }
     }
 }
+
+#[tokio::test]
+async fn crash_between_applying_commit_and_send_leaves_not_run() {
+    use domovoi_core::ports::ActionAnswer;
+    let (world, crashing) = World::crashing().await;
+    world.verify();
+    // The process dies right after the `Applying` row is committed, before the frame goes out.
+    crashing.arm(CrashPlan {
+        at_commit: 1,
+        point: CrashPoint::AfterCommit,
+    });
+    let (authorized, prepared, session, epoch) =
+        world.step("198.51.100.0/24", 600, Authority::Human).await;
+    let id: ExecutionId = authorized.execution().execution;
+    execute_containment(world.driver.deps(), &authorized, &prepared, session, epoch).await;
+    assert!(crashing.crashed());
+    crashing.restart();
+    assert_eq!(world.block(id).await.phase, BlockPhase::Applying);
+    assert!(world.relay.dispatches().is_empty(), "nothing was sent");
+
+    // On the next hello the agent's journal has never heard of the execution: the phase did not
+    // run, so the block is not run, and nothing is sent to make up for it.
+    world
+        .link
+        .answer(world.host, id.as_action(), ActionAnswer::NotFound);
+    world.driver.reconcile_host(world.host).await;
+    assert_eq!(world.block(id).await.phase, BlockPhase::NotRun);
+    assert!(world.relay.dispatches().is_empty());
+}

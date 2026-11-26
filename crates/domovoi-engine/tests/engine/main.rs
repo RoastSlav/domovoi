@@ -20,6 +20,8 @@ mod policy_conditions;
 #[cfg(test)]
 mod policy_containment;
 #[cfg(test)]
+mod policy_containment_ceiling;
+#[cfg(test)]
 mod policy_fixtures;
 #[cfg(test)]
 mod policy_limits;

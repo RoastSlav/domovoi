@@ -342,3 +342,61 @@ async fn audit_rows_exist_for_every_phase_and_hold_no_secret() {
         assert_eq!(row.subject, format!("host:{}", world.host));
     }
 }
+
+#[tokio::test]
+async fn confirm_not_sent_in_time_rolls_back_or_expires() {
+    // The window is spent while the session lives: the hub removes the block itself.
+    let alive = World::new().await;
+    alive.verify();
+    alive.relay.queue_result(ok(&[]));
+    alive.relay.queue_result(ok(&[]));
+    spend_window_on_applied(&alive, false);
+    let (_end, id) = run(&alive, "198.51.100.0/24", Authority::Human).await;
+    assert_eq!(alive.block(id).await.phase, BlockPhase::RolledBack);
+    assert!(
+        !alive
+            .relay
+            .events()
+            .contains(&"dispatch:confirm".to_owned())
+    );
+
+    // The window is spent and the session is gone: the kernel's own 30 s removes it.
+    let gone = World::new().await;
+    gone.verify();
+    gone.relay.queue_result(ok(&[]));
+    spend_window_on_applied(&gone, true);
+    let (_end, id) = run(&gone, "198.51.100.0/24", Authority::Human).await;
+    assert_eq!(gone.block(id).await.phase, BlockPhase::Expired);
+    assert_eq!(gone.relay.events(), ["dispatch:apply", "result"]);
+}
+
+#[tokio::test]
+async fn confirm_and_rollback_use_the_block_of_the_apply() {
+    let world = World::new().await;
+    world.verify();
+    happy(&world);
+    let (_end, id) = run(&world, "198.51.100.0/24", Authority::Human).await;
+    world.relay.queue_result(ok(&[]));
+    world.driver.release(id).await.unwrap();
+    let sent = world.relay.dispatches();
+    assert_eq!(sent.len(), 3);
+    // The apply names itself; the other two name the apply, and have execution ids of their own.
+    assert_eq!(sent[0].execution(), id);
+    assert_eq!(sent[0].call().spec().unwrap().block, id);
+    for later in &sent[1..] {
+        assert_ne!(later.execution(), id);
+        assert_eq!(later.call().spec().unwrap().block, id);
+        assert_eq!(
+            later.call().spec().unwrap().net,
+            sent[0].call().spec().unwrap().net
+        );
+        assert_eq!(
+            later.call().spec().unwrap().ttl,
+            sent[0].call().spec().unwrap().ttl
+        );
+    }
+    // The stored block records the ids of the phases it was driven through.
+    let row = world.block(id).await;
+    assert_eq!(row.confirm_execution, Some(sent[1].execution()));
+    assert_eq!(row.rollback_execution, Some(sent[2].execution()));
+}

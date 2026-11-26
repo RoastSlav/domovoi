@@ -2187,3 +2187,85 @@ fn jobs_never_come_from_the_model_or_chat() {
         }
     }
 }
+
+/// No tool, chat command or model-facing module reaches the containment driver or its relay: a
+/// block exists only after a person approved the step (or a permit on a verified, drilled host),
+/// and the model's catalogues are closed lists with nothing that blocks anything.
+#[test]
+fn model_cannot_trigger_containment() {
+    // The catalogues: closed, and none of the names is about firewalls or blocking.
+    assert_eq!(MetaTool::ALL.len(), 7);
+    assert_eq!(ReadTool::ALL.len(), 11);
+    let names: Vec<&str> = MetaTool::ALL
+        .iter()
+        .map(MetaTool::name)
+        .chain(ReadTool::ALL.iter().map(ReadTool::name))
+        .collect();
+    for name in &names {
+        for word in ["firewall", "contain", "block", "nft", "ipnet"] {
+            assert!(!name.contains(word), "tool {name} mentions {word}");
+        }
+    }
+
+    // The sources the model and the chat reach: none names the driver, the relay or the closed
+    // call type, nor the hub's containment service.
+    const WORDS: [&str; 7] = [
+        "ContainRelay",
+        "ContainDispatch",
+        "ContainCall",
+        "ContainmentDriver",
+        "ContainmentCommands",
+        "execute_containment",
+        "AuthorizedContainment",
+    ];
+    let mut scanned: Vec<(String, String)> = model_facing_sources();
+    scanned.extend(
+        crate_sources("domovoi-engine")
+            .into_iter()
+            .filter(|(rel, _)| {
+                rel.starts_with("crates/domovoi-engine/src/triage/")
+                    || rel.starts_with("crates/domovoi-engine/src/conversations/")
+            }),
+    );
+    scanned.extend(crate_sources("domovoi-llm"));
+    scanned.extend(
+        crate_sources("domovoi-core")
+            .into_iter()
+            .filter(|(rel, _)| {
+                (rel.starts_with("crates/domovoi-core/src/meta/")
+                    || rel.starts_with("crates/domovoi-core/src/triage/"))
+                    && !rel.ends_with("/tests.rs")
+            }),
+    );
+    let chat: Vec<_> = crate_sources("domovoi-hub")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-hub/src/auth/interactions/"))
+        .collect();
+    assert!(
+        chat.len() >= 3,
+        "the scan found only {} chat sources",
+        chat.len()
+    );
+    scanned.extend(chat);
+    scanned.extend(crate_sources("domovoi-chat"));
+    assert!(
+        scanned.len() > 20,
+        "the scan found only {} sources",
+        scanned.len()
+    );
+    // The plan validator may read the pure limits a block's arguments are checked against; it
+    // may not name the driver, the relay or the call type.
+    let reached = forbidden_in(
+        &scanned,
+        &WORDS,
+        &[
+            "containment::driver",
+            "containment::phases",
+            "containment::run",
+        ],
+    );
+    assert!(
+        reached.is_empty(),
+        "model-facing or chat code reaches containment: {reached:#?}"
+    );
+}
