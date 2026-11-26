@@ -101,7 +101,18 @@ pub(super) async fn logout(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     if let Some(id) = csrf::session_id(&headers) {
+        let who = state.auth.current(id).await?;
         state.auth.logout(id).await?;
+        if let Some(current) = who {
+            note(
+                &state,
+                format!("user:{}", current.user.id),
+                "auth.logout",
+                format!("user:{}", current.user.id),
+                json!({}),
+            )
+            .await;
+        }
     }
     let mut response = StatusCode::NO_CONTENT.into_response();
     if let Ok(value) = HeaderValue::from_str(&session::clear_cookie(state.auth.web().https())) {

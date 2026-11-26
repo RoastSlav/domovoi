@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use domovoi_core::{HostId, Note, NoteId};
 
+use super::audit_note::note as audit;
 use super::dto_admin::{NoteDto, NoteHitDto, NoteInput, NoteListQuery, NoteSearchQuery};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named};
@@ -95,11 +96,12 @@ pub(super) async fn list(
 )]
 pub(super) async fn create(
     State(state): State<ApiState>,
-    _auth: Authed,
+    Authed(current): Authed,
     Json(input): Json<NoteInput>,
 ) -> Result<(StatusCode, Json<NoteDto>), ApiError> {
     let note = validated(&state, NoteId::new(), input).await?;
     state.deps.notes.upsert(&note).await?;
+    audit_change(&state, &current, "note.created", &note).await;
     Ok((StatusCode::CREATED, Json(dto(&note))))
 }
 
@@ -168,7 +170,7 @@ pub(super) async fn get(
 )]
 pub(super) async fn replace(
     State(state): State<ApiState>,
-    _auth: Authed,
+    Authed(current): Authed,
     Path(id): Path<String>,
     Json(input): Json<NoteInput>,
 ) -> Result<Json<NoteDto>, ApiError> {
@@ -178,6 +180,7 @@ pub(super) async fn replace(
     }
     let note = validated(&state, id, input).await?;
     state.deps.notes.upsert(&note).await?;
+    audit_change(&state, &current, "note.updated", &note).await;
     Ok(Json(dto(&note)))
 }
 
@@ -193,9 +196,31 @@ pub(super) async fn replace(
 )]
 pub(super) async fn delete(
     State(state): State<ApiState>,
-    _auth: Authed,
+    Authed(current): Authed,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    state.deps.notes.delete(parse_id(&id)?).await?;
+    let id = parse_id(&id)?;
+    let title = state.deps.notes.get(id).await?.map(|n| n.title);
+    state.deps.notes.delete(id).await?;
+    audit(
+        &state,
+        format!("user:{}", current.user.id),
+        "note.deleted",
+        format!("note:{id}"),
+        serde_json::json!({ "title": title }),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Records who created or changed `note`: its id and title, never its body.
+async fn audit_change(state: &ApiState, current: &crate::auth::Current, kind: &str, note: &Note) {
+    audit(
+        state,
+        format!("user:{}", current.user.id),
+        kind,
+        format!("note:{}", note.id),
+        serde_json::json!({ "title": note.title }),
+    )
+    .await;
 }

@@ -8,7 +8,9 @@ use axum::extract::{Path, Query, State};
 use domovoi_core::ports::{CapabilityRegistry, LinkError};
 use domovoi_core::{DigestFact, FactValue, HostKind, HostName};
 use jiff::SignedDuration;
+use serde_json::json;
 
+use super::audit_note::note;
 use super::dto::{LogLineDto, LogsQuery};
 use super::dto_admin::{
     FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, RevokeRequest, SkillDto,
@@ -148,7 +150,7 @@ pub(super) async fn detail(
 )]
 pub(super) async fn enrollment(
     State(state): State<ApiState>,
-    _auth: Authed,
+    Authed(current): Authed,
     Path(name): Path<String>,
 ) -> Result<Json<InviteDto>, ApiError> {
     let name = HostName::parse(&name).map_err(|e| ApiError::BadRequest(e.to_string()))?;
@@ -159,6 +161,14 @@ pub(super) async fn enrollment(
         .await
         .map_err(agent_error)?;
     tracing::info!(host = %name, "enrollment invite created");
+    note(
+        &state,
+        format!("user:{}", current.user.id),
+        "host.invite_created",
+        format!("host:{name}"),
+        json!({ "expires_at": invite.expires_at.to_string() }),
+    )
+    .await;
     Ok(Json(InviteDto {
         host_id: invite.host.to_string(),
         token: invite.token.expose().to_owned(),
@@ -182,7 +192,7 @@ pub(super) async fn enrollment(
 )]
 pub(super) async fn revoke(
     State(state): State<ApiState>,
-    _auth: Authed,
+    Authed(current): Authed,
     Path(name): Path<String>,
     Json(body): Json<RevokeRequest>,
 ) -> Result<Json<RevokeDto>, ApiError> {
@@ -201,6 +211,14 @@ pub(super) async fn revoke(
         .map_err(agent_error)?;
     if revoked {
         tracing::info!(host = %host.name, "agent revoked");
+        note(
+            &state,
+            format!("user:{}", current.user.id),
+            "host.agent_revoked",
+            format!("host:{}", host.name),
+            json!({}),
+        )
+        .await;
     }
     Ok(Json(RevokeDto { revoked }))
 }

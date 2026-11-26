@@ -1,6 +1,6 @@
 # Audit log
 
-The audit log records who did what: approvals, actions, setting changes, the first-run setup, sign-ins and failed sign-ins (with the address, never the password), acknowledged incidents, agent enrollments and the hub's own housekeeping. The **Audit log** page in the web UI lets you read it and check it. It only reads: nothing on the page changes, approves or deletes an entry.
+The audit log records who did what: approvals, actions, setting changes, the first-run setup, sign-ins, failed sign-ins (with the address, never the password) and sign-outs, acknowledged, muted and unmuted incidents, enrollment invites, agent enrollments and revokes, changes to notes (the title, never the text), known conditions (made, edited, deleted) and the hub's own housekeeping. The **Audit log** page in the web UI lets you read it and check it. It only reads: nothing on the page changes, approves or deletes an entry.
 
 ## What the page shows
 

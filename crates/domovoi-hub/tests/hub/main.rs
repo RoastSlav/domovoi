@@ -7,6 +7,7 @@ mod agent;
 mod api_admin;
 #[cfg(test)]
 mod api_audit;
+mod api_audit_writes;
 #[cfg(test)]
 mod api_auth;
 #[cfg(test)]

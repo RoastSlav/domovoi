@@ -263,6 +263,14 @@ pub(super) async fn mute(
         .mute(&auth.caller(), parse_id(&id)?, until)
         .await
         .map_err(command)?;
+    note(
+        &state,
+        format!("user:{}", auth.0.user.id),
+        "incident.muted",
+        format!("incident:{id}"),
+        serde_json::json!({ "until": until.to_string() }),
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -288,6 +296,14 @@ pub(super) async fn unmute(
         .unmute(&auth.caller(), parse_id(&id)?)
         .await
         .map_err(command)?;
+    note(
+        &state,
+        format!("user:{}", auth.0.user.id),
+        "incident.unmuted",
+        format!("incident:{id}"),
+        serde_json::Value::Null,
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 
