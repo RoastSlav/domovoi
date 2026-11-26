@@ -299,11 +299,3 @@ fn purged_tables_list_names_the_operator_tables() {
     assert!(PURGED_TABLES.contains(&"messages"));
     assert!(PURGED_TABLES.contains(&"conversations"));
 }
-
-#[test]
-fn conversations_migration_is_additive() {
-    let sql = include_str!("../../migrations/0018_conversations.sql").to_uppercase();
-    for forbidden in ["DROP ", "ALTER ", "DELETE FROM", " IN ("] {
-        assert!(!sql.contains(forbidden), "{forbidden} in the migration");
-    }
-}

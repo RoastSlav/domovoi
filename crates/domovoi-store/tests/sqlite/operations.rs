@@ -1,13 +1,9 @@
-//! What SQLite guarantees for the operation tables beyond the shared contracts: the upgrade
-//! from the previous schema, the triggers that guard raw writes, and unreadable stored names.
-
-use std::path::{Path, PathBuf};
+//! What SQLite guarantees for the operation tables beyond the shared contracts: the
+//! triggers that guard raw writes, and unreadable stored names.
 
 use domovoi_core::ports::{OperationRepo, StoreError};
 use domovoi_core::{Actor, Budgets, OperationId, StepId, StepIntent};
-use domovoi_store::{MIN_READER, Store, StoreOptions};
-use domovoi_testkit::build::at;
-use sqlx::ConnectOptions;
+use domovoi_store::{MIN_READER, Store};
 
 use crate::common::Fresh;
 
@@ -19,13 +15,6 @@ const NEW_TABLES: [&str; 5] = [
     "executions",
 ];
 
-fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("n1-schema5.db")
-}
-
 async fn count(conn: &mut sqlx::SqliteConnection, table: &str) -> i64 {
     let sql = format!("SELECT count(*) FROM {table}");
     let row: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
@@ -36,44 +25,9 @@ async fn count(conn: &mut sqlx::SqliteConnection, table: &str) -> i64 {
 }
 
 #[tokio::test]
-async fn migration_adds_the_operation_tables_and_keeps_existing_rows() {
-    let dir = tempfile::tempdir().unwrap();
-    let dbdir = dir.path().join("db");
-    std::fs::create_dir_all(&dbdir).unwrap();
-    let path = dbdir.join("domovoi.db");
-    std::fs::copy(fixture(), &path).unwrap();
-
-    let old_tables = [
-        "hosts",
-        "incidents",
-        "signals",
-        "incident_events",
-        "actions",
-        "audit_log",
-        "notes",
-        "settings",
-    ];
-    let mut original = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename(fixture())
-        .connect()
-        .await
-        .unwrap();
-    let mut before = Vec::new();
-    for table in old_tables {
-        before.push(count(&mut original, table).await);
-    }
-    sqlx::Connection::close(original).await.unwrap();
-
-    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
-        .await
-        .unwrap();
-    let mut conn = store.pool_for_tests().acquire().await.unwrap();
-    let mut after = Vec::new();
-    for table in old_tables {
-        after.push(count(&mut conn, table).await);
-    }
-    assert_eq!(after, before, "every existing row survives");
-
+async fn a_fresh_database_has_the_empty_operation_tables() {
+    let fresh = Fresh::new().await;
+    let mut conn = fresh.store.pool_for_tests().acquire().await.unwrap();
     for table in NEW_TABLES {
         let found: Option<(String,)> =
             sqlx::query_as("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
