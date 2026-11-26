@@ -605,6 +605,7 @@ cat >"$stubs/systemctl" <<STUB
 #!/bin/sh
 echo "\$*" >>"$work/systemctl.log"
 echo "systemctl \$*" >>"$out_dir/calls.log"
+if [ "\$*" = "daemon-reload" ] && [ -e "$work/daemon-fails" ]; then echo "Failed to connect to bus" >&2; exit 1; fi
 case "\$*" in
 "is-active --quiet domovoi-hub") [ -e "$work/active" ] ;;
 "enable --now domovoi-hub" | "start domovoi-hub") touch "$work/active" ;;
@@ -890,6 +891,229 @@ check "schema: both with the flag made no token" sh -c "! grep -q 'token create'
 check "schema: both with the flag says to run again" grep -q "Run this installer again with --role both" "$work/out"
 check "schema: a flag for an agent is refused" test "$(old_rc --role agent --accept-data-reset)" = 2
 rm -f /var/lib/domovoi/hub.db
+
+# --- Uninstall and rollback with real accounts, directories and units ----------------------
+# The binary of this release answers what the installer asks of it (agent dirs, the self-test,
+# the journal, the helper's firewall cleanup) and records every call, so a real install of the
+# agent behind its privilege boundary and of the hub runs against the stub systemctl.
+release_full() { # TAG
+    tag="$1"
+    name="domovoi-$tag-$target"
+    dir="$work/srv/download/$tag"
+    mkdir -p "$dir" "$work/build/$name/examples"
+    cat >"$work/build/$name/domovoi" <<STUB
+#!/bin/sh
+echo "domovoi \$*" >>"$out_dir/calls.log"
+case "\$*" in
+"version") echo "domovoi $tag (test build)" ;;
+"agent dirs")
+    echo "skills_dir=/srv/dt-skills"
+    echo "packages_dir=/srv/dt-packages"
+    ;;
+"agent selftest --installer --record" | "agent selftest --installer") echo "ST-01 pass" ;;
+"helper nft-recreate") echo "no firewall table" ;;
+"helper init")
+    (umask 077 && : >/var/lib/domovoi-helper/state.lock)
+    ;;
+"agent journal init")
+    : >/var/lib/domovoi-agent/action-journal.json
+    : >/var/lib/domovoi-agent/action-journal.bin
+    ;;
+"hub set-password --password-stdin")
+    IFS= read -r pw
+    : >/var/lib/domovoi/hub.db
+    echo "Password set for admin."
+    ;;
+esac
+STUB
+    chmod 0755 "$work/build/$name/domovoi"
+    tar -C "$work/build" -czf "$dir/$name.tar.gz" "$name"
+    (cd "$dir" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
+}
+release_full v9.9.5
+
+# Back to a machine that never had Domovoi: every file, directory, unit and account.
+wipe_machine() {
+    rm -f /etc/systemd/system/domovoi-* /usr/local/bin/domovoi "$work/active" "$work/agent-active"
+    rm -rf /etc/systemd/system/domovoi-*.d /usr/local/share/domovoi /etc/domovoi /var/lib/domovoi \
+        /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper /srv/dt-skills /srv/dt-packages
+    rm -f /var/log/domovoi-install.log "$work/install.log"
+    for wm_account in domovoi domovoi-agent domovoi-skill; do
+        ! id "$wm_account" >/dev/null 2>&1 || userdel "$wm_account" >/dev/null 2>&1 || true
+        ! getent group "$wm_account" >/dev/null 2>&1 || groupdel "$wm_account" >/dev/null 2>&1 || true
+    done
+    : >"$work/systemctl.log"
+    calls_reset
+    touch "$work/ready"
+}
+un_install() { # ARGS...: the installer with the stubs on the path, the default log file
+    PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" "$@" >"$work/out" 2>"$work/err"
+}
+un_rc() { rc=0; un_install "$@" || rc=$?; echo "$rc"; }
+full_install() { # the agent behind its boundary first, then a hub
+    wipe_machine
+    printf '%s\n' "$journal_link" >"$work/journal.txt"
+    test "$(PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --version v9.9.5 --role agent >"$work/full.out" 2>&1 && echo 0 || echo 1)" = 0 &&
+        test "$(PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --version v9.9.5 --role hub --bind loopback --no-start >>"$work/full.out" 2>&1 && echo 0 || echo 1)" = 0
+}
+state_of() { # a listing of everything an uninstall may touch
+    find /etc/domovoi /var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper \
+        /usr/local/share/domovoi /srv/dt-skills /srv/dt-packages /etc/systemd/system -name '*domovoi*' -o -path '/srv/dt-*' 2>/dev/null | sort
+    ls -l /usr/local/bin/domovoi 2>/dev/null
+    getent passwd domovoi domovoi-agent domovoi-skill | sort
+}
+
+check "uninstall: the full install (agent behind the boundary, then the hub) succeeds" full_install
+if [ ! -e /etc/domovoi/installer-created ]; then cat "$work/full.out"; fi
+check "uninstall: the install made the three accounts" sh -c "id domovoi >/dev/null && id domovoi-agent >/dev/null && id domovoi-skill >/dev/null"
+check "uninstall: the install made the units" sh -c "test -e /etc/systemd/system/domovoi-hub.service && test -e /etc/systemd/system/domovoi-agent.service && test -e /etc/systemd/system/domovoi-helper.socket && test -e /etc/systemd/system/domovoi-skill-runner.socket"
+check "uninstall: the installer record lists the accounts" sh -c "grep -qx 'user domovoi' /etc/domovoi/installer-created && grep -qx 'user domovoi-agent' /etc/domovoi/installer-created && grep -qx 'user domovoi-skill' /etc/domovoi/installer-created"
+check "uninstall: the agent's own directories were made outside the default tree" test -d /srv/dt-skills
+mkdir -p /etc/systemd/system/domovoi-hub.service.d
+echo "[Service]" >/etc/systemd/system/domovoi-hub.service.d/override.conf
+echo "keep me" >/etc/domovoi.sentinel
+echo "keep me" >/var/lib/domovoi.sentinel
+echo "[Unit]" >/etc/systemd/system/my-own.service
+mkdir -p /etc/systemd/system/my-own.service.d
+echo "keep me" >/var/lib/domovoi-agent/identity-migration.json
+unrelated_ok() {
+    test "$(cat /etc/domovoi.sentinel)" = "keep me" && test "$(cat /var/lib/domovoi.sentinel)" = "keep me" &&
+        test -e /etc/systemd/system/my-own.service && test -d /etc/systemd/system/my-own.service.d
+}
+
+# The dry run changes nothing and lists the plan.
+state_of >"$work/state.before"
+calls_reset
+: >"$work/systemctl.log"
+check "uninstall: the dry run exits 0" test "$(un_rc --uninstall --dry-run)" = 0
+state_of >"$work/state.after"
+check "uninstall: the dry run left every path and account as it was" cmp -s "$work/state.before" "$work/state.after"
+check "uninstall: the dry run stopped nothing" sh -c "! grep -qE 'disable|stop|daemon-reload' '$work/systemctl.log'"
+check "uninstall: the dry run ran no helper cleanup" sh -c "! grep -q 'nft-recreate' '$out_dir/calls.log'"
+check "uninstall: the dry run lists the stops" grep -q "stop .*domovoi-hub.service" "$work/out"
+check "uninstall: the dry run lists the binary and the examples" sh -c "grep -q 'remove .*/usr/local/bin/domovoi' '$work/out' && grep -q 'remove .*/usr/local/share/domovoi' '$work/out'"
+check "uninstall: the dry run lists what it keeps" sh -c "grep -q 'keep .*/etc/domovoi' '$work/out' && grep -q 'keep .*/var/lib/domovoi-agent' '$work/out'"
+check "uninstall: the dry run says nothing was changed" grep -q "Dry run: nothing was changed" "$work/out"
+check "uninstall: the purge dry run lists the deletions" sh -c "sh '$installer' --uninstall --purge --dry-run 2>&1 | grep -q 'delete .*/var/lib/domovoi-agent'"
+check "uninstall: the purge dry run changed nothing" sh -c "test -e /etc/domovoi/installer-created && id domovoi-agent >/dev/null 2>&1"
+
+# --uninstall --yes: the program goes, the data stays.
+: >"$work/systemctl.log"
+check "uninstall: --uninstall --yes exits 0" test "$(un_rc --uninstall --yes)" = 0
+for unit in domovoi-agent.service domovoi-hub.service domovoi-helper.socket domovoi-skill-runner.socket; do
+    check "uninstall: $unit was stopped and disabled" grep -qx "disable --now $unit" "$work/systemctl.log"
+    check "uninstall: $unit is gone" test ! -e "/etc/systemd/system/$unit"
+done
+check "uninstall: the instance units were stopped" grep -q "^stop domovoi-skill-runner@\*.service" "$work/systemctl.log"
+check "uninstall: systemd reloaded" grep -qx "daemon-reload" "$work/systemctl.log"
+check "uninstall: the helper's firewall table was cleaned up" grep -qx "domovoi helper nft-recreate" "$out_dir/calls.log"
+check "uninstall: the unit templates are gone" sh -c "test ! -e '/etc/systemd/system/domovoi-skill-runner@.service' && test ! -e '/etc/systemd/system/domovoi-helper@.service'"
+check "uninstall: the binary is gone" test ! -e /usr/local/bin/domovoi
+check "uninstall: the examples directory is gone" test ! -e /usr/local/share/domovoi
+check "uninstall: the configuration is kept" test -f /etc/domovoi/installer-created
+check "uninstall: the data directories are kept" sh -c "test -d /var/lib/domovoi && test -d /var/lib/domovoi-agent && test -d /var/lib/domovoi-packages && test -d /var/lib/domovoi-helper"
+check "uninstall: the skills directory is kept" test -d /etc/domovoi/skills
+check "uninstall: the directories outside the tree are kept" sh -c "test -d /srv/dt-skills && test -d /srv/dt-packages"
+check "uninstall: the identity-migration record is kept" test -f /var/lib/domovoi-agent/identity-migration.json
+check "uninstall: the accounts are kept" sh -c "id domovoi >/dev/null && id domovoi-agent >/dev/null && id domovoi-skill >/dev/null"
+check "uninstall: the drop-in is kept without --purge" test -f /etc/systemd/system/domovoi-hub.service.d/override.conf
+check "uninstall: unrelated files are untouched" unrelated_ok
+check "uninstall: the summary names what was kept" sh -c "grep -q 'kept on purpose' '$work/out' && grep -q '/etc/domovoi' '$work/out' && grep -q '/var/lib/domovoi-agent' '$work/out' && grep -q 'account domovoi-agent' '$work/out' && grep -q 'account domovoi-skill' '$work/out'"
+check "uninstall: the summary says --purge deletes what was kept" grep -q -- "--purge deletes" "$work/out"
+check "uninstall: a second run finds nothing to remove and exits 10" test "$(un_rc --uninstall --yes)" = 10
+check "uninstall: that run says the data and accounts are still there" grep -q "nothing to uninstall.*still there" "$work/err"
+
+# --purge: the data, the configuration, the drop-ins, the log and the accounts go too.
+# The program is installed again over the kept data and accounts, and the default log is used.
+printf '%s\n' "$journal_link" >"$work/journal.txt"
+check "uninstall: a hub installs again over the kept data" test "$(un_rc --version v9.9.5 --role hub --bind loopback --no-start)" = 0
+echo "x" >/var/log/domovoi-install.log
+PATH="$stubs:$PATH" env -u DOMOVOI_INSTALL_LOG sh "$installer" --uninstall --purge --yes --json >"$work/json.out" 2>"$work/err" || true
+check "uninstall: the json purge result is valid" check_json "$work/json.out"
+check "uninstall: the json result says uninstall and purge" test "$(json_field "$work/json.out" '(r["mode"], r["purge"], r["rolled_back"])')" = "('uninstall', True, False)"
+check "uninstall: the json result lists the removed paths" test "$(json_field "$work/json.out" '("/usr/local/bin/domovoi" in r["removed"], "/var/lib/domovoi-agent" in r["removed"], "/etc/domovoi" in r["removed"])')" = "(True, True, True)"
+check "uninstall: the json result lists the removed accounts" test "$(json_field "$work/json.out" '("account domovoi-skill" in r["removed"])')" = "True"
+check "uninstall: the json result names the binary path" test "$(json_field "$work/json.out" 'r["paths"]["binary"]')" = "/usr/local/bin/domovoi"
+check "uninstall: the json purge ran only JSON on standard output" sh -c "! grep -v '^{' '$work/json.out'"
+check "uninstall: purge removed /etc/domovoi" test ! -e /etc/domovoi
+for path in /var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper /srv/dt-skills /srv/dt-packages \
+    /etc/systemd/system/domovoi-hub.service.d /var/log/domovoi-install.log /usr/local/bin/domovoi; do
+    check "uninstall: purge removed $path" test ! -e "$path"
+done
+check "uninstall: purge removed the accounts and their groups the installer made" \
+    sh -c "! id domovoi >/dev/null 2>&1 && ! id domovoi-agent >/dev/null 2>&1 && ! id domovoi-skill >/dev/null 2>&1 && ! getent group domovoi >/dev/null && ! getent group domovoi-agent >/dev/null && ! getent group domovoi-skill >/dev/null"
+check "uninstall: purge left the sibling of /etc/domovoi alone" unrelated_ok
+check "uninstall: purge left no unit of Domovoi" sh -c "! ls /etc/systemd/system | grep -q '^domovoi'"
+check "uninstall: a clean machine exits 10 and says nothing is installed" test "$(un_rc --uninstall --yes)" = 10
+check "uninstall: that message says nothing was found" grep -q "nothing to uninstall: no Domovoi installation was found" "$work/err"
+check "uninstall: a clean machine json result is a failure with exit 10" sh -c "PATH='$stubs:'\"\$PATH\" DOMOVOI_INSTALL_LOG='$work/install.log' sh '$installer' --uninstall --yes --json 2>/dev/null | tail -n 1 | grep -q '\"ok\":false,\"exit_code\":10'"
+rm -f /etc/domovoi.sentinel /var/lib/domovoi.sentinel /etc/systemd/system/my-own.service
+rmdir /etc/systemd/system/my-own.service.d
+
+# Arguments that need root to see their effect.
+check "uninstall: --purge without --uninstall exits 2" test "$(un_rc --role hub --purge)" = 2
+check "uninstall: --purge without --uninstall says what it goes with" grep -q -- "--purge goes with --uninstall" "$work/err"
+if ! sh -c ': </dev/tty' 2>/dev/null; then
+    wipe_machine
+    check "uninstall: a machine for the purge confirmation installs" test "$(un_rc --version v9.9.5 --role hub --bind loopback --no-start)" = 0
+    check "uninstall: --purge without --yes and without a terminal exits 2" test "$(un_rc --uninstall --purge)" = 2
+    check "uninstall: that refusal says to pass --yes" grep -q "pass --yes" "$work/err"
+    check "uninstall: the refused purge deleted nothing" sh -c "test -d /etc/domovoi && test -x /usr/local/bin/domovoi && id domovoi >/dev/null"
+fi
+
+# A custom prefix: that prefix's binary and examples go, and the default prefix is not looked at.
+wipe_machine
+check "uninstall: a hub installs under a custom prefix" test "$(un_rc --version v9.9.5 --role hub --bind loopback --no-start --prefix /opt/dt-alt)" = 0
+check "uninstall: the custom binary is there" test -x /opt/dt-alt/bin/domovoi
+check "uninstall: the custom prefix dry run names its binary" sh -c "sh '$installer' --uninstall --dry-run --prefix /opt/dt-alt 2>&1 | grep -q '/opt/dt-alt/bin/domovoi'"
+check "uninstall: the custom prefix uninstall exits 0" test "$(un_rc --uninstall --yes --prefix /opt/dt-alt)" = 0
+check "uninstall: the custom binary is gone" test ! -e /opt/dt-alt/bin/domovoi
+check "uninstall: the custom examples are gone" test ! -e /opt/dt-alt/share/domovoi
+check "uninstall: the hub unit is gone" test ! -e /etc/systemd/system/domovoi-hub.service
+check "uninstall: the data stays" test -d /var/lib/domovoi
+rm -rf /opt/dt-alt
+
+# A fresh install that fails before the first service starts is rolled back, accounts included.
+wipe_machine
+printf '%s\n' "tiny-pw" >"$adminpw"
+chmod 0600 "$adminpw"
+check "rollback: a hub with a rejected admin password exits 40" \
+    test "$(un_rc --version v9.9.2 --role hub --bind loopback --admin-password-file "$adminpw")" = 40
+check "rollback: it says it rolled back" grep -q "^Rolled back:" "$work/out"
+check "rollback: the binary is gone" test ! -e /usr/local/bin/domovoi
+check "rollback: the examples are gone" test ! -e /usr/local/share/domovoi
+check "rollback: the user and its group are gone" sh -c "! id domovoi >/dev/null 2>&1 && ! getent group domovoi >/dev/null"
+check "rollback: the directories are gone" sh -c "test ! -e /etc/domovoi && test ! -e /var/lib/domovoi"
+check "rollback: the unit is gone" test ! -e /etc/systemd/system/domovoi-hub.service
+check "rollback: nothing was started" sh -c "! grep -qE 'enable --now|start' '$work/systemctl.log'"
+check "rollback: the list names the user, the group and the directories" sh -c "grep -qx '  user domovoi' '$work/out' && grep -qx '  group domovoi' '$work/out' && grep -qx '  /var/lib/domovoi' '$work/out'"
+check "rollback: a clean machine is left, so an uninstall finds nothing" test "$(un_rc --uninstall --yes)" = 10
+# --keep-on-failure leaves it all for debugging.
+wipe_machine
+touch "$work/daemon-fails"
+check "rollback: a hub whose units cannot be loaded exits 40" test "$(un_rc --version v9.9.2 --role hub --bind loopback)" = 40
+check "rollback: the unit that was placed is removed again" test ! -e /etc/systemd/system/domovoi-hub.service
+check "rollback: that run removed the user and the directories too" \
+    sh -c "grep -q '^Rolled back:' '$work/out' && ! id domovoi >/dev/null 2>&1 && test ! -e /etc/domovoi && test ! -e /var/lib/domovoi && test ! -e /usr/local/bin/domovoi"
+check "rollback: the list names the unit" grep -qx "  /etc/systemd/system/domovoi-hub.service" "$work/out"
+wipe_machine
+check "rollback: --keep-on-failure still exits 40" \
+    test "$(un_rc --version v9.9.2 --role hub --bind loopback --keep-on-failure)" = 40
+check "rollback: --keep-on-failure keeps the user, the directories and the unit" \
+    sh -c "id domovoi >/dev/null && test -d /etc/domovoi && test -d /var/lib/domovoi && test -e /etc/systemd/system/domovoi-hub.service && test -x /usr/local/bin/domovoi"
+check "rollback: --keep-on-failure says it did not undo" grep -q "Left in place (--keep-on-failure)" "$work/out"
+rm -f "$work/daemon-fails"
+# A hub that never answers after its first start is not undone: the run is past the point of undoing.
+wipe_machine
+rm -f "$work/ready"
+DOMOVOI_READY_TIMEOUT=2
+export DOMOVOI_READY_TIMEOUT
+check "rollback: a hub that never becomes ready exits 40" test "$(un_rc --version v9.9.2 --role hub --bind loopback)" = 40
+unset DOMOVOI_READY_TIMEOUT
+check "rollback: a failure after the first start is not rolled back" sh -c "! grep -q 'Rolled back' '$work/out' && id domovoi >/dev/null && test -x /usr/local/bin/domovoi"
+rm -f "$adminpw"
+wipe_machine
+mkdir -p /var/lib/domovoi
 
 hub_reset
 rm -f /etc/systemd/system/domovoi-hub.service
