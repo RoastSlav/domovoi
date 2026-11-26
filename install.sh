@@ -6,12 +6,19 @@
 # It downloads the release archive for this machine, checks its SHA-256, installs the
 # binary, and for --role hub or --role agent creates the users, directories and systemd
 # units. A hub on a systemd host is enabled and started, and the installer waits until it is
-# ready (--no-start skips that). The agent is never started; the only things started for it
-# are the helper and skill runner sockets on a systemd host, the second one only after the
-# self-test passes. For the hub it can write /etc/domovoi/hub.env (only the keys named by
-# --public-url, --bind and --agent-url) and create the admin account (--admin-password-file).
-# For an agent it writes exactly one config file, /etc/domovoi/helper.toml, and only when it
-# is absent. Running it again upgrades the binary and leaves everything else alone.
+# ready (--no-start skips that). For the hub it can write /etc/domovoi/hub.env (only the keys
+# named by --public-url, --bind and --agent-url) and create the admin account
+# (--admin-password-file).
+#
+# An agent is started only when it is enrolled in the same run: --hub, --fingerprint and a
+# token (--token-file FILE or DOMOVOI_ENROLL_TOKEN; never a flag value, so it stays out of
+# the shell history and the process list) make the installer run `domovoi agent enroll`,
+# enable the unit and wait until `domovoi agent status` shows the link connected. Without
+# them the agent is not started; the only things started for it are the helper and skill
+# runner sockets on a systemd host, the second one only after the self-test passes. For an
+# agent it writes exactly one config file, /etc/domovoi/helper.toml, and only when it is
+# absent (enrolling writes agent.toml). Running it again upgrades the binary and leaves
+# everything else alone.
 #
 # An agent on a systemd host with no hub gets three identities: the unprivileged
 # domovoi-agent account runs the agent, the group-less domovoi-skill account is for skills,
@@ -65,6 +72,20 @@ Options:
                        link is needed. An existing admin or an upgrade is never changed
   --admin-password-stdin
                        the same, reading the first line of standard input (not with curl | sh)
+  --hub wss://HOST[:PORT]
+                       with --role agent: the hub's agent server address. With --fingerprint and
+                       a token, the installer enrolls the agent, starts it and waits until it
+                       is connected. The three go together or not at all
+  --fingerprint FP     with --role agent: the hub certificate's SHA-256 as `hub token create`
+                       or the Add host dialog prints it (64 hex digits, colons allowed)
+  --token-file FILE    with --role agent: the enrollment token, read from the first line of FILE
+                       (a regular file, mode 0600 or 0400, owned by you). The token can also
+                       come from DOMOVOI_ENROLL_TOKEN. A token is never taken from a flag:
+                       --token VALUE is refused, because it would land in the shell history
+                       and the process list
+  --name NAME          with --role agent: the host's name in Domovoi, as in the Add host dialog
+                       (lower-case letters, digits and dashes; default: this machine's short
+                       host name, cleaned up)
   --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
                        confirmation that exists, the typed word of --migrate-identity, is
                        not skipped by it: that step needs a terminal by design
@@ -96,18 +117,22 @@ Environment:
                            (default: 200)
   DOMOVOI_READY_TIMEOUT    seconds to wait for the hub to answer /readyz after the start
                            (default: 60)
+  DOMOVOI_ENROLL_TOKEN     the enrollment token for --role agent (instead of --token-file);
+                           only the one `domovoi agent enroll` command sees it
+  DOMOVOI_AGENT_TIMEOUT    seconds to wait for an enrolled agent to connect (default: 30)
   NO_COLOR                set it to turn colours off
 
 Exit codes:
   0   done
-  2   usage: a bad flag or value (including a bad URL, or a password file that is not a
+  2   usage: a bad flag or value (including a bad URL, a literal --token, an incomplete
+      --hub, --fingerprint and token set, or a password or token file that is not a
       regular file with mode 0600 or 0400 owned by you)
   10  preflight: this machine cannot take the install, or an older version without
       --force-downgrade
   20  download or checksum
   30  install: the binary or its files
   40  service: users, directories, units or sockets; the hub did not become ready; the
-      admin account could not be created
+      admin account could not be created; the agent could not be enrolled or did not connect
   50  self-test failed
   1   anything else
 USAGE
@@ -142,6 +167,14 @@ bind_opt=""
 agent_url=""
 admin_pw_file=""
 admin_pw_stdin=0
+enroll_hub=""
+enroll_fp=""
+enroll_name=""
+token_file=""
+enroll_on=0
+enrolled_host=""
+agent_started=0
+agent_timeout=30
 hub_env="/etc/domovoi/hub.env"
 set_public_url=""
 set_bind=""
@@ -270,12 +303,14 @@ emit_result() { # OK CODE
     er_urls="$er_urls}"
     er_admin=false
     er_started=false
+    er_agent=false
     if [ "$admin_created" -eq 1 ]; then er_admin=true; fi
     if [ "$started" -eq 1 ]; then er_started=true; fi
-    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"urls":%s,"admin_created":%s,"started":%s,"next_steps":%s,"plan":%s,"error":"%s"}' \
+    if [ "$agent_started" -eq 1 ]; then er_agent=true; fi
+    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"urls":%s,"admin_created":%s,"started":%s,"enrolled_host":"%s","agent_started":%s,"next_steps":%s,"plan":%s,"error":"%s"}' \
         "$1" "$2" "$(json_escape "$role")" "$(json_escape "$version")" \
         "$(json_escape "${layout:-$role}")" "$(json_escape "$bin")" "$(json_escape "$er_log")" \
-        "$er_urls" "$er_admin" "$er_started" \
+        "$er_urls" "$er_admin" "$er_started" "$(json_escape "$enrolled_host")" "$er_agent" \
         "$(printf '%s\n' "$next_list" | lines_to_json)" "$er_plan" "$(json_escape "$last_error")")"
 }
 
@@ -1359,6 +1394,9 @@ preflight_local() {
             pf_add ok systemd "present"
         else
             pf_add warn systemd "not present: units are skipped and an agent keeps the root layout"
+            if [ "$enroll_on" -eq 1 ]; then
+                pf_add fail enroll "enrolling starts the agent through systemd, which this machine does not run; leave out --hub, --fingerprint and the token and enroll by hand"
+            fi
         fi
         pf_need_accounts=0
         pf_adduser_ok=0
@@ -1610,7 +1648,14 @@ build_plan() {
             plan_add note "the agent keeps the root layout on this host ($layout)"
             ;;
         esac
+        if [ "$enroll_on" -eq 1 ]; then plan_enroll; fi
     fi
+}
+
+# The enrollment lines of the plan. The token itself is never named.
+plan_enroll() {
+    plan_add enroll "domovoi agent enroll --hub $enroll_hub --fingerprint $enroll_fp --name $enroll_name (the token goes only in the environment of that command)"
+    plan_add start "systemctl enable --now domovoi-agent, then wait up to $agent_timeout s for 'agent status' to show connected"
 }
 
 # Prints the plan.
@@ -1724,22 +1769,30 @@ resolve_net() {
     esac
 }
 
+# Checks that FILE is a regular file, not a link, with mode 0600 or 0400 and owned by the
+# user running this script, and copies its first line to DEST (0600). FLAG names the option
+# in the messages. Exit 2 for anything else; the content is never printed.
+read_secret_file() { # FLAG FILE DEST
+    [ -f "$2" ] && [ ! -L "$2" ] ||
+        fail_with 2 "$1 $2 must be a regular file, not a link or a directory"
+    rs_stat="$(stat -c '%a %u' "$2" 2>/dev/null)" ||
+        fail_with 2 "cannot read the mode of $2"
+    case "$rs_stat" in
+    "600 $(id -u)" | "400 $(id -u)") ;;
+    *) fail_with 2 "$2 must have mode 0600 or 0400 and be owned by the user running this script (found mode ${rs_stat%% *}, owner uid ${rs_stat#* }); run: chmod 600 $2" ;;
+    esac
+    sed -n '1{s/\r$//;p;q}' "$2" >"$3" ||
+        fail_with 2 "cannot read $2"
+    chmod 0600 "$3"
+}
+
 # Checks the password source and copies its first line to $tmp/admin.pw (0600, never argv).
 prepare_admin_password() {
     if [ -n "$admin_pw_file" ] && [ "$admin_pw_stdin" -eq 1 ]; then
         fail_with 2 "use either --admin-password-file or --admin-password-stdin, not both"
     fi
     if [ -n "$admin_pw_file" ]; then
-        [ -f "$admin_pw_file" ] && [ ! -L "$admin_pw_file" ] ||
-            fail_with 2 "--admin-password-file $admin_pw_file must be a regular file, not a link or a directory"
-        pw_stat="$(stat -c '%a %u' "$admin_pw_file" 2>/dev/null)" ||
-            fail_with 2 "cannot read the mode of $admin_pw_file"
-        case "$pw_stat" in
-        "600 $(id -u)" | "400 $(id -u)") ;;
-        *) fail_with 2 "$admin_pw_file must have mode 0600 or 0400 and be owned by the user running this script (found mode ${pw_stat%% *}, owner uid ${pw_stat#* }); run: chmod 600 $admin_pw_file" ;;
-        esac
-        sed -n '1{s/\r$//;p;q}' "$admin_pw_file" >"$tmp/admin.pw" ||
-            fail_with 2 "cannot read $admin_pw_file"
+        read_secret_file --admin-password-file "$admin_pw_file" "$tmp/admin.pw"
     else
         if [ -t 0 ]; then
             fail_with 2 "--admin-password-stdin needs the password piped in, for example: printf '%s\\n' \"\$PW\" | sh install.sh ..."
@@ -1922,6 +1975,157 @@ find_setup_link() {
     fi
 }
 
+# --- Agent enrollment ---------------------------------------------------------------------
+# This machine's short host name as Domovoi names hosts: lower case, letters, digits and
+# dashes, at most 63 characters. Prints nothing when nothing usable is left.
+default_host_name() {
+    dh="$(hostname -s 2>/dev/null || hostname 2>/dev/null || uname -n 2>/dev/null)" || dh=""
+    printf '%s\n' "$dh" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*/-/g' -e 's/^-//' |
+        cut -c1-63 | sed -e 's/-$//' | head -n 1
+}
+
+# Checks the enrollment flags and the token, before anything is looked at or changed. Sets
+# $enroll_on to 1 when the agent is to be enrolled and started, and leaves the token in
+# $tmp/enroll.tok (0600). Exit 2 for a bad or incomplete set.
+resolve_enroll() {
+    re_env=0
+    if [ -n "${DOMOVOI_ENROLL_TOKEN:-}" ]; then re_env=1; fi
+    if [ "$role" != "agent" ]; then
+        [ -z "$enroll_hub$enroll_fp$enroll_name$token_file" ] ||
+            fail_with 2 "--hub, --fingerprint, --name and --token-file go with --role agent"
+        return 0
+    fi
+    re_given=0
+    if [ -n "$enroll_hub" ]; then re_given=$((re_given + 1)); fi
+    if [ -n "$enroll_fp" ]; then re_given=$((re_given + 1)); fi
+    if [ -n "$token_file" ] || [ "$re_env" -eq 1 ]; then re_given=$((re_given + 1)); fi
+    if [ "$re_given" -eq 0 ]; then
+        [ -z "$enroll_name" ] ||
+            fail_with 2 "--name goes with --hub, --fingerprint and a token (--token-file or DOMOVOI_ENROLL_TOKEN)"
+        return 0
+    fi
+    [ "$re_given" -eq 3 ] ||
+        fail_with 2 "enrolling needs all of --hub, --fingerprint and a token (--token-file FILE or DOMOVOI_ENROLL_TOKEN); give all three or none"
+    if [ -n "$token_file" ] && [ "$re_env" -eq 1 ]; then
+        fail_with 2 "use either --token-file or DOMOVOI_ENROLL_TOKEN, not both"
+    fi
+    [ "$service" -eq 1 ] ||
+        fail_with 2 "enrolling needs the service install; it cannot be used with --no-service"
+    [ "$start" -eq 1 ] ||
+        fail_with 2 "enrolling starts the agent, so it cannot be used with --no-start; enroll by hand with the command from the Add host dialog"
+    [ "$migrate" -eq 0 ] ||
+        fail_with 2 "--migrate-identity cannot be combined with enrolling"
+    check_url --hub "$enroll_hub" "wss" "wss://hub.lan:7421"
+    enroll_hub="${enroll_hub%/}"
+    printf '%s\n' "$enroll_fp" | grep -Eq '^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{64}$' ||
+        fail_with 2 "--fingerprint must be 64 hex digits, with or without colons, as the hub prints it"
+    if [ -z "$enroll_name" ]; then
+        enroll_name="$(default_host_name)"
+        [ -n "$enroll_name" ] ||
+            fail_with 2 "could not make a host name from this machine's name; pass --name"
+        say "Using the host name $enroll_name; pass --name to choose another."
+    fi
+    printf '%s\n' "$enroll_name" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$' ||
+        fail_with 2 "--name $enroll_name is not usable: use lower-case letters, digits and dashes, at most 63, not starting or ending with a dash"
+    if [ -n "$token_file" ]; then
+        read_secret_file --token-file "$token_file" "$tmp/enroll.tok"
+    else
+        (umask 077 && printf '%s\n' "$DOMOVOI_ENROLL_TOKEN" | sed -n '1{s/\r$//;p;q}' >"$tmp/enroll.tok")
+        chmod 0600 "$tmp/enroll.tok"
+    fi
+    # No other command of this script needs to see it.
+    unset DOMOVOI_ENROLL_TOKEN
+    printf '%s\n' "$(cat "$tmp/enroll.tok")" | grep -Eq '^[A-Za-z0-9_-]{8,512}$' ||
+        fail_with 2 "the enrollment token is empty or not in the form the hub prints (letters, digits, - and _)"
+    enroll_on=1
+}
+
+# Hides the enrollment token in text on stdin: its own value and anything after --token.
+scrub_token() {
+    st_tok=""
+    if [ -s "$tmp/enroll.tok" ]; then st_tok="$(cat "$tmp/enroll.tok")"; fi
+    if [ -n "$st_tok" ]; then
+        sed -e "s|$st_tok|REDACTED|g" -e 's/--token [^ ]*/--token REDACTED/g'
+    else
+        sed -e 's/--token [^ ]*/--token REDACTED/g'
+    fi
+}
+
+# Prints what to run by hand after a failed enrollment, as the next steps of the result.
+# PHASE is enroll (no usable token or enrolling failed) or connect.
+agent_hint() { # PHASE
+    say_always ""
+    say_always "To finish the agent by hand:"
+    case "$1" in
+    connect)
+        ns "$bin agent status"
+        ns "journalctl -u domovoi-agent -n 50 --no-pager"
+        ns "Check that $enroll_hub is reachable from this machine and that the fingerprint is the hub's own; then: systemctl restart domovoi-agent"
+        ;;
+    *)
+        ns "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here, with sudo (a token works once, so ask for a new one)"
+        ns "systemctl enable --now domovoi-agent"
+        ;;
+    esac
+}
+
+# Waits up to $agent_timeout seconds for `agent status` to say the link is connected, with a
+# progress line every five seconds. A refused protocol stops it at once; a timeout shows the
+# last journal lines (with the token hidden) and stops with exit 40.
+wait_agent_link() {
+    wl_i=0
+    say "Waiting for the agent to connect to $enroll_hub (up to $agent_timeout s)..."
+    while :; do
+        wl_st="$("$bin" agent status 2>&1 </dev/null)" || wl_st=""
+        case "$wl_st" in
+        "connected since"*)
+            say "The agent is connected: $wl_st"
+            return 0
+            ;;
+        incompatible*)
+            agent_hint connect
+            fail_with 40 "the hub refused this agent: $(printf '%s\n' "$wl_st" | head -n 1 | scrub_token)"
+            ;;
+        esac
+        if [ "$wl_i" -ge "$agent_timeout" ]; then
+            journalctl -u domovoi-agent -n 30 --no-pager 2>&1 | scrub_token >"$tmp/agent-journal.out" || true
+            show_file_err "$tmp/agent-journal.out"
+            agent_hint connect
+            fail_with 40 "the agent did not connect to $enroll_hub within $agent_timeout s; its last log lines are above. Last status: ${wl_st:-none}"
+        fi
+        sleep 1
+        wl_i=$((wl_i + 1))
+        if [ $((wl_i % 5)) -eq 0 ]; then
+            say "  still waiting for the agent ($wl_i of $agent_timeout s)"
+        fi
+    done
+}
+
+# Enrolls this machine's agent as root with the token passed only through the environment of
+# that one command, then enables and starts the unit and waits until it is connected. Needs
+# $enroll_hub, $enroll_fp, $enroll_name and the token in $tmp/enroll.tok.
+enroll_and_start_agent() {
+    es_tok="$(cat "$tmp/enroll.tok")"
+    es_rc=0
+    DOMOVOI_ENROLL_TOKEN="$es_tok" "$bin" agent enroll --hub "$enroll_hub" \
+        --fingerprint "$enroll_fp" --name "$enroll_name" >"$tmp/enroll.out" 2>&1 </dev/null || es_rc=$?
+    scrub_token <"$tmp/enroll.out" >"$tmp/enroll.shown"
+    if [ "$es_rc" -ne 0 ]; then
+        show_file_err "$tmp/enroll.shown"
+        agent_hint enroll
+        fail_with 40 "enrolling the agent failed (the message is above); the token may be used up or expired, or the fingerprint or address may be wrong"
+    fi
+    show_file "$tmp/enroll.shown"
+    enrolled_host="$enroll_name"
+    systemctl enable --now domovoi-agent || {
+        agent_hint connect
+        fail_with 40 "systemctl enable --now domovoi-agent failed; see: systemctl status domovoi-agent"
+    }
+    agent_started=1
+    say "Enabled and started domovoi-agent."
+    wait_agent_link
+}
+
 # --- Final summary ------------------------------------------------------------------------
 record_next() {
     next_list="$next_list${next_list:+
@@ -1968,6 +2172,15 @@ hub_started_summary() {
     say_always "Check on it:"
     ns "systemctl status domovoi-hub"
     ns "journalctl -u domovoi-hub -f"
+}
+# The summary of an agent that was enrolled and is connected.
+agent_started_summary() {
+    say_always "The agent is enrolled as host $enrolled_host and connected to $enroll_hub."
+    say_always ""
+    say_always "Check on it:"
+    ns "systemctl status domovoi-agent"
+    ns "journalctl -u domovoi-agent -f"
+    ns "$bin agent status"
 }
 finish_summary() {
     say_always ""
@@ -2086,6 +2299,30 @@ while [ $# -gt 0 ]; do
         admin_pw_stdin=1
         shift
         ;;
+    --hub | --fingerprint | --name | --token-file)
+        [ $# -ge 2 ] || fail "$1 needs a value"
+        case "$1" in
+        --hub) enroll_hub="$2" ;;
+        --fingerprint) enroll_fp="$2" ;;
+        --name) enroll_name="$2" ;;
+        *) token_file="$2" ;;
+        esac
+        shift 2
+        ;;
+    --hub=* | --fingerprint=* | --name=* | --token-file=*)
+        case "$1" in
+        --hub=*) enroll_hub="${1#*=}" ;;
+        --fingerprint=*) enroll_fp="${1#*=}" ;;
+        --name=*) enroll_name="${1#*=}" ;;
+        *) token_file="${1#*=}" ;;
+        esac
+        shift
+        ;;
+    --token | --token=*)
+        # The value is never read, kept or logged: a token in a flag lands in the shell
+        # history and in the process list.
+        fail_with 2 "--token is not accepted: a token on the command line stays in the shell history and the process list. Put it in a file with mode 0600 and use --token-file FILE, or set DOMOVOI_ENROLL_TOKEN"
+        ;;
     --yes)
         yes=1
         shift
@@ -2195,6 +2432,11 @@ if [ "$role" = "hub" ] && [ "$service" -eq 1 ]; then
     resolve_net
     if [ -n "$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then prepare_admin_password; fi
 fi
+resolve_enroll
+case "${DOMOVOI_AGENT_TIMEOUT:-30}" in
+"" | *[!0-9]* | 0) fail_with 2 "DOMOVOI_AGENT_TIMEOUT must be a whole number of seconds, not ${DOMOVOI_AGENT_TIMEOUT:-}" ;;
+esac
+agent_timeout="${DOMOVOI_AGENT_TIMEOUT:-30}"
 if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then have_systemd=1; fi
 
 bin_dir="$prefix/bin"
@@ -2209,6 +2451,7 @@ else
     if [ "$role" = "hub" ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
         step_total=$((step_total + 1))
     fi
+    if [ "$enroll_on" -eq 1 ]; then step_total=$((step_total + 1)); fi
 fi
 
 step preflight "Checking this machine"
@@ -2318,6 +2561,11 @@ else
         fi
         ;;
     esac
+    if [ "$enroll_on" -eq 1 ]; then
+        step enroll "Enrolling and starting the agent"
+        fail_code=40
+        enroll_and_start_agent
+    fi
 fi
 
 case "$layout" in
@@ -2333,6 +2581,11 @@ esac
 say_always ""
 if [ "$role" = "hub" ] && [ "$started" -eq 1 ]; then
     hub_started_summary
+    finish_summary
+    exit 0
+fi
+if [ "$enroll_on" -eq 1 ]; then
+    agent_started_summary
     finish_summary
     exit 0
 fi
