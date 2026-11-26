@@ -1,7 +1,15 @@
 import { useState } from "react";
 
+import { useCapabilities } from "../../api/hooks/capabilities";
 import { useSetSkillEnabled, useSkills } from "../../api/hooks/hosts";
-import { EmptyState, QueryBoundary, Skeleton, useActionFeedback } from "../../components";
+import {
+  EmptyState,
+  InlineMessage,
+  QueryBoundary,
+  Skeleton,
+  useActionFeedback,
+} from "../../components";
+import { runnerSentence } from "../capabilities/capabilityText";
 import { SkillDetail } from "./SkillDetail";
 import { SkillTable } from "./SkillTable";
 
@@ -24,8 +32,22 @@ export function SkillList({ host }: { host: string }) {
     error: "change the skill",
     undo: (_, change) => void raw.mutateAsync({ ...change, enabled: !change.enabled }),
   });
+  // The Capabilities page says why skills cannot run on a host without a skill runner; say
+  // it here too, where a person turns them on.
+  const capability = useCapabilities(host).data?.entries[0];
+  const cannotRun =
+    capability !== undefined && !capability.runner_installed && !capability.root_agent;
   return (
     <>
+      {cannotRun && (
+        <InlineMessage tone="warning" title="Skills cannot run on this host yet">
+          <p>{runnerSentence(capability)}</p>
+          <p>
+            You can still enable skills, but every run is refused until the agent has a skill
+            runner. The Capabilities page has the details.
+          </p>
+        </InlineMessage>
+      )}
       <QueryBoundary
         query={skills}
         context="load skills"
