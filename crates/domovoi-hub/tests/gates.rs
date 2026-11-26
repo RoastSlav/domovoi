@@ -1660,13 +1660,18 @@ fn attest_7_there_is_no_sticky_per_host_flag() {
         .filter(|(path, _)| path.contains("helper_trust"))
         .collect();
     texts.extend(tree("crates/domovoi-store/src/helper_trust"));
-    texts.push((
-        "migration".to_owned(),
-        std::fs::read_to_string(
-            workspace_root().join("crates/domovoi-store/migrations/0020_helper_trust.sql"),
-        )
-        .unwrap(),
-    ));
+    // The helper trust tables of the baseline migration: from `helper_keys` up to the next table.
+    let baseline = std::fs::read_to_string(
+        workspace_root().join("crates/domovoi-store/migrations/0001_init.sql"),
+    )
+    .unwrap();
+    let start = baseline
+        .find("CREATE TABLE helper_keys")
+        .expect("the baseline creates helper_keys");
+    let end = baseline[start..]
+        .find("CREATE TABLE execution_permits")
+        .map_or(baseline.len(), |at| start + at);
+    texts.push(("migration".to_owned(), baseline[start..end].to_owned()));
     for (path, text) in &texts {
         for banned in [
             "sticky",

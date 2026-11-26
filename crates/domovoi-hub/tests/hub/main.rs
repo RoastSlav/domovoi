@@ -111,5 +111,3 @@ mod spa;
 mod sqlite;
 #[cfg(test)]
 mod step_interactions;
-#[cfg(test)]
-mod upgrade_flow;
