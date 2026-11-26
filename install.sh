@@ -1159,6 +1159,16 @@ install_identities() {
 # the runner socket up, so the runner's own start checks and isolation probe report real
 # results; a failure there stops the socket again and names the check. This function stays
 # textually after the code that creates the directories and places the units.
+# Says what to do next after a failed self-test: the agent was not enrolled or started, so the
+# install would otherwise end with only the error line.
+selftest_hint() {
+    say_always ""
+    say_always "The agent was not enrolled or started. To finish by hand:"
+    say_always "  sudo $bin agent selftest --installer      # fix what the report names, then repeat"
+    say_always "  sudo $bin agent journal init"
+    say_always "  enroll with the command from the hub's web UI (Hosts, then Add host), then: sudo systemctl enable --now domovoi-agent"
+}
+
 start_sockets() {
     # The leak self-test judges the firewall write group. It takes minutes, so it starts without
     # blocking; the helper socket is ordered after it. A failure leaves the firewall group
@@ -1174,6 +1184,7 @@ start_sockets() {
         show_file_err "$tmp/selftest.out"
         systemctl disable --now domovoi-helper.socket || true
         ss_failed="$(failed_checks "$tmp/selftest.out")"
+        selftest_hint
         fail_with 50 "the self-test failed (${ss_failed:-see the report above}); the helper socket is disabled, the skill runner socket was not started and nothing else was started"
     fi
     systemctl enable --now domovoi-skill-runner.socket
@@ -1184,6 +1195,7 @@ start_sockets() {
         show_file_err "$tmp/runner-selftest.out"
         systemctl disable --now domovoi-skill-runner.socket || true
         ss_failed="$(failed_checks "$tmp/runner-selftest.out")"
+        selftest_hint
         fail_with 50 "the self-test failed with the skill runner socket up (${ss_failed:-see the report above}); the skill runner socket is disabled, so skills stay unavailable, and the helper socket keeps running"
     fi
 }
@@ -1581,6 +1593,9 @@ un_stop_services() {
             warn "could not stop and disable $us_unit"
             un_errors=$((un_errors + 1))
         fi
+        # A oneshot that failed (the helper self-test) stays "failed" after its file is gone and
+        # then trips the agent's unit.failed check; clear it with the unit.
+        systemctl reset-failed "$us_unit" >/dev/null 2>&1 || true
     done <"$tmp/un-units"
     while IFS= read -r us_unit; do
         case "$us_unit" in
@@ -1626,6 +1641,12 @@ un_remove_units() {
             warn "systemctl daemon-reload failed"
             un_errors=$((un_errors + 1))
         fi
+        while IFS= read -r ur_unit; do
+            case "$ur_unit" in
+            *@.service) continue ;;
+            esac
+            systemctl reset-failed "$ur_unit" >/dev/null 2>&1 || true
+        done <"$tmp/un-units"
     fi
 }
 
@@ -1880,6 +1901,15 @@ preflight_local() {
         pf_add ok stat "GNU stat"
     else
         pf_add fail stat "GNU stat (stat -c) is needed; BSD stat is not enough"
+    fi
+    # The helper's firewall self-test needs both tools; without them it fails and leaves a
+    # failed unit, so say so up front. Not a blocker: only the firewall group stays refused.
+    if [ "$role" != "hub" ]; then
+        for pf_tool in ip nft; do
+            if ! command -v "$pf_tool" >/dev/null 2>&1; then
+                pf_add warn "$pf_tool" "not found: the helper's firewall self-test fails without it (Debian: apt install iproute2 nftables)"
+            fi
+        done
     fi
     check_free disk-temp "$tmp"
     check_free disk-prefix "$prefix"
@@ -2331,7 +2361,8 @@ read_secret_file() { # FLAG FILE DEST
         fail_with 2 "cannot read the mode of $2"
     case "$rs_stat" in
     "600 $(id -u)" | "400 $(id -u)") ;;
-    *) fail_with 2 "$2 must have mode 0600 or 0400 and be owned by the user running this script (found mode ${rs_stat%% *}, owner uid ${rs_stat#* }); run: chmod 600 $2" ;;
+    "600 "* | "400 "*) fail_with 2 "$2 is owned by uid ${rs_stat#* }, not by the user running this script (uid $(id -u)); run: chown $(id -u) $2" ;;
+    *) fail_with 2 "$2 has mode ${rs_stat%% *}; it must be 0600 or 0400 so nobody else can read it; run: chmod 600 $2" ;;
     esac
     sed -n '1{s/\r$//;p;q}' "$2" >"$3" ||
         fail_with 2 "cannot read $2"

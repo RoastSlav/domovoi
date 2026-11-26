@@ -8286,6 +8286,16 @@
               }
             }
           },
+          "403": {
+            "description": "A CLI candidate needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "More than 10 tests a minute",
             "content": {
@@ -8388,6 +8398,16 @@
               }
             }
           },
+          "403": {
+            "description": "A CLI candidate needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "More than 10 tests a minute",
             "content": {
@@ -8449,6 +8469,16 @@
               }
             }
           },
+          "403": {
+            "description": "A CLI candidate needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "429": {
             "description": "More than 10 tests a minute",
             "content": {
@@ -8502,6 +8532,16 @@
           },
           "401": {
             "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A CLI candidate needs the password",
             "content": {
               "application/json": {
                 "schema": {
@@ -14468,7 +14508,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The draft revision the rules come from; `null` measures against the active version.",
+            "description": "What the candidate is measured against, which decides its `preview_hash`. `null` measures\nagainst the active version: the preview to publish. A draft revision measures against that\ndraft: the preview to save over it. The two hashes differ, so publish needs the `null` one.",
             "minimum": 0
           },
           "rules": {
@@ -16520,6 +16560,13 @@
           "changes": {
             "type": "object",
             "description": "The same shape as a save; a secret left as `{ \"keep\": true }` uses the stored one."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The admin's password. Required when the candidate changes a CLI model provider\n(`llm.*.cli`), because testing runs that program; saving it asks for the same."
           },
           "slot": {
             "type": [

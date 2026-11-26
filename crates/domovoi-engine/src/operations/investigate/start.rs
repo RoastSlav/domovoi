@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use domovoi_core::ports::{EffectKind, IncidentFilter, Page, Redactor};
+use domovoi_core::ports::{AggregateRef, EffectKind, EffectStatus, IncidentFilter, Page, Redactor};
 use domovoi_core::{
     Actor, BudgetLimits, Incident, IncidentStatus, OperationId, OperationKind, PinnedSubject,
     SYSTEM_OPERATIONS, StepId, StepIntent, StepKind, TriageOutcome,
@@ -101,7 +101,7 @@ impl OperationHandle {
         incident: &Incident,
         fresh: bool,
     ) -> Result<OperationId, OperationError> {
-        self.start_investigation(incident, fresh)
+        self.start_investigation(incident, fresh, false)
             .await
             .map(|(id, _)| id)
     }
@@ -118,7 +118,7 @@ impl OperationHandle {
         // Registered before the operation exists, so an outcome attached at once is not
         // missed.
         let (ticket, outcome) = runtime.waiters.register(incident.id());
-        let (id, created) = match self.start_investigation(incident, fresh).await {
+        let (id, created) = match self.start_investigation(incident, fresh, true).await {
             Ok(started) => started,
             Err(err) => {
                 runtime.waiters.forget(incident.id(), ticket);
@@ -150,10 +150,17 @@ impl OperationHandle {
     }
 
     /// Starts an investigation unless one is open; the flag says whether one was created.
+    ///
+    /// An open investigation that is only waiting out a retry (its turn was skipped or failed
+    /// and the next one is parked) is cancelled and replaced when `supersede_parked` is set,
+    /// which a person asking for a run sets. Without that, the retry's fixed due time would
+    /// answer every request with "already running" for up to an hour. The replacement runs
+    /// through the same admission limits, so a spent hourly limit skips it again.
     async fn start_investigation(
         &self,
         incident: &Incident,
         fresh: bool,
+        supersede_parked: bool,
     ) -> Result<(OperationId, bool), OperationError> {
         let runtime = self.runtime()?;
         let _one_at_a_time = runtime.start_lock.lock().await;
@@ -168,7 +175,16 @@ impl OperationHandle {
             .iter()
             .find(|op| op.kind == OperationKind::Investigate && !op.status.is_terminal())
         {
-            return Ok((open.id, false));
+            let parked = supersede_parked && self.is_parked_retry(open.id).await?;
+            if !parked {
+                return Ok((open.id, false));
+            }
+            self.cancel(
+                open.id,
+                Actor::System(SYSTEM_OPERATIONS.to_owned()),
+                "replaced by a new investigation a person asked for".to_owned(),
+            )
+            .await?;
         }
         let seed = seed_for(
             incident,
@@ -177,6 +193,27 @@ impl OperationHandle {
             &self.shared.settings.budgets,
         );
         self.create(seed).await.map(|id| (id, true))
+    }
+}
+
+impl OperationHandle {
+    /// Whether `operation` is only waiting out a retry: a skipped or failed turn scheduled a
+    /// `build_context` retry that is not due yet, and nothing has started the model call.
+    async fn is_parked_retry(&self, operation: OperationId) -> Result<bool, OperationError> {
+        let now = self.shared.deps.clock.now();
+        let pending = self
+            .shared
+            .deps
+            .effect_read
+            .effects_with_status(EffectStatus::Pending, 500)
+            .await
+            .map_err(|err| OperationError::Store(err.to_string()))?;
+        Ok(pending.iter().any(|effect| {
+            effect.aggregate == AggregateRef::operation(operation)
+                && effect.kind == EffectKind::BuildContext.as_str()
+                && effect.payload["retry"] == true
+                && effect.not_before > now
+        }))
     }
 }
 

@@ -115,6 +115,21 @@ impl IncidentService {
     }
 }
 
+/// The newest report the timeline holds, fresh or cached, even when a later triage was
+/// skipped or failed. The detail view shows it beside the later state, so an earlier answer
+/// does not vanish while a retry is pending.
+#[must_use]
+pub fn latest_report(timeline: &[IncidentTimelineEntry]) -> Option<domovoi_core::TriageReport> {
+    timeline
+        .iter()
+        .rev()
+        .filter(|e| e.kind.starts_with("triage."))
+        .find_map(|e| match serde_json::from_value(e.detail.clone()).ok()? {
+            TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. } => Some(r),
+            _ => None,
+        })
+}
+
 /// The latest triage outcome in the timeline.
 #[must_use]
 pub fn latest_triage(timeline: &[IncidentTimelineEntry]) -> Option<TriageOutcome> {

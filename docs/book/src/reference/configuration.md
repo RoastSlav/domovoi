@@ -373,7 +373,7 @@ How many mutating capability executions this agent accepts. Local and root-owned
 
 ### `[checks.<name>]`
 
-Per-check settings, keyed by check key such as `disk.usage`.
+Per-check settings, keyed by check key such as `disk.free`.
 
 | Key | Type | Meaning |
 | --- | --- | --- |

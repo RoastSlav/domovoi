@@ -26,6 +26,7 @@ pub mod notes_import;
 pub mod packages;
 
 mod audit;
+mod audit_note;
 mod auth;
 mod autonomy;
 mod capability;
@@ -58,6 +59,7 @@ pub(crate) mod profile;
 pub mod readiness;
 mod rules;
 pub(crate) mod settings;
+mod settings_skill;
 mod settings_write;
 mod snapshot;
 pub(crate) mod system;
@@ -443,7 +445,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
             host_docker::host_docker,
             host_docker::set_host_docker
         ))
-        .routes(routes!(settings_write::set_skill_enabled))
+        .routes(routes!(settings_skill::set_skill_enabled))
         .routes(routes!(system::advisories))
         .routes(routes!(system::digest_preview))
         .routes(routes!(system::digest_send))
@@ -484,6 +486,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
                 .routes(routes!(packages::import))
                 .layer(DefaultBodyLimit::max(upload_limit)),
         )
+        .layer(axum::middleware::map_response(error::json_rejections))
 }
 
 /// The OpenAPI document of [`routes()`].

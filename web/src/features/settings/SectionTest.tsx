@@ -6,6 +6,7 @@ import {
 } from "../../api/hooks/settings";
 import { Button, InlineMessage, Stack } from "../../components";
 import { TestIssues } from "./TestIssues";
+import { useCandidatePassword } from "./useCandidatePassword";
 
 const WORDS: Record<TestTarget, { button: string; worked: string; fix: string }> = {
   discord: {
@@ -42,10 +43,14 @@ export function SectionTest({
   const tester = useTestConnection(target, slot ?? "primary");
   const words = WORDS[target];
   const failed = tester.data && !tester.data.ok;
+  const step = useCandidatePassword(
+    (password) => tester.mutate({ changes: changes(), ...(password ? { password } : {}) }),
+    tester,
+  );
   return (
     <Stack gap={3}>
       <div>
-        <Button loading={tester.isPending} onClick={() => tester.mutate(changes())}>
+        <Button loading={tester.isPending} onClick={step.start}>
           {slot === "secondary" ? "Test the fallback model" : words.button}
         </Button>
       </div>
@@ -60,7 +65,8 @@ export function SectionTest({
           <p>{words.fix}</p>
         </InlineMessage>
       )}
-      <TestIssues error={tester.error} fix={words.fix} />
+      {!step.asking && <TestIssues error={tester.error} fix={words.fix} />}
+      {step.prompt}
     </Stack>
   );
 }

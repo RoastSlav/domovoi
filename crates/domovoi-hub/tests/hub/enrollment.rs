@@ -107,6 +107,19 @@ async fn enrollment_succeeds_once_and_token_cannot_be_reused() {
     assert_eq!(stored.public_key, key.verifying_key().to_bytes());
     assert_eq!(stored.host, host);
     agent.closed().await;
+    let enrolled = AuditLog::list(
+        &*hub.store,
+        &AuditFilter {
+            kind: Some("agent.enrolled".to_owned()),
+            ..AuditFilter::default()
+        },
+        &Page::first(10),
+    )
+    .await
+    .unwrap()
+    .items;
+    assert_eq!(enrolled.len(), 1, "one enrollment, one audit row");
+    assert_eq!(enrolled[0].subject, format!("host:{host}"));
 
     let mut again = FakeAgent::connect(hub.addr).await;
     let reply = pump(

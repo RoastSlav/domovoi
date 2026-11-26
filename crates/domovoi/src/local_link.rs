@@ -68,6 +68,10 @@ pub async fn run_agent(
             .map_err(|err| err.to_string())
     })
     .await?;
+    // The in-hub agent never goes through `agent enroll`, so it creates its own journal.
+    if let Some(epoch) = crate::cmd::agent::ensure_journal(&config).await? {
+        tracing::info!(epoch, "created the local agent's action journal");
+    }
     let redactor = crate::cmd::redactor(&config);
     let deps = production::deps(&config, executor, clock, redactor, Some(logs))?;
     let agent = AgentRuntime::new(config, deps)

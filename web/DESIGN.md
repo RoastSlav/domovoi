@@ -108,8 +108,10 @@ numeric columns are right-aligned in header and cell.
 
 **Focus and links.** The global focus ring is 2 px accent with a 2 px offset; never remove an
 outline. A focused input also shows the 3 px `--shadow-focus` ring and an accent border.
-Links are accent, with no underline until hover; links inside tables and lists are text
-coloured, underlined on hover. Text selection is `--color-accent-tint`. Scrollbars are thin
+Links are accent, with no underline until hover, except a link inside running text (a
+sentence in a paragraph or an empty state), which is always underlined because its colour is
+too close to the text around it; links inside tables and lists are text coloured, underlined on
+hover. Text selection is `--color-accent-tint`. Scrollbars are thin
 and use the strong border colour.
 
 ## Tones

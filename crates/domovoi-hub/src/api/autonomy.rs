@@ -159,16 +159,18 @@ pub(super) async fn resume(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     auth: Authed,
-    Json(req): Json<PasswordRequest>,
+    body: Option<Json<PasswordRequest>>,
 ) -> Result<Json<AutonomyDto>, ApiError> {
     let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    // No body at all is "no password": the answer is 403 asking for it, not a parse error.
+    let password = body.and_then(|Json(body)| body.password);
     let policy = &state.services().policy;
     policy
         .resume_autonomy(
             &auth.caller(),
             StepUp {
                 ip,
-                password: req.password.as_deref(),
+                password: password.as_deref(),
             },
         )
         .await
@@ -196,9 +198,10 @@ pub(super) async fn reset_rule(
     headers: HeaderMap,
     auth: Authed,
     Path(rule): Path<String>,
-    Json(req): Json<PasswordRequest>,
+    body: Option<Json<PasswordRequest>>,
 ) -> Result<Json<AutonomyDto>, ApiError> {
     let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    let password = body.and_then(|Json(body)| body.password);
     let policy = &state.services().policy;
     policy
         .reset_rule(
@@ -206,7 +209,7 @@ pub(super) async fn reset_rule(
             &rule,
             StepUp {
                 ip,
-                password: req.password.as_deref(),
+                password: password.as_deref(),
             },
         )
         .await

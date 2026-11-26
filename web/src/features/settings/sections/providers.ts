@@ -66,6 +66,14 @@ export function providerFields(prefix: string): FieldSpec[] {
       visibleWhen: { path: `${prefix}.kind`, values: ["anthropic", "openai_compatible", "cli"] },
     },
     {
+      path: `${prefix}.call_deadline`,
+      label: "Longest call",
+      kind: "text",
+      placeholder: "5m",
+      hint: "The longest one model call may take in total, even while it keeps streaming.",
+      visibleWhen: { path: `${prefix}.kind`, values: ["anthropic", "openai_compatible", "cli"] },
+    },
+    {
       path: `${prefix}.price.input_per_mtok_usd`,
       label: "Input price (USD per million tokens)",
       kind: "number",

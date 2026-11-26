@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { useCandidatePassword } from "../useCandidatePassword";
 import { useModelDiscovery, type Changes, type ProviderSlot } from "../../../api/hooks/settings";
 import { Button, Cluster, InlineError, Text, TextInput } from "../../../components";
 import { SettingRow } from "../SettingRow";
@@ -35,6 +36,10 @@ export function ModelField({
   const listId = useId();
   const discovery = useModelDiscovery(slot);
   const models = discovery.data ?? [];
+  const step = useCandidatePassword(
+    (password) => discovery.mutate({ changes: candidate(), ...(password ? { password } : {}) }),
+    discovery,
+  );
   return (
     <SettingRow
       label={spec.label}
@@ -62,7 +67,7 @@ export function ModelField({
           </datalist>
           {!locked && (
             <Cluster>
-              <Button loading={discovery.isPending} onClick={() => discovery.mutate(candidate())}>
+              <Button loading={discovery.isPending} onClick={step.start}>
                 Fetch models
               </Button>
               {discovery.data && (
@@ -72,7 +77,8 @@ export function ModelField({
               )}
             </Cluster>
           )}
-          <InlineError error={discovery.error} context="fetch the models" />
+          {!step.asking && <InlineError error={discovery.error} context="fetch the models" />}
+          {step.prompt}
         </>
       )}
     </SettingRow>

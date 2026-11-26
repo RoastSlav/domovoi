@@ -34,13 +34,21 @@ export type TestTarget = "discord" | "llm" | "heartbeat";
 /** Which provider a model test or model discovery uses; the default is the main one. */
 export type ProviderSlot = "primary" | "secondary";
 
+/** Candidate values for a test or a model lookup. The password is needed only when the
+ * candidate changes a CLI provider, because the test runs that program. */
+export interface Candidate {
+  changes: Changes;
+  password?: string;
+}
+
 /** Tries a connection with candidate values; `slot` picks the provider for model tests. */
 export function useTestConnection(target: TestTarget, slot?: ProviderSlot) {
   return useMutation({
-    mutationFn: (changes: Changes) => {
+    mutationFn: ({ changes, password }: Candidate) => {
       const body = {
         changes: changes as Record<string, never>,
         ...(slot ? { slot } : {}),
+        ...(password ? { password } : {}),
       };
       switch (target) {
         case "discord":
@@ -58,12 +66,13 @@ export function useTestConnection(target: TestTarget, slot?: ProviderSlot) {
  * provider to ask. */
 export function useModelDiscovery(slot?: ProviderSlot) {
   return useMutation({
-    mutationFn: async (changes: Changes) => {
+    mutationFn: async ({ changes, password }: Candidate) => {
       const result = await call<{ models: string[] }>(
         api.POST("/api/v1/settings/models", {
           body: {
             changes: changes as Record<string, never>,
             ...(slot ? { slot } : {}),
+            ...(password ? { password } : {}),
           },
         }),
       );

@@ -154,6 +154,8 @@ domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:C
 
 The fingerprint may be written with or without colons. The token can also come from `DOMOVOI_ENROLL_TOKEN`.
 
+When `state_dir` has no action journal yet, enrolling creates one and says so, so `domovoi agent run` can start straight away. An existing journal is never touched; `agent run` itself never creates one. The agent that runs inside the hub (`--with-local-agent`) creates its own the same way when it starts.
+
 When it runs as root on a host where the `domovoi-agent` account exists, it hands the files in `state_dir` over to that account after its last write and prints one line saying so. `agent.toml` stays owned by root. `domovoi agent journal init` and `reset` do the same.
 
 ### `domovoi hub agent list` and `domovoi hub agent revoke <host>`
@@ -209,7 +211,7 @@ Runs every enabled check once on this host and prints what each one saw, plus it
 
 ```sh
 domovoi check run --config /etc/domovoi/agent.toml
-domovoi check run --only disk.usage --json
+domovoi check run --only disk.free --json
 ```
 
 ### `domovoi notify test`

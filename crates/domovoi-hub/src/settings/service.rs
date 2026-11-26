@@ -7,9 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use domovoi_config::{ConfigIssue, load_hub_layered};
+use domovoi_core::User;
 use domovoi_core::ports::{AuditEvent, AuditLog, Clock, ProcessExecutor, SettingsRepo, StoreError};
-use domovoi_core::{CheckKey, Host, User};
-use domovoi_proto::messages::{CheckInfo, CheckOverride};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 use secrecy::ExposeSecret;
@@ -20,8 +19,7 @@ use super::apply::{ApplyRequest, ConfigSources, applied, restore_previous};
 use super::crypto::{CryptoError, SecretKey};
 use super::patch::{self, Change, SecretOp, is_sensitive};
 use super::stored::{
-    CONFIG, LAST_APPLY, PREVIOUS, SECRET_PREFIX, StoredDoc, StoredState, host_checks_key,
-    sealed_value, toml_to_json,
+    CONFIG, LAST_APPLY, PREVIOUS, SECRET_PREFIX, StoredDoc, StoredState, sealed_value, toml_to_json,
 };
 use crate::agent_server::AgentServer;
 use crate::auth::{AuthError, AuthState};
@@ -103,17 +101,6 @@ pub struct View {
     pub issues: Vec<ConfigIssue>,
     /// How the last apply went, if any.
     pub last_apply: Option<Value>,
-}
-
-/// A host's checks: what its agent reported and what the UI overrides.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostChecks {
-    /// Whether the agent is connected now.
-    pub connected: bool,
-    /// What the agent reported at its last handshake, while it is connected.
-    pub reported: Vec<CheckInfo>,
-    /// The overrides saved for the host.
-    pub overrides: BTreeMap<CheckKey, CheckOverride>,
 }
 
 /// What the service is built from.
@@ -203,6 +190,50 @@ impl SettingsService {
         })
     }
 
+    /// Checks the admin's password for a step-up change.
+    async fn confirm_step_up(
+        &self,
+        user: &User,
+        ip: IpAddr,
+        password: Option<&str>,
+    ) -> Result<(), SettingsError> {
+        let password = password.ok_or(SettingsError::PasswordRequired)?;
+        self.deps()
+            .auth
+            .confirm_password(ip, user.id, password)
+            .await
+            .map_err(|err| match err {
+                AuthError::LockedOut { retry_after_secs } => {
+                    SettingsError::TooMany(retry_after_secs)
+                }
+                _ => SettingsError::BadPassword,
+            })
+    }
+
+    /// Asks for the password when a connection test would run a different CLI program than
+    /// the one saved. Testing runs the candidate `llm.*.cli` command, so it needs the same
+    /// step-up as saving it; a candidate that changes nothing under `llm.*.cli` (the stored
+    /// program, or an API provider) needs none.
+    pub async fn require_cli_step_up(
+        &self,
+        user: &User,
+        ip: IpAddr,
+        patch: &Map<String, Value>,
+        password: Option<&str>,
+    ) -> Result<(), SettingsError> {
+        let stored = self.stored().await?;
+        let patched = patch::apply(&stored.doc.document, patch)
+            .map_err(|e| SettingsError::Invalid(vec![ConfigIssue::error(e.path, e.message)]))?;
+        let runs_a_program = patched.changes.iter().any(|change| {
+            let path = change.path();
+            path.starts_with("llm.") && super::step_up::path_needs_step_up(path)
+        });
+        if runs_a_program {
+            self.confirm_step_up(user, ip, password).await?;
+        }
+        Ok(())
+    }
+
     /// Saves `patch` on top of revision `base_revision` and applies it (see the module
     /// documentation of `settings` for the steps). `password` is needed when the change
     /// widens trust.
@@ -240,16 +271,7 @@ impl SettingsService {
             });
         }
         if patched.changes.iter().any(is_sensitive) {
-            let password = password.ok_or(SettingsError::PasswordRequired)?;
-            deps.auth
-                .confirm_password(ip, user.id, password)
-                .await
-                .map_err(|err| match err {
-                    AuthError::LockedOut { retry_after_secs } => {
-                        SettingsError::TooMany(retry_after_secs)
-                    }
-                    _ => SettingsError::BadPassword,
-                })?;
+            self.confirm_step_up(user, ip, password).await?;
         }
         let current_table = stored.doc.table().map_err(SettingsError::Unavailable)?;
         let provenance = match load_hub_layered(
@@ -351,52 +373,6 @@ impl SettingsService {
                 Err(SettingsError::ApplyFailed(why))
             }
         }
-    }
-
-    /// A host's reported checks and saved overrides.
-    pub async fn host_checks(&self, host: &Host) -> Result<HostChecks, SettingsError> {
-        let deps = self.deps();
-        let reported = deps.agents.reported_checks(host.id);
-        Ok(HostChecks {
-            connected: reported.is_some(),
-            reported: reported.unwrap_or_default(),
-            overrides: crate::agent_server::stored_overrides(&*deps.store, host.name.as_str())
-                .await,
-        })
-    }
-
-    /// Saves a host's check overrides and sends them to its agent. Returns whether the
-    /// agent got them now; otherwise it gets them at its next handshake. No restart.
-    pub async fn set_host_checks(
-        &self,
-        user: &User,
-        host: &Host,
-        overrides: BTreeMap<CheckKey, CheckOverride>,
-    ) -> Result<bool, SettingsError> {
-        let mut issues = Vec::new();
-        for (key, item) in &overrides {
-            if item.interval_seconds == Some(0) {
-                issues.push(ConfigIssue::error(
-                    format!("{key}.interval_seconds"),
-                    "must be at least 1 second",
-                ));
-            }
-        }
-        if !issues.is_empty() {
-            return Err(SettingsError::Invalid(issues));
-        }
-        let deps = self.deps();
-        let value = serde_json::to_value(&overrides)
-            .map_err(|e| SettingsError::Unavailable(e.to_string()))?;
-        SettingsRepo::set(&*deps.store, &host_checks_key(host.name.as_str()), &value).await?;
-        self.audit(
-            user,
-            "settings.host_checks",
-            &format!("host:{}", host.name),
-            json!({ "overrides": value }),
-        )
-        .await;
-        Ok(deps.agents.push_settings(host.id).await)
     }
 
     /// Admits one connection test for the session `session`, or says how long to wait.

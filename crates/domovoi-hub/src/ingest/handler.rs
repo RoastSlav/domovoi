@@ -21,6 +21,12 @@ pub(super) async fn receive(
     let Some(webhook) = state.webhooks.get(&name) else {
         return StatusCode::NOT_FOUND;
     };
+    // Authenticate before charging the bucket: the bucket protects the monitor's own alerts,
+    // so traffic that cannot sign in must not be able to spend it (the body is already capped
+    // at 1 MiB, which bounds what a bad request costs to check).
+    if !authorized(&webhook.config, &headers, &body) {
+        return StatusCode::UNAUTHORIZED;
+    }
     let now = state.deps.clock.now();
     let allowed = webhook
         .limit
@@ -29,9 +35,6 @@ pub(super) async fn receive(
         .take(now);
     if !allowed {
         return StatusCode::TOO_MANY_REQUESTS;
-    }
-    if !authorized(&webhook.config, &headers, &body) {
-        return StatusCode::UNAUTHORIZED;
     }
     let format = format(webhook.config.kind);
     let signals = match parse(

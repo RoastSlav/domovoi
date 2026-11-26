@@ -342,3 +342,45 @@ test("every_risk_group_uses_the_same_fixed_column_widths_so_columns_line_up", as
   expect(widths[2]).toEqual(widths[0]);
   expect(tables.every((table) => table.getAttribute("data-layout") === "fixed")).toBe(true);
 });
+
+/** A capability row as the hub reports it, with the runner words under test. */
+const capabilityRow = (runner: boolean, root: boolean) => ({
+  host: "nas",
+  entries: [
+    {
+      contract: "skill.docker_ps",
+      version: 1,
+      title: "docker_ps",
+      category: "skill.observe",
+      effect: "read",
+      target_kind: "none",
+      execution: "skillrunner",
+      state: "available",
+      reason: null,
+      describe: "available",
+      catalogue: { state: "complete", gap: null, hash: "abcd" },
+      root_agent: root,
+      runner_installed: runner,
+      from_hello_skills: true,
+    },
+  ],
+  unknown_contracts: [],
+});
+
+test("skills_page_warns_when_the_host_has_no_skill_runner", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  route("GET /api/v1/hosts/{name}/capabilities", () => capabilityRow(false, false));
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+  expect(await screen.findByText("Skills cannot run on this host yet")).toBeVisible();
+  expect(screen.getByText("No isolated skill runner is installed on this host.")).toBeVisible();
+});
+
+test("skills_page_stays_quiet_when_a_runner_or_root_agent_can_run_them", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
+  route("GET /api/v1/hosts/{name}/capabilities", () => capabilityRow(false, true));
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+  await screen.findByText("docker_ps");
+  expect(screen.queryByText("Skills cannot run on this host yet")).toBeNull();
+});

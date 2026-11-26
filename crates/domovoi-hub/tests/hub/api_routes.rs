@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::http::{Method, StatusCode};
 use domovoi_core::Risk;
-use domovoi_core::ports::{ChatError, IncidentRepo};
+use domovoi_core::ports::{ChatError, Clock, IncidentRepo};
 use domovoi_testkit::RecordingNotifier;
 use domovoi_testkit::build::{open_incident, resolved_incident};
 use futures::StreamExt;
@@ -464,6 +464,46 @@ async fn retrying_triage_runs_the_model_again_and_reports_how_it_went() {
         .get(&format!("/api/v1/incidents/{}", a.incident.id()), &login)
         .await;
     assert_eq!(detail.body["triage"]["kind"], "report");
+    assert_eq!(detail.body["report"]["headline"], "disk filling");
+}
+
+#[tokio::test]
+async fn a_skipped_retry_does_not_hide_the_earlier_report() {
+    let a = api_with_triage_and_operations().await;
+    let login = a.admin().await;
+    a.llm.push_text(TRIAGE_REPORT);
+    let reply = crate::harness::pump(
+        &a.clock,
+        jiff::SignedDuration::from_millis(100),
+        a.post(
+            &format!("/api/v1/incidents/{}/triage", a.incident.id()),
+            &login,
+            json!({}),
+        ),
+    )
+    .await;
+    assert_eq!(reply.body["kind"], "report", "{}", reply.text);
+
+    // A later run is skipped (the hourly limit): it is the newest outcome, but the report
+    // it follows stays on the page.
+    let skipped = domovoi_core::ports::IncidentTimelineEntry {
+        incident: a.incident.id(),
+        at: a.clock.now(),
+        kind: "triage.skipped".to_owned(),
+        summary: "the limit of triage runs per hour is reached".to_owned(),
+        detail: serde_json::to_value(domovoi_core::TriageOutcome::Skipped {
+            reason: "the limit of triage runs per hour is reached".to_owned(),
+        })
+        .unwrap(),
+    };
+    IncidentRepo::append_event(&*a.store, &skipped)
+        .await
+        .unwrap();
+
+    let detail = a
+        .get(&format!("/api/v1/incidents/{}", a.incident.id()), &login)
+        .await;
+    assert_eq!(detail.body["triage"]["kind"], "skipped", "{}", detail.text);
     assert_eq!(detail.body["report"]["headline"], "disk filling");
 }
 

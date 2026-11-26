@@ -181,3 +181,45 @@ impl From<domovoi_core::ports::StoreError> for ApiError {
         }
     }
 }
+
+/// Turns the plain-text rejection axum gives a request body it cannot read (bad or missing
+/// JSON, wrong content type) into the API's own `{ error, message }` body, so no route
+/// answers with a raw serde message and no error code.
+pub(super) async fn json_rejections(response: Response) -> Response {
+    let status = response.status();
+    let plain = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/plain"));
+    if !plain
+        || !matches!(
+            status,
+            StatusCode::BAD_REQUEST
+                | StatusCode::UNPROCESSABLE_ENTITY
+                | StatusCode::UNSUPPORTED_MEDIA_TYPE
+        )
+    {
+        return response;
+    }
+    let (_, body) = response.into_parts();
+    let text = match axum::body::to_bytes(body, 4096).await {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).trim().to_owned(),
+        Err(_) => String::new(),
+    };
+    let message = if status == StatusCode::UNSUPPORTED_MEDIA_TYPE {
+        "send the body as JSON with the header Content-Type: application/json".to_owned()
+    } else {
+        format!("the request body could not be read: {text}")
+    };
+    let body = ErrorBody {
+        error: if status == StatusCode::UNSUPPORTED_MEDIA_TYPE {
+            "unsupported_media_type".to_owned()
+        } else {
+            "bad_request".to_owned()
+        },
+        message,
+        issues: Vec::new(),
+    };
+    (status, Json(body)).into_response()
+}

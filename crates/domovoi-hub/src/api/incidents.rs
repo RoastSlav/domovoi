@@ -12,6 +12,7 @@ use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
+use super::audit_note::note;
 use super::dto::{
     AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage, IncidentQuery,
     IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
@@ -22,7 +23,7 @@ use super::rules;
 use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
-use crate::services::{FollowUpError, RetriageError, Retriaged, latest_triage};
+use crate::services::{FollowUpError, RetriageError, Retriaged, latest_report, latest_triage};
 
 /// The longest follow-up question, in characters.
 pub const MAX_QUESTION_CHARS: usize = 1000;
@@ -126,9 +127,11 @@ pub(super) async fn detail(
         .ok_or(ApiError::NotFound)?;
     let timeline = deps.incidents.timeline(incident.id()).await?;
     let outcome = latest_triage(&timeline);
+    // A skipped or failed run is the newest outcome while its retry waits; the earlier report
+    // stays visible next to it.
     let report = match &outcome {
         Some(TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. }) => Some(r.clone()),
-        _ => None,
+        _ => latest_report(&timeline),
     };
     let triage = outcome.as_ref().map(TriageStateDto::from);
     let latest = deps
@@ -189,6 +192,14 @@ pub(super) async fn ack(
         .ack(&auth.caller(), parse_id(&id)?)
         .await
         .map_err(command)?;
+    note(
+        &state,
+        format!("user:{}", auth.0.user.id),
+        "incident.acked",
+        format!("incident:{id}"),
+        serde_json::Value::Null,
+    )
+    .await;
     Ok(StatusCode::NO_CONTENT)
 }
 

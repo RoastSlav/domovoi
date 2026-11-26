@@ -342,6 +342,32 @@ async fn confirm_needs_the_password_and_verified_coverage() {
 }
 
 #[tokio::test]
+async fn confirming_a_fact_that_is_not_a_management_path_says_so_without_asking_for_a_password() {
+    let a = api().await;
+    let login = a.admin().await;
+    let fact = assert_fact(&a, &login, role(&a, "media server")).await;
+    let id = fact.body["id"].as_str().unwrap().to_owned();
+
+    // No password sent: the answer is "not a management path", not "enter your password".
+    let reply = a
+        .post(
+            &format!("/api/v1/knowledge/facts/{id}/confirm"),
+            &login,
+            json!({ "expected_version": fact.body["version"] }),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    assert!(
+        reply.body["message"]
+            .as_str()
+            .unwrap()
+            .contains("only a management path"),
+        "{}",
+        reply.text
+    );
+}
+
+#[tokio::test]
 async fn a_discovered_path_must_be_accepted_before_it_can_be_confirmed() {
     let a = api().await;
     let login = a.admin().await;

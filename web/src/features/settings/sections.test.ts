@@ -47,3 +47,28 @@ test("every hub setting that can change at runtime has a field", () => {
     expect(all).toContain(path);
   }
 });
+
+test("the settings that the hub reports errors about have fields", () => {
+  const all = SECTIONS.flatMap((section) => section.fields({}).map((field) => field.path));
+  for (const path of [
+    "triage.per_run.total_tokens",
+    "triage.per_run.prompt_bytes",
+    "llm.primary.call_deadline",
+    "llm.secondary.call_deadline",
+    "packages.max_artifact_bytes",
+    "packages.max_store_bytes",
+    "packages.max_artifacts",
+    "packages.job_history_days",
+    "policy.shadow",
+    "policy.permit_ttl",
+    "policy.circuit_failures",
+    "policy.circuit_window",
+    "policy.max_permits_per_hour",
+    "orchestration.enabled",
+    "orchestration.max_running",
+    "orchestration.budgets.tokens",
+    "metrics.token",
+  ]) {
+    expect(all).toContain(path);
+  }
+});

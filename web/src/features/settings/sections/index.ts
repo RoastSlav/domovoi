@@ -1,5 +1,6 @@
 import { HUB_SECTIONS } from "./hub";
 import { DISCORD_SECTION, OUTSIDE_SECTIONS } from "./integrations";
+import { LIMIT_SECTIONS } from "./limits";
 import { MODEL_SECTIONS } from "./models";
 import { PACKAGE_SECTION } from "./packages";
 import type { SectionSpec } from "./types";
@@ -18,6 +19,7 @@ export const SECTIONS: SectionSpec[] = [
   ...MODEL_SECTIONS,
   ...OUTSIDE_SECTIONS,
   PACKAGE_SECTION,
+  ...LIMIT_SECTIONS,
   ...UPKEEP_SECTIONS,
   ...VIEW_SECTIONS,
 ];

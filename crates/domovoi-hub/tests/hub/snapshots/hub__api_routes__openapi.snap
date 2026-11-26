@@ -5707,7 +5707,7 @@ expression: spec
         "description": "Preview a candidate rule set.",
         "properties": {
           "base_revision": {
-            "description": "The draft revision the rules come from; `null` measures against the active version.",
+            "description": "What the candidate is measured against, which decides its `preview_hash`. `null` measures\nagainst the active version: the preview to publish. A draft revision measures against that\ndraft: the preview to save over it. The two hashes differ, so publish needs the `null` one.",
             "format": "int64",
             "minimum": 0,
             "type": [
@@ -7767,6 +7767,13 @@ expression: spec
           "changes": {
             "description": "The same shape as a save; a secret left as `{ \"keep\": true }` uses the stored one.",
             "type": "object"
+          },
+          "password": {
+            "description": "The admin's password. Required when the candidate changes a CLI model provider\n(`llm.*.cli`), because testing runs that program; saving it asks for the same.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "slot": {
             "description": "Which provider to test or list models for: `\"primary\"` (the default) or\n`\"secondary\"`. Other tests ignore it.",
@@ -16920,6 +16927,16 @@ expression: spec
             },
             "description": "Not logged in"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A CLI candidate needs the password"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -17022,6 +17039,16 @@ expression: spec
             },
             "description": "Not logged in"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A CLI candidate needs the password"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -17083,6 +17110,16 @@ expression: spec
             },
             "description": "Not logged in"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A CLI candidate needs the password"
+          },
           "429": {
             "content": {
               "application/json": {
@@ -17143,6 +17180,16 @@ expression: spec
               }
             },
             "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A CLI candidate needs the password"
           },
           "429": {
             "content": {

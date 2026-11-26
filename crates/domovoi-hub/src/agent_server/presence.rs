@@ -1,7 +1,7 @@
 //! Telling a dead host from a dead agent, and both from the hub's own network trouble.
 //!
 //! An agent silent for three heartbeats is looked into once. The hub first doubts itself:
-//! if its own gateway or the configured outside target does not answer, it reports
+//! if neither its own gateway nor the configured outside target answers, it reports
 //! `hub.network_degraded` and blames no host. Otherwise it probes the silent host: an
 //! answer means `agent.down`, silence means `host.down`. Hearing from the agent again
 //! resolves whichever was raised.
@@ -121,7 +121,9 @@ pub(crate) async fn check(inner: &Inner) {
 
 async fn hub_network_ok(inner: &Inner) -> bool {
     let probes = &*inner.deps.probes;
-    probes.gateway_reachable().await && probes.tcp_reachable(&inner.settings.self_check).await
+    // Either answer proves the hub's network works. A gateway that drops probes (a container
+    // behind a firewalled bridge) must not make a healthy hub blame itself.
+    probes.tcp_reachable(&inner.settings.self_check).await || probes.gateway_reachable().await
 }
 
 async fn host_name(inner: &Inner, host: HostId) -> String {

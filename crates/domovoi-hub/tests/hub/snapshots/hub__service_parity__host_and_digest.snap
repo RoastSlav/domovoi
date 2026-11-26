@@ -58,7 +58,7 @@ expression: replies(&all)
           "quiet": false
         }
       ],
-      "markdown": "**Daily digest, 2026-10-31**\n**nas**\n**Open incidents**\n- nas: disk.usage firing (open 1081d 13h, warning)\n",
+      "markdown": "**Daily digest, 2026-10-31**\n**nas**\n- no metric changes; see open incidents and advisories below\n**Open incidents**\n- nas: disk.usage firing (open 1081d 13h, warning)\n",
       "next_send_at": "2026-11-01T09:00:00Z"
     },
     "status": 200

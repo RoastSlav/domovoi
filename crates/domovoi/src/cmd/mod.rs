@@ -1,6 +1,6 @@
 //! One module per subcommand. Each parses nothing itself and calls library APIs.
 
-mod agent;
+pub(crate) mod agent;
 mod agent_dirs;
 mod agent_selftest;
 mod audit;

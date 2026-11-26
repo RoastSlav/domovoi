@@ -263,7 +263,7 @@ Each example is a complete frame with fixed ids and times. The frames match the 
       {
         "enabled": true,
         "interval_seconds": 300,
-        "key": "disk.usage",
+        "key": "disk.free",
         "thresholds": {
           "warn_percent": 85
         }
@@ -371,7 +371,7 @@ Each example is a complete frame with fixed ids and times. The frames match the 
   "payload": {
     "config": {
       "check_overrides": {
-        "disk.usage": {
+        "disk.free": {
           "enabled": true,
           "interval_seconds": 300,
           "thresholds": {
@@ -447,7 +447,7 @@ Each example is a complete frame with fixed ids and times. The frames match the 
     "batch_seq": 42,
     "signals": [
       {
-        "check": "disk.usage",
+        "check": "disk.free",
         "class": "normal",
         "evidence": {
           "used_percent": 97.5
@@ -654,7 +654,7 @@ A successful run:
   "id": "01900000-0000-7000-8000-000000000001",
   "kind": "run_check",
   "payload": {
-    "check": "disk.usage",
+    "check": "disk.free",
     "deadline": "2023-11-14T22:14:50Z",
     "target": "/srv"
   },
@@ -695,7 +695,7 @@ A successful run:
   "payload": {
     "config": {
       "check_overrides": {
-        "disk.usage": {
+        "disk.free": {
           "enabled": true,
           "interval_seconds": 300,
           "thresholds": {

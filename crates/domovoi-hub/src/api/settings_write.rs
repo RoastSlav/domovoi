@@ -4,17 +4,15 @@
 //! carry `{ keep }`, `{ set }` or `{ clear }`, and no response contains a secret value.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use domovoi_core::CheckKey;
-use domovoi_core::ports::AuditEvent;
-use domovoi_core::skill::SkillName;
 use domovoi_proto::messages::CheckOverride;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use utoipa::ToSchema;
 
 use super::error::{ApiError, ErrorBody, IssueDto};
@@ -57,6 +55,10 @@ pub struct TestRequest {
     /// `"secondary"`. Other tests ignore it.
     #[serde(default)]
     pub slot: Option<String>,
+    /// The admin's password. Required when the candidate changes a CLI model provider
+    /// (`llm.*.cli`), because testing runs that program; saving it asks for the same.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// The result of a connection test.
@@ -205,12 +207,17 @@ pub(super) async fn schema(_auth: Authed) -> Json<Value> {
 async fn run_test(
     state: &ApiState,
     current: &crate::auth::Current,
+    ip: IpAddr,
     target: Target,
     req: &TestRequest,
 ) -> Result<Json<TestResultDto>, ApiError> {
     let settings = service(state)?;
     settings
         .admit_test(current.session_hash)
+        .map_err(api_error)?;
+    settings
+        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .await
         .map_err(api_error)?;
     let result = settings
         .test(target, &req.changes)
@@ -231,15 +238,19 @@ async fn run_test(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_discord(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
-    run_test(&state, &current, Target::Discord, &req).await
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    run_test(&state, &current, ip, Target::Discord, &req).await
 }
 
 /// One minimal call to the candidate model provider of the requested slot.
@@ -250,18 +261,22 @@ pub(super) async fn test_discord(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_llm(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
     let target = Target::Llm {
         secondary: req.slot.as_deref() == Some("secondary"),
     };
-    run_test(&state, &current, target, &req).await
+    run_test(&state, &current, ip, target, &req).await
 }
 
 /// Lists models available to the candidate provider of the requested slot.
@@ -272,18 +287,26 @@ pub(super) async fn test_llm(
         (status = 200, description = "Available models", body = ModelsDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
         (status = 503, description = "Provider unavailable", body = ErrorBody),
     )
 )]
 pub(super) async fn list_models(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<ModelsDto>, ApiError> {
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
     let settings = service(&state)?;
     settings
         .admit_test(current.session_hash)
+        .map_err(api_error)?;
+    settings
+        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .await
         .map_err(api_error)?;
     let secondary = req.slot.as_deref() == Some("secondary");
     let models = settings
@@ -301,15 +324,19 @@ pub(super) async fn list_models(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_heartbeat(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
-    run_test(&state, &current, Target::Heartbeat, &req).await
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    run_test(&state, &current, ip, Target::Heartbeat, &req).await
 }
 
 fn dto(item: &CheckOverride) -> CheckSettingsDto {
@@ -418,69 +445,4 @@ pub(super) async fn set_host_checks(
         .await
         .map_err(api_error)?;
     Ok(Json(HostChecksSaved { delivered }))
-}
-
-/// Turning one host skill on or off.
-#[derive(Debug, Clone, PartialEq, Deserialize, ToSchema)]
-pub struct SkillEnabledUpdate {
-    /// Whether the hub may run and suggest the skill on this host.
-    pub enabled: bool,
-}
-
-/// Turns one of a host's skills on or off. The switch is saved in the settings table and
-/// takes effect immediately: a disabled skill stays on the host, but the hub never runs it
-/// and never offers it to triage.
-#[utoipa::path(
-    put, path = "/api/v1/hosts/{name}/skills/{skill}", operation_id = "set_skill_enabled", tag = "hosts",
-    params(
-        ("name" = String, Path, description = "Host name"),
-        ("skill" = String, Path, description = "Skill name"),
-    ),
-    request_body = SkillEnabledUpdate,
-    responses(
-        (status = 204, description = "Saved"),
-        (status = 400, description = "Invalid skill name", body = ErrorBody),
-        (status = 401, description = "Not logged in", body = ErrorBody),
-        (status = 404, description = "No such host, or the agent does not report that skill", body = ErrorBody),
-    )
-)]
-pub(super) async fn set_skill_enabled(
-    State(state): State<ApiState>,
-    Authed(current): Authed,
-    Path((host_name, skill_name)): Path<(String, String)>,
-    Json(req): Json<SkillEnabledUpdate>,
-) -> Result<StatusCode, ApiError> {
-    let host = host_named(&state, &host_name).await?;
-    let skill = SkillName::parse(&skill_name).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    let announced = state
-        .deps
-        .agents
-        .skills(host.id)
-        .iter()
-        .any(|s| s.name == skill);
-    if !announced {
-        return Err(ApiError::NotFound);
-    }
-    state
-        .deps
-        .capabilities
-        .set_skill_enabled(&host, skill, req.enabled)
-        .await?;
-    let kind = if req.enabled {
-        "skill.enabled".to_owned()
-    } else {
-        "skill.disabled".to_owned()
-    };
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at: state.deps.clock.now(),
-            actor: format!("user:{}", current.user.id),
-            kind,
-            subject: format!("host:{host_name}/skill:{skill_name}"),
-            detail: json!({ "enabled": req.enabled }),
-        })
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
 }

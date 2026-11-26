@@ -34,12 +34,28 @@ function isSecretChange(changes: Changes, path: string): boolean {
   return typeof value === "object" && value !== null && ("set" in value || "clear" in value);
 }
 
+/** Settings whose whole table steps up: trust, programs the hub runs, metrics and packages. */
+const TRUST_TABLES = ["webhooks", "metrics", "packages"];
+
+/** The policy limits that widen what runs unattended or delay the circuit breaker. */
+const POLICY_LIMITS = [
+  "policy.permit_ttl",
+  "policy.circuit_failures",
+  "policy.circuit_window",
+  "policy.max_permits_per_hour",
+];
+
+/**
+ * Mirrors `STEP_UP_SETTINGS` in the hub (`settings/step_up.rs`), which is the authority; a
+ * save the hub still refuses with 403 opens the password prompt too (see `EditorForm`).
+ */
 function isTrustPath(path: string): boolean {
   return (
     path === "discord.allowed_user_ids" ||
     path === "web.trusted_proxies" ||
-    path === "webhooks" ||
-    path.startsWith("webhooks.")
+    TRUST_TABLES.some((table) => path === table || path.startsWith(`${table}.`)) ||
+    /^llm\.[^.]+\.cli(\.|$)/.test(path) ||
+    POLICY_LIMITS.includes(path)
   );
 }
 

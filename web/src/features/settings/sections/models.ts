@@ -28,6 +28,18 @@ export const MODEL_SECTIONS: SectionSpec[] = [
         hint: "After this long the model is told to answer with what it has. It does not cut a model call short.",
       },
       { path: "triage.per_run.output_tokens", label: "Output tokens per run", kind: "number" },
+      {
+        path: "triage.per_run.total_tokens",
+        label: "Total tokens per run",
+        kind: "number",
+        hint: "Input and output together, retries included. A run that spends it stops. Empty uses the default.",
+      },
+      {
+        path: "triage.per_run.prompt_bytes",
+        label: "Largest prompt (bytes)",
+        kind: "number",
+        hint: "Old tool results are shortened first to fit.",
+      },
     ]),
   },
   {

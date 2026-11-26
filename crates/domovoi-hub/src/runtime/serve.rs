@@ -109,15 +109,30 @@ pub(super) async fn run(
     drop(manager);
 
     worker_shutdown.cancel();
-    if let Some(mut task) = triage_task {
-        let grace = deadline(clock.now(), 10).min(total);
-        clean &= finish(&mut task, &clock, grace).await;
+    // A model call cannot be waited out for long: the investigation's effects are durable and
+    // a claimed one is retried when the hub starts again, so a run still in flight is cut off
+    // after a short grace. That is expected, not an unclean stop, and the short shared grace
+    // leaves the later phases their time (a settings save restarts the hub through this path).
+    let grace = deadline(clock.now(), TRIAGE_GRACE_SECS).min(total);
+    let cut_off = tokio::join!(
+        async {
+            match triage_task {
+                Some(mut task) => !finish_quietly(&mut task, &clock, grace).await,
+                None => false,
+            }
+        },
+        async {
+            match operations_task {
+                Some(mut task) => !finish_quietly(&mut task, &clock, grace).await,
+                None => false,
+            }
+        },
+    );
+    if cut_off.0 || cut_off.1 {
+        tracing::info!("an investigation was still running; it is retried after the restart");
     }
     {
         let mut task = conversation_task;
-        clean &= finish(&mut task, &clock, total).await;
-    }
-    if let Some(mut task) = operations_task {
         clean &= finish(&mut task, &clock, total).await;
     }
     if let Some(mut task) = policy_task {
@@ -157,10 +172,31 @@ fn deadline(now: Timestamp, seconds: i64) -> Timestamp {
         .unwrap_or(now)
 }
 
+/// How long a running investigation may keep going once shutdown starts.
+const TRIAGE_GRACE_SECS: i64 = 8;
+
 async fn finish(
     task: &mut JoinHandle<()>,
     clock: &std::sync::Arc<dyn domovoi_core::ports::Clock>,
     until: Timestamp,
+) -> bool {
+    finish_with(task, clock, until, true).await
+}
+
+/// [`finish`] for a task whose being cut off is expected: no warning.
+async fn finish_quietly(
+    task: &mut JoinHandle<()>,
+    clock: &std::sync::Arc<dyn domovoi_core::ports::Clock>,
+    until: Timestamp,
+) -> bool {
+    finish_with(task, clock, until, false).await
+}
+
+async fn finish_with(
+    task: &mut JoinHandle<()>,
+    clock: &std::sync::Arc<dyn domovoi_core::ports::Clock>,
+    until: Timestamp,
+    warn_on_timeout: bool,
 ) -> bool {
     tokio::select! {
         result = &mut *task => {
@@ -172,7 +208,9 @@ async fn finish(
             true
         }
         () = clock.sleep_until(until) => {
-            tracing::warn!(deadline = %until, "hub shutdown phase timed out");
+            if warn_on_timeout {
+                tracing::warn!(deadline = %until, "hub shutdown phase timed out");
+            }
             task.abort();
             let _ = task.await;
             false

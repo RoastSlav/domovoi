@@ -763,6 +763,82 @@ async fn shutdown_completes_within_15_seconds_with_inflight_triage() {
     harness.stop().await;
 }
 
+#[tokio::test]
+async fn a_restart_cuts_off_a_stuck_investigation_without_an_unclean_stop() {
+    let provider = Arc::new(BlockingLlm::new());
+    let started = provider.started.clone();
+    let release = provider.releaser();
+    let mut harness = Harness::with_adapters(
+        "[triage]\nenabled = true\nconcurrency = 1",
+        at("2026-10-31T12:00:00Z"),
+        provider.clone(),
+        Vec::new(),
+        4096,
+    )
+    .await;
+    let shutdown = CancellationToken::new();
+    let runtime = harness.runtime.take().unwrap();
+    let workers = runtime.worker_shutdown.clone();
+    let mut app = runtime.app.clone();
+    let running = tokio::spawn(runtime.run(shutdown.clone()));
+    let body = firing("web-1", "disk.full");
+    let mut mac =
+        <hmac::Hmac<sha2::Sha256> as hmac::KeyInit>::new_from_slice(harness::SECRET.as_bytes())
+            .unwrap();
+    hmac::Mac::update(&mut mac, body.as_bytes());
+    let signature = format!(
+        "sha256={}",
+        hex::encode(hmac::Mac::finalize(mac).into_bytes())
+    );
+    let request = axum::http::Request::post("/hooks/alerts")
+        .header("x-domovoi-signature", signature)
+        .body(axum::body::Body::from(body))
+        .unwrap();
+    assert_eq!(
+        tower::ServiceExt::oneshot(&mut app, request)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::ACCEPTED
+    );
+    // The investigation's effects run against the fake clock, so it moves while the model
+    // call is awaited.
+    let begun = started.notified();
+    tokio::pin!(begun);
+    guard(async {
+        loop {
+            tokio::select! {
+                () = &mut begun => break,
+                () = async {
+                    harness.clock.advance(SignedDuration::from_secs(1));
+                    for _ in 0..20 {
+                        tokio::task::yield_now().await;
+                    }
+                } => {}
+            }
+        }
+    })
+    .await;
+    let began_at = harness.clock.now();
+
+    shutdown.cancel();
+    guard(workers.cancelled_owned()).await;
+    // The model never answers. Past the short grace the run is cut off, and that alone must
+    // not make the stop unclean or leave the later phases without time.
+    for _ in 0..9 {
+        harness.clock.advance(SignedDuration::from_secs(1));
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+    }
+    let result = guard(running).await.unwrap();
+    assert!(result.is_ok(), "shutdown was unclean: {result:?}");
+    assert!(!provider.completed(), "the call was cut off, not finished");
+    assert!(harness.clock.now() < began_at + SignedDuration::from_secs(15));
+    drop(release);
+    harness.stop().await;
+}
+
 /// The hub builds one provider per fallback model, in config order, each answering
 /// with its own model.
 #[test]

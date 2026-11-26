@@ -930,7 +930,7 @@ async fn resolved_incident_is_not_retried() {
 }
 
 #[tokio::test]
-async fn a_failed_investigation_retries_once_through_its_own_effect() {
+async fn a_manual_run_replaces_the_retry_of_a_failed_investigation() {
     let w = world(Setup::default()).await;
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
@@ -940,20 +940,18 @@ async fn a_failed_investigation_retries_once_through_its_own_effect() {
         TriageOutcome::Failed { .. }
     ));
 
-    // A newer request while the retry waits is refused: the retry is the same operation.
-    let again = w.ops.investigate_and_wait(&other, false).await;
-    assert!(
-        matches!(
-            again,
-            Err(domovoi_engine::operations::InvestigateError::AlreadyRunning(_))
-        ),
-        "{again:?}"
-    );
-
+    // A person asking for a run while the retry waits replaces it: the retry's due time is
+    // fixed, so refusing would leave "already running" for an hour (or until cancelled by
+    // hand) even after the cause is fixed.
     w.primary.push_text(report());
+    let again = w.ops.investigate_and_wait(&other, false).await;
+    assert!(matches!(again, Ok(TriageOutcome::Report(_))), "{again:?}");
+    assert_eq!(w.primary.requests().len(), 2);
+
+    // The replaced retry never runs on its own.
     w.drive(70, 61).await;
     let requests = w.primary.requests().len();
-    assert_eq!(requests, 2, "the durable retry ran exactly once");
+    assert_eq!(requests, 2, "the cancelled retry did not run again");
     assert_eq!(count(&w, other.id(), "triage.report").await, 1);
     assert_eq!(count(&w, other.id(), "triage.failed").await, 1);
 }

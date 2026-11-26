@@ -80,6 +80,14 @@ test("overview_shows_notes_shadow_status_active_version_and_rules", async () => 
   expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
 });
 
+test("the_active_and_draft_cards_sit_in_wide_columns_so_values_do_not_wrap_per_character", async () => {
+  const { container } = show();
+  await screen.findByText("Version 3");
+  const grid = container.querySelector('[data-min="lg"]');
+  expect(grid).not.toBeNull();
+  expect(grid).toContainElement(screen.getByText("Version 3"));
+});
+
 test("overview_without_a_policy_says_defaults_and_offers_a_draft", async () => {
   const user = userEvent.setup();
   route(OVERVIEW, () => OVERVIEW_FRESH);

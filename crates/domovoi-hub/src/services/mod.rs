@@ -51,7 +51,9 @@ pub use containment::{
 pub use conversations::ConversationCommands;
 pub use helper_trust::{HelperError, HelperTrust, HelperTrustDeps, HelperView};
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
-pub use incidents::{FollowUpError, IncidentService, RetriageError, Retriaged, latest_triage};
+pub use incidents::{
+    FollowUpError, IncidentService, RetriageError, Retriaged, latest_report, latest_triage,
+};
 pub use knowledge::{KNOWLEDGE_PASSWORD_REQUIRED, KnowledgeCommandError, KnowledgeCommands};
 pub use operations::{
     ANSWER_MAX, BudgetExtension, CANCEL_REASON_MAX, DEFAULT_CANCEL_REASON, EXTEND_MAX_COUNT,
