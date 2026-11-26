@@ -1,4 +1,4 @@
-//! R-6 benchmark: what `synchronous=FULL` costs per commit. Not a gate.
+//! Benchmark: what `synchronous=FULL` costs per commit. Not a gate.
 
 use std::time::Instant;
 
