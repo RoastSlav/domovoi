@@ -38,17 +38,15 @@
 # domovoi-agent account runs the agent, the group-less domovoi-skill account is for skills,
 # and root runs the sandboxed helper behind a socket. The installer creates only what is
 # absent, never changes an account or a mode it finds, and reports what is wrong instead.
-# An agent that already runs as root keeps running as root until the owner runs
-# --migrate-identity.
 #
 # A fresh install that fails before anything is started is undone: every account, directory,
 # file and unit that this run created is removed again, newest first, and nothing that was
-# there before is touched (--keep-on-failure turns that off). An upgrade, a migration and a
+# there before is touched (--keep-on-failure turns that off). An upgrade and a
 # failure after the hub, the agent or a helper socket was started are never rolled back.
 #
 # --uninstall takes the installation off the machine: it stops and disables every Domovoi
 # unit, removes the unit files, the binary and DIR/share/domovoi, and keeps the configuration,
-# the data, the skills, the accounts and the identity-migration record, saying where they are.
+# the data, the skills and the accounts, saying where they are.
 # --purge adds the removal of those too, after a typed confirmation or --yes.
 set -eu
 
@@ -64,13 +62,11 @@ CREATED_PATHS="/etc/domovoi /etc/domovoi/skills /var/lib/domovoi /var/lib/domovo
 
 agent_unit_path="/etc/systemd/system/domovoi-agent.service"
 agent_toml="/etc/domovoi/agent.toml"
-record_dir="/etc/domovoi/identity-migration"
 
 usage() {
     cat <<'USAGE'
 Usage: install.sh --role hub|agent|both [options]
        install.sh --uninstall [--purge] [--yes] [--prefix DIR] [--dry-run] [--json]
-       install.sh --rollback-identity
 
 Options:
   --role hub|agent|both
@@ -125,8 +121,7 @@ Options:
                        it, so the installer does not restart the hub and prints how to move the
                        directory aside and set the hub up again
   --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The typed word
-                       of --migrate-identity is not skipped by it: that step needs a terminal
-                       by design. The typed word of --purge is, because --purge is explicit
+                       of --purge is skipped by it, because --purge is explicit
   --dry-run            run the preflight, print every file, user, unit and directory the
                        install would create or change, and exit 0 without changing anything
                        or downloading the archive (the latest version is still looked up)
@@ -143,8 +138,8 @@ Options:
   --uninstall          remove what the installer put in place (--role is not used): stop and
                        disable the hub, agent, helper and skill runner units, delete the unit
                        files, DIR/bin/domovoi and DIR/share/domovoi. The configuration
-                       (/etc/domovoi), the data (/var/lib/domovoi*), the skills, the accounts
-                       and the identity-migration record are KEPT, and the summary lists them.
+                       (/etc/domovoi), the data (/var/lib/domovoi*), the skills and the accounts
+                       are KEPT, and the summary lists them.
                        Works with --prefix, --dry-run, --json, --quiet and --yes
   --purge              with --uninstall: also delete /etc/domovoi, /var/lib/domovoi,
                        /var/lib/domovoi-agent, /var/lib/domovoi-packages, /var/lib/domovoi-helper,
@@ -157,12 +152,9 @@ Options:
                        delete with the data sizes, then needs --yes or the word purge typed on
                        the terminal
   --print-unit NAME    print a systemd unit and exit: hub, agent, helper-socket,
-                       helper-service, runner-socket, runner-service, or agent-legacy
+                       helper-service, runner-socket, runner-service, or agent-root
                        (the root agent unit used where the privilege boundary cannot be
                        set up)
-  --migrate-identity   with --role agent: move an agent that runs as root to the
-                       domovoi-agent account; shows a plan and asks you to type "migrate"
-  --rollback-identity  undo --migrate-identity from the record it saved
   -h, --help           show this help
 
 Environment:
@@ -499,7 +491,7 @@ WantedBy=multi-user.target
 EOF
 }
 
-legacy_agent_unit() {
+root_agent_unit() {
     cat <<'EOF'
 # The Domovoi agent. Installed by install.sh; enroll it with the command from the hub's
 # "Add host" dialog, then start it with
@@ -731,12 +723,11 @@ manifest_add() { # KIND VALUE
     if [ "$rollback_armed" -eq 1 ]; then printf '%s|%s\n' "$1" "$2" >>"$tmp/created"; fi
 }
 
-# Starts recording, only for a run that can be undone as a whole: not a migration, not an
+# Starts recording, only for a run that can be undone as a whole: not an
 # upgrade (a binary is there already), and, for a service install, not where a hub or an agent unit is installed. For
 # an agent that also needs a fresh layout, so one that shares the machine with a hub is not.
 arm_rollback() {
-    [ "$migrate" -eq 0 ] || return 0
-    [ "$state" = "fresh" ] || return 0
+        [ "$state" = "fresh" ] || return 0
     if [ "$service" -eq 1 ]; then
         [ ! -e /etc/systemd/system/domovoi-hub.service ] && [ ! -e "$agent_unit_path" ] || return 0
     fi
@@ -868,25 +859,22 @@ create_hub_layout() {
     flush_marker
 }
 
-# Today's agent layout: everything owned by root. Used where the privilege boundary cannot
-# be set up (no systemd, a hub on the same host) and for an agent that still runs as root.
-create_legacy_agent_layout() {
+# The root agent layout: everything owned by root. Used where the privilege boundary cannot
+# be set up (no systemd, a hub on the same host).
+create_root_agent_layout() {
     make_dir /etc/domovoi 0750 root:root
     make_dir /etc/domovoi/skills 0750 root:root
     make_dir /var/lib/domovoi-agent 0700 root:root
     add_starter_skills "$prefix/share/domovoi/examples/skills"
 }
 
-# Sets $layout to nosystemd, hub, legacy, fresh or migrated.
+# Sets $layout to nosystemd, hub, fresh or migrated (a rerun on a host that has the layout).
 classify_host() {
     if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then
         layout="nosystemd"
     elif id domovoi >/dev/null 2>&1 || [ -e /etc/systemd/system/domovoi-hub.service ] ||
         [ -e /etc/domovoi/hub.toml ]; then
         layout="hub"
-    elif { [ -e "$agent_unit_path" ] && ! grep -qx 'User=domovoi-agent' "$agent_unit_path"; } ||
-        { [ -d /var/lib/domovoi-agent ] && [ "$(stat -c %u /var/lib/domovoi-agent)" = 0 ]; }; then
-        layout="legacy"
     elif [ ! -e "$agent_unit_path" ] && [ ! -e /var/lib/domovoi-agent ]; then
         layout="fresh"
     else
@@ -1070,7 +1058,6 @@ write_helper_toml() {
 place_unit() {
     pu_name="$1"
     pu_func="$2"
-    pu_force="$3"
     pu_path="/etc/systemd/system/$pu_name"
     "$pu_func" | sed "s|/usr/local/bin/domovoi|$bin|" >"$tmp/$pu_name"
     if [ ! -e "$pu_path" ]; then
@@ -1080,9 +1067,6 @@ place_unit() {
         say "Installed $pu_path"
     elif cmp -s "$tmp/$pu_name" "$pu_path"; then
         say "$pu_path is up to date."
-    elif [ "$pu_force" = "1" ]; then
-        install -m 0644 "$tmp/$pu_name" "$pu_path"
-        say "Replaced $pu_path; the old one is saved in $record_dir"
     else
         say "Kept $pu_path: it differs from this release's unit. The new one is"
         say "  $prefix/share/domovoi/$pu_name"
@@ -1094,18 +1078,6 @@ place_unit() {
             say "  work without the change."
         fi
     fi
-}
-
-# The conversion rules of --migrate-identity: the only place that changes the owner or
-# mode of a path that already exists.
-convert_legacy_paths() {
-    chgrp domovoi-agent /etc/domovoi
-    chmod 0755 /etc/domovoi/skills
-    normalise_tree /etc/domovoi/skills
-    if [ -e /etc/domovoi/agent.toml ]; then
-        chmod 0644 /etc/domovoi/agent.toml
-    fi
-    chown -R -h domovoi-agent:domovoi-agent /var/lib/domovoi-agent /var/lib/domovoi-packages
 }
 
 # Fails when the binary would sit where the skill runner cannot execute it: ProtectHome=yes
@@ -1138,13 +1110,11 @@ failed_checks() {
     sed -n 's/^\(ST-[0-9][0-9]*\) fail.*/\1/p' "$1" | tr '\n' ' '
 }
 
-# The three-identities install. MODE is fresh, migrated (a rerun on a host that already has
-# the layout) or migrate (the conversion of a root agent). Steps, in order: the runner's
+# The three-identities install. Steps, in order: the runner's
 # directories, accounts, directories and helper.toml, helper init, the five units, the
 # helper socket, the self-test, and only after it passes the skill runner socket. These
 # two sockets are the only services this starts.
 install_identities() {
-    ii_mode="$1"
     runner_prefix_ok
     runner_dirs
     ensure_accounts
@@ -1155,9 +1125,6 @@ install_identities() {
     # Directories the agent configuration moved elsewhere; the defaults above stay either way.
     make_dir "$runner_skills_dir" 0755 root:root
     make_dir "$runner_packages_dir" 0755 domovoi-agent:domovoi-agent
-    if [ "$ii_mode" = "migrate" ]; then
-        convert_legacy_paths
-    fi
     write_helper_toml
     add_starter_skills "$prefix/share/domovoi/examples/skills" normalise
     make_dir /var/lib/domovoi-helper 0700 root:root
@@ -1176,16 +1143,12 @@ install_identities() {
         [ "$ii_path" != "/var/lib/domovoi" ] || continue
         [ -d "$ii_path" ] || fail "$ii_path was not created"
     done
-    place_unit domovoi-helper.socket helper_socket_unit 0
-    place_unit domovoi-helper@.service helper_service_unit 0
-    place_unit domovoi-helper-selftest.service helper_selftest_unit 0
-    place_unit domovoi-skill-runner.socket runner_socket_unit 0
-    place_unit domovoi-skill-runner@.service render_runner_service 0
-    if [ "$ii_mode" = "migrate" ]; then
-        place_unit domovoi-agent.service agent_unit 1
-    else
-        place_unit domovoi-agent.service agent_unit 0
-    fi
+    place_unit domovoi-helper.socket helper_socket_unit
+    place_unit domovoi-helper@.service helper_service_unit
+    place_unit domovoi-helper-selftest.service helper_selftest_unit
+    place_unit domovoi-skill-runner.socket runner_socket_unit
+    place_unit domovoi-skill-runner@.service render_runner_service
+    place_unit domovoi-agent.service agent_unit
     systemctl daemon-reload
     start_sockets
 }
@@ -1349,8 +1312,8 @@ on_exit() {
 
 # --- Uninstall ----------------------------------------------------------------------------
 # --uninstall removes what install.sh puts in place and keeps what the owner made or the
-# running system filled: configuration, data, skills, accounts and the identity-migration
-# record. --purge removes those too. Only the fixed set below is ever touched, no path is
+# running system filled: configuration, data, skills and accounts.
+# --purge removes those too. Only the fixed set below is ever touched, no path is
 # followed through a symbolic link, and every path is checked before the first change.
 un_units="domovoi-agent.service domovoi-hub.service domovoi-skill-runner.socket domovoi-helper.socket domovoi-helper-selftest.service domovoi-skill-runner@.service domovoi-helper@.service"
 un_data_dirs="/var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper"
@@ -1514,7 +1477,7 @@ $(sed -n 's/^dir //p' "$tmp/un-marker")"
             plan_add delete "$ud_path ($(un_size "$ud_path"))"
         else
             case "$ud_path" in
-            /etc/domovoi) un_keep "$ud_path (configuration, skills, the installer record and the identity-migration record; --purge deletes it)" ;;
+            /etc/domovoi) un_keep "$ud_path (configuration, skills and the installer record; --purge deletes it)" ;;
             *) un_keep "$ud_path (data, $(un_size "$ud_path"); --purge deletes it)" ;;
             esac
         fi
@@ -1800,209 +1763,6 @@ run_uninstall() {
     say_always "Done."
 }
 
-# Prints one line for a path --migrate-identity will create or change.
-plan_path() {
-    pp_path="$1"
-    pp_mode="$2"
-    pp_owner="$3"
-    pp_note="${4:-}"
-    if [ ! -e "$pp_path" ]; then
-        say "  $pp_path: created, mode $pp_mode owner $pp_owner"
-    else
-        pp_found="$(stat -c '%a %U:%G' "$pp_path")"
-        if [ "$pp_found" != "$pp_mode $pp_owner" ]; then
-            say "  $pp_path: mode ${pp_found%% *} owner ${pp_found#* } -> mode $pp_mode owner $pp_owner$pp_note"
-        fi
-    fi
-}
-
-# Stops the migration before anything changes when the host cannot be migrated safely.
-migrate_preconditions() {
-    classify_host
-    case "$layout" in
-    legacy) ;;
-    nosystemd) fail "--migrate-identity needs a systemd host" ;;
-    hub) fail "--migrate-identity cannot run here: the hub is installed on this host and shares /etc/domovoi (root:domovoi) with the agent, which the three-identities layout cannot satisfy" ;;
-    fresh) fail "nothing to migrate: no agent is installed here. Run install.sh --role agent for a new install" ;;
-    *) fail "nothing to migrate: the agent already runs as domovoi-agent. Check it with: $bin agent selftest" ;;
-    esac
-    runner_prefix_ok
-    [ -e "$agent_unit_path" ] ||
-        fail "there is no agent unit at $agent_unit_path to migrate; install the agent first"
-    for mp_file in "$agent_unit_path.d"/*.conf; do
-        [ -f "$mp_file" ] || continue
-        if grep -Eq '^[[:space:]]*(User|Group|SupplementaryGroups)=' "$mp_file"; then
-            fail "$mp_file sets User=, Group= or SupplementaryGroups= on the agent unit. Remove it (this installer never deletes your drop-ins) and run the migration again. An agent run as another user stays 'privilege boundary not in effect'"
-        fi
-    done
-    for mp_dir in /var/lib/domovoi-agent /var/lib/domovoi-packages; do
-        [ -e "$mp_dir" ] || continue
-        if [ -L "$mp_dir" ] || [ ! -d "$mp_dir" ]; then
-            fail "$mp_dir is not a plain directory"
-        fi
-        mp_link="$(find "$mp_dir" -type l -print | head -n 1)"
-        [ -z "$mp_link" ] || fail "$mp_link is a symbolic link inside $mp_dir; remove it and run the migration again"
-        mp_owner="$(stat -c %u "$mp_dir")"
-        mp_other="$(find "$mp_dir" ! -uid "$mp_owner" -print | head -n 1)"
-        [ -z "$mp_other" ] ||
-            fail "$mp_other inside $mp_dir is owned by a different user than $mp_dir itself; fix it and run the migration again"
-    done
-}
-
-# Prints everything --migrate-identity will do.
-migrate_plan() {
-    say "Moving the agent on this host from root to the domovoi-agent account."
-    say ""
-    say "Accounts:"
-    for mpl_name in domovoi-agent domovoi-skill; do
-        if id "$mpl_name" >/dev/null 2>&1; then
-            say "  $mpl_name: exists; it will be checked and not changed"
-        else
-            say "  $mpl_name: will be created"
-        fi
-    done
-    say ""
-    say "Paths that change (found -> expected):"
-    plan_path /etc/domovoi 750 root:domovoi-agent
-    plan_path /etc/domovoi/skills 755 root:root " (and the tree under it is normalised: root-owned, no group or other write bit)"
-    plan_path /etc/domovoi/agent.toml 644 root:root
-    plan_path /var/lib/domovoi-agent 700 domovoi-agent:domovoi-agent " (and everything inside it)"
-    plan_path /var/lib/domovoi-packages 755 domovoi-agent:domovoi-agent " (and everything inside it)"
-    plan_path /var/lib/domovoi-helper 700 root:root
-    plan_path /etc/domovoi/helper.toml 600 root:root
-    say ""
-    say "The agent unit is replaced; your edits to it are lost, and the old one is saved in"
-    say "$record_dir. Difference:"
-    agent_unit | sed "s|/usr/local/bin/domovoi|$bin|" >"$tmp/new-agent.service"
-    if command -v diff >/dev/null 2>&1; then
-        diff -u "$agent_unit_path" "$tmp/new-agent.service" || true
-    else
-        say "  (diff is not installed; the new unit is the one printed by --print-unit agent)"
-    fi
-    say ""
-    say "What stops working:"
-    say "  Docker, SMART, the kernel-log fallback and the owning process names of listening ports"
-    say "  are read through the helper and keep working."
-    say "  The check security.fail2ban reads a root-only socket and reports an error until a later"
-    say "  release."
-    say "  Skills run as domovoi-skill from now on. Skills whose manifest names a run_as user have"
-    say "  no runner until the skill runner is installed."
-    say ""
-    say "Nothing is deleted. To undo this later: sudo sh install.sh --rollback-identity"
-    say ""
-}
-
-# Asks for the typed word on the terminal. --yes does not skip it, and nothing else does.
-migrate_confirm() {
-    ( : </dev/tty ) 2>/dev/null ||
-        fail_with 2 "--migrate-identity asks for confirmation on the terminal and --yes does not skip it; run it from an interactive shell"
-    printf 'Type migrate to continue, anything else to stop: ' >/dev/tty
-    IFS= read -r mc_answer </dev/tty || mc_answer=""
-    [ "$mc_answer" = "migrate" ] || fail_with 2 "not confirmed; nothing was changed"
-}
-
-# Waits up to 30 seconds for the converted agent to be active and for the self-test to
-# pass ST-01 and ST-02 for the domovoi-agent account.
-wait_for_agent() {
-    wa_i=0
-    while [ "$wa_i" -lt 30 ]; do
-        if systemctl is-active --quiet domovoi-agent; then
-            "$bin" agent selftest --installer >"$tmp/wait.out" 2>&1 || true
-            if grep -q '^ST-01 pass' "$tmp/wait.out" && grep -q '^ST-02 pass' "$tmp/wait.out"; then
-                return 0
-            fi
-        fi
-        wa_i=$((wa_i + 1))
-        sleep 1
-    done
-    if [ -f "$tmp/wait.out" ]; then show_file_err "$tmp/wait.out"; fi
-    return 1
-}
-
-# Puts back what --migrate-identity saved: the legacy unit and the owner, group and mode of
-# every recorded path. The accounts, the helper directory, helper.toml and the helper units
-# stay, unused, and are listed. The record is renamed, never deleted.
-rollback_apply() {
-    ra_unit="$record_dir/legacy-domovoi-agent.service"
-    [ -f "$ra_unit" ] || fail "there is no migration record in $record_dir, so there is nothing to roll back"
-    systemctl stop domovoi-agent || true
-    install -m 0644 -o root -g root "$ra_unit" "$agent_unit_path"
-    while IFS='|' read -r ra_path ra_uid ra_gid ra_mode; do
-        [ -n "$ra_path" ] || continue
-        case "$ra_path" in
-        /var/lib/domovoi-agent | /var/lib/domovoi-packages) chown -R -h "$ra_uid:$ra_gid" "$ra_path" ;;
-        *) chown -h "$ra_uid:$ra_gid" "$ra_path" ;;
-        esac
-        chmod "$ra_mode" "$ra_path"
-    done <"$record_dir/owners"
-    systemctl disable --now domovoi-helper.socket || true
-    systemctl disable --now domovoi-skill-runner.socket || true
-    systemctl daemon-reload
-    if [ "$(cat "$record_dir/was-active" 2>/dev/null || echo 0)" = "1" ]; then
-        systemctl start domovoi-agent || warn "the legacy agent did not start; check: systemctl status domovoi-agent"
-    fi
-    ra_saved="$record_dir.rolled-back-$(date +%s)"
-    mv "$record_dir" "$ra_saved"
-    say "Rolled back: the legacy agent unit and the recorded owners and modes are restored."
-    say "These stay, unused and never deleted automatically: the domovoi-agent and"
-    say "domovoi-skill accounts, /var/lib/domovoi-helper, /etc/domovoi/helper.toml,"
-    say "/var/lib/domovoi-packages and the helper and skill runner units. The record is now in $ra_saved"
-}
-
-# The migration itself, after the owner confirmed and the new binary is installed.
-migrate_apply() {
-    [ ! -e "$record_dir/legacy-domovoi-agent.service" ] ||
-        fail "$record_dir already holds a migration record; run install.sh --rollback-identity first"
-    mkdir -p "$record_dir"
-    chmod 0700 "$record_dir"
-    cp -p "$agent_unit_path" "$record_dir/legacy-domovoi-agent.service"
-    : >"$record_dir/owners"
-    for ma_path in /etc/domovoi /etc/domovoi/skills /etc/domovoi/agent.toml /var/lib/domovoi-agent /var/lib/domovoi-packages; do
-        [ -e "$ma_path" ] || continue
-        printf '%s|%s|%s|%s\n' "$ma_path" "$(stat -c %u "$ma_path")" "$(stat -c %g "$ma_path")" \
-            "$(stat -c %a "$ma_path")" >>"$record_dir/owners"
-    done
-    if systemctl is-active --quiet domovoi-agent; then
-        echo 1 >"$record_dir/was-active"
-    else
-        echo 0 >"$record_dir/was-active"
-    fi
-    say "Saved the legacy unit and the owners in $record_dir"
-    systemctl stop domovoi-agent || true
-    ma_i=0
-    while systemctl is-active --quiet domovoi-agent && [ "$ma_i" -lt 30 ]; do
-        ma_i=$((ma_i + 1))
-        sleep 1
-    done
-    set +e
-    (
-        set -e
-        install_identities migrate
-    )
-    ma_rc=$?
-    set -e
-    if [ "$ma_rc" -ne 0 ]; then
-        say ""
-        say "The conversion failed; rolling back."
-        rollback_apply
-        fail "the migration failed and was rolled back; the legacy agent is as it was"
-    fi
-    if [ "$(cat "$record_dir/was-active")" = "1" ]; then
-        if ! systemctl start domovoi-agent || ! wait_for_agent; then
-            say ""
-            say "The converted agent did not become active and pass ST-01 and ST-02; rolling back."
-            rollback_apply
-            fail "the migration failed and was rolled back; the legacy agent is as it was"
-        fi
-    fi
-    say ""
-    say "Migrated. The agent now runs as domovoi-agent behind the privilege boundary."
-    say "  Saved legacy state: $record_dir (kept)"
-    say "  To undo: sudo sh install.sh --rollback-identity"
-    say "  Enroll or re-enroll with sudo; the files are handed to domovoi-agent automatically."
-    say "  Skills now run as domovoi-skill through the skill runner socket."
-}
-
 # --- Preflight ----------------------------------------------------------------------------
 # One row per check, in $tmp/preflight as STATUS|NAME|DETAIL where STATUS is ok, warn or fail.
 pf_failed=0
@@ -2129,7 +1889,7 @@ preflight_local() {
             pf_systemd=1
             pf_add ok systemd "present"
         else
-            pf_add warn systemd "not present: units are skipped and an agent keeps the root layout"
+            pf_add warn systemd "not present: units are skipped and an agent gets the root layout"
             if [ "$enroll_on" -eq 1 ] && [ "$role" = "agent" ]; then
                 pf_add fail enroll "enrolling starts the agent through systemd, which this machine does not run; leave out --hub, --fingerprint and the token and enroll by hand"
             fi
@@ -2383,8 +2143,6 @@ build_plan() {
             plan_add start "systemctl enable --now domovoi-hub, then wait up to ${DOMOVOI_READY_TIMEOUT:-60} s for GET /readyz"
         fi
         if [ "$role" = "both" ]; then plan_both_agent; fi
-    elif [ "$migrate" -eq 1 ]; then
-        plan_add migrate "the agent moves from root to domovoi-agent (see the plan above); the typed word is asked for"
     else
         classify_host
         case "$layout" in
@@ -2415,7 +2173,7 @@ build_plan() {
             plan_dir /etc/domovoi 0750 root:root
             plan_dir /etc/domovoi/skills 0750 root:root
             plan_dir /var/lib/domovoi-agent 0700 root:root
-            plan_unit domovoi-agent.service legacy_agent_unit
+            plan_unit domovoi-agent.service root_agent_unit
             plan_add note "the agent keeps the root layout on this host ($layout)"
             ;;
         esac
@@ -2431,7 +2189,7 @@ build_plan() {
 plan_both_agent() {
     plan_dir /etc/domovoi/skills 0750 root:root
     plan_dir /var/lib/domovoi-agent 0700 root:root
-    plan_unit domovoi-agent.service legacy_agent_unit
+    plan_unit domovoi-agent.service root_agent_unit
     plan_add note "the agent runs as root on this host: the hub and the agent share /etc/domovoi"
     if [ -e "$agent_unit_path" ] && [ -e /etc/domovoi/agent.toml ]; then
         plan_add keep "the agent here is already enrolled; it is restarted if it is running, not enrolled again"
@@ -2845,8 +2603,6 @@ resolve_enroll() {
         fail_with 2 "enrolling needs the service install; it cannot be used with --no-service"
     [ "$start" -eq 1 ] ||
         fail_with 2 "enrolling starts the agent, so it cannot be used with --no-start; enroll by hand with the command from the Add host dialog"
-    [ "$migrate" -eq 0 ] ||
-        fail_with 2 "--migrate-identity cannot be combined with enrolling"
     check_url --hub "$enroll_hub" "wss" "wss://hub.lan:7421"
     enroll_hub="${enroll_hub%/}"
     printf '%s\n' "$enroll_fp" | grep -Eq '^([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2}$|^[0-9A-Fa-f]{64}$' ||
@@ -3065,8 +2821,8 @@ both_agent_part() {
     layout="hub"
     ba_enrolled=0
     if [ -e "$agent_unit_path" ] && [ -e /etc/domovoi/agent.toml ]; then ba_enrolled=1; fi
-    create_legacy_agent_layout
-    place_unit domovoi-agent.service legacy_agent_unit 0
+    create_root_agent_layout
+    place_unit domovoi-agent.service root_agent_unit
     systemctl daemon-reload
     if [ "$ba_enrolled" -eq 1 ]; then
         ensure_agent_journal
@@ -3202,8 +2958,6 @@ validate_inputs() {
 
 prefix="/usr/local"
 service=1
-migrate=0
-rollback=0
 upgrade=0
 installed_version=""
 state="fresh"
@@ -3341,16 +3095,8 @@ while [ $# -gt 0 ]; do
         purge=1
         shift
         ;;
-    --migrate-identity)
-        migrate=1
-        shift
-        ;;
-    --rollback-identity)
-        rollback=1
-        shift
-        ;;
     --print-unit)
-        [ $# -ge 2 ] || fail "--print-unit needs hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-legacy"
+        [ $# -ge 2 ] || fail "--print-unit needs hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-root"
         case "$2" in
         hub) hub_unit ;;
         agent) agent_unit ;;
@@ -3358,8 +3104,8 @@ while [ $# -gt 0 ]; do
         helper-service) helper_service_unit ;;
         runner-socket) runner_socket_unit ;;
         runner-service) runner_service_unit ;;
-        agent-legacy) legacy_agent_unit ;;
-        *) fail "--print-unit takes hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-legacy, not $2" ;;
+        agent-root) root_agent_unit ;;
+        *) fail "--print-unit takes hub, agent, helper-socket, helper-service, runner-socket, runner-service or agent-root, not $2" ;;
         esac
         exit 0
         ;;
@@ -3385,8 +3131,6 @@ if [ "$uninstall" -eq 1 ]; then
     if [ "$version" != "latest" ]; then uc_bad="$uc_bad --version"; fi
     if [ "$service" -eq 0 ]; then uc_bad="$uc_bad --no-service"; fi
     if [ "$start" -eq 0 ]; then uc_bad="$uc_bad --no-start"; fi
-    if [ "$migrate" -eq 1 ]; then uc_bad="$uc_bad --migrate-identity"; fi
-    if [ "$rollback" -eq 1 ]; then uc_bad="$uc_bad --rollback-identity"; fi
     if [ "$keep_on_failure" -eq 1 ]; then uc_bad="$uc_bad --keep-on-failure"; fi
     if [ "$accept_reset" -eq 1 ]; then uc_bad="$uc_bad --accept-data-reset"; fi
     if [ "$force_downgrade" -eq 1 ]; then uc_bad="$uc_bad --force-downgrade"; fi
@@ -3411,17 +3155,6 @@ init_colors
 result_pending=1
 log_line "arguments: role=$role version=$version prefix=$prefix service=$service dry_run=$dry_run json=$json yes=$yes"
 
-if [ "$rollback" -eq 1 ]; then
-    fail_code=40
-    [ "$migrate" -eq 0 ] || fail_with 2 "--rollback-identity and --migrate-identity cannot be used together"
-    [ "$(id -u)" -eq 0 ] || fail_with 10 "--rollback-identity must run as root (sudo)"
-    if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then
-        fail_with 10 "--rollback-identity needs a systemd host"
-    fi
-    rollback_apply
-    exit 0
-fi
-
 if [ "$uninstall" -eq 1 ]; then
     run_uninstall
     exit 0
@@ -3436,11 +3169,6 @@ agent) ;;
     ;;
 *) fail "--role takes hub, agent or both, not $role" ;;
 esac
-
-if [ "$migrate" -eq 1 ]; then
-    [ "$role" = "agent" ] || fail "--migrate-identity goes with --role agent"
-    [ "$service" -eq 1 ] || fail "--migrate-identity cannot be combined with --no-service"
-fi
 
 validate_inputs
 
@@ -3485,7 +3213,6 @@ step preflight "Checking this machine"
 preflight_local
 if [ "$pf_failed" -eq 0 ]; then
     define_downloader
-    if [ "$migrate" -eq 1 ]; then migrate_preconditions; fi
     resolve_version
     detect_state
     check_schema_reset
@@ -3503,18 +3230,11 @@ fi
 if [ "$dry_run" -eq 1 ]; then
     step plan "Planning the install"
     build_plan
-    if [ "$migrate" -eq 1 ]; then migrate_plan; fi
     print_plan
     say ""
     say "Dry run: nothing was changed, and the archive was not downloaded."
     finish_summary
     exit 0
-fi
-
-# The migration shows its plan and asks before anything is downloaded or changed.
-if [ "$migrate" -eq 1 ]; then
-    migrate_plan
-    migrate_confirm
 fi
 
 step download "Downloading $name.tar.gz"
@@ -3565,12 +3285,6 @@ else
     step service "Setting up the $role service"
 fi
 fail_code=40
-if [ "$migrate" -eq 1 ]; then
-    migrate_apply
-    finish_summary
-    exit 0
-fi
-
 unit_name="domovoi-$role.service"
 if [ "$role" = "both" ]; then unit_name="domovoi-hub.service"; fi
 if [ -e "/etc/systemd/system/$unit_name" ]; then
@@ -3582,7 +3296,7 @@ if [ "$hub_part" -eq 1 ]; then
     create_hub_layout
     write_hub_env
     create_admin
-    place_unit "$unit_name" hub_unit 0
+    place_unit "$unit_name" hub_unit
     if [ "$have_systemd" -eq 1 ]; then
         systemctl daemon-reload
     fi
@@ -3597,10 +3311,10 @@ if [ "$hub_part" -eq 1 ]; then
 else
     classify_host
     case "$layout" in
-    fresh | migrated) install_identities "$layout" ;;
+    fresh | migrated) install_identities ;;
     *)
-        create_legacy_agent_layout
-        place_unit "$unit_name" legacy_agent_unit 0
+        create_root_agent_layout
+        place_unit "$unit_name" root_agent_unit
         if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
             systemctl daemon-reload
         fi
@@ -3618,11 +3332,6 @@ fi
 case "$layout" in
 nosystemd) boundary_notice "no systemd on this host" ;;
 hub) boundary_notice "the hub and the agent share /etc/domovoi (root:domovoi), which the three-identities layout cannot satisfy; run the agent on its own host to get the boundary" ;;
-legacy)
-    boundary_notice "this agent still runs as root"
-    say "  To run it as the unprivileged domovoi-agent account instead, run:"
-    say "    sudo sh install.sh --role agent --migrate-identity"
-    ;;
 esac
 
 say_always ""
