@@ -150,9 +150,8 @@ fn reserved_runs_must_leave_room_in_the_hour() {
 }
 
 #[test]
-fn a_legacy_short_hour_loads_with_the_runs_it_can_keep() {
-    let (one, issues) =
-        hub("[triage]\nper_hour_runs = 1\n").expect("a legacy hour of one run still loads");
+fn a_short_hour_loads_with_the_runs_it_can_keep() {
+    let (one, issues) = hub("[triage]\nper_hour_runs = 1\n").expect("an hour of one run loads");
     assert!(
         issues
             .iter()

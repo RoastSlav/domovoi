@@ -1,9 +1,0 @@
-{
-  "id": "01900000-0000-7000-8000-000000000001",
-  "kind": "error",
-  "payload": {
-    "code": "invalid_payload",
-    "message": "signals: missing field `batch_seq`"
-  },
-  "v": 1
-}

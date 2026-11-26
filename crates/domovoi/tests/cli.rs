@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_status_legacy_incompatible_reports_the_detail() {
+    fn agent_status_too_old_reject_reports_the_detail() {
         let dir = tempfile::tempdir().unwrap();
         let state = dir.path().join("state");
         let config = dir.path().join("agent.toml");
