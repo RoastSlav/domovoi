@@ -1,6 +1,6 @@
 # Binary and systemd
 
-The installer puts the release binary on a Linux machine (x86_64 or arm64) and sets up a systemd service for the hub or for an agent. The hub is set up from its web UI, and an agent by the enroll command the hub gives you. The only config file the installer writes is `/etc/domovoi/helper.toml` on an agent host, and only when it is absent.
+The installer puts the release binary on a Linux machine (x86_64 or arm64) and sets up systemd services for the hub, an agent, or both. It checks the machine first, and on a systemd host starts the hub and waits until it answers. It can also create the admin account and enroll an agent in the same run. For a script or an automation agent, see [Unattended install](unattended.md).
 
 ## Install the hub
 
@@ -8,32 +8,63 @@ The installer puts the release binary on a Linux machine (x86_64 or arm64) and s
 curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub
 ```
 
-Then start it and open the setup link it prints once:
+The installer runs these steps: it checks the machine (preflight), downloads the archive, verifies its SHA-256, installs the binary, creates the user, directories and unit, then enables and starts the hub and waits until `GET /readyz` answers (60 seconds; `DOMOVOI_READY_TIMEOUT` changes it). It ends with the address to open and a single-use setup link (valid 24 hours) to create the admin account, and lists what is left for you: Discord, a model and the agent server URL. `--no-start` installs the unit and starts nothing. Without systemd the units are skipped and nothing is started.
+
+By default the web UI listens only on loopback. To make it reachable, say so in the same command:
+
+```sh
+curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub \
+  --bind lan --public-url http://192.168.1.50:7420
+```
+
+- `--bind lan` listens on `0.0.0.0:7420`, `--bind loopback` on `127.0.0.1:7420`, and `--bind HOST:PORT` on that address. With `lan` and no `--public-url`, the installer derives `http://<this machine's IPv4>:7420`.
+- `--public-url URL` is the exact address people open, such as `https://domovoi.lan`. The hub accepts requests only from that address, so set it whenever you put a reverse proxy in front.
+- `--agent-url wss://HOST:7421` is the address agents dial. With `--bind lan` it defaults to the host of the public URL.
+
+These flags write only `DOMOVOI_WEB__BIND`, `DOMOVOI_WEB__PUBLIC_URL` and `DOMOVOI_AGENT_SERVER__PUBLIC_URL` into `/etc/domovoi/hub.env`. From another machine you can instead use an SSH tunnel (`ssh -L 7420:127.0.0.1:7420 <host>`) with the setup link unchanged.
+
+To skip the setup link, give the installer the admin password. It creates the account `admin` before the first start, on a fresh install only; an existing admin or an upgrade is never changed:
+
+```sh
+sudo sh install.sh --role hub --admin-password-file /root/admin.pw
+```
+
+The file must be a regular file with mode 0600 or 0400, owned by you, and its first line is the password (at least 12 characters). `--admin-password-stdin` reads the first line of standard input instead (not with `curl | sh`, which uses standard input for the script).
+
+Sign in. The guided first run then sets up the hub's name, time zone and public URL, Discord, a model, the daily digest and your first host. The address agents dial is **Agent server URL** under **Settings**, **Hub**. Every step except the first can be skipped and done later on the Settings page.
+
+If the installer cannot reach the setup link or you started the hub by hand (`--no-start`), print the link from the journal:
 
 ```sh
 sudo systemctl enable --now domovoi-hub
-sudo journalctl -u domovoi-hub | grep -A1 setup
+journalctl -u domovoi-hub -o cat | grep '/setup?token=' | tail -n 1
 ```
 
-The link points at `http://127.0.0.1:7420` until you set the hub's address. The web UI listens only on loopback by default. From another machine, either use an SSH tunnel (`ssh -L 7420:127.0.0.1:7420 <host>`) and keep the link unchanged, or put the UI behind a reverse proxy with TLS.
-
-To open the UI directly on a trusted LAN, set both its listen address and the exact URL users will open. Replace the example IP with the hub's numeric LAN address:
-
-```sh
-printf 'DOMOVOI_WEB__BIND=0.0.0.0:7420\nDOMOVOI_WEB__PUBLIC_URL=http://192.168.1.50:7420\n' | sudo tee /etc/domovoi/hub.env
-sudo systemctl restart domovoi-hub
-journalctl -u domovoi-hub --no-pager -o cat | grep '/setup?token=' | tail -n 1
-```
-
-Both settings are required: the bind address makes the listener reachable, and the public URL lets the hub accept requests from that address. Restarting replaces the setup token, so use the complete new link printed after the restart. Do not use a placeholder such as `SERVER_LOCAL_IP` in the configuration.
-
-Create the admin account. The guided first run then sets up the hub's name, time zone and public URL, Discord, a model, the daily digest and your first host. The address agents dial is **Agent server URL** under **Settings**, **Hub**. Every step except the first can be skipped and done later on the Settings page.
+Restarting the hub replaces the setup token, so use the newest link.
 
 To check the whole pipeline without network access or a model:
 
 ```sh
 sudo -u domovoi domovoi selftest --offline
 ```
+
+### Preflight, dry run and prompts
+
+Every run starts with a preflight that prints one line per check: Linux, the architecture, root, the tools it needs, free disk space in the temp directory and the prefix (`DOMOVOI_MIN_FREE_MB`, default 200), systemd, the existing installation, a hub database from before 0.1.0 (see below) and an older version than the one installed (`--force-downgrade` allows it). If a check fails, the installer stops with exit 10 before it changes anything.
+
+`--dry-run` runs the preflight, prints the plan (every file, user, unit and directory the install would create or change) and exits 0, without changing anything or downloading the archive. Use it to see what a command will do.
+
+The installer asks no question except where a human must answer (`--migrate-identity` and `--purge` on a terminal). `--yes` or `DOMOVOI_NONINTERACTIVE=1` makes sure it never asks.
+
+### Output, log and failures
+
+`--quiet` prints errors and the final summary only, `--verbose` adds the details of each step, and `--json` prints JSON lines instead of text (see [Unattended install](unattended.md#the-json-output)). The full text of every run goes to `/var/log/domovoi-install.log`, or `~/.cache/domovoi-install.log` when that is not writable; `DOMOVOI_INSTALL_LOG` names another file. The log never holds the setup link or a token.
+
+A fresh install that fails before the first service starts is undone: the accounts, directories, files, units and binary that this run created are removed again, newest first, and the installer prints "Rolled back". Nothing that was there before is touched. `--keep-on-failure` leaves a failed install in place for debugging. An upgrade, an identity migration, and a failure after a service was started are never rolled back; the installer says what to run instead.
+
+### A hub from before 0.1.0
+
+0.1.0 replaces the database schema, so it cannot open a hub database written by an older release. The installer refuses (exit 10) until you pass `--accept-data-reset`. Even then it never moves or deletes the old data: it does not restart the hub, and prints how to move the data directory aside and set the hub up again.
 
 ## Install an agent
 
@@ -45,7 +76,20 @@ curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install
 
 On a systemd host with no hub on it, a fresh agent install sets up three identities: the unprivileged `domovoi-agent` account that runs the agent, the `domovoi-skill` account that skills will run as, and a root helper behind a socket. It creates the accounts, the directories with their modes, `/etc/domovoi/helper.toml`, the helper units and the skill runner units, starts the helper socket and then runs `domovoi agent selftest --installer --record`. Only if that passes does it start the skill runner socket and run the self-test again with the runner up. If a check fails, it stops the sockets it started, prints the report and exits with an error; a failed second check leaves the helper socket running and the runner socket stopped, so skills stay unavailable. [Security model](../security.md#three-identities-on-one-host) says what each identity may reach.
 
-In the hub's web UI, open **Hosts**, then **Add host**, and run the enroll command it shows on that machine, with `sudo`. Enroll runs as root, so it hands the agent's files to `domovoi-agent` when it is done and prints one line saying so. Then start the agent:
+### Enroll in the same run
+
+In the hub's web UI, open **Hosts**, then **Add host**, or run `domovoi hub token create <host>` on the hub. Either gives you a single-use token (valid 15 minutes), the hub certificate's fingerprint and the agent server address. Put the token in a file with mode 0600 and run the installer with all three:
+
+```sh
+sudo sh install.sh --role agent --hub wss://hub.lan:7421 \
+  --fingerprint 3F:A9:... --token-file /root/enroll.token --name nas
+```
+
+The installer enrolls the agent, enables and starts it, and waits until `domovoi agent status` shows the link connected (30 seconds; `DOMOVOI_AGENT_TIMEOUT` changes it). The token can instead come from the environment variable `DOMOVOI_ENROLL_TOKEN`. A flag value is refused (`--token VALUE`, exit 2), because it would land in the shell history and the process list. `--hub`, `--fingerprint` and a token go together or not at all. `--name` is the host's name in Domovoi: lower-case letters, digits and dashes, by default this machine's short host name.
+
+### Enroll by hand
+
+Without those flags the installer installs the agent and starts nothing. Run the enroll command from **Add host** on that machine, with `sudo`. Enroll runs as root, so it hands the agent's files to `domovoi-agent` when it is done and prints one line saying so. Then start the agent:
 
 ```sh
 sudo systemctl enable --now domovoi-agent
@@ -89,10 +133,21 @@ A host in this state gets no unattended execution.
 
 | Option | Meaning |
 | --- | --- |
-| `--role hub` or `--role agent` | What this machine runs. Required. |
+| `--role hub`, `agent` or `both` | What this machine runs. Required. `both` sets up the hub and an agent that watches this machine. |
 | `--version v0.1.0` | Install this release instead of the latest. |
-| `--prefix /opt/domovoi` | Install the binary as `<prefix>/bin/domovoi`. Default `/usr/local`. |
+| `--prefix /opt/domovoi` | Install the binary as `<prefix>/bin/domovoi`. An absolute path. Default `/usr/local`. |
 | `--no-service` | Install only the binary and examples: no user, directories or unit. Works without root when the prefix is writable. |
+| `--no-start` | Hub only: install the unit but do not start it. |
+| `--public-url`, `--bind`, `--agent-url` | Hub: the addresses people and agents use. Written to `/etc/domovoi/hub.env`. |
+| `--admin-password-file FILE`, `--admin-password-stdin` | Hub, fresh install: create the admin account from the first line of the file or of standard input. |
+| `--hub`, `--fingerprint`, `--token-file`, `--name` | Agent: enroll, start and wait in the same run. The token can also be in `DOMOVOI_ENROLL_TOKEN`. |
+| `--accept-data-reset` | Hub: go on although the database is from before 0.1.0. |
+| `--dry-run` | Run the preflight, print the plan and change nothing. |
+| `--yes` | Never ask a question. Same as `DOMOVOI_NONINTERACTIVE=1`. |
+| `--json`, `--quiet`, `--verbose` | Machine-readable, minimal or detailed output. |
+| `--force-downgrade` | Allow installing an older version than the one found. |
+| `--keep-on-failure` | Do not undo a failed fresh install. |
+| `--uninstall`, `--purge` | Remove the installation. See [Upgrading and uninstalling](upgrading.md#uninstalling). |
 | `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket`, `runner-service` and `agent-legacy` (the root agent unit used where the boundary cannot be set up). |
 | `--migrate-identity` | Move an existing root agent to the three-identities layout, after a printed plan and a typed confirmation. Agent role, root, needs a terminal. |
 | `--rollback-identity` | Undo that migration from the saved record. |
@@ -133,7 +188,7 @@ sudo sh install.sh --role hub
 | `/etc/systemd/system/domovoi-helper.socket` and `domovoi-helper@.service` | agent | The helper, started on demand. |
 | `/etc/systemd/system/domovoi-skill-runner.socket` and `domovoi-skill-runner@.service` | agent | The skill runner, started on demand, one process per connection, as `domovoi-skill`. The installer writes your `skills_dir` and `packages_dir` into the service. |
 
-Apart from the helper and skill runner sockets on a fresh agent install, the installer never enables or starts a service. Running it again replaces the binary and leaves everything else as it is; on an agent it also checks each path above and reports any wrong mode or owner without changing it (see [Troubleshooting](../troubleshooting.md#a-path-has-the-wrong-mode-or-owner)). A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
+The installer enables and starts the hub, and an agent it enrolled in the same run, and the helper and skill runner sockets on a fresh agent install; it starts nothing else. Running it again replaces the binary, restarts a hub that was running, and leaves everything else as it is; on an agent it also checks each path above and reports any wrong mode or owner without changing it (see [Troubleshooting](../troubleshooting.md#a-path-has-the-wrong-mode-or-owner)). A unit you changed is kept, and the new one is saved next to the examples so you can compare them. To change a unit, prefer a drop-in (`sudo systemctl edit domovoi-hub`), which upgrades never touch.
 
 ## The units
 
@@ -160,11 +215,20 @@ The skill runner runs skills as `domovoi-skill`, in a sandbox that hides the age
 
 ## One machine
 
-To watch the machine the hub runs on, install both roles on it and enroll the agent like any other, with the hub at `wss://127.0.0.1:7421`. The two services stay separate. Because the hub and the agent then share `/etc/domovoi`, the agent runs as root and is labelled "privilege boundary not in effect".
+To watch the machine the hub runs on, use one command:
+
+```sh
+sudo sh install.sh --role both --admin-password-file /root/admin.pw
+```
+
+`--role both` installs the hub exactly as `--role hub` does and starts it, which creates its TLS certificate. It then stops the hub for a moment to make a 15-minute enrollment token with `domovoi hub token create` as the hub user (the command needs the database), starts the hub again, and enrolls and starts an agent that dials `wss://127.0.0.1:7421` (`--agent-url` changes it). The token lives in a private temporary file for the length of the run and is never printed or logged. Every hub flag applies, `--name` names the host, and `--no-start` is refused.
+
+The two services stay separate. Because the hub and the agent then share `/etc/domovoi`, the agent runs as root and is labelled "privilege boundary not in effect".
 
 The hub can instead run an agent for its own machine in the same process, with the `--with-local-agent` flag. [`deploy/systemd/single-box.conf`](https://github.com/RoastSlav/domovoi/blob/main/deploy/systemd/single-box.conf) is a drop-in that does this. The local agent then runs inside the hub's sandbox as the `domovoi` user, so SMART, journal checks and skills that switch users report errors, and the boundary is not in effect. It needs an agent config file, which the drop-in describes. Prefer two services unless you need a single process.
 
 ## Next
 
+- [Unattended install](unattended.md), for scripts and automation agents
 - [Upgrading and uninstalling](upgrading.md)
 - [Advanced: config as code](config-as-code.md), to manage the hub from files instead of the web UI.

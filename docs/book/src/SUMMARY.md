@@ -6,6 +6,7 @@
 # Install
 
 - [Binary and systemd](install/binary.md)
+- [Unattended install](install/unattended.md)
 - [Docker](install/docker.md)
 - [Container-mode agent](install/container-agent.md)
 - [Upgrading and uninstalling](install/upgrading.md)

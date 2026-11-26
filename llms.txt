@@ -1,0 +1,31 @@
+# Domovoi
+
+> Domovoi is a self-hosted server overseer. A hub and small agents on your Linux machines watch for problems, a model triages each incident into a card in Discord and the web UI, and nothing runs on a host unless a human approves it. It is one Rust binary with an embedded web UI, installed from a release with `install.sh` and run as systemd services or containers.
+
+Install with `curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub|agent|both`. The installer supports `--dry-run`, `--yes` and `--json` for unattended use. Creating the Discord bot, providing an LLM key and approving actions are done by a person.
+
+## Install and operate
+
+- [Quick start](https://RoastSlav.github.io/domovoi/quick-start.html): the hub and an agent on one machine.
+- [Binary and systemd](https://RoastSlav.github.io/domovoi/install/binary.html): every installer option, what it creates and how it fails.
+- [Unattended install](https://RoastSlav.github.io/domovoi/install/unattended.html): a script from install to uninstall, the JSON output and the exit codes.
+- [Docker](https://RoastSlav.github.io/domovoi/install/docker.html): the hub as a container.
+- [Upgrading and uninstalling](https://RoastSlav.github.io/domovoi/install/upgrading.html)
+- [Agents and enrollment](https://RoastSlav.github.io/domovoi/guide/agents.html)
+
+## Reference
+
+- [Configuration](https://RoastSlav.github.io/domovoi/reference/configuration.html): every setting and environment variable.
+- [Command line](https://RoastSlav.github.io/domovoi/reference/cli.html): the `domovoi` subcommands.
+- [HTTP API](https://RoastSlav.github.io/domovoi/reference/api.html): the hub's REST API.
+- [Built-in checks](https://RoastSlav.github.io/domovoi/reference/checks.html)
+
+## Security
+
+- [Security model](https://RoastSlav.github.io/domovoi/security.html): identities, approvals and what an agent can reach.
+- [Hardening](https://RoastSlav.github.io/domovoi/guide/hardening.html)
+
+## Optional
+
+- [Troubleshooting](https://RoastSlav.github.io/domovoi/troubleshooting.html)
+- [FAQ](https://RoastSlav.github.io/domovoi/faq.html)

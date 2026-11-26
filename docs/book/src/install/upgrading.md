@@ -2,12 +2,14 @@
 
 ## Upgrading
 
-**Binary installs.** Run the installer again with the same role. It replaces the binary and leaves the unit, the data and any config you added as they are. Then restart the service:
+**Binary installs.** Run the installer again with the same role. It replaces the binary and leaves the unit, the data and any config you added as they are. A hub that was running is restarted on the new version and waited for until `/readyz` answers; a stopped hub stays stopped, and an existing admin account is never touched. An agent is not restarted by the installer:
 
 ```sh
 curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub
-sudo systemctl restart domovoi-hub
+sudo systemctl restart domovoi-agent   # on an agent host
 ```
+
+Add `--dry-run` to see what a run would change. An older version than the installed one is refused (exit 10) unless you pass `--force-downgrade`. A hub database from before 0.1.0 cannot be upgraded; see [Binary and systemd](binary.md#a-hub-from-before-010).
 
 Or let the binary replace itself. `domovoi upgrade` downloads the latest release for this machine, checks its SHA-256 against the `.sha256` file published next to it, and swaps the binary in place. It changes nothing if the check fails. It does not restart anything: it prints the `systemctl restart` commands for the units that exist on this machine.
 
@@ -76,38 +78,21 @@ The environment variable `DOMOVOI_UPDATES__CHECK=false` does the same. Turning i
 
 ## Uninstalling
 
-An agent:
-
 ```sh
-sudo systemctl disable --now domovoi-agent domovoi-helper.socket domovoi-skill-runner.socket
-sudo rm /etc/systemd/system/domovoi-agent.service
-sudo rm /etc/systemd/system/domovoi-helper.socket /etc/systemd/system/domovoi-helper@.service
-sudo rm /etc/systemd/system/domovoi-skill-runner.socket /etc/systemd/system/domovoi-skill-runner@.service
-sudo rm -r /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper
-sudo systemctl daemon-reload
-sudo userdel domovoi-agent
-sudo userdel domovoi-skill
+sudo sh install.sh --uninstall
 ```
 
-On a host that never had the three-identities layout, the helper, skill runner, packages and `userdel` lines have nothing to remove and can be skipped. The helper directory holds nothing but a lock in this release.
+This stops and disables the hub, agent, helper and skill runner units, deletes their unit files, `<prefix>/bin/domovoi` and `<prefix>/share/domovoi`, and lists what it kept: the configuration (`/etc/domovoi`), the data (`/var/lib/domovoi*`), the skills, the accounts and the identity-migration record. Use `--prefix` if you installed elsewhere, `--dry-run` to see the plan, `--json` for machine output and `--yes` to skip questions. It exits 10 when nothing is installed or it is not run as root.
 
-Then revoke the host on the hub's **Hosts** page, so its key is no longer accepted.
-
-The hub:
+To remove the data and accounts as well:
 
 ```sh
-sudo systemctl disable --now domovoi-hub
-sudo rm /etc/systemd/system/domovoi-hub.service
-sudo systemctl daemon-reload
-sudo rm -r /var/lib/domovoi   # the database, secret.key and backups: keep a copy if you may come back
-sudo userdel domovoi
+sudo sh install.sh --uninstall --purge
 ```
 
-Then, on a machine that has neither role left:
+`--purge` also deletes `/etc/domovoi`, `/var/lib/domovoi`, `/var/lib/domovoi-agent`, `/var/lib/domovoi-packages`, `/var/lib/domovoi-helper`, the install log, the systemd drop-ins `/etc/systemd/system/domovoi-*.d`, and the `domovoi`, `domovoi-agent` and `domovoi-skill` accounts, but only accounts the installer created. This is destructive and cannot be undone: it lists what it will delete with the data sizes, then needs `--yes` or the word `purge` typed on the terminal. Keep a copy of `secret.key` and the database first if you may come back (see [Backups](../reference/backup.md)).
 
-```sh
-sudo rm -r /etc/domovoi /usr/local/bin/domovoi /usr/local/share/domovoi
-```
+After removing an agent, revoke the host on the hub's **Hosts** page, so its key is no longer accepted.
 
 Containers: `docker compose -f hub.yml down`, then `docker volume rm domovoi_domovoi` to delete the data as well.
 
