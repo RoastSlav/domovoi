@@ -1,6 +1,6 @@
 //! The phases of one block, and the only file that hands a containment request to an agent.
 //!
-//! [`execute_containment`] is a sibling of the unit restart's dispatch, not a second framework:
+//! `execute_containment` is a sibling of the unit restart's dispatch, not a second framework:
 //! it takes a step that carries a person's approval or a stored permit, runs `apply`, then the
 //! hub's own `confirm` inside the window, and takes the failure paths of ADR 0038. Every phase
 //! change is committed before the request that causes it is sent, and nothing is retried after a
@@ -37,7 +37,7 @@ const REFUSED_FRAMES: [&str; 10] = [
 pub(super) const UNRECOGNISED_MAX: usize = 500;
 
 /// An Execution step of `firewall.block_source` that a person approved or a permit authorized,
-/// as the one thing [`execute_containment`] may run. Built once, by the dispatch handler.
+/// as the one thing `execute_containment` may run. Built once, by the dispatch handler.
 #[derive(Debug)]
 pub struct AuthorizedContainment {
     step: AuthorizedStep,
