@@ -226,6 +226,53 @@ async fn unknown_answers_settle_outcome_unknown() {
     assert_eq!(distinct.len(), texts.len(), "each reason has its own text");
 }
 
+/// Hub side of the crash window where the agent journal accepted a run but never recorded
+/// its start: the answer settles `OutcomeUnknown`, audited once, with no success anywhere.
+#[tokio::test]
+async fn crash_after_accepted_is_outcome_unknown() {
+    let mut w = world().await;
+    let (op, step) = dispatched_without_an_answer(&w).await;
+    answer(
+        &w,
+        step,
+        ActionAnswer::Unknown {
+            reason: UnknownReason::NoStartRecord,
+        },
+    );
+
+    w.restart().await;
+    let snapshot = w.until_outcome(op, step, StepOutcome::OutcomeUnknown).await;
+    w.settle().await;
+
+    assert_eq!(
+        snapshot.operation.status,
+        OperationStatus::Paused {
+            reason: PauseReason::OutcomeUnknown { step }
+        }
+    );
+    assert_eq!(
+        reason_of(&snapshot, step),
+        "the agent recorded this run but not its start; it may not have run"
+    );
+    let audit = w.audit_kinds().await;
+    assert_eq!(
+        audit
+            .iter()
+            .filter(|kind| kind.as_str() == "execution.outcome_unknown")
+            .count(),
+        1,
+        "{audit:?}"
+    );
+    assert!(
+        audit.iter().all(|kind| !kind.contains("succeeded")),
+        "{audit:?}"
+    );
+    let event = w.audit_event("execution.outcome_unknown").await.unwrap();
+    assert!(!event.detail.to_string().to_lowercase().contains("succe"));
+    assert!(!reason_of(&snapshot, step).to_lowercase().contains("succe"));
+    assert!(!has_verification(&snapshot), "no verification was queued");
+}
+
 #[tokio::test]
 async fn a_stale_answer_from_another_epoch_settles_outcome_unknown() {
     let mut w = world().await;
