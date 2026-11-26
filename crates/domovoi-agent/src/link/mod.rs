@@ -54,10 +54,8 @@ pub const OUTBOX: usize = 256;
 pub const IDLE_NOTICE_INTERVAL: SignedDuration = SignedDuration::from_hours(1);
 /// How often the agent compares its runtime status and reports a change.
 ///
-/// Only immutable values exist in this milestone (`runs_as_root`, the absent helper and
-/// skill runner, and the absent ceiling). The probe compares the current snapshot and sends
-/// a change; it is not an environment refresh. A later milestone supplies mutable component
-/// status through the same source.
+/// The probe compares the current snapshot of the runtime status (`runs_as_root`, helper,
+/// skill runner and ceiling) and sends a change; it does not refresh the environment.
 pub const STATUS_PROBE_INTERVAL: SignedDuration = SignedDuration::from_secs(60);
 
 /// A request from the hub, waiting for the request handler.

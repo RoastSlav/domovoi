@@ -110,7 +110,7 @@ async fn plan_hash_mismatch_never_executes() {
     assert!(fixture.exec.calls().is_empty(), "the runner was called");
 }
 
-/// RW-26: the hub cannot add a trusted key. A package signed by a key the owner never
+/// The hub cannot add a trusted key. A package signed by a key the owner never
 /// listed is refused, a request that carries a key is malformed, and the key set has no
 /// way to change after construction.
 #[cfg(target_os = "linux")]
