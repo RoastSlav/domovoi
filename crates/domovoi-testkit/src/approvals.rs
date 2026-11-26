@@ -13,7 +13,7 @@ pub fn provenance() -> ApprovalProvenance {
     ApprovalProvenance::new(None, "test")
 }
 
-/// Wraps `approval` as a human authorization, the only case that may approve at M1.
+/// Wraps `approval` as a human authorization, a case a test can approve with.
 #[must_use]
 pub fn authorize(approval: HumanApproval) -> Authorization {
     Authorization::human(approval)
