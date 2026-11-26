@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router";
+import { Outlet, Route, Routes, useNavigate } from "react-router";
 import { setUnauthorizedHandler } from "../api/client";
 import { useSession } from "../api/hooks/session";
 import { ApiFailure } from "../api/types";
@@ -73,7 +73,6 @@ export function AppRoutes() {
             <Route path="/operations/:id" element={<PAGES.operation.Page />} />
             <Route path="/operator" element={<PAGES.operator.Page />} />
             <Route path="/operator/:id" element={<PAGES.operator.Page />} />
-            <Route path="/chat" element={<Navigate to="/operator" replace />} />
             <Route path="/rules" element={<PAGES.rules.Page />} />
             <Route path="/approvals" element={<PAGES.approvals.Page />} />
             <Route path="/hosts" element={<PAGES.hosts.Page />} />
@@ -100,7 +99,6 @@ export function AppRoutes() {
             <Route path="/policy/decisions/:execution" element={<PAGES.policyDecision.Page />} />
             <Route path="/policy/simulator" element={<PAGES.policySimulator.Page />} />
             <Route path="/settings" element={<PAGES.settings.Page />} />
-            <Route path="/settings/about" element={<Navigate to="/settings/updates" replace />} />
             <Route path="/settings/:section" element={<PAGES.settings.Page />} />
             <Route path="/welcome" element={<PAGES.firstRun.Page />} />
             <Route path="*" element={<NotFoundPage />} />
