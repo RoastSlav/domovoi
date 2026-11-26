@@ -23,6 +23,12 @@
 #   9. runs --role both again (an upgrade): nothing is enrolled a second time, both services
 #      are restarted and the host is still listed and connected.
 #
+# With E2E_UNINSTALL=1 it ends by taking the installation off the machine again:
+#  10. runs install.sh --uninstall --yes: the units are inactive and gone, the binary is gone, the
+#      data, the configuration and the accounts stay;
+#  11. runs install.sh --uninstall --purge --yes: the data, the configuration and the accounts
+#      are gone and ports 7420 and 7421 are free.
+#
 #   E2E_BINARY=/path/to/target/release/domovoi sudo -E deploy/test/installer-e2e.sh
 #   E2E_BOTH=1 E2E_BINARY=... sudo -E deploy/test/installer-e2e.sh    # adds the --role both section
 #
@@ -250,6 +256,60 @@ if [ "${E2E_BOTH:-0}" = 1 ]; then
     fi
     check "both: the journal is created again" sh -c "test -e /var/lib/domovoi-agent/action-journal.json && test -e /var/lib/domovoi-agent/action-journal.bin"
     check "both: the agent connects with the new journal" wait_connected
+fi
+
+# --uninstall, then --uninstall --purge (opt-in: E2E_UNINSTALL=1). This takes the hub, and the
+# agent when E2E_BOTH=1 ran, off the machine, so it is the last section and never runs by default.
+if [ "${E2E_UNINSTALL:-0}" = 1 ]; then
+    port_free() { # PORT
+        ! ss -ltn 2>/dev/null | awk '{print $4}' | grep -q ":$1\$"
+    }
+    present_units=""
+    for u in domovoi-hub domovoi-agent domovoi-helper.socket domovoi-skill-runner.socket; do
+        case "$u" in *.socket) uname_="$u" ;; *) uname_="$u.service" ;; esac
+        if [ -e "/etc/systemd/system/$uname_" ]; then present_units="$present_units $uname_"; fi
+    done
+    check "uninstall: the hub unit is installed before it starts" test -e /etc/systemd/system/domovoi-hub.service
+    rc=0
+    sh "$installer" --uninstall --yes --json >"$work/result6.json" 2>"$work/install6.err" || rc=$?
+    check "uninstall: --uninstall --yes exits 0" test "$rc" -eq 0
+    if [ "$rc" -ne 0 ]; then
+        echo "the uninstall exited $rc; its result and its error output follow"
+        cat "$work/result6.json" "$work/install6.err"
+    fi
+    check "uninstall: the result is ok and says uninstall" test "$(result_field "$work/result6.json" '(r["ok"], r["mode"], r["purge"])')" = "(True, 'uninstall', False)"
+    for u in $present_units; do
+        check "uninstall: $u is not active" sh -c "! systemctl is-active --quiet '$u'"
+        check "uninstall: $u is not enabled" sh -c "! systemctl is-enabled --quiet '$u' 2>/dev/null"
+        check "uninstall: the unit file of $u is gone" test ! -e "/etc/systemd/system/$u"
+    done
+    check "uninstall: the binary is gone" test ! -e /usr/local/bin/domovoi
+    check "uninstall: the examples are gone" test ! -e /usr/local/share/domovoi
+    check "uninstall: the hub no longer answers" sh -c "! curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:7420/readyz"
+    check "uninstall: port 7420 is free" port_free 7420
+    check "uninstall: port 7421 is free" port_free 7421
+    check "uninstall: the configuration is kept" test -d /etc/domovoi
+    check "uninstall: the hub data is kept" test -d /var/lib/domovoi
+    check "uninstall: the hub account is kept" id domovoi
+    if [ "${E2E_BOTH:-0}" = 1 ]; then
+        check "uninstall: the agent data is kept" test -d /var/lib/domovoi-agent
+    fi
+    rc=0
+    sh "$installer" --uninstall --purge --yes --json >"$work/result7.json" 2>"$work/install7.err" || rc=$?
+    check "uninstall: --uninstall --purge --yes exits 0" test "$rc" -eq 0
+    if [ "$rc" -ne 0 ]; then
+        echo "the purge exited $rc; its result and its error output follow"
+        cat "$work/result7.json" "$work/install7.err"
+    fi
+    check "uninstall: the purge result is ok" test "$(result_field "$work/result7.json" '(r["ok"], r["mode"], r["purge"])')" = "(True, 'uninstall', True)"
+    check "uninstall: the configuration is gone" test ! -e /etc/domovoi
+    check "uninstall: the hub data is gone" test ! -e /var/lib/domovoi
+    check "uninstall: the agent data is gone" test ! -e /var/lib/domovoi-agent
+    check "uninstall: the hub account is gone" sh -c "! id domovoi >/dev/null 2>&1"
+    check "uninstall: the agent accounts are gone" sh -c "! id domovoi-agent >/dev/null 2>&1 && ! id domovoi-skill >/dev/null 2>&1"
+    check "uninstall: no unit of Domovoi is left" sh -c "! ls /etc/systemd/system | grep -q '^domovoi'"
+    check "uninstall: ports 7420 and 7421 are still free" sh -c "ss -ltn | awk '{print \$4}' | grep -Eq ':742[01]\$' && exit 1 || exit 0"
+    check "uninstall: a second purge finds nothing and exits 10" sh -c "sh '$installer' --uninstall --purge --yes >/dev/null 2>&1; test \$? -eq 10"
 fi
 
 if [ "$failures" -gt 0 ]; then
