@@ -1,7 +1,9 @@
 #!/bin/sh
 # Tests install.sh against a fake release served from a local web server. Run it as root
 # in a throwaway container or VM: it creates the domovoi user, /etc/domovoi,
-# /var/lib/domovoi* and the systemd units.
+# /var/lib/domovoi* and the systemd units. Stubs stand in for systemd, and a stub binary
+# records its calls, so it also covers the hub start, enrolling an agent, --role both (the
+# order of start, stop, token, start, enroll, enable) and the pre-0.1.0 database rule.
 #
 #   docker run --rm -v "$PWD:/src" -w /src debian:12 \
 #     sh -c 'apt-get update -qq && apt-get install -y -qq curl python3 >/dev/null && deploy/test/installer.sh'
@@ -582,6 +584,275 @@ check "systemd: the dry run lists the admin" grep -q "admin account" "$work/out"
 check "systemd: the dry run wrote no hub.env" test ! -e /etc/domovoi/hub.env
 check "systemd: the dry run started nothing" test ! -e "$work/systemctl.log"
 rm -f "$adminpw"
+# --- Agent enrollment, --role both and the cross-boundary rule -----------------------------
+# A release whose binary records every call in $out_dir/calls.log (together with the systemctl
+# stub, so the order of the two is visible) and answers `agent enroll`, `agent status` and
+# `hub token create` the way the real one does.
+fp="$(printf 'ab%.0s' $(seq 32))"
+fpc="$(printf 'AB:%.0s' $(seq 31))AB"
+tok="tok_SECRET0123456789abcd"
+cat >"$stubs/hostname" <<STUB
+#!/bin/sh
+case "\$1" in
+-s) echo "Test_Host" ;;
+-I) exit 1 ;;
+*) echo "Test_Host.example" ;;
+esac
+STUB
+chmod 0755 "$stubs/hostname"
+cat >"$stubs/systemctl" <<STUB
+#!/bin/sh
+echo "\$*" >>"$work/systemctl.log"
+echo "systemctl \$*" >>"$out_dir/calls.log"
+case "\$*" in
+"is-active --quiet domovoi-hub") [ -e "$work/active" ] ;;
+"enable --now domovoi-hub" | "start domovoi-hub") touch "$work/active" ;;
+"stop domovoi-hub") rm -f "$work/active" ;;
+"is-active --quiet domovoi-agent") [ -e "$work/agent-active" ] ;;
+"enable --now domovoi-agent") touch "$work/agent-active" ;;
+*) exit 0 ;;
+esac
+STUB
+release_enrolling() { # TAG
+    tag="$1"
+    name="domovoi-$tag-$target"
+    dir="$work/srv/download/$tag"
+    mkdir -p "$dir" "$work/build/$name/examples"
+    cat >"$work/build/$name/domovoi" <<STUB
+#!/bin/sh
+echo "domovoi \$*" >>"$out_dir/calls.log"
+case "\$*" in
+"version") echo "domovoi $tag (test build)" ;;
+"agent enroll "*)
+    printf '%s' "\${DOMOVOI_ENROLL_TOKEN:-unset}" >"$out_dir/enroll.env"
+    id -un >"$out_dir/enroll-ran-as"
+    if [ -e "$out_dir/enroll-fails" ]; then
+        echo "error: the token \${DOMOVOI_ENROLL_TOKEN} was refused (--token \${DOMOVOI_ENROLL_TOKEN})" >&2
+        exit 1
+    fi
+    : >/etc/domovoi/agent.toml
+    echo "Enrolled as host 1 (agent 2)."
+    ;;
+"agent status")
+    if [ -e "$out_dir/connect" ]; then
+        echo "connected since 2030-01-01T00:00:00Z."
+    else
+        echo "reconnecting: connection refused (updated now)"
+    fi
+    ;;
+"hub token create "*)
+    id -un >"$out_dir/token-ran-as"
+    if [ -e "$work/active" ]; then echo "Error: the hub is running and holds the lock" >&2; exit 1; fi
+    if [ -e "$out_dir/token-fails" ]; then echo "Error: cannot open the database" >&2; exit 1; fi
+    echo "Enrollment token for \$4, valid until 2030-01-01T00:15:00Z."
+    echo "Hub fingerprint: $fpc"
+    echo "Run this on \$4:"
+    echo
+    echo "  domovoi agent enroll --hub wss://127.0.0.1:7421/ --token $tok --fingerprint $fpc --name \$4"
+    ;;
+esac
+STUB
+    chmod 0755 "$work/build/$name/domovoi"
+    tar -C "$work/build" -czf "$dir/$name.tar.gz" "$name"
+    (cd "$dir" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
+}
+release_enrolling v9.9.3
+calls_reset() {
+    : >"$out_dir/calls.log"
+    chmod 0666 "$out_dir/calls.log"
+}
+enroll_reset() { # a host with a hub user and nothing running or enrolled
+    hub_reset
+    rm -f /etc/domovoi/agent.toml "$work/agent-active" "$out_dir/connect" "$out_dir/enroll-fails" \
+        "$out_dir/token-fails" "$out_dir/enroll.env" "$out_dir/token-ran-as" "$out_dir/enroll-ran-as"
+    calls_reset
+    printf '%s\n' "$journal_link" >"$work/journal.txt"
+}
+agent_install() { # ARGS...: the enrolling release with the stubs on the path
+    PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --version v9.9.3 "$@" \
+        >"$work/out" 2>"$work/err"
+}
+agent_rc() { rc=0; agent_install "$@" || rc=$?; echo "$rc"; }
+first_call() { grep -n -- "$1" "$out_dir/calls.log" | head -n 1 | cut -d: -f1; }
+in_order() { # PATTERN...: the first line of each is after the first line of the one before
+    io_prev=0
+    for io_pat in "$@"; do
+        io_n="$(first_call "$io_pat")"
+        { [ -n "$io_n" ] && [ "$io_n" -gt "$io_prev" ]; } || return 1
+        io_prev="$io_n"
+    done
+}
+no_token() { # FILES...: the token is in none of them
+    ! grep -q "$tok" "$@" 2>/dev/null
+}
+no_token_run() { # everything a run writes: its output, the install log and the recorded calls
+    no_token "$work/out" "$work/err" "$work/install.log" "$out_dir/calls.log" "$work/systemctl.log"
+}
+journal_link='  http://127.0.0.1:7420/setup?token=feedface0123'
+tokf="$work/my-token"
+(umask 077 && printf '%s\n' "$tok" >"$tokf")
+adminpw="$work/admin.pw"
+(umask 077 && printf '%s\n' "a long enough pass phrase" >"$adminpw")
+agent_journal() { printf 'agent: dialing wss://hub.lan:7421\nagent: enroll --token %s\n' "$tok" >"$work/journal.txt"; }
+
+# An agent with a hub user on the machine keeps the root layout, and is enrolled and started.
+enroll_reset
+touch "$out_dir/connect"
+check "enroll: an agent with the trio installs" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas)" = 0
+check "enroll: enroll got the hub, fingerprint and name" grep -qx "domovoi agent enroll --hub wss://hub.lan:7421 --fingerprint $fp --name nas" "$out_dir/calls.log"
+check "enroll: the token reached enroll through its environment" test "$(cat "$out_dir/enroll.env")" = "$tok"
+check "enroll: enroll ran as root" test "$(cat "$out_dir/enroll-ran-as")" = root
+check "enroll: the token is in no argument, output or log" no_token_run
+check "enroll: the order is enroll, enable, status" in_order 'domovoi agent enroll' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
+check "enroll: the summary says the agent is connected" grep -q "The agent is enrolled as host nas and connected to wss://hub.lan:7421" "$work/out"
+check "enroll: the agent next steps of before are not printed" sh -c "! grep -q 'Add host' '$work/out'"
+check "enroll: the boundary notice still names the hub" grep -q "privilege boundary not in effect" "$work/out"
+check "enroll: no temporary token file is left behind" sh -c "! find /tmp -name enroll.tok 2>/dev/null | grep -q ."
+
+# The token from the environment, the default name, and --json.
+enroll_reset
+touch "$out_dir/connect"
+DOMOVOI_ENROLL_TOKEN="$tok"
+export DOMOVOI_ENROLL_TOKEN
+PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --version v9.9.3 --role agent \
+    --hub wss://hub.lan:7421/ --fingerprint "$fpc" --json >"$work/json.out" 2>"$work/err" || true
+unset DOMOVOI_ENROLL_TOKEN
+check "enroll: the json result is valid" check_json "$work/json.out"
+check "enroll: the json result names the enrolled host" test "$(json_field "$work/json.out" 'r["enrolled_host"]')" = test-host
+check "enroll: the json result says the agent started" test "$(json_field "$work/json.out" 'r["agent_started"]')" = True
+check "enroll: the default name is the cleaned short host name" grep -q -- "--name test-host" "$out_dir/calls.log"
+check "enroll: the environment token reached enroll" test "$(cat "$out_dir/enroll.env")" = "$tok"
+check "enroll: the token is not in the json, the error output or the log" no_token "$work/json.out" "$work/err" "$work/install.log" "$out_dir/calls.log"
+check "enroll: the colon fingerprint is passed as given" grep -q -- "--fingerprint $fpc" "$out_dir/calls.log"
+check "enroll: a trailing slash on the hub address is dropped" grep -q -- "--hub wss://hub.lan:7421 " "$out_dir/calls.log"
+
+# An agent that never connects: exit 40, the journal with the token hidden.
+enroll_reset
+agent_journal
+DOMOVOI_AGENT_TIMEOUT=2
+export DOMOVOI_AGENT_TIMEOUT
+check "enroll: an agent that never connects exits 40" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas)" = 40
+unset DOMOVOI_AGENT_TIMEOUT
+check "enroll: the timeout shows the agent's journal" grep -q "agent: dialing wss://hub.lan:7421" "$work/out" "$work/err"
+check "enroll: the timeout hides the token" no_token_run
+check "enroll: the timeout says what to check by hand" grep -q "agent status" "$work/out"
+check "enroll: the unit was started before the wait" grep -qx 'enable --now domovoi-agent' "$work/systemctl.log"
+# A refused enroll: exit 40 and the unit is not started.
+enroll_reset
+touch "$out_dir/enroll-fails"
+check "enroll: a refused enroll exits 40" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas)" = 40
+check "enroll: a refused enroll does not start the agent" sh -c "! grep -q 'enable --now domovoi-agent' '$work/systemctl.log'"
+check "enroll: a refused enroll shows the message with the token hidden" grep -q "was refused (--token REDACTED" "$work/out"
+check "enroll: a refused enroll keeps the token out of everything" no_token_run
+check "enroll: a refused enroll says what to do by hand" grep -q "Add host" "$work/out"
+# The dry run names the steps and runs none of them.
+enroll_reset
+check "enroll: the dry run succeeds" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas --dry-run)" = 0
+check "enroll: the dry run lists the enroll command" grep -q "domovoi agent enroll --hub wss://hub.lan:7421 --fingerprint $fp --name nas" "$work/out"
+check "enroll: the dry run lists the start and the wait" grep -q "enable --now domovoi-agent, then wait up to 30 s" "$work/out"
+check "enroll: the dry run ran nothing" sh -c "! grep -qE 'agent enroll|token create|systemctl' '$out_dir/calls.log'"
+check "enroll: the dry run does not show the token" no_token "$work/out" "$work/err"
+
+# --role both: hub, stop, token, hub, enroll, enable.
+enroll_reset
+touch "$out_dir/connect"
+check "both: a machine with a hub and an agent installs" test "$(agent_rc --role both --public-url https://domovoi.example --bind loopback --name nas --admin-password-file "$adminpw")" = 0
+check "both: the order is start, stop, token, start, enroll, enable, status" in_order \
+    'systemctl enable --now domovoi-hub' 'systemctl stop domovoi-hub' 'domovoi hub token create nas --ttl 15m' \
+    'systemctl start domovoi-hub' 'domovoi agent enroll' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
+check "both: the token was made as the hub user" test "$(cat "$out_dir/token-ran-as")" = domovoi
+check "both: enroll ran as root" test "$(cat "$out_dir/enroll-ran-as")" = root
+check "both: enroll got the token only through its environment" test "$(cat "$out_dir/enroll.env")" = "$tok"
+check "both: enroll dialed the local agent server with the hub's fingerprint" grep -qx "domovoi agent enroll --hub wss://127.0.0.1:7421 --fingerprint $fpc --name nas" "$out_dir/calls.log"
+check "both: the token is in no argument, output or log" no_token_run
+check "both: the hub is running afterwards" test -e "$work/active"
+check "both: the agent is running afterwards" test -e "$work/agent-active"
+check "both: readiness was probed after each start" test "$(grep -c readyz "$work/readyz.log")" -ge 2
+check "both: the agent keeps the root layout and says so" grep -q "privilege boundary not in effect" "$work/out"
+check "both: the summary names the host and the connection" grep -q "enrolled as host nas and connected" "$work/out"
+check "both: the summary leaves only the hand steps" sh -c "grep -q 'Discord bot token' '$work/out' && grep -q 'LLM provider' '$work/out' && grep -q 'enroll any other machine' '$work/out'"
+check "both: the summary lists the agent checks" grep -q "systemctl status domovoi-agent" "$work/out"
+check "both: no temporary token file is left behind" sh -c "! find /tmp -name enroll.tok -o -name token.out 2>/dev/null | grep -q ."
+# The json result and the setup link without an admin.
+enroll_reset
+touch "$out_dir/connect"
+PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --version v9.9.3 --role both \
+    --public-url https://domovoi.example --bind loopback --json >"$work/json.out" 2>"$work/err" || true
+check "both: the json result is valid" check_json "$work/json.out"
+check "both: the json result has the role and the layout" test "$(json_field "$work/json.out" '(r["role"], r["layout"])')" = "('both', 'hub')"
+check "both: the json result names the enrolled host" test "$(json_field "$work/json.out" 'r["enrolled_host"]')" = test-host
+check "both: the json result says both started" test "$(json_field "$work/json.out" '(r["started"], r["agent_started"])')" = "(True, True)"
+check "both: the json result carries the setup link" test "$(json_field "$work/json.out" 'r["urls"]["setup"]')" = "https://domovoi.example/setup?token=feedface0123"
+check "both: the json result says no admin was created" test "$(json_field "$work/json.out" 'r["admin_created"]')" = "False"
+check "both: the json run kept the token and the setup link out of the log" no_token "$work/json.out" "$work/err" "$work/install.log" "$out_dir/calls.log"
+check "both: the setup link is not in the log file" sh -c "! grep -q feedface0123 '$work/install.log'"
+# A re-run is an upgrade: nothing is enrolled again.
+calls_reset
+check "both: a second run succeeds" test "$(agent_rc --role both)" = 0
+check "both: a second run makes no token" sh -c "! grep -q 'token create' '$out_dir/calls.log'"
+check "both: a second run enrolls nothing" sh -c "! grep -q 'agent enroll' '$out_dir/calls.log'"
+check "both: a second run restarts the hub and the agent" sh -c "grep -qx 'systemctl restart domovoi-hub' '$out_dir/calls.log' && grep -qx 'systemctl restart domovoi-agent' '$out_dir/calls.log'"
+check "both: a second run says the agent was not enrolled again" grep -q "already enrolled" "$work/out"
+# Failures after the hub started leave it running and say what to run.
+enroll_reset
+touch "$out_dir/token-fails"
+check "both: a failed token exits 40" test "$(agent_rc --role both --bind loopback --name nas)" = 40
+check "both: a failed token leaves the hub running" test -e "$work/active"
+check "both: a failed token started the hub again" in_order 'systemctl stop domovoi-hub' 'systemctl start domovoi-hub'
+check "both: a failed token shows the hub's message" grep -q "cannot open the database" "$work/out" "$work/err"
+check "both: a failed token says what to run by hand" sh -c "grep -q 'Add host' '$work/out' && grep -q 'systemctl enable --now domovoi-agent' '$work/out'"
+check "both: a failed token enrolled nothing" sh -c "! grep -q 'agent enroll' '$out_dir/calls.log'"
+enroll_reset
+touch "$out_dir/enroll-fails"
+check "both: a refused enroll exits 40" test "$(agent_rc --role both --bind loopback --name nas)" = 40
+check "both: a refused enroll leaves the hub running" test -e "$work/active"
+check "both: a refused enroll keeps the token out of everything" no_token_run
+check "both: a refused enroll says what to run by hand" grep -q "Add host" "$work/out"
+enroll_reset
+DOMOVOI_AGENT_TIMEOUT=2
+export DOMOVOI_AGENT_TIMEOUT
+check "both: an agent that never connects exits 40" test "$(agent_rc --role both --bind loopback --name nas)" = 40
+unset DOMOVOI_AGENT_TIMEOUT
+check "both: an agent that never connects leaves the hub running" test -e "$work/active"
+check "both: the timeout keeps the token out of everything" no_token_run
+# The dry run of both lists every step.
+enroll_reset
+check "both: the dry run succeeds" test "$(agent_rc --role both --bind loopback --name nas --dry-run)" = 0
+check "both: the dry run lists the token and the enrollment" sh -c "grep -q 'stop the hub, make a 15 minute enrollment token for nas' '$work/out' && grep -q 'domovoi agent enroll --hub wss://127.0.0.1:7421 --name nas' '$work/out'"
+check "both: the dry run ran nothing" sh -c "! grep -qE 'agent enroll|token create|systemctl' '$out_dir/calls.log'"
+check "both: --no-start is refused" test "$(agent_rc --role both --no-start)" = 2
+
+# A hub database from before 0.1.0 is not upgraded.
+release v0.0.9 ""
+release v0.1.0 ""
+old_install() { # ARGS...
+    PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" "$@" >"$work/out" 2>"$work/err"
+}
+old_rc() { rc=0; old_install "$@" || rc=$?; echo "$rc"; }
+enroll_reset
+check "schema: an old hub installs" test "$(old_rc --role hub --version v0.0.9 --force-downgrade)" = 0
+touch /var/lib/domovoi/hub.db
+: >"$work/systemctl.log"
+check "schema: 0.1.0 over a 0.0.9 database exits 10" test "$(old_rc --role hub --version v0.1.0)" = 10
+check "schema: the refusal names the flag" grep -q -- "--accept-data-reset" "$work/err"
+check "schema: the refusal says the schema is replaced" grep -q "replaces the whole database schema" "$work/err"
+check "schema: the refused run left the old binary" sh -c "/usr/local/bin/domovoi version | grep -q v0.0.9"
+check "schema: the refused run restarted nothing" sh -c "! grep -q restart '$work/systemctl.log'"
+check "schema: an agent is not refused" test "$(old_rc --role agent --version v0.1.0 --dry-run)" = 0
+check "schema: a dry run of the hub is refused too" test "$(old_rc --role hub --version v0.1.0 --dry-run)" = 10
+check "schema: the flag lets the install go on" test "$(old_rc --role hub --version v0.1.0 --accept-data-reset)" = 0
+check "schema: the new binary is installed" sh -c "/usr/local/bin/domovoi version | grep -q v0.1.0"
+check "schema: the old data directory is untouched" test -e /var/lib/domovoi/hub.db
+check "schema: the hub is not restarted" sh -c "! grep -qE 'restart|enable --now' '$work/systemctl.log'"
+check "schema: the warning says the data is left untouched" grep -q "left untouched" "$work/out" "$work/err"
+check "schema: the steps to move the directory are printed" sh -c "grep -q 'mv /var/lib/domovoi /var/lib/domovoi.before-0.1.0' '$work/out' && grep -q 'systemctl enable --now domovoi-hub' '$work/out'"
+check "schema: an old hub goes back in for the next case" test "$(old_rc --role hub --version v0.0.9 --force-downgrade)" = 0
+check "schema: both with the flag installs and enrolls nothing" test "$(old_rc --role both --version v0.1.0 --accept-data-reset)" = 0
+check "schema: both with the flag made no token" sh -c "! grep -q 'token create' '$out_dir/calls.log'"
+check "schema: both with the flag says to run again" grep -q "Run this installer again with --role both" "$work/out"
+check "schema: a flag for an agent is refused" test "$(old_rc --role agent --accept-data-reset)" = 2
+rm -f /var/lib/domovoi/hub.db
+
 hub_reset
 rm -f /etc/systemd/system/domovoi-hub.service
 if [ "$made_systemd_dir" -eq 1 ]; then rmdir /run/systemd/system /run/systemd 2>/dev/null || true; fi
