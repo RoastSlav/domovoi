@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { detail, incident } from "../../test/fixtures";
@@ -100,7 +100,7 @@ test("a_failed_optimistic_ack_rolls_back", async () => {
   expect(during, "it read as acknowledged while the request ran").toBe("acked");
   expect(detailStatus(client)).toBe("open");
   expect(listStatuses(client)).toEqual(["open", "open"]);
-  expect(result.current.isError).toBe(true);
+  await waitFor(() => expect(result.current.isError).toBe(true));
 });
 
 test("a_follow_up_answer_refreshes_the_conversation_and_the_incidents_timeline", async () => {
