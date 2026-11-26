@@ -218,12 +218,40 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             )
             .await?;
             hand_over_state(&config.agent.state_dir)?;
+            if let Some(epoch) = ensure_journal(&config).await? {
+                hand_over_state(&config.agent.state_dir)?;
+                println!("Created the action journal (epoch {epoch}).");
+            }
             println!(
                 "Enrolled as host {} (agent {}). Start it with `domovoi agent run`.",
                 identity.host_id, identity.agent_id
             );
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+/// Creates the action journal when the state directory has none, so a freshly enrolled
+/// agent can start. Returns the new epoch, or `None` when a journal (or part of one) is
+/// already there: that is never touched, because a reset is the person's decision. `agent
+/// run` does not create it either; only enrolling does.
+pub(crate) async fn ensure_journal(
+    config: &domovoi_config::AgentConfig,
+) -> anyhow::Result<Option<String>> {
+    let dir = &config.agent.state_dir;
+    let present = |name: &str| dir.join(name).exists();
+    if present(domovoi_agent::journal::META_FILE) || present(domovoi_agent::journal::JOURNAL_FILE) {
+        return Ok(None);
+    }
+    let fs = production::host_fs(config);
+    let snapshot = domovoi_agent::boot_snapshot(&*fs).await?;
+    let boot_id = snapshot.boot_id.to_string();
+    let now = SystemClock.now();
+    match Journal::init(dir, now, &boot_id, snapshot.monotonic_ns) {
+        Ok(epoch) => Ok(Some(epoch.to_string())),
+        // The agent is running and owns it: nothing to create.
+        Err(JournalError::Locked(_)) => Ok(None),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -274,5 +302,47 @@ fn dirs(args: &ConfigArg) -> anyhow::Result<ExitCode> {
             super::warn(&why);
             Ok(ExitCode::FAILURE)
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::ensure_journal;
+
+    /// An agent config whose host files (boot id, uptime) live under `root`.
+    fn config(root: &std::path::Path) -> anyhow::Result<domovoi_config::AgentConfig> {
+        let host = root.join("host");
+        std::fs::create_dir_all(host.join("proc/sys/kernel/random"))?;
+        std::fs::write(
+            host.join("proc/sys/kernel/random/boot_id"),
+            "018f0000-0000-7000-8000-000000000001\n",
+        )?;
+        std::fs::write(host.join("proc/uptime"), "1.00 1.00\n")?;
+        let path = root.join("agent.toml");
+        std::fs::write(
+            &path,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nstate_dir = '{}'\nskills_dir = '{}'\nhost_root = '{}'\n[docker]\nenabled = false\n",
+                root.join("state").display(),
+                root.join("skills").display(),
+                host.display(),
+            ),
+        )?;
+        super::load_agent(&path)
+    }
+
+    #[tokio::test]
+    async fn enrolling_creates_the_journal_once_and_never_touches_an_existing_one()
+    -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let config = config(dir.path())?;
+
+        let first = ensure_journal(&config).await?;
+        assert!(first.is_some(), "a fresh state directory gets a journal");
+        assert!(config.agent.state_dir.join("action-journal.json").exists());
+
+        let again = ensure_journal(&config).await?;
+        assert_eq!(again, None, "an existing journal is left alone");
+        Ok(())
     }
 }
