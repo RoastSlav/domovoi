@@ -73,12 +73,12 @@ check "an unknown unit name is refused" \
 # The runner steps need systemd, so they are tested through the functions of install.sh, taken
 # out of the script as written, with stubs for the binary and for systemctl.
 fns="$work/install-functions.sh"
-grep '^\(say\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
+grep '^\(say\|say_always\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
 for fn in err fail_with failed_checks runner_service_unit render_runner_service runner_prefix_ok \
-    runner_dirs place_unit start_sockets manifest_add mkdir_rec rollback_disarm; do
+    runner_dirs place_unit start_sockets selftest_hint manifest_add mkdir_rec rollback_disarm; do
     sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
 done
-check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 17
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 19
 
 rendered="$work/rendered.service"
 render_with() {
@@ -166,6 +166,8 @@ STUB_FAIL=none
 check "a failed check with the runner socket up stops the socket again" \
     grep -qx 'disable --now domovoi-skill-runner.socket' "$work/systemctl.log"
 check "that failure names the check" grep -q "ST-13" "$work/sockets.out"
+check "that failure says the agent was not enrolled and what to run" \
+    grep -q "The agent was not enrolled or started" "$work/sockets.out"
 
 # An edited runner unit is kept; the new text is written beside it.
 mkdir -p /etc/systemd/system
