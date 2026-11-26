@@ -34,6 +34,7 @@
 - [LLM providers](guide/llm-providers.md)
 - [Writing skills](guide/skills.md)
 - [Migrating from cron scripts](guide/migrating.md)
+- [Notes](guide/notes.md)
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
 - [Control room, attention and search](guide/control-room.md)
