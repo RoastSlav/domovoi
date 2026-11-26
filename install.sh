@@ -1233,8 +1233,10 @@ rollback_run() {
     : >"$tmp/rb-failed"
     sed '1!G;h;$!d' "$tmp/created" >"$tmp/created.rev"
     while IFS='|' read -r rb_kind rb_val; do
-        case "$rb_val" in
-        /?*) ;;
+        case "$rb_kind:$rb_val" in
+        user:*[!a-z0-9_-]* | group:*[!a-z0-9_-]* | user: | group:) continue ;;
+        user:* | group:*) ;;
+        *:/?*) ;;
         *) continue ;;
         esac
         case "$rb_kind" in
