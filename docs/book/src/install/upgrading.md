@@ -63,9 +63,9 @@ To go back a version, stop the hub, restore the backup taken before the upgrade 
 
 Twice a day the hub asks GitHub for the newest Domovoi release. Nothing about your installation is sent, only the request itself. When the release is newer than the hub, every page shows a banner with the version, its release notes, and commands that install it, starting with `domovoi upgrade` on a binary install. The commands name the release's tag, so they can be copied as they are: the hub and agent commands pass it to the installer, and the container command pins the image to the release, which keeps it off the `latest` tag. The **Hosts** page links each outdated agent to the same commands. Update the hub first, then the agents.
 
-**Settings → About** shows the version this hub runs, when it last checked, and a **Check now** button. A manual check is allowed once a minute.
+**Settings**, **About and updates** shows the version this hub runs, when it last checked, and a **Check now** button. A manual check is allowed once a minute.
 
-Turn the automatic check off in **Settings → Updates**, or in `hub.toml`:
+Turn the automatic check off in the same section, or in `hub.toml`:
 
 ```toml
 [updates]
@@ -113,4 +113,4 @@ Containers: `docker compose -f hub.yml down`, then `docker volume rm domovoi_dom
 
 ## Distribution packages
 
-There are no `.deb`, `.rpm` or Alpine packages yet; the installer and the images are the supported ways in. Packages are planned.
+There are no `.deb`, `.rpm` or Alpine packages. The installer and the images are the supported ways in.

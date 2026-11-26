@@ -49,7 +49,7 @@ Secrets entered in the web UI are encrypted in the database with the key in `<da
 domovoi check config /etc/domovoi/hub.toml
 ```
 
-This reports every problem with its path, for example `error: notify.digest.time: …`. `examples/hub.toml` is a short commented starting point; `examples/hub.full.toml` shows every option with its default.
+This reports every problem with its path, for example `error: notify.digest.time: …`. The command tells a hub file from an agent file by its `[hub]` or `[agent]` table. A file with neither needs `--kind hub` or `--kind agent`. A secret that names an environment variable is an error until that variable is set in the shell that runs the check. `examples/hub.toml` is a short commented starting point; `examples/hub.full.toml` shows every option with its default.
 
 ## Agents
 

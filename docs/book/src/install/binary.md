@@ -27,7 +27,7 @@ journalctl -u domovoi-hub --no-pager -o cat | grep '/setup?token=' | tail -n 1
 
 Both settings are required: the bind address makes the listener reachable, and the public URL lets the hub accept requests from that address. Restarting replaces the setup token, so use the complete new link printed after the restart. Do not use a placeholder such as `SERVER_LOCAL_IP` in the configuration.
 
-Create the admin account. The guided first run then sets up the hub's name and addresses, Discord, a model, the daily digest and your first host. Every step except the first can be skipped and done later on the Settings page.
+Create the admin account. The guided first run then sets up the hub's name, time zone and public URL, Discord, a model, the daily digest and your first host. The address agents dial is **Agent server URL** under **Settings**, **Hub**. Every step except the first can be skipped and done later on the Settings page.
 
 To check the whole pipeline without network access or a model:
 
@@ -93,7 +93,7 @@ A host in this state gets no unattended execution.
 | `--version v0.1.0` | Install this release instead of the latest. |
 | `--prefix /opt/domovoi` | Install the binary as `<prefix>/bin/domovoi`. Default `/usr/local`. |
 | `--no-service` | Install only the binary and examples: no user, directories or unit. Works without root when the prefix is writable. |
-| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket` and `runner-service`. |
+| `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket`, `runner-service` and `agent-legacy` (the root agent unit used where the boundary cannot be set up). |
 | `--migrate-identity` | Move an existing root agent to the three-identities layout, after a printed plan and a typed confirmation. Agent role, root, needs a terminal. |
 | `--rollback-identity` | Undo that migration from the saved record. |
 

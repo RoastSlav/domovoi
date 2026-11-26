@@ -46,7 +46,7 @@ Keep the volume when you upgrade or recreate the container. Without `secret.key`
 
 ## Addresses
 
-Until you set them, the setup link and chat links point at `http://127.0.0.1:7420`, and enroll commands at `wss://domovoi:7421`. Set the hub's web and agent addresses in the first run or on the Settings page. To pin them in the deployment instead, set `DOMOVOI_WEB__PUBLIC_URL` and `DOMOVOI_AGENT_SERVER__PUBLIC_URL`; the UI then shows them read-only.
+Until you set them, the setup link and chat links point at `http://127.0.0.1:7420`, and enroll commands at `wss://domovoi:7421`. Set the web address in the first run or on the Settings page, and the agent address on the Settings page. To pin them in the deployment instead, set `DOMOVOI_WEB__PUBLIC_URL` and `DOMOVOI_AGENT_SERVER__PUBLIC_URL`; the UI then shows them read-only.
 
 The image sets `DOMOVOI_WEB__BIND=0.0.0.0:7420` and `DOMOVOI_AGENT_SERVER__BIND=0.0.0.0:7421`, so both listeners are reachable through the published ports.
 
