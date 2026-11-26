@@ -4,18 +4,15 @@ The audit log records who did what: approvals, actions, setting changes, sign-in
 
 ## What the page shows
 
-The log has two parts, and the page reports each with its own status word, because they can fail differently. See [Legacy and chained audit history](../reference/data-model.md#legacy-and-chained-audit-history).
+The page reports one status for the log's hash chain: `empty`, `intact` or `broken`. When it is broken, the page names the first entry that fails and says why. See [Audit chain](../reference/data-model.md#audit-chain).
 
-- **Legacy history**: rows written before the hash chain existed. Status is `verified`, `count only`, `mismatch` or `not verifiable`.
-- **Chained history**: rows written since. Status is `empty`, `intact` or `broken`. When it is broken, the page names the first entry that fails and says why.
+Besides the status the page shows:
 
-Besides the two statuses the page shows:
+- the **head hash**, the hash of the newest entry, with a button to copy it;
+- the **anchor**: the install id and the anchor hash the first entry points at;
+- the entries, newest first, filterable by kind. Open an entry to read its details. Details are redacted and cut at 4096 bytes; a cut entry says so.
 
-- the **head hash**, the hash of the newest chained entry, with a button to copy it;
-- the **anchor**: the install id and the legacy row count and digest it commits to;
-- the entries, newest first, filterable by history and by kind. Open an entry to read its details. Details are redacted and cut at 4096 bytes; a cut entry says so.
-
-By default the page checks the newest 10,000 chained entries and compares the legacy row count. **Check the whole log** runs the full check on request: it also recomputes the legacy digest and walks every retained chained entry. On a large log it takes longer, which is why it does not run by itself.
+By default the page checks the newest 10,000 entries. **Check the whole log** walks every retained entry on request. On a large log it takes longer, which is why it does not run by itself.
 
 ## What the check can and cannot tell you
 

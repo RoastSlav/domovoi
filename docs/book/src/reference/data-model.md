@@ -54,7 +54,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
 | `effects` | The work outbox: side effects that must happen later, such as a verification re-check, with their due time, attempts, claim and lease. See [The effects table](#the-effects-table). |
 | `schema_compat` | One row naming the lowest Domovoi version that can read this schema. |
-| `audit_anchor` | One row committing to the audit history written before the hash chain existed: an install id, the highest legacy sequence number, the row count and a SHA-256 digest. It is append-only too. |
+| `audit_anchor` | One row that starts the audit hash chain: the install id and the anchor hash that the first audit row's `prev_hash` points at. It is append-only too. |
 
 ### The effects table
 
@@ -62,17 +62,11 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 
 A row is `pending` until it is due, `claimed` while a runner holds it under its lease, and then `done`. It becomes `dead` after its last attempt, which raises an advisory, or `cancelled` when the work no longer applies.
 
-### Legacy and chained audit history
+### Audit chain
 
-Rows written before the hash chain have no `prev_hash` or `hash`; they are the *legacy* history. The
-anchor commits to them once, when the database is first opened by a version that has the chain. Every
-row written afterwards is *chained*: its `prev_hash` is the previous chained row's hash (or the
-anchor's own hash for the first one) and its `hash` covers the row's sequence number, its fields and
-its detail. Legacy rows are never rewritten.
+Every audit row has a `prev_hash` and a `hash`. The first row's `prev_hash` is the anchor's own hash, and each later row's `prev_hash` is the previous row's hash. A row's `hash` covers its sequence number, its fields and its detail.
 
-`domovoi audit verify` reports the two parts separately, because they can fail differently: a legacy
-row edit or deletion changes the digest but not any chain, while an edit, deletion or unchained insert
-after the anchor breaks the chain. The web UI's [Audit log](../guide/audit.md) page shows the two parts the same way.
+`domovoi audit verify` walks the chain and reports whether it is `empty`, `intact` or `broken`. An edit, a deletion or an insert without chain fields breaks it. The web UI's [Audit log](../guide/audit.md) page shows the same status.
 
 ## Search
 

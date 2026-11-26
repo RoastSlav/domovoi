@@ -233,17 +233,16 @@ domovoi digest now --config /etc/domovoi/hub.toml
 
 ### `domovoi audit verify`
 
-Verifies the audit log's hash chain and the anchor that commits to the rows written before the chain existed. Without `--last` it checks the whole history: the legacy digest and every retained chained row. `--last <n>` checks the legacy row count only and the newest n chained rows.
+Verifies the audit log's hash chain from the anchor. Without `--last` it checks every retained row. `--last <n>` checks the newest n rows.
 
-It prints the database it read, then one line for each part:
+It prints the database it read, then one line for the chain:
 
 ```text
 Audit log of /var/lib/domovoi/hub.db
-Legacy history:  verified, 1204 rows (digest matches the anchor)
-Chained history: intact, 311 rows checked, head seq 1515 hash 9f0e00...
+Audit chain: intact, 311 rows checked, head seq 1515 hash 9f0e00...
 ```
 
-It exits 0 when both parts hold, and 1 when a chained row was edited, deleted or inserted, or when the legacy history no longer matches the anchor. Legacy rows that were pruned are reported as `not verifiable` and do not fail the command.
+It exits 0 when the chain holds, and 1 when a row was edited, deleted or inserted.
 
 ```sh
 domovoi audit verify --config /etc/domovoi/hub.toml
@@ -296,7 +295,7 @@ Afterwards, restore `secret.key` and `tls/` from the same time if they were lost
 
 ### `domovoi audit head`
 
-Prints the newest chained audit row's sequence number and hash, or `no chained rows yet` when the chain has not started.
+Prints the newest audit row's sequence number and hash, or `no audit rows yet` when the log is empty.
 
 ```sh
 domovoi audit head --config /etc/domovoi/hub.toml
