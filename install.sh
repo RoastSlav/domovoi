@@ -53,6 +53,7 @@ CREATED_PATHS="/etc/domovoi /etc/domovoi/skills /var/lib/domovoi /var/lib/domovo
 # END created-set
 
 agent_unit_path="/etc/systemd/system/domovoi-agent.service"
+agent_toml="/etc/domovoi/agent.toml"
 record_dir="/etc/domovoi/identity-migration"
 
 usage() {
@@ -1714,7 +1715,11 @@ build_plan() {
             plan_add note "the agent keeps the root layout on this host ($layout)"
             ;;
         esac
-        if [ "$enroll_on" -eq 1 ]; then plan_enroll; fi
+        if [ "$enroll_on" -eq 1 ]; then
+            plan_enroll
+        elif [ -e "$agent_unit_path" ] && [ -e "$agent_toml" ] && ! journal_exists; then
+            plan_add journal "domovoi agent journal init: this agent has no action journal and would not start; the agent is restarted after it"
+        fi
     fi
 }
 
@@ -1730,12 +1735,14 @@ plan_both_agent() {
     fi
     plan_add token "stop the hub, make a 15 minute enrollment token for $enroll_name with 'hub token create' as domovoi, start the hub again (the token stays in a private temporary file)"
     plan_add enroll "domovoi agent enroll --hub $enroll_hub --name $enroll_name (the token goes only in the environment of that command)"
+    plan_add journal "domovoi agent journal init, unless the action journal in $(agent_state_dir) exists (the agent does not start without it)"
     plan_add start "systemctl enable --now domovoi-agent, then wait up to $agent_timeout s for 'agent status' to show connected"
 }
 
 # The enrollment lines of the plan. The token itself is never named.
 plan_enroll() {
     plan_add enroll "domovoi agent enroll --hub $enroll_hub --fingerprint $enroll_fp --name $enroll_name (the token goes only in the environment of that command)"
+    plan_add journal "domovoi agent journal init, unless the action journal in $(agent_state_dir) exists (the agent does not start without it)"
     plan_add start "systemctl enable --now domovoi-agent, then wait up to $agent_timeout s for 'agent status' to show connected"
 }
 
@@ -2165,11 +2172,62 @@ agent_hint() { # PHASE
         ns "journalctl -u domovoi-agent -n 50 --no-pager"
         ns "Check that $enroll_hub is reachable from this machine and that the fingerprint is the hub's own; then: systemctl restart domovoi-agent"
         ;;
+    journal)
+        ns "sudo $bin agent journal init"
+        ns "sudo systemctl enable --now domovoi-agent"
+        ;;
     *)
         ns "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here, with sudo (a token works once, so ask for a new one)"
-        ns "systemctl enable --now domovoi-agent"
+        ns "sudo $bin agent journal init"
+        ns "sudo systemctl enable --now domovoi-agent"
         ;;
     esac
+}
+
+# The directory of the agent's state: agent.state_dir of agent.toml, else the default.
+agent_state_dir() {
+    asd_dir=""
+    if [ -r "$agent_toml" ]; then
+        asd_dir="$(sed -n 's/^[[:space:]]*state_dir[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$agent_toml" | tail -n 1)"
+    fi
+    printf '%s\n' "${asd_dir:-/var/lib/domovoi-agent}"
+}
+
+# Whether the agent's action journal files exist. The agent refuses to start without them.
+journal_exists() {
+    je_dir="$(agent_state_dir)"
+    [ -e "$je_dir/action-journal.json" ] || [ -e "$je_dir/action-journal.bin" ]
+}
+
+# Creates the agent's action journal as root with `agent journal init`, which refuses when one
+# exists, so it runs only when the journal files are absent. Sets $ej_created to 1 when it ran.
+# A failure stops with exit 40 and the command to run by hand. With the argument "step" it
+# opens a numbered step first.
+ensure_agent_journal() { # [step]
+    ej_created=0
+    if journal_exists; then return 0; fi
+    if [ "${1:-}" = "step" ]; then step journal "Creating the agent's action journal"; fi
+    say "Creating the agent's action journal in $(agent_state_dir) (the agent does not start without it)."
+    ej_rc=0
+    "$bin" agent journal init >"$tmp/journal.out" 2>&1 </dev/null || ej_rc=$?
+    if [ "$ej_rc" -ne 0 ]; then
+        show_file_err "$tmp/journal.out"
+        agent_hint journal
+        fail_with 40 "creating the agent's action journal failed (the message is above); run it by hand: sudo $bin agent journal init"
+    fi
+    show_file "$tmp/journal.out"
+    ej_created=1
+}
+
+# For an agent that is already enrolled: makes its journal when an older installer left it
+# out, and restarts the agent if it is enabled, so running the installer again heals it.
+heal_agent_journal() {
+    [ -e "$agent_unit_path" ] && [ -e "$agent_toml" ] || return 0
+    ensure_agent_journal
+    if [ "$ej_created" -eq 1 ] && systemctl is-enabled --quiet domovoi-agent 2>/dev/null; then
+        systemctl restart domovoi-agent || warn "the agent did not restart; check: systemctl status domovoi-agent"
+        say "Restarted domovoi-agent now that its journal exists."
+    fi
 }
 
 # Waits up to $agent_timeout seconds for `agent status` to say the link is connected, with a
@@ -2220,6 +2278,7 @@ enroll_and_start_agent() {
     fi
     show_file "$tmp/enroll.shown"
     enrolled_host="$enroll_name"
+    ensure_agent_journal step
     systemctl enable --now domovoi-agent || {
         agent_hint connect
         fail_with 40 "systemctl enable --now domovoi-agent failed; see: systemctl status domovoi-agent"
@@ -2289,7 +2348,9 @@ both_agent_part() {
     place_unit domovoi-agent.service legacy_agent_unit 0
     systemctl daemon-reload
     if [ "$ba_enrolled" -eq 1 ]; then
-        if systemctl is-active --quiet domovoi-agent; then
+        ensure_agent_journal
+        if systemctl is-active --quiet domovoi-agent ||
+            { [ "$ej_created" -eq 1 ] && systemctl is-enabled --quiet domovoi-agent 2>/dev/null; }; then
             systemctl restart domovoi-agent || warn "the agent did not restart; check: systemctl status domovoi-agent"
             say "Restarted domovoi-agent to run the new binary."
         fi
@@ -2654,7 +2715,7 @@ else
     if [ "$hub_part" -eq 1 ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
         step_total=$((step_total + 1))
     fi
-    if [ "$enroll_on" -eq 1 ]; then step_total=$((step_total + 1)); fi
+    if [ "$enroll_on" -eq 1 ]; then step_total=$((step_total + 2)); fi
 fi
 
 step preflight "Checking this machine"
@@ -2781,6 +2842,8 @@ else
         step enroll "Enrolling and starting the agent"
         fail_code=40
         enroll_and_start_agent
+    elif [ "$upgrade" -eq 1 ] && [ "$service" -eq 1 ] && [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        heal_agent_journal
     fi
 fi
 
@@ -2837,16 +2900,20 @@ elif [ "$hub_part" -eq 1 ]; then
 elif [ "$layout" = "fresh" ] || [ "$layout" = "migrated" ]; then
     say_always "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here,"
     say_always "     with sudo: the files it writes are handed to the domovoi-agent account automatically."
-    say_always "  2. systemctl enable --now domovoi-agent"
+    say_always "  2. sudo $bin agent journal init"
+    say_always "  3. sudo systemctl enable --now domovoi-agent"
     record_next "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here, with sudo: the files it writes are handed to the domovoi-agent account automatically."
-    record_next "systemctl enable --now domovoi-agent"
+    record_next "sudo $bin agent journal init"
+    record_next "sudo systemctl enable --now domovoi-agent"
     say_always ""
     say_always "The helper and skill runner sockets are running. After a runner failure, clear it with:"
     say_always "  systemctl reset-failed 'domovoi-skill-runner@*'"
 else
     say_always "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
-    say_always "  2. systemctl enable --now domovoi-agent"
+    say_always "  2. sudo $bin agent journal init"
+    say_always "  3. sudo systemctl enable --now domovoi-agent"
     record_next "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
-    record_next "systemctl enable --now domovoi-agent"
+    record_next "sudo $bin agent journal init"
+    record_next "sudo systemctl enable --now domovoi-agent"
 fi
 finish_summary
