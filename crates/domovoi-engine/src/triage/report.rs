@@ -1,8 +1,8 @@
 //! Reading the model's final answer as a [`TriageReport`], and redacting it.
 
-use domovoi_core::TriageReport;
 use domovoi_core::ports::Redactor;
 use domovoi_core::triage::{HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, NEXT_STEP_MAX_CHARS};
+use domovoi_core::{TriageReport, Verdict};
 
 use crate::cards::clip;
 
@@ -48,6 +48,40 @@ pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) 
     report.details = redactor.redact(&report.details);
 }
 
+/// The sentence that opens `details` when the guard below changed a verdict.
+pub(crate) const NOT_VERIFIED: &str = "Not verified: the model called this event expected, but \
+no tool result in its report ties it to a recorded action, so it needs a person.";
+
+/// Keeps a security event from being waved away. An event check (`security.*`) records
+/// something that happened; the model may call it expected or fixed only when its evidence
+/// cites a tool that ran. Otherwise the verdict becomes `MONITOR` and `details` says why.
+/// Returns whether the verdict was changed.
+pub(crate) fn guard_security_verdict(
+    check: &str,
+    report: &mut TriageReport,
+    used: &[crate::triage::agent::ToolUse],
+) -> bool {
+    if !check.starts_with("security.")
+        || !matches!(report.verdict, Verdict::Expected | Verdict::Fixed)
+    {
+        return false;
+    }
+    let tied = report.evidence.iter().any(|item| {
+        used.iter()
+            .any(|tool| !tool.failed && !tool.refused && item.source.contains(&tool.tool))
+    });
+    if tied {
+        return false;
+    }
+    report.verdict = Verdict::Monitor;
+    report.details = if report.details.trim().is_empty() {
+        NOT_VERIFIED.to_owned()
+    } else {
+        format!("{NOT_VERIFIED}\n\n{}", report.details)
+    };
+    true
+}
+
 fn strip_fences(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("```") else {
         return text;
@@ -55,4 +89,87 @@ fn strip_fences(text: &str) -> &str {
     // Drop the info string (`json`) on the opening fence's line.
     let rest = rest.split_once('\n').map_or("", |(_, body)| body);
     rest.trim_end().strip_suffix("```").unwrap_or(rest).trim()
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use domovoi_core::{TriageReport, Verdict};
+
+    use super::*;
+    use crate::triage::agent::ToolUse;
+
+    fn report(verdict: Verdict, source: &str) -> TriageReport {
+        TriageReport {
+            headline: "Failed sudo likely a self-test".to_owned(),
+            summary: String::new(),
+            cause: String::new(),
+            evidence: vec![domovoi_core::triage::EvidenceRef {
+                label: "user".to_owned(),
+                value: "kuker".to_owned(),
+                source: source.to_owned(),
+            }],
+            verdict,
+            next_step: String::new(),
+            manual_steps: Vec::new(),
+            proposals: Vec::new(),
+            details: "reasoning".to_owned(),
+        }
+    }
+
+    fn tool(name: &str, failed: bool) -> ToolUse {
+        ToolUse {
+            tool: name.to_owned(),
+            skill: None,
+            failed,
+            refused: false,
+            raw: None,
+        }
+    }
+
+    #[test]
+    fn expected_security_event_without_tool_evidence_becomes_monitor() {
+        let mut r = report(Verdict::Expected, "incident signal");
+        assert!(guard_security_verdict("security.sudo_failure", &mut r, &[]));
+        assert_eq!(r.verdict, Verdict::Monitor);
+        assert!(r.details.starts_with("Not verified"));
+        assert!(r.details.ends_with("reasoning"));
+    }
+
+    #[test]
+    fn a_tool_that_failed_is_no_evidence() {
+        let mut r = report(Verdict::Fixed, "journal");
+        let used = [tool("journal", true)];
+        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::Monitor);
+    }
+
+    #[test]
+    fn expected_with_a_tool_result_stands() {
+        let mut r = report(Verdict::Expected, "journal sudo lines");
+        let used = [tool("journal", false)];
+        assert!(!guard_security_verdict("security.ssh_login", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::Expected);
+    }
+
+    #[test]
+    fn other_checks_and_other_verdicts_are_left_alone() {
+        let mut r = report(Verdict::Expected, "none");
+        assert!(!guard_security_verdict("disk.free", &mut r, &[]));
+        let mut r = report(Verdict::ActionNeeded, "none");
+        assert!(!guard_security_verdict("security.new_port", &mut r, &[]));
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    #[test]
+    fn both_prompts_tell_the_model_a_security_event_cannot_be_disproved_by_now() {
+        for prompt in [
+            crate::triage::SYSTEM_PROMPT,
+            crate::triage::meta::META_SYSTEM_PROMPT,
+        ] {
+            assert!(prompt.contains("## Security checks"));
+            assert!(prompt.contains("can end the event, never disprove it"));
+        }
+    }
 }

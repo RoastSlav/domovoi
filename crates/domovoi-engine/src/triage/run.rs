@@ -14,7 +14,7 @@ use super::agent::{self, ToolUse};
 use super::cache::evidence_digest;
 use super::chain::{Attempt, AttemptError, ChainState, run_chain};
 use super::meta::{self, EvidenceRecord, LoopEnd, LoopOutput, LoopScope, meta_prompt};
-use super::report::redact_report;
+use super::report::{guard_security_verdict, redact_report};
 use super::{DEGRADED_AFTER, SYSTEM_PROMPT, Shared, tools};
 use crate::advisories::triage_degraded;
 use crate::events::{DomainEvent, EventKind};
@@ -161,6 +161,13 @@ pub(crate) async fn generate(
             match output.end {
                 LoopEnd::Report(mut report) => {
                     redact_report(deps.redactor.as_ref(), &mut report);
+                    if guard_security_verdict(incident.check().as_str(), &mut report, &state.used) {
+                        tracing::info!(
+                            incident = %incident.id(),
+                            "a security event was called expected without tool evidence; \
+                             the verdict is now monitor"
+                        );
+                    }
                     Ok(GeneratedEnd::Report(report))
                 }
                 LoopEnd::Asked(question) => Ok(GeneratedEnd::Asked(question)),

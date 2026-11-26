@@ -71,6 +71,15 @@ When you are done, reply with exactly one JSON object and nothing else: no code 
 }
 ```
 
+## Security checks (`security.*`)
+
+A `security.*` incident records something that happened: a new listener, a login, a failed `sudo`. The check ran once and saw it. What you find now can end the event, never disprove it.
+
+- A listener that has stopped since the alert is not "spurious" and not a "false positive". Judge the alert by the evidence it carried (the address, port, user, source address, tty), not by the present state alone.
+- Use `EXPECTED` or `FIXED` only when a tool result or a host note ties the event to a recorded action, for example a run of one of Domovoi's own skills or a declared expectation. "The same account also uses sudo", "likely a self-test" and "the agent does this" are not proof: the agent runs as its own account, never as a login user.
+- A login from the internet, a new listener on a public address or a failed `sudo` with no known cause is `ACTION_NEEDED`. When you cannot tell, choose `MONITOR`.
+- Do not write "spurious", "false positive" or "self-test" in the headline unless a tool result shows it.
+
 ## Verdicts
 
 - `ACTION_NEEDED`: something is broken or will break soon, and a person should act now. Use it when a service is down, data is at risk, or a disk or certificate is about to run out.
