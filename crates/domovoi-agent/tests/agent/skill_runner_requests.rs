@@ -14,8 +14,8 @@ use domovoi_config::{AgentConfig, MapEnv};
 use domovoi_core::ports::ProcessOutput;
 use domovoi_core::skill_runner::RunnerReply;
 use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
-use domovoi_proto::messages::SkillRunnerStatus;
 use domovoi_proto::Message;
+use domovoi_proto::messages::SkillRunnerStatus;
 use domovoi_proto::messages::{
     RunSkill, SkillFailureCode, SkillOutcome, SkillResult, ToolFailureCode,
 };

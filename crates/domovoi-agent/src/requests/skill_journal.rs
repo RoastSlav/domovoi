@@ -15,8 +15,8 @@ use std::collections::BTreeMap;
 use domovoi_core::{ContractId, SkillName, ValidatedArgs};
 use domovoi_proto::Message;
 use domovoi_proto::messages::{
-    ActionState, AuthorizationKind, CapabilityFailureCode, CapabilityOutcome, CapabilityResult, ErrorMessage,
-    RunSkill, SkillFailureCode, SkillOutcome, SkillResult,
+    ActionState, AuthorizationKind, CapabilityFailureCode, CapabilityOutcome, CapabilityResult,
+    ErrorMessage, RunSkill, SkillFailureCode, SkillOutcome, SkillResult,
 };
 use domovoi_runner::LoadedSkill;
 

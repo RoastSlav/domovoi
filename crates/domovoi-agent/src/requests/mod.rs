@@ -367,18 +367,16 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
             };
             Message::ToolResult(ToolResult { outcome })
         }
-        RequestKind::Skill(run) => {
-            by_deadline(clock, run.deadline, run_skill(ctx, run))
-                .await
-                .unwrap_or_else(|| {
-                    Message::SkillResult(SkillResult {
-                        outcome: SkillOutcome::Err(SkillFailure {
-                            code: SkillFailureCode::Timeout,
-                            message: "the skill missed its deadline".to_owned(),
-                        }),
-                    })
+        RequestKind::Skill(run) => by_deadline(clock, run.deadline, run_skill(ctx, run))
+            .await
+            .unwrap_or_else(|| {
+                Message::SkillResult(SkillResult {
+                    outcome: SkillOutcome::Err(SkillFailure {
+                        code: SkillFailureCode::Timeout,
+                        message: "the skill missed its deadline".to_owned(),
+                    }),
                 })
-        }
+            }),
         RequestKind::Check(run) => by_deadline(clock, run.deadline, run_check(ctx, run))
             .await
             .unwrap_or_else(|| {

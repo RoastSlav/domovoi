@@ -19,9 +19,9 @@ use domovoi_proto::messages::{
 use domovoi_runner::LoadedSkill;
 
 use super::{RequestCtx, ToolFail};
+use crate::skill_runner::RouteError;
 use domovoi_proto::Message;
 use domovoi_proto::messages::SkillResult;
-use crate::skill_runner::RouteError;
 
 pub(super) fn fail(code: SkillFailureCode, message: impl Into<String>) -> SkillOutcome {
     SkillOutcome::Err(SkillFailure {
