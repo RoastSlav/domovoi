@@ -93,9 +93,18 @@ fn step(contract: &str, unit: Option<&str>) -> PlanStepInput {
 }
 
 #[test]
-fn only_unit_restart_is_executable_among_the_built_ins() {
-    assert_eq!(EXECUTABLE_BUILTINS, ["unit.restart"]);
+fn only_unit_restart_and_the_block_are_executable_among_the_built_ins() {
+    assert_eq!(
+        EXECUTABLE_BUILTINS,
+        ["unit.restart", "firewall.block_source"]
+    );
     assert!(is_executable(&ContractId::parse("unit.restart").unwrap()));
+    assert!(is_executable(
+        &ContractId::parse("firewall.block_source").unwrap()
+    ));
+    assert!(!is_executable(
+        &ContractId::parse("firewall.list_blocks").unwrap()
+    ));
     assert!(is_executable(&ContractId::parse("skill.anything").unwrap()));
     assert!(!is_executable(
         &ContractId::parse("container.restart").unwrap()

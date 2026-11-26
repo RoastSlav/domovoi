@@ -197,7 +197,10 @@ impl CapabilityContract {
             });
         }
 
-        let needs_target_arg = matches!(self.target_kind, TargetKind::Container | TargetKind::Unit);
+        let needs_target_arg = matches!(
+            self.target_kind,
+            TargetKind::Container | TargetKind::Unit | TargetKind::NetworkSource
+        );
         if self.target_arg.is_some() != needs_target_arg {
             return Err(ContractError::TargetArgMismatch {
                 id: self.id.clone(),

@@ -43,6 +43,7 @@ jobs:
       units: ${{ steps.classify.outputs.units }}
       coverage: ${{ steps.classify.outputs.coverage }}
       privileged: ${{ steps.classify.outputs.privileged }}
+      containment: ${{ steps.classify.outputs.containment }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          outputs=(rust web embedded_ui architecture openapi config_docs docs_links metadata_only deny msrv musl workflow shell installer units coverage privileged)
+          outputs=(rust web embedded_ui architecture openapi config_docs docs_links metadata_only deny msrv musl workflow shell installer units coverage privileged containment)
           fail_open() {
             echo "::warning::Could not determine the changed files; running all CI checks."
             for output in "${outputs[@]}"; do
@@ -111,6 +112,7 @@ jobs:
           units=false
           coverage=false
           privileged=false
+          containment=false
           ci_workflow=false
           cargo_files=false
           release_files_only=true
@@ -147,6 +149,11 @@ jobs:
                     ;;
                   crates/domovoi-hub/src/spa.rs|crates/domovoi-hub/Cargo.toml|crates/domovoi/Cargo.toml)
                     embedded_ui=true
+                    ;;
+                esac
+                case "$file" in
+                  crates/domovoi-core/src/containment/*|crates/domovoi-helper/src/nft/*|crates/domovoi-helper/tests/nft_ns/*|crates/domovoi-agent/src/containment/*)
+                    containment=true
                     ;;
                 esac
                 if [[ "$file" == crates/domovoi/src/cmd/mod.rs ]]; then
@@ -267,6 +274,7 @@ jobs:
             units=true
             coverage=true
             privileged=true
+            containment=true
             metadata_only=false
           fi
 
@@ -293,6 +301,7 @@ jobs:
               units) value="$units" ;;
               coverage) value="$coverage" ;;
               privileged) value="$privileged" ;;
+              containment) value="$containment" ;;
             esac
             echo "$output=$value" >> "$GITHUB_OUTPUT"
           done
@@ -697,6 +706,44 @@ jobs:
         run: |
           sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
             DOMOVOI_BIN="$PWD/target/debug/domovoi" sh deploy/test/skill-runner.sh
+
+  # Namespace tests for the helper's nft group: a real `nft` in a throwaway network namespace,
+  # started with `sudo unshare`, never `unshare --user --map-root-user` (recent Ubuntu refuses
+  # unprivileged user namespaces under AppArmor). Not in the gate's `needs:` list until it has
+  # run green three times in a row and the owner agrees. The load tests that send packets
+  # are in containment-leak.yml and are never required.
+  containment-ns:
+    name: Containment namespace tests
+    needs: changes
+    if: needs.changes.outputs.containment == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install nftables, iproute2 and conntrack
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 conntrack
+      - name: Print the kernel and nft versions
+        run: |
+          uname -r
+          nft --version
+          if ! sudo modprobe nf_flow_table 2>/dev/null; then
+            echo "::notice::nf_flow_table is not available; the tests that need it skip and say so."
+          fi
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: containment-ns
+          save-if: false
+          cache-on-failure: true
+      - name: Build the namespace tests
+        run: cargo test --package domovoi-helper --test nft_ns --locked --no-run
+      - name: Run the namespace tests as root in a new network and mount namespace
+        run: |
+          sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_NS_TESTS=1 \
+            unshare --net --mount sh -c 'mount -t tmpfs tmpfs /run && ip link set lo up && cargo test --package domovoi-helper --test nft_ns --locked -- --nocapture'
 
   coverage:
     name: Coverage

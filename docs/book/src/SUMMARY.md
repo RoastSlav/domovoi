@@ -44,6 +44,7 @@
 - [Packages](guide/packages.md)
 - [Helper key and attestation](guide/helper.md)
 - [Restarting a service](guide/unit-restart.md)
+- [Blocking a network source](guide/containment.md)
 
 # Reference
 

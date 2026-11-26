@@ -26,6 +26,10 @@ export interface ApproveStepInput {
   planHash: string;
   /** For a destructive or unknown-risk skill: its name, typed by the user. */
   confirmText?: string | undefined;
+  /** A containment step only: the person's password, asked again. */
+  password?: string | undefined;
+  /** A containment step only: the person knows the hub could not verify coverage. */
+  unverifiedAcknowledged?: boolean | undefined;
 }
 
 /** Approves an Execution step as the logged-in user. */
@@ -34,10 +38,14 @@ export function useApproveStep(operationId: string) {
     call(
       api.POST("/api/v1/operations/{id}/steps/{step}/approve", {
         params: { path: { id: operationId, step: input.step } },
-        body:
-          input.confirmText === undefined
-            ? { plan_hash: input.planHash }
-            : { plan_hash: input.planHash, confirm_text: input.confirmText },
+        body: {
+          plan_hash: input.planHash,
+          ...(input.confirmText === undefined ? {} : { confirm_text: input.confirmText }),
+          ...(input.password === undefined ? {} : { password: input.password }),
+          ...(input.unverifiedAcknowledged === undefined
+            ? {}
+            : { unverified_acknowledged: input.unverifiedAcknowledged }),
+        },
       }),
     ),
   );

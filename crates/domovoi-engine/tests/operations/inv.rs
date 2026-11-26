@@ -357,6 +357,7 @@ pub async fn inv(setup: InvSetup) -> Inv {
             },
         }),
         autonomy: None,
+        contain: None,
     };
     let (ops, ops_task) = OperationService::spawn(deps.clone(), setup.ops.clone());
     let placeholder = open_incident(host_id(), "docker.container", Some("nginx")).unwrap();

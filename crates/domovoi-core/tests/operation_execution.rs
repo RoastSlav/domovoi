@@ -224,6 +224,85 @@ fn execution_authorize_by_permit_checks_in_order() {
     assert!(record.approval().is_none());
 }
 
+/// A destructive-risk execution of `contract`, the way a proposal stores a block.
+#[cfg(test)]
+fn destructive_of(contract: &str) -> ExecutionRecord {
+    let intent = ExecutionIntent {
+        contract: ContractId::parse(contract).unwrap(),
+        contract_version: 1,
+        host: HostId::new(),
+        check: CheckKey::parse("firewall.block").unwrap(),
+        target: Some(TargetKey::parse("ipnet:203.0.113.0/24").unwrap()),
+        args: BTreeMap::new(),
+        retry_of: None,
+    };
+    ExecutionRecord::propose(
+        &intent,
+        StepId::new(),
+        OperationId::new(),
+        hash(0xab),
+        T0 + SignedDuration::from_hours(1),
+        domovoi_core::Risk::Destructive,
+        T0,
+    )
+}
+
+/// A permit for `plan` that names a verified safety identity, or none.
+#[cfg(test)]
+fn identified_permit(plan: PlanHash, identity: Option<&str>) -> Authorization {
+    Authorization::policy(
+        PolicyPermit::issue(PolicyPermitParts {
+            decision_id: "d1",
+            rule_ids: vec!["r".to_owned()],
+            policy_version: "1",
+            plan_hash: plan,
+            issued_at: T0,
+            expires_at: T0 + SignedDuration::from_mins(5),
+            ceiling_hash: &"cd".repeat(32),
+            safety_identity: identity,
+        })
+        .unwrap(),
+    )
+}
+
+#[test]
+fn a_permit_with_a_verified_identity_authorizes_a_block() {
+    let mut block = destructive_of("firewall.block_source");
+    let permit = identified_permit(hash(0xab), Some("v1:identity"));
+    block
+        .authorize_by_permit(&permit, "doc".into(), T0)
+        .expect("a verified block may be permitted");
+    assert!(block.is_authorized());
+    assert_eq!(
+        block.authorization_kind(),
+        Some(domovoi_core::AuthorizationKind::Policy)
+    );
+}
+
+#[test]
+fn a_permit_without_a_verified_identity_never_authorizes_a_block() {
+    let mut block = destructive_of("firewall.block_source");
+    let before = block.clone();
+    let result = block.authorize_by_permit(&identified_permit(hash(0xab), None), "doc".into(), T0);
+    assert_eq!(result, Err(ExecutionError::PermitNotAllowed));
+    assert_eq!(block, before);
+}
+
+#[test]
+fn a_permit_never_authorizes_another_destructive_contract() {
+    for contract in ["container.restart", "skill.prune_images", "unit.restart"] {
+        let mut other = destructive_of(contract);
+        let before = other.clone();
+        let result = other.authorize_by_permit(
+            &identified_permit(hash(0xab), Some("v1:identity")),
+            "doc".into(),
+            T0,
+        );
+        assert_eq!(result, Err(ExecutionError::PermitNotAllowed), "{contract}");
+        assert_eq!(other, before);
+    }
+}
+
 #[test]
 fn execution_cannot_hold_approval_and_permit() {
     let hour = T0 + SignedDuration::from_hours(1);

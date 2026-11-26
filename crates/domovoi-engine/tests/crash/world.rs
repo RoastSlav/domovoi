@@ -274,6 +274,7 @@ impl<S: SweepStore + EffectQueue + AdvisoryRepo + HostRepo + OperationRepo> Worl
                 shutdown: shutdown.clone(),
                 investigate: None,
                 autonomy: None,
+                contain: None,
             },
             OperationSettings::default(),
         );

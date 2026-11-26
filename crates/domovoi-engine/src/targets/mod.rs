@@ -13,8 +13,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_core::capability::{
     Availability, ResolvedTarget, TargetError, TargetKind, TargetName, TargetQuery,
-    TargetUnresolved, canonical_container_identity, canonical_host_identity, parse_inspect_id,
-    parse_ps, validate_container_name,
+    TargetUnresolved, canonical_container_identity, canonical_host_identity,
+    canonical_network_identity, parse_inspect_id, parse_ps, validate_container_name,
 };
 use domovoi_core::host::KeyFingerprint;
 use domovoi_core::ports::{HostAvailability, HostRepo, TargetResolver};
@@ -193,6 +193,25 @@ impl TargetResolver for TargetService {
             // configuration and files; without one it has no provable identity.
             TargetQuery::Unit { host, name } => {
                 self.resolve_unit(*host, name).await.map(|unit| unit.target)
+            }
+            // A network source needs no read: its identity is the canonical network plus
+            // the enrolled key of the host that would hold the block.
+            TargetQuery::NetworkSource { host, source } => {
+                let key = self.host_key(&query).await?;
+                let identity = canonical_network_identity(*host, &key, source)
+                    .map_err(|_| unresolved(&query, TargetUnresolved::HostIdentityUnproven))?;
+                let name = TargetName::parse(&source.canonical()).map_err(|reason| {
+                    TargetError::InvalidName {
+                        query: query.clone(),
+                        reason,
+                    }
+                })?;
+                Ok(ResolvedTarget {
+                    identity,
+                    name,
+                    kind: TargetKind::NetworkSource,
+                    host_key: key,
+                })
             }
         }
     }

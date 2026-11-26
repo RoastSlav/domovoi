@@ -12,6 +12,7 @@ mod deps;
 mod effects;
 mod error;
 mod execute;
+mod execute_contain;
 mod execute_unit;
 mod handle;
 pub mod investigate;
@@ -37,6 +38,7 @@ pub use decide::{
 };
 pub use deps::{AutonomyDeps, OperationDeps};
 pub use error::OperationError;
+pub(crate) use execute::{AuthorizedStep, ExecuteError};
 pub use handle::{ExecutionRequest, OperationHandle, OperationSeed, StepFinish};
 pub use investigate::{APPROVAL_POINTER, InvestigateDeps, InvestigateError, InvestigateSettings};
 pub use resolution::{EditSummaryError, EditSummaryField, EditedField, SummaryError};

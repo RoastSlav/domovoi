@@ -89,6 +89,8 @@ fn source_files(
 /// link operation exactly once.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .unit_call_result(a, b, c);\n    self.link\n        .unit_call_result(a, b, c);
     self.link
+        .start_contain(a, b, c, d, e);\n    self.link
+        .contain_result(a, b, c);\n    self.link
         .attest_safety(a, b, c);\n}\n";
 
 /// The smallest tree that satisfies the hub's boundary cards, including the two sites that
@@ -1791,11 +1793,14 @@ fn container_restart_has_no_dispatch_path() {
     }
 }
 
-/// The list of contracts a policy may dispatch is closed and has one entry.
+/// The list of contracts a policy may dispatch is closed and has two entries.
 #[test]
 fn policy_dispatchable_list_is_closed() {
     use domovoi_core::capability::POLICY_DISPATCHABLE;
-    assert_eq!(POLICY_DISPATCHABLE, ["unit.restart"]);
+    assert_eq!(
+        POLICY_DISPATCHABLE,
+        ["unit.restart", "firewall.block_source"]
+    );
 }
 
 /// A unit call carries a name, or an id with the hash it was approved against: no free field.
@@ -1830,6 +1835,55 @@ fn engine_never_builds_an_authorization_for_permits() {
             "PolicyPermit::restore(",
         ] {
             assert!(!code.contains(call), "{path} calls {call}");
+        }
+    }
+}
+
+/// The availability code decides whether a host offers containment from the operations its helper
+/// lists, through the table of names in core, and says nothing the capability layer may not say:
+/// no approval, no safety state, no containment class, no relay.
+#[test]
+fn registry_code_stays_free_of_forbidden_strings() {
+    let sources = hub_sources();
+    let rules = sources
+        .iter()
+        .find(|(path, _)| path.ends_with("src/capability/host_rules.rs"))
+        .expect("the host availability rules are in the hub sources");
+    assert!(
+        rules.1.contains("containment::ops::offers_nft_group"),
+        "the nft operations are checked through the table of names in core"
+    );
+    let capability: Vec<_> = sources
+        .iter()
+        .filter(|(path, _)| path.contains("/src/capability/"))
+        .collect();
+    assert!(
+        capability.len() >= 3,
+        "the scan found {} files",
+        capability.len()
+    );
+    for (path, text) in capability {
+        for forbidden in [
+            "HumanApproval",
+            "PolicyPermit",
+            "Authorization",
+            "expected_safety",
+            "EffectClass::Contain",
+            "Contain {",
+            "ContainRelay",
+            "ContainDispatch",
+            "firewall_apply",
+            "firewall_confirm",
+            "firewall_rollback",
+        ] {
+            assert!(
+                !text
+                    .split("#[cfg(test)]")
+                    .next()
+                    .unwrap_or(text)
+                    .contains(forbidden),
+                "{path} mentions {forbidden}"
+            );
         }
     }
 }

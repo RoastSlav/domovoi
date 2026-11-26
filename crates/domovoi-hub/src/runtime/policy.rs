@@ -221,6 +221,25 @@ impl ShadowEnvironment for HubShadowEnvironment {
         })
     }
 
+    async fn network_target(
+        &self,
+        host: HostId,
+        source: &domovoi_core::containment::Net,
+    ) -> Result<HostTarget, GapReason> {
+        let resolved = self
+            .resolver
+            .resolve(TargetQuery::NetworkSource {
+                host,
+                source: *source,
+            })
+            .await
+            .map_err(|_| GapReason::Unresolvable)?;
+        Ok(HostTarget {
+            name: resolved.name,
+            identity: resolved.identity,
+        })
+    }
+
     async fn ceiling(&self, host: HostId) -> CeilingReading {
         self.reported_ceiling(host)
     }

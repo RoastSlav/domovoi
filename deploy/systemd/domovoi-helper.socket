@@ -1,5 +1,6 @@
 [Unit]
 Description=Domovoi helper socket
+After=nftables.service
 
 [Socket]
 ListenStream=/run/domovoi-helper.sock

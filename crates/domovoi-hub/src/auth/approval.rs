@@ -126,6 +126,28 @@ pub fn approval_for(
     }
 }
 
+/// The approval for a containment block, given by `user` in a signed-in web session whose stored
+/// hash is `session_hash`, after the password, the typed source and, on the unverified path, the
+/// acknowledgement were checked (ADR 0038). It counts as a typed confirmation and has no chat
+/// form.
+#[must_use]
+pub fn web_containment_authorization(
+    user: UserId,
+    session_hash: &[u8; 32],
+    now: Timestamp,
+) -> (Authorization, ApprovalProvenance) {
+    (
+        Authorization::human(HumanApproval::new(
+            user,
+            ApprovalChannel::Web {
+                typed_confirmation: true,
+            },
+            now,
+        )),
+        ApprovalProvenance::new(Some(hex::encode(session_hash)), "web"),
+    )
+}
+
 /// The approval for a package install or uninstall job, given by `user` in a signed-in web
 /// session whose stored hash is `session_hash`. The only place a package approval is made
 /// (ADR 0029): it always counts as a typed confirmation, because the caller has already

@@ -1,0 +1,26 @@
+[Unit]
+Description=Domovoi helper firewall leak self-test
+# Runs at every boot and after the installer; `--if-changed` exits at once unless the kernel, the
+# nft version or the layout changed since the stored result. The helper's socket waits for it.
+Before=domovoi-helper.socket
+After=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Root: no User= line on purpose. This unit and `domovoi helper containment-drill` are the only
+# places that create a network namespace; the long-lived helper units never do.
+ExecStart=/usr/local/bin/domovoi helper nft-selftest --if-changed
+NoNewPrivileges=yes
+ProtectSystem=full
+ReadWritePaths=/var/lib/domovoi-helper
+ProtectHome=yes
+PrivateTmp=yes
+# Namespaces and mounts need exactly these two; [validate] on a real host and record the
+# result as the privilege statement.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target

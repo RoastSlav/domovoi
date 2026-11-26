@@ -208,6 +208,10 @@ pub const POLICY_PERMIT_RESTORE_ALLOWED_PREFIXES: &[&str] =
 pub const PLAN_CAPABILITY_ALLOWED_PREFIXES: &[&str] =
     &["crates/domovoi-core/src/action/capability_plan.rs"];
 
+/// The one file that may write the `plan:containment-v1` domain line (INV-1, ADR 0038).
+pub const PLAN_CONTAINMENT_ALLOWED_PREFIXES: &[&str] =
+    &["crates/domovoi-core/src/action/containment_plan.rs"];
+
 /// Path prefixes where `Authorization::human` may be called: only the hub's auth layer
 /// turns an authenticated human into an authorization (INV-1, ADR 0021).
 pub const AUTHORIZATION_HUMAN_ALLOWED_PREFIXES: &[&str] =
@@ -243,6 +247,10 @@ pub const RAW_OPS: &[&str] = &[
     "capability_result",
     "start_unit_call",
     "unit_call_result",
+    "start_contain",
+    "contain_result",
+    "dispatch_phase",
+    "phase_result",
     "dispatch_restart",
     "restart_result",
     "read_identity",
@@ -259,6 +267,8 @@ pub const BOUNDARY_PAIRS: &[&str] = &[
     "AuthorizedPackageTarget::of",
     "execute::execute_package",
     "execute_unit::execute_unit_restart",
+    "AuthorizedContainment::of",
+    "execute_contain::execute_containment_step",
     "OperationCommand::Dispatch",
     "Caller::web",
     "Caller::chat",
@@ -425,6 +435,42 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
     },
     BoundaryCard {
         id: "EXEC-2",
+        op: BoundaryOp::Call("start_contain"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a containment request is started only through `ContainRelay::dispatch_phase`; the raw `start_contain` belongs to the runtime capability (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("contain_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-hub/src/runtime/caps.rs",
+            count: 1,
+        }],
+        message: "a containment answer is awaited only through `ContainRelay::phase_result`; the raw `contain_result` belongs to the runtime capability (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("dispatch_phase"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/containment/phases.rs",
+            count: 1,
+        }],
+        message: "a containment phase is handed to an agent only through `ContainRelay::dispatch_phase`, once, in containment/phases.rs (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Call("phase_result"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/containment/phases.rs",
+            count: 1,
+        }],
+        message: "a containment phase's answer is awaited only through `ContainRelay::phase_result`, once, in containment/phases.rs (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
         op: BoundaryOp::Call("dispatch_restart"),
         sites: &[BoundarySite {
             file: "crates/domovoi-engine/src/operations/execute_unit.rs",
@@ -503,6 +549,24 @@ pub const BOUNDARY_CARDS: &[BoundaryCard] = &[
             count: 1,
         }],
         message: "`execute::execute_step` is the operation service's one dispatch and is called once, from effects/dispatch.rs (ADR 0022)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("AuthorizedContainment::of"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/execute_contain.rs",
+            count: 1,
+        }],
+        message: "`AuthorizedContainment::of` is the one authorizing constructor of a containment dispatch and runs once per execution, in operations/execute_contain.rs (ADR 0038)",
+    },
+    BoundaryCard {
+        id: "EXEC-2",
+        op: BoundaryOp::Pair("execute_contain::execute_containment_step"),
+        sites: &[BoundarySite {
+            file: "crates/domovoi-engine/src/operations/effects/dispatch.rs",
+            count: 1,
+        }],
+        message: "`execute_contain::execute_containment_step` is the operation service's one containment dispatch and is called once, from effects/dispatch.rs (ADR 0038)",
     },
     BoundaryCard {
         id: "EXEC-2",
@@ -923,6 +987,7 @@ pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("ReadWritePaths", "/var/lib/domovoi-helper"),
     ("ProtectHome", "yes"),
     ("PrivateTmp", "yes"),
+    ("RestrictNamespaces", "yes"),
     ("PrivateDevices", "no"),
     ("DevicePolicy", "closed"),
     (
@@ -933,6 +998,25 @@ pub const HELPER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("RuntimeMaxSec", "60s"),
     ("KillMode", "control-group"),
     ("TimeoutStopSec", "5s"),
+];
+
+/// The one-shot unit that runs the firewall leak self-test (UNIT-3, self-test clause). It is the
+/// only shipped unit that may create a network namespace, so it has no `RestrictNamespaces=`
+/// line, and the long-lived helper units do.
+pub const SELFTEST_UNIT: &str = "domovoi-helper-selftest.service";
+
+/// The directives of [`SELFTEST_UNIT`] that must hold exactly these values in `[Service]`.
+pub const SELFTEST_UNIT_DIRECTIVES: &[(&str, &str)] = &[
+    ("Type", "oneshot"),
+    ("RemainAfterExit", "yes"),
+    (
+        "ExecStart",
+        "/usr/local/bin/domovoi helper nft-selftest --if-changed",
+    ),
+    ("NoNewPrivileges", "yes"),
+    ("CapabilityBoundingSet", "CAP_NET_ADMIN CAP_SYS_ADMIN"),
+    ("AmbientCapabilities", ""),
+    ("TimeoutStartSec", "20min"),
 ];
 
 /// The `DeviceAllow=` lines of the helper unit, in order (UNIT-3): read-only access to disks.

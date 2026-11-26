@@ -659,3 +659,37 @@ async fn install_tables_exist_after_upgrade_from_the_schema5_fixture() {
     assert!(insert("t3", 3, "dispatched").await.is_err());
     insert("t4", 4, "succeeded").await.unwrap();
 }
+
+#[tokio::test]
+async fn n1_upgrade_adds_an_empty_containment_table() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = copy_fixture(dir.path());
+    let store = Store::open(&path, StoreOptions::beside(&path, at(1000)))
+        .await
+        .unwrap();
+    let mut original = raw(&fixture()).await;
+    for table in [
+        "hosts",
+        "incidents",
+        "signals",
+        "incident_events",
+        "actions",
+    ] {
+        let sql = format!("SELECT count(*) FROM {table}");
+        let before: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.clone()))
+            .fetch_one(&mut original)
+            .await
+            .unwrap();
+        let after: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+            .fetch_one(store.pool_for_tests())
+            .await
+            .unwrap();
+        assert_eq!(before.0, after.0, "{table} keeps its rows");
+    }
+    sqlx::Connection::close(original).await.unwrap();
+    let count: (i64,) = sqlx::query_as("SELECT count(*) FROM containment_blocks")
+        .fetch_one(store.pool_for_tests())
+        .await
+        .unwrap();
+    assert_eq!(count.0, 0, "containment_blocks starts empty");
+}

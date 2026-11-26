@@ -16,7 +16,7 @@ fn has(violations: &[Violation], rule: &str) -> bool {
 }
 
 const OP_EXECUTE: &str = "fn build() -> OperationCommand { OperationCommand::Dispatch { id: 1 } }\nfn send() { handoff.hand_off(a); handoff.await_handoff_result(b); }\n";
-const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized.clone())?;\n    execute_unit::execute_unit_restart(authorized)\n}\n";
+const OP_DISPATCH: &str = "fn run(r: Row) -> R {\n    let authorized = AuthorizedStep::of(r)?;\n    execute::execute_step(authorized.clone())?;\n    execute_unit::execute_unit_restart(authorized.clone())?;\n    execute_contain::execute_containment_step(authorized)\n}\n";
 const PKG_WORKER: &str = "fn run(t: Target) -> R {\n    let authorized = AuthorizedPackageTarget::of(t, a)?;\n    crate::packages::execute::execute_package(authorized)\n}\n";
 const PKG_WORKER_PATH: &str = "crates/domovoi-engine/src/packages/worker.rs";
 const OP_WRITER: &str =
@@ -29,11 +29,17 @@ fn engine_sites() -> Vec<(String, String)> {
         (OP_DISPATCH_PATH, OP_DISPATCH),
         (OP_WRITER_PATH, OP_WRITER),
         (OP_UNIT_PATH, OP_UNIT),
+        (OP_CONTAIN_PATH, OP_CONTAIN),
+        (PHASES_PATH, PHASES),
         (TARGETS_PATH, TARGETS),
         (PKG_WORKER_PATH, PKG_WORKER),
     ])
 }
 
+const OP_CONTAIN_PATH: &str = "crates/domovoi-engine/src/operations/execute_contain.rs";
+const OP_CONTAIN: &str = "fn run(s: Step) { let a = AuthorizedContainment::of(s)?; }\n";
+const PHASES_PATH: &str = "crates/domovoi-engine/src/containment/phases.rs";
+const PHASES: &str = "fn send() { relay.dispatch_phase(a, b); relay.phase_result(c); }\n";
 const OP_UNIT_PATH: &str = "crates/domovoi-engine/src/operations/execute_unit.rs";
 const OP_UNIT: &str = "fn run() { relay.dispatch_restart(a, b); relay.restart_result(c); }\n";
 const TARGETS_PATH: &str = "crates/domovoi-engine/src/targets/mod.rs";
@@ -44,6 +50,10 @@ const OP_WRITER_PATH: &str = "crates/domovoi-engine/src/operations/writer/mod.rs
 
 /// The hub's one card site, with the calls split across lines as ordinary formatting allows.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .unit_call_result(a, b, c);\n    self.link\n        .unit_call_result(a, b, c);
+    self.link
+        .start_contain(a, b, c, d, e);
+    self.link
+        .contain_result(a, b, c);
     self.link
         .attest_safety(a, b, c);\n}\n";
 

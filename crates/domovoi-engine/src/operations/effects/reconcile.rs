@@ -52,6 +52,9 @@ impl EffectHandler for ReconcileHandler {
             return outcome(settle(shared, ending).await);
         };
         let host = row.host;
+        if row.contract.as_str() == "firewall.block_source" {
+            return contained(shared, held, &row).await;
+        }
         let Some(live) = shared.deps.journal.epoch_of(host) else {
             return again(shared, held, operation, step).await;
         };
@@ -177,4 +180,46 @@ async fn again(
         Some(reconcile_key(step)),
     );
     defer(shared, held, operation, None, next, false).await
+}
+
+/// Settles a containment step from its block row: the hub's own record of the three phases, which
+/// the containment reconciler moves from the agent's journal. A block still in flight is asked
+/// about again later.
+async fn contained(shared: &OpShared, held: Held, row: &ExecutionRecord) -> EffectOutcome {
+    use domovoi_core::ports::BlockPhase;
+    let (operation, step) = (row.operation, row.step);
+    let Some(driver) = &shared.deps.contain else {
+        return again(shared, held, operation, step).await;
+    };
+    let block = match driver.block(ExecutionId::from_step(step)).await {
+        Ok(block) => block,
+        Err(err) => {
+            tracing::warn!(%err, %step, "could not read the containment block");
+            return again(shared, held, operation, step).await;
+        }
+    };
+    let Some(block) = block else {
+        let ending = Ending::new(operation, step, StepOutcome::NotRun)
+            .because(NOT_RUN_REASON)
+            .holding(held);
+        return outcome(settle(shared, ending).await);
+    };
+    let detail = block
+        .failure_message
+        .clone()
+        .or_else(|| block.failure_token.clone());
+    let ending = match block.phase {
+        BlockPhase::Confirmed => Ending::new(operation, step, StepOutcome::Succeeded),
+        BlockPhase::NotRun => Ending::new(operation, step, StepOutcome::NotRun)
+            .because(detail.unwrap_or_else(|| NOT_RUN_REASON.to_owned())),
+        BlockPhase::RolledBack | BlockPhase::Expired | BlockPhase::Lost | BlockPhase::Failed => {
+            Ending::new(operation, step, StepOutcome::Failed).because(
+                detail.unwrap_or_else(|| format!("the block ended as {}", block.phase.as_str())),
+            )
+        }
+        BlockPhase::OutcomeUnknown => Ending::new(operation, step, StepOutcome::OutcomeUnknown)
+            .because("nobody can establish what happened to the block"),
+        _ => return again(shared, held, operation, step).await,
+    };
+    outcome(settle(shared, ending.holding(held)).await)
 }

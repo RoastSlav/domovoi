@@ -18,11 +18,11 @@ use domovoi_core::{
 use domovoi_core::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
 };
+use domovoi_proto::Message;
 use domovoi_proto::messages::{
     ActionStatusQuery, GetCatalog, RunCheck, RunSkill, RunTool, SkillOutcome, ToolFailureCode,
     ToolOutcome,
 };
-use domovoi_proto::{Message, PROTOCOL_VERSION};
 use jiff::Timestamp;
 use tokio::sync::oneshot;
 
@@ -77,54 +77,6 @@ impl WsAgentLink {
         tokio::select! {
             found = self.classify_missing_session(host) => found,
             () = self.clock.sleep_until(deadline) => LinkError::Timeout,
-        }
-    }
-
-    /// The store lookups behind [`Self::not_connected`], without a deadline.
-    async fn classify_missing_session(&self, host: HostId) -> LinkError {
-        let report = match self.hosts.live_agent(host).await {
-            Ok(Some(agent)) => self.hosts.agent_report(agent.agent).await,
-            Ok(None) => return LinkError::NotConnected,
-            Err(err) => {
-                tracing::warn!(%err, %host, "could not read the host's agent report");
-                return LinkError::NotConnected;
-            }
-        };
-        let report = match report {
-            Ok(report) => report,
-            Err(err) => {
-                tracing::warn!(%err, %host, "could not read the host's agent report");
-                return LinkError::NotConnected;
-            }
-        };
-        match protocol_state(report.as_ref(), PROTOCOL_VERSION) {
-            ProtocolState::Incompatible { .. } => LinkError::Incompatible,
-            _ => LinkError::NotConnected,
-        }
-    }
-
-    /// The version the host's agent reported when this hub rejected it, or `None` when
-    /// the agent is not rejected. A report that merely predates this hub's protocol is a
-    /// prediction, not a finding, so it is `None` too.
-    async fn rejected_protocol(&self, host: HostId) -> Option<String> {
-        let agent = match self.hosts.live_agent(host).await {
-            Ok(Some(agent)) => agent,
-            Ok(None) => return None,
-            Err(err) => {
-                tracing::warn!(%err, %host, "could not read the host's agent");
-                return None;
-            }
-        };
-        let report = match self.hosts.agent_report(agent.agent).await {
-            Ok(report) => report,
-            Err(err) => {
-                tracing::warn!(%err, %host, "could not read the host's agent report");
-                return None;
-            }
-        };
-        match protocol_state(report.as_ref(), PROTOCOL_VERSION) {
-            ProtocolState::Incompatible { reported, .. } => Some(reported.to_string()),
-            _ => None,
         }
     }
 
@@ -438,6 +390,27 @@ impl AgentLink for WsAgentLink {
         self.unit_answer(host, handoff, deadline).await
     }
 
+    async fn start_contain(
+        &self,
+        host: HostId,
+        req: domovoi_core::containment::ContainDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.contain_dispatch(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn contain_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<domovoi_core::containment::ContainOutputs, LinkError> {
+        self.contain_answer(host, handoff, deadline).await
+    }
+
     async fn attest_safety(
         &self,
         host: HostId,
@@ -488,6 +461,8 @@ impl AgentLink for WsAgentLink {
         }
     }
 }
+#[path = "link_contain.rs"]
+mod contain;
 #[path = "link_logs.rs"]
 mod logs;
 #[path = "link_package.rs"]

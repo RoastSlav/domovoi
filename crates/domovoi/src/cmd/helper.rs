@@ -26,6 +26,29 @@ pub enum HelperCommand {
     Recover,
     /// Print the attestation key's fingerprint and key id, to compare with the hub (root only).
     Fingerprint,
+    /// Test whether replacing a firewall element ever lets a packet through, in throwaway
+    /// network namespaces (root only; minutes). The installer and a one-shot unit run it.
+    NftSelftest {
+        /// Exit at once when the stored result is for this kernel, `nft` version and layout.
+        #[arg(long)]
+        if_changed: bool,
+        /// Test only the interval sets and keep the stored plain-set verdict.
+        #[arg(long)]
+        interval_only: bool,
+    },
+    /// The UDP sender the self-test starts inside its sender namespace. Not for people.
+    #[command(hide = true)]
+    NftSelftestSender {
+        /// `--src`, `--dst`, `--port` and `--seconds`.
+        #[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    /// Delete the helper's own firewall table when no block is live and every block set is
+    /// empty, so the next request builds it again (root only). Used after a layout change.
+    NftRecreate,
+    /// Run the containment drills in a throwaway namespace and record the result (root only;
+    /// minutes). Unattended containment is dispatched only after they pass.
+    ContainmentDrill,
 }
 
 #[cfg(unix)]
@@ -47,6 +70,7 @@ mod unix {
     use std::sync::Arc;
 
     use crate::cmd::helper_keys as keys;
+    use crate::cmd::helper_nft as nft;
     use domovoi_config::{HelperConfig, load_helper};
     use domovoi_core::identity::HostDirs;
     use domovoi_helper::adopt::adopt_stdin_connection;
@@ -69,6 +93,13 @@ mod unix {
             HelperCommand::RotateKey => keys::replace_key(&dirs, true),
             HelperCommand::Recover => keys::replace_key(&dirs, false),
             HelperCommand::Fingerprint => keys::print_fingerprint(&dirs),
+            HelperCommand::NftSelftest {
+                if_changed,
+                interval_only,
+            } => nft::selftest(dirs, if_changed, interval_only).await,
+            HelperCommand::NftSelftestSender { args } => nft::sender(&args),
+            HelperCommand::ContainmentDrill => nft::drill(dirs).await,
+            HelperCommand::NftRecreate => nft::recreate(dirs).await,
         }
     }
 

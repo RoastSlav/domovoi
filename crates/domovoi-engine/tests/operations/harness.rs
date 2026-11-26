@@ -115,7 +115,19 @@ pub struct World {
     pub bus: tokio::sync::broadcast::Sender<domovoi_engine::events::DomainEvent>,
     /// The unattended-execution dependencies the service is started with, if any.
     pub autonomy: Option<AutonomyDeps>,
+    /// The containment driver the service is started with, if any.
+    pub contain: Option<Arc<domovoi_engine::containment::ContainmentDriver>>,
 }
+
+/// Builds the containment driver over the world's own link and store, which exist only once the
+/// world is being built.
+pub type ContainBuilder = Box<
+    dyn FnOnce(
+        &Arc<FakeAgentLink>,
+        &Arc<InMemoryStore>,
+        &Arc<FakeClock>,
+    ) -> Arc<domovoi_engine::containment::ContainmentDriver>,
+>;
 
 impl Drop for World {
     fn drop(&mut self) {
@@ -150,6 +162,23 @@ pub async fn world_over_with_autonomy(
     .await
 }
 
+/// A world over `store` whose service has `autonomy` and the containment driver `contain` builds.
+pub async fn world_over_with_autonomy_and_contain(
+    store: Arc<InMemoryStore>,
+    autonomy: AutonomyDeps,
+    contain: ContainBuilder,
+) -> World {
+    build_with(
+        OperationSettings::default(),
+        store.clone(),
+        store,
+        false,
+        Some(autonomy),
+        Some(contain),
+    )
+    .await
+}
+
 /// A world whose runner claims nothing until `world.queue.open()`, so a test can look at,
 /// or claim by hand, what a commit queued.
 pub async fn world_gated() -> World {
@@ -179,6 +208,17 @@ async fn build(
     uow: Arc<dyn UnitOfWork>,
     closed: bool,
     autonomy: Option<AutonomyDeps>,
+) -> World {
+    build_with(settings, store, uow, closed, autonomy, None).await
+}
+
+async fn build_with(
+    settings: OperationSettings,
+    store: Arc<InMemoryStore>,
+    uow: Arc<dyn UnitOfWork>,
+    closed: bool,
+    autonomy: Option<AutonomyDeps>,
+    contain: Option<ContainBuilder>,
 ) -> World {
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
@@ -214,6 +254,7 @@ async fn build(
     let resolver = Arc::new(FakeTargetResolver::new());
     let shutdown = CancellationToken::new();
     let store_for_queue = store.clone();
+    let contain = contain.map(|builder| builder(&link, &store, &clock));
     let mut world = World {
         store,
         uow,
@@ -229,6 +270,7 @@ async fn build(
         user: UserId::new(),
         bus: tokio::sync::broadcast::channel(64).0,
         autonomy,
+        contain,
     };
     let (handle, task) = world.start();
     world.handle = Some(handle);
@@ -310,6 +352,7 @@ impl World {
                 shutdown: self.shutdown.clone(),
                 investigate: None,
                 autonomy: self.autonomy.clone(),
+                contain: self.contain.clone(),
             },
             self.settings.clone(),
         )

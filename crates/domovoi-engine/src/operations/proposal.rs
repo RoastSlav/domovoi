@@ -92,6 +92,9 @@ async fn hash_for(
     if intent.contract.as_str() == "unit.restart" {
         return unit_hash(shared, intent, step).await;
     }
+    if intent.contract.as_str() == "firewall.block_source" {
+        return containment_hash(shared, intent).await;
+    }
     let Some(name) = intent.contract.skill_name() else {
         return Err("only skill contracts can be run".to_owned());
     };
@@ -145,4 +148,45 @@ async fn unit_hash(
         ExecutionId::from_step(step),
     );
     Ok((plan.hash(), Risk::Write))
+}
+
+/// The plan hash of blocking a source, and the risk it carries: the helper's safety is assessed at
+/// this moment (as a person would be shown it), so a change of the verified identity before
+/// approval is a different plan. A block always asks for a typed confirmation.
+async fn containment_hash(
+    shared: &OpShared,
+    intent: &domovoi_core::ExecutionIntent,
+) -> Result<(PlanHash, Risk), String> {
+    use domovoi_core::action::ContainmentPlan;
+    use domovoi_core::attest::Authority;
+    let Some(driver) = &shared.deps.contain else {
+        return Err("containment is not set up on this hub".to_owned());
+    };
+    let (net, ttl) = crate::containment::input::parse_request(&intent.args)?;
+    let deps = driver.deps();
+    let resolved = deps
+        .resolver
+        .resolve(TargetQuery::NetworkSource {
+            host: intent.host,
+            source: net,
+        })
+        .await
+        .map_err(|err| err.to_string())?;
+    let assessment = crate::containment::input::assess(
+        &*deps.trust,
+        &*deps.paths,
+        intent.host,
+        Authority::Human,
+        shared.deps.clock.now(),
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    let plan = ContainmentPlan::new(
+        &net,
+        ttl,
+        intent.host,
+        &resolved.host_key,
+        &assessment.assurance,
+    );
+    Ok((plan.hash(), Risk::Destructive))
 }

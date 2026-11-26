@@ -1,0 +1,5 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "rollback_fallback(&table(), &net(\"203.0.113.7\"))"
+---
+delete element inet domovoi blocked4 { 203.0.113.7 }

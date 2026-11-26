@@ -369,3 +369,17 @@ fn a_production_file_a_test_module_also_loads_is_still_checked() {
     );
     assert!(v.iter().any(|x| x.rule == "EXEC-1"), "{v:#?}");
 }
+
+#[test]
+fn plan_containment_has_one_implementation() {
+    let text = "let text = \"plan:containment-v1\\n\";\n";
+    let elsewhere = check_file(
+        "crates/domovoi-engine/src/containment/phases.rs",
+        text,
+        false,
+    );
+    assert_eq!(elsewhere[0].rule, "INV-1");
+    let home = "crates/domovoi-core/src/action/containment_plan.rs";
+    assert!(check_file(home, text, false).is_empty());
+    assert!(check_file("crates/domovoi-engine/tests/gates.rs", text, true).is_empty());
+}

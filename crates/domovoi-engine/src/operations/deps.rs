@@ -58,6 +58,9 @@ pub struct OperationDeps {
     /// Unit restarts and unattended permits; without it a `unit.restart` step cannot be
     /// dispatched and no permit is ever considered.
     pub autonomy: Option<AutonomyDeps>,
+    /// Containment blocks; without it a `firewall.block_source` step cannot be proposed or
+    /// dispatched.
+    pub contain: Option<Arc<crate::containment::ContainmentDriver>>,
 }
 
 /// What bounded unattended execution needs beyond a person's approval.

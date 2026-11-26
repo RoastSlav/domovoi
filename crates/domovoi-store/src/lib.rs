@@ -15,6 +15,7 @@ mod audit_verify;
 mod backup;
 mod codec;
 mod compat;
+mod containment;
 mod db;
 mod error;
 mod experience;

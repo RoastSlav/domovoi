@@ -5,6 +5,7 @@ mod actions;
 mod admission;
 mod audit;
 mod audit_inspect;
+mod containment;
 mod conversations;
 mod experience;
 mod health;
@@ -87,6 +88,8 @@ struct State {
     helper: helper_trust::HelperState,
     /// The pause switch, circuit-breaker resets and unknown-outcome resolutions.
     permit: permit::PermitState,
+    /// Containment blocks.
+    containment: containment::ContainmentState,
     versions: BTreeMap<AggregateRef, u64>,
     journal: Vec<JournalEntry>,
     /// The last journal `seq` handed out; unlike `journal.len()` it survives pruning.

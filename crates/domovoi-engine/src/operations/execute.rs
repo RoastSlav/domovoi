@@ -56,6 +56,12 @@ impl AuthorizedStep {
     pub fn execution(&self) -> &ExecutionRecord {
         &self.execution
     }
+
+    /// A step for a test that drives a dispatch without the approval machinery in front of it.
+    #[cfg(test)]
+    pub(crate) fn for_test(execution: ExecutionRecord) -> Self {
+        Self { execution }
+    }
 }
 
 /// Why a run was not dispatched. A refusal the writer made (a changed plan, a closed window)

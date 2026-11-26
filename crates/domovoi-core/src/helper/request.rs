@@ -3,8 +3,10 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
+use super::block::BlockSource;
 use super::group::HelperGroup;
 use super::read::{ContainerRef, DeviceRef};
+use crate::attest::ExpectedSafety;
 use crate::unit::{IdentityHash, UnitId, UnitName};
 
 /// A challenge for `safety.attest`: 32 random bytes, written as 64 lowercase hex characters.
@@ -127,6 +129,41 @@ pub enum HelperRequest {
         /// The identity hash that was approved.
         identity_hash: IdentityHash,
     },
+    /// Step one of a block: the element goes in with the 30 second kernel timeout.
+    FirewallApply {
+        /// The block id, the execution id of this apply.
+        block: Uuid,
+        /// The target as the agent canonicalised it; the helper parses it again.
+        source: BlockSource,
+        /// The TTL the block has after `confirm`, in seconds.
+        ttl_s: u32,
+        /// What the approval bound; absent is refused as `malformed_safety`.
+        #[serde(default)]
+        expected_safety: Option<ExpectedSafety>,
+    },
+    /// Step two of a block: the element gets its full TTL.
+    FirewallConfirm {
+        /// The block id.
+        block: Uuid,
+        /// The target.
+        source: BlockSource,
+        /// The TTL, equal to the apply's.
+        ttl_s: u32,
+        /// What the approval bound; absent is refused as `malformed_safety`.
+        #[serde(default)]
+        expected_safety: Option<ExpectedSafety>,
+    },
+    /// Removes a block. Never refused for a safety reason, so it carries no safety state.
+    FirewallRollback {
+        /// The block id.
+        block: Uuid,
+        /// The target.
+        source: BlockSource,
+        /// The TTL of the block, for the journal match.
+        ttl_s: u32,
+    },
+    /// The blocks the helper holds and the state of the gate, the drills and the table.
+    FirewallListBlocks,
 }
 
 /// One request on the wire.
@@ -158,6 +195,10 @@ impl HelperRequest {
             Self::SafetyAttest { .. } | Self::SafetyPublicKey => Some(HelperGroup::SafetyAttest),
             Self::UnitIdentity { .. } => Some(HelperGroup::SystemdRead),
             Self::UnitRestart { .. } => Some(HelperGroup::SystemdWrite),
+            Self::FirewallApply { .. }
+            | Self::FirewallConfirm { .. }
+            | Self::FirewallRollback { .. }
+            | Self::FirewallListBlocks => Some(HelperGroup::Nft),
         }
     }
 }

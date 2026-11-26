@@ -10,6 +10,7 @@ pub mod capability;
 pub mod caps;
 pub mod chat;
 pub mod clock;
+mod contain_relay;
 pub mod context;
 pub mod docker_read;
 pub mod experience;
@@ -49,6 +50,7 @@ pub use chat::{
     ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
 };
 pub use clock::Clock;
+pub use contain_relay::{ContainCaps, ContainRelay};
 pub use context::ContextSource;
 pub use docker_read::{DockerReadApi, DockerReadError};
 pub use experience::ExperienceRead;

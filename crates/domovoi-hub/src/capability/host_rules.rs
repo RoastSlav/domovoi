@@ -48,6 +48,13 @@ pub(super) fn host_allows(
     {
         return Err(Availability::NotInstalled);
     }
+    // A containment contract needs the whole `nft` group: a block has three phases.
+    if contract.execution == ExecutionPath::Helper
+        && domovoi_core::containment::ops::is_containment_contract(contract.id.as_str())
+        && !domovoi_core::containment::ops::offers_nft_group(&words.helper_ops)
+    {
+        return Err(Availability::NotInstalled);
+    }
     if contract.target_kind == TargetKind::Container && !words.container_runtime {
         return Err(Availability::Unavailable {
             reason: UnavailableReason::ContainerRuntimeUnavailable,

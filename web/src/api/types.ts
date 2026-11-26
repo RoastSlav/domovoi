@@ -208,6 +208,12 @@ export type HistoryEvent = Schemas["HistoryEventDto"];
 export type Execution = Schemas["ExecutionDto"];
 /** One step with its stored intent and bounded output. */
 export type StepDetail = Schemas["StepDetailDto"];
+/** What a host's blocks look like: the gate, the drills and each block. */
+export type ContainmentStatus = Schemas["ContainmentStatusDto"];
+/** One block of a network source on a host. */
+export type ContainmentBlock = Schemas["BlockDto"];
+/** How a containment step stands, on the step detail. */
+export type ContainmentStep = Schemas["ContainmentStepDto"];
 /** An operation after a control. */
 export type OperationControl = Schemas["OperationControlDto"];
 /** One limit to raise when resuming. */

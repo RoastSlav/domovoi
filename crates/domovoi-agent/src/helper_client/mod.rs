@@ -4,6 +4,7 @@
 
 mod cache;
 mod container_source;
+mod firewall;
 mod privileged;
 mod reads;
 mod selection;
@@ -32,6 +33,7 @@ use crate::time::{sleep, within};
 
 pub use self::cache::ReadCache;
 pub use self::container_source::{HelperContainerSource, docker_problem};
+pub use self::firewall::FirewallCall;
 pub use self::privileged::HelperPrivilegedReads;
 pub use self::reads::ReadClientError;
 pub use self::selection::HelperReads;
@@ -85,6 +87,25 @@ impl GroupsInfo {
             ops.push("unit.restart");
         }
         ops
+    }
+}
+
+impl GroupsInfo {
+    /// The four operations of the `nft` group when the helper offers them: the group is named in
+    /// its configuration (a write group, so listed as ignored) and the platform tier gate passes.
+    /// All four or none, because a block needs every phase.
+    #[must_use]
+    pub fn nft_ops(&self) -> Vec<&'static str> {
+        let gate = domovoi_core::helper::write_tier_gate(
+            self.platform_record,
+            self.platform_tier,
+            self.write_opt_in,
+        );
+        if self.ignored.contains(&HelperGroup::Nft) && gate.is_ok() {
+            domovoi_core::containment::ops::NFT_OPS.to_vec()
+        } else {
+            Vec::new()
+        }
     }
 }
 
@@ -353,6 +374,7 @@ pub async fn probe_status(client: &HelperClient, clock: &dyn Clock) -> HelperSta
                 .iter()
                 .map(|group| group_name(*group))
                 .chain(groups.unit_ops().into_iter().map(str::to_owned))
+                .chain(groups.nft_ops().into_iter().map(str::to_owned))
                 .collect(),
         },
         Err(err) => failure(&err),

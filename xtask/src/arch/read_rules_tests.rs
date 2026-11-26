@@ -14,7 +14,13 @@ fn rules(found: &[Violation]) -> Vec<&'static str> {
 }
 
 fn unit3(text: &str) -> Vec<Violation> {
-    let units = [UnitFile::parse("domovoi-helper@.service", text)];
+    let units = [
+        UnitFile::parse("domovoi-helper@.service", text),
+        UnitFile::parse(
+            "domovoi-helper-selftest.service",
+            include_str!("../../../deploy/systemd/domovoi-helper-selftest.service"),
+        ),
+    ];
     check_units(&units, None, false)
         .into_iter()
         .filter(|v| v.rule == "UNIT-3")

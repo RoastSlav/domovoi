@@ -92,6 +92,10 @@ pub(super) async fn dispatch(
         HelperRequest::UnitIdentity { .. } | HelperRequest::UnitRestart { .. } => {
             crate::systemd::serve(request, ctx, peer_uid).await
         }
+        HelperRequest::FirewallApply { .. }
+        | HelperRequest::FirewallConfirm { .. }
+        | HelperRequest::FirewallRollback { .. }
+        | HelperRequest::FirewallListBlocks => crate::nft::serve(request, ctx, peer_uid).await,
         read => crate::reads::serve(read, ctx, peer_uid).await,
     }
 }

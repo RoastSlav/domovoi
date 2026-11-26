@@ -6,6 +6,7 @@ use jiff::Timestamp;
 use crate::action::{JournalEpoch, PlanHash};
 use crate::attest::Nonce32;
 use crate::capability::catalog::{CatalogPageData, CatalogQuery};
+use crate::containment::{ContainDispatch, ContainOutputs};
 use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
 use crate::install::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
@@ -386,6 +387,34 @@ pub trait AgentLink: Send + Sync {
         _handoff: CapabilityHandoff,
         _deadline: Timestamp,
     ) -> Result<UnitOutputs, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Hands one containment request to `host`'s live session, which must still be
+    /// `expected_session` with the journal `expected_epoch` names, and returns once the frame
+    /// is in that session's outgoing queue.
+    ///
+    /// Same contract as [`AgentLink::start_capability`]: failing means nothing was queued.
+    async fn start_contain(
+        &self,
+        _host: HostId,
+        _req: ContainDispatch,
+        _expected_session: AgentSessionId,
+        _expected_epoch: JournalEpoch,
+        _deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
+    }
+
+    /// Waits for the terminal answer to a request handed over by
+    /// [`AgentLink::start_contain`]. [`LinkError::Rejected`] is the agent's confirmed refusal
+    /// or failure; every other error leaves the outcome unknown.
+    async fn contain_result(
+        &self,
+        _host: HostId,
+        _handoff: CapabilityHandoff,
+        _deadline: Timestamp,
+    ) -> Result<ContainOutputs, LinkError> {
         Err(LinkError::Transport(NOT_SUPPORTED.to_owned()))
     }
 

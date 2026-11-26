@@ -4,13 +4,14 @@
 //! agent checks every policy-labelled request against it, and tells the hub only a summary and
 //! its hash. With no section there is no ceiling and no policy-labelled request is accepted.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use domovoi_config::UnattendedSection;
 use domovoi_core::capability::{
     CeilingEntry, CeilingSummary, CeilingTargets, ContractId, TargetName,
 };
 use domovoi_proto::Sha256Bytes;
+use jiff::SignedDuration;
 use sha2::{Digest, Sha256};
 
 /// The step of the ordered ceiling check that refused a request.
@@ -24,6 +25,12 @@ pub enum CeilingStep {
     TargetNotAllowed,
     /// The entry's `max_per_hour` is spent.
     RateSpent,
+    /// The requested lifetime is above the entry's `max_ttl`.
+    TtlAboveMaximum,
+    /// A constrained argument is missing, unreadable or outside the entry's bound.
+    ArgOutsideBound,
+    /// The entry's `max_active` blocks are already held.
+    ActiveSpent,
 }
 
 impl CeilingStep {
@@ -35,6 +42,11 @@ impl CeilingStep {
             Self::NoEntry => "ceiling: no unattended entry covers this capability",
             Self::TargetNotAllowed => "ceiling: this target is not in the unattended list",
             Self::RateSpent => "ceiling: the hourly unattended limit was reached",
+            Self::TtlAboveMaximum => {
+                "ceiling: the requested lifetime is above the unattended maximum"
+            }
+            Self::ArgOutsideBound => "ceiling: an argument is outside the unattended bound",
+            Self::ActiveSpent => "ceiling: the unattended active limit was reached",
         }
     }
 }
@@ -45,6 +57,22 @@ struct Entry {
     any_target: bool,
     targets: BTreeSet<String>,
     max_per_hour: u32,
+    max_active: Option<u32>,
+    max_ttl: Option<SignedDuration>,
+    /// Argument key to the integer bound; `None` when the text is not an integer, which
+    /// refuses every request that names the key.
+    args: BTreeMap<String, Option<i64>>,
+}
+
+/// What a containment request asks of the ceiling beyond contract, target and rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FirewallAsk {
+    /// The lifetime the block has after `confirm`.
+    pub ttl: SignedDuration,
+    /// The IPv4 prefix length the request carries, as text parsed; `None` when unreadable.
+    pub prefix_len_v4: Option<i64>,
+    /// The IPv6 prefix length the request carries; `None` when unreadable.
+    pub prefix_len_v6: Option<i64>,
 }
 
 /// The ceiling of this agent.
@@ -72,6 +100,19 @@ impl Ceiling {
                     .cloned()
                     .collect(),
                 max_per_hour: allow.max_per_hour,
+                max_active: allow.max_active,
+                max_ttl: allow.max_ttl.map(|ttl| ttl.as_signed()),
+                args: allow
+                    .args
+                    .iter()
+                    .flatten()
+                    .map(|(key, values)| {
+                        (
+                            key.clone(),
+                            values.first().and_then(|v| v.parse::<i64>().ok()),
+                        )
+                    })
+                    .collect(),
             })
             .collect();
         let summary = CeilingSummary {
@@ -125,6 +166,53 @@ impl Ceiling {
         }
         Ok(())
     }
+
+    /// The ordered check for a policy-labelled containment phase: enabled, an entry, the target,
+    /// the lifetime and the prefix floors, then `max_per_hour` when `accepted_last_hour` is
+    /// `Some` (only an `apply` spends the hour). A bound the entry states must be met by a
+    /// value that parsed; the helper's own maxima still apply after this.
+    pub fn check_firewall(
+        &self,
+        contract: &str,
+        target: &str,
+        ask: &FirewallAsk,
+        accepted_last_hour: Option<u32>,
+    ) -> Result<(), CeilingStep> {
+        self.check(contract, target, 0)?;
+        let entry = self
+            .entries
+            .iter()
+            .find(|e| e.contract == contract)
+            .ok_or(CeilingStep::NoEntry)?;
+        if entry.max_ttl.is_some_and(|max| ask.ttl > max) {
+            return Err(CeilingStep::TtlAboveMaximum);
+        }
+        for (key, asked) in [
+            ("prefix_len_v4", ask.prefix_len_v4),
+            ("prefix_len_v6", ask.prefix_len_v6),
+        ] {
+            if let Some(bound) = entry.args.get(key)
+                && !matches!((asked, bound), (Some(asked), Some(bound)) if asked >= *bound)
+            {
+                return Err(CeilingStep::ArgOutsideBound);
+            }
+        }
+        if let Some(accepted) = accepted_last_hour
+            && accepted >= entry.max_per_hour
+        {
+            return Err(CeilingStep::RateSpent);
+        }
+        Ok(())
+    }
+
+    /// The `max_active` the entry for `contract` states, if any.
+    #[must_use]
+    pub fn max_active(&self, contract: &str) -> Option<u32> {
+        self.entries
+            .iter()
+            .find(|e| e.contract == contract)
+            .and_then(|e| e.max_active)
+    }
 }
 
 fn summary_entry(entry: &Entry) -> Option<CeilingEntry> {
@@ -144,8 +232,14 @@ fn summary_entry(entry: &Entry) -> Option<CeilingEntry> {
         contract,
         targets,
         max_per_hour: entry.max_per_hour,
-        max_active: None,
-        max_ttl: None,
-        args: std::collections::BTreeMap::new(),
+        max_active: entry.max_active,
+        max_ttl: entry.max_ttl,
+        // An unreadable bound drops the whole entry from the summary: the hub then sees no
+        // coverage, never a bound that was not stated.
+        args: entry
+            .args
+            .iter()
+            .map(|(key, bound)| bound.map(|bound| (key.clone(), bound)))
+            .collect::<Option<_>>()?,
     })
 }

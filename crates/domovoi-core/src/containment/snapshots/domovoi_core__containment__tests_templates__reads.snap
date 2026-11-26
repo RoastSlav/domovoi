@@ -1,0 +1,40 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: reads
+---
+[
+    [
+        "-j",
+        "list",
+        "table",
+        "inet",
+        "domovoi",
+    ],
+    [
+        "-j",
+        "list",
+        "set",
+        "inet",
+        "domovoi",
+        "blocked4",
+    ],
+    [
+        "-j",
+        "list",
+        "flowtables",
+    ],
+    [
+        "-f",
+        "-",
+    ],
+    [
+        "-D",
+        "-s",
+        "203.0.113.7",
+    ],
+    [
+        "-D",
+        "-s",
+        "203.0.113.0/24",
+    ],
+]

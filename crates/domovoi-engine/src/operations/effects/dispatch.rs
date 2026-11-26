@@ -70,7 +70,8 @@ impl EffectHandler for DispatchHandler {
         }
         let registry = &shared.deps.registry;
         let is_unit_restart = row.contract.as_str() == "unit.restart";
-        if !row.contract.is_skill() && !is_unit_restart {
+        let is_contain = row.contract.as_str() == "firewall.block_source";
+        if !row.contract.is_skill() && !is_unit_restart && !is_contain {
             let ending = ending(StepOutcome::Unavailable).because("contract_not_executable");
             return outcome(settle(shared, ending).await);
         }
@@ -104,6 +105,13 @@ impl EffectHandler for DispatchHandler {
                 return outcome(settle(shared, ending).await);
             }
         };
+        if is_contain {
+            let sent = crate::operations::execute_contain::execute_containment_step(
+                shared, held, authorized, session,
+            )
+            .await;
+            return concluded(shared, held, operation, step, sent).await;
+        }
         if is_unit_restart {
             let sent = crate::operations::execute_unit::execute_unit_restart(
                 shared, held, authorized, session,
@@ -128,7 +136,7 @@ impl EffectHandler for DispatchHandler {
                 return outcome(settle(shared, ending(StepOutcome::Refused).because(reason)).await);
             }
         };
-        // Only the unit restart may be authorized by a permit; a skill never is.
+        // Only the unit restart and the containment may be authorized by a permit; a skill never is.
         if row.permit().is_some() {
             let reason = "a policy permit cannot authorize a skill";
             return outcome(settle(shared, ending(StepOutcome::Refused).because(reason)).await);

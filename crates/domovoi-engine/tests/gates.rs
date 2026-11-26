@@ -103,11 +103,18 @@ const OP_EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, 
 
 /// The fixture's `operations/effects/dispatch.rs`: the one authorizing constructor and the one
 /// dispatch of the operation service.
-const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\nexecute_unit::execute_unit_restart(shared, held, authorized, session).await?;\n";
+const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\nexecute_unit::execute_unit_restart(shared, held, authorized.clone(), session).await?;\nexecute_contain::execute_containment_step(shared, held, authorized, session).await?;\n";
 
 /// The fixture's `operations/execute_unit.rs`: the one hand-off of a unit restart and the one wait
 /// for its answer.
 const OP_UNIT: &str = "relay.dispatch_restart(host, request, session, epoch, deadline).await;\nrelay.restart_result(host, handoff, deadline).await;\n";
+
+/// The fixture's `operations/execute_contain.rs`: the one authorizing constructor of a block.
+const OP_CONTAIN: &str = "let authorized = AuthorizedContainment::of(step)?;\n";
+
+/// The fixture's `containment/phases.rs`: the one hand-off of a containment phase and the one wait
+/// for its answer.
+const PHASES: &str = "relay.dispatch_phase(host, request, session, epoch, deadline).await;\nrelay.phase_result(host, handoff, deadline).await;\n";
 
 /// The fixture's `targets/mod.rs`: the one read of a unit's identity.
 const TARGETS: &str = "units.relay.read_identity(host, name, session, deadline).await;\n";
@@ -160,6 +167,11 @@ fn boundary_tree() -> Vec<(String, String)> {
             OP_DISPATCH.to_owned(),
         ),
         (crate_path("operations/execute_unit.rs"), OP_UNIT.to_owned()),
+        (
+            crate_path("operations/execute_contain.rs"),
+            OP_CONTAIN.to_owned(),
+        ),
+        (crate_path("containment/phases.rs"), PHASES.to_owned()),
         (crate_path("targets/mod.rs"), TARGETS.to_owned()),
         (crate_path("operations/writer/mod.rs"), OP_WRITER.to_owned()),
         (crate_path("packages/worker.rs"), PKG_WORKER.to_owned()),
@@ -2174,4 +2186,86 @@ fn jobs_never_come_from_the_model_or_chat() {
             assert!(!text.to_lowercase().contains(word), "{rel} mentions {word}");
         }
     }
+}
+
+/// No tool, chat command or model-facing module reaches the containment driver or its relay: a
+/// block exists only after a person approved the step (or a permit on a verified, drilled host),
+/// and the model's catalogues are closed lists with nothing that blocks anything.
+#[test]
+fn model_cannot_trigger_containment() {
+    // The catalogues: closed, and none of the names is about firewalls or blocking.
+    assert_eq!(MetaTool::ALL.len(), 7);
+    assert_eq!(ReadTool::ALL.len(), 11);
+    let names: Vec<&str> = MetaTool::ALL
+        .iter()
+        .map(MetaTool::name)
+        .chain(ReadTool::ALL.iter().map(ReadTool::name))
+        .collect();
+    for name in &names {
+        for word in ["firewall", "contain", "block", "nft", "ipnet"] {
+            assert!(!name.contains(word), "tool {name} mentions {word}");
+        }
+    }
+
+    // The sources the model and the chat reach: none names the driver, the relay or the closed
+    // call type, nor the hub's containment service.
+    const WORDS: [&str; 7] = [
+        "ContainRelay",
+        "ContainDispatch",
+        "ContainCall",
+        "ContainmentDriver",
+        "ContainmentCommands",
+        "execute_containment",
+        "AuthorizedContainment",
+    ];
+    let mut scanned: Vec<(String, String)> = model_facing_sources();
+    scanned.extend(
+        crate_sources("domovoi-engine")
+            .into_iter()
+            .filter(|(rel, _)| {
+                rel.starts_with("crates/domovoi-engine/src/triage/")
+                    || rel.starts_with("crates/domovoi-engine/src/conversations/")
+            }),
+    );
+    scanned.extend(crate_sources("domovoi-llm"));
+    scanned.extend(
+        crate_sources("domovoi-core")
+            .into_iter()
+            .filter(|(rel, _)| {
+                (rel.starts_with("crates/domovoi-core/src/meta/")
+                    || rel.starts_with("crates/domovoi-core/src/triage/"))
+                    && !rel.ends_with("/tests.rs")
+            }),
+    );
+    let chat: Vec<_> = crate_sources("domovoi-hub")
+        .into_iter()
+        .filter(|(rel, _)| rel.starts_with("crates/domovoi-hub/src/auth/interactions/"))
+        .collect();
+    assert!(
+        chat.len() >= 3,
+        "the scan found only {} chat sources",
+        chat.len()
+    );
+    scanned.extend(chat);
+    scanned.extend(crate_sources("domovoi-chat"));
+    assert!(
+        scanned.len() > 20,
+        "the scan found only {} sources",
+        scanned.len()
+    );
+    // The plan validator may read the pure limits a block's arguments are checked against; it
+    // may not name the driver, the relay or the call type.
+    let reached = forbidden_in(
+        &scanned,
+        &WORDS,
+        &[
+            "containment::driver",
+            "containment::phases",
+            "containment::run",
+        ],
+    );
+    assert!(
+        reached.is_empty(),
+        "model-facing or chat code reaches containment: {reached:#?}"
+    );
 }

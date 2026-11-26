@@ -122,6 +122,27 @@ On a host with a helper, the hub can ask for a signed report of what the helper 
 
 The form is strict. A missing tag, an unknown tag, an unknown reason, an extra or repeated field, a field that belongs to the other tag, upper-case hex and a wrong length are each refused. It is required on every containment request, and the helper refuses one without it. The wire version stays 1.2.
 
+## Containment
+
+`firewall.block_source` (version 1) and `firewall.list_blocks` (version 1) travel as ordinary `run_capability` requests. Wire 1.2 is unchanged: no frame and no field was added, and the replies are the existing `capability_result`, `refused` and `error` messages and the `action_status` answers.
+
+A block is three executions, one per phase, each with its own execution id and its own entry in the agent's journal. The `args` hold exactly six keys, all strings:
+
+| Key | Meaning |
+| --- | --- |
+| `phase` | `apply`, `confirm` or `rollback`. |
+| `source` | The canonical network text, with the prefix length always written. Anything else is refused. |
+| `ttl_s` | The lifetime after `confirm`, in seconds. Identical in all three phases. |
+| `block` | The execution id of the `apply`. In `apply` it equals the request's own execution id. |
+| `prefix_len_v4` | The target's prefix length when it is IPv4, else `32`. |
+| `prefix_len_v6` | The target's prefix length when it is IPv6, else `128`. |
+
+`target` is `ipnet:` followed by the canonical network. The three phases of one block carry the same `plan_hash`, the same `authorization_kind` and the same `expected_safety`, so one approval covers one block. The plan hash is a separate family (`plan:containment-v1`) over the contract, the source, the lifetime, the host, the host key and the safety assurance. It does not include the phase or the execution id. `expected_safety` is required on every phase of `firewall.block_source`; `firewall.list_blocks` is a read and carries none, and needs a `human` authorization.
+
+The agent accepts a `policy` authorization only with a verified `expected_safety`; with `unverified` it refuses with `policy_requires_verified_safety`. A request without `expected_safety` is refused with the open code `malformed_safety`. `confirm` and `rollback` need a finished `apply` under the same `block` in the agent's journal, or they are refused with `unknown_block`. Only an `apply` counts toward the hourly limit.
+
+Refusals and failures travel as `"<token>: <detail>"` in `Refused.detail` and `Failed.message`, with the token spellings of [Firewall operations](helper.md#firewall-operations): for example `exclusion_overlap`, `ttl_above_maximum`, `containment_blocked`, `table_drift`, `already_present`, `rolled_back`, `expired` and `containment_lost`. A reason that has no refusal code of its own travels as an open code. The hub sends `confirm` within 20 seconds of the `apply` result, never retries a phase after sending it, and settles an unanswered phase by asking the agent's journal.
+
 ## Agent safety on requests
 
 The agent never runs anything on the hub's word alone. For `run_skill` it looks up the skill in its own manifests, checks the skill's risk against its local policy, validates `args` against the manifest's parameters and recomputes the plan hash. Any mismatch is answered with a `skill_result` error (`not_found`, `risk_not_allowed`, `invalid_args` or `plan_mismatch`), and nothing runs. The hub cannot send scripts or commands, only skill names and argument values.

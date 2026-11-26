@@ -87,6 +87,23 @@ impl OperationCommands {
             .map_err(OperationCommandError::Operation)
     }
 
+    /// Stores an authorization the caller's own use case already checked: a containment block,
+    /// approved with the password, the typed source and the acknowledgement it needs.
+    pub async fn authorize_prepared(
+        &self,
+        op: OperationId,
+        step: StepId,
+        authorization: domovoi_core::Authorization,
+        binding: PlanBinding,
+        provenance: domovoi_core::ApprovalProvenance,
+    ) -> Result<(), OperationCommandError> {
+        let handle = self.handle()?;
+        handle
+            .authorize(op, step, authorization, binding, provenance, None)
+            .await
+            .map_err(OperationCommandError::Operation)
+    }
+
     /// Denies an Execution step for the caller. A chat press carries its card's token, which
     /// the writer checks; the web names none.
     pub async fn deny_step(

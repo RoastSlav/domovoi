@@ -1090,6 +1090,7 @@ dependencies = [
  "bollard",
  "domovoi-config",
  "domovoi-core",
+ "domovoi-runner",
  "domovoi-testkit",
  "ed25519-dalek",
  "futures",

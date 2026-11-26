@@ -1,4 +1,5 @@
 import { ApiFailure, type Issue } from "../api/types";
+import { CONTAINMENT_CATALOGUE, CONTAINMENT_HUB_CODES } from "./containmentErrors";
 import { HELPER_CATALOGUE, HELPER_HUB_CODES } from "./helperErrors";
 import { PACKAGE_CATALOGUE, PACKAGE_HUB_CODES } from "./packageErrors";
 import { failureDetail, failureSentence } from "./packageFailures";
@@ -46,6 +47,7 @@ export const HUB_CODES = [
   "internal",
   ...PACKAGE_HUB_CODES,
   ...HELPER_HUB_CODES,
+  ...CONTAINMENT_HUB_CODES,
 ] as const;
 
 /** One of the hub's error codes. */
@@ -54,6 +56,7 @@ export type HubCode = (typeof HUB_CODES)[number];
 const CATALOGUE: Record<HubCode, Entry> = {
   ...PACKAGE_CATALOGUE,
   ...HELPER_CATALOGUE,
+  ...CONTAINMENT_CATALOGUE,
   unauthorized: { reason: "Your session ended. Log in again.", specific: false },
   setup_required: {
     reason: "No account exists yet. Open the setup link the hub logged when it started.",

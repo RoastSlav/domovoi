@@ -36,6 +36,10 @@ mod capability;
 #[cfg(test)]
 mod capability_ceiling;
 #[cfg(test)]
+mod containment_api;
+#[cfg(test)]
+mod containment_approval;
+#[cfg(test)]
 mod crash_sqlite;
 #[cfg(test)]
 mod csp;

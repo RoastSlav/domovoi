@@ -8,6 +8,7 @@ mod archive;
 mod commit;
 mod compact;
 mod compaction;
+mod containment;
 mod faults;
 mod limiter;
 mod lock;

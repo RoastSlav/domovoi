@@ -32,8 +32,9 @@ pub enum ExecutionError {
     /// Only a person can authorize this kind of execution (a package change, for now).
     #[error("only a person can approve this for now")]
     NotYetSupported,
-    /// A policy permit may authorize only a write; the stored risk is not exactly `write`.
-    #[error("a policy permit can authorize only a write")]
+    /// A policy permit may authorize only a write, or a block that carries a verified safety
+    /// identity; this step is neither.
+    #[error("a policy permit can authorize only a write or a verified block")]
     PermitNotAllowed,
     /// The stored risk is not read or write, so only a web approval with the typed skill name
     /// is allowed.
@@ -253,6 +254,9 @@ pub struct ExecutionRecord {
     pub updated_at: Timestamp,
 }
 
+/// The one contract whose destructive-risk steps a policy permit may authorize.
+const PERMIT_DESTRUCTIVE_CONTRACT: &str = "firewall.block_source";
+
 impl ExecutionRecord {
     /// A proposed execution of `intent` as `step` of `operation`, not yet approved.
     #[must_use]
@@ -342,7 +346,10 @@ impl ExecutionRecord {
 
     /// Records a policy permit as the authorization, with the decision document it came from.
     ///
-    /// Refuses, in this order: a stored risk that is not exactly `write`; a permit that names
+    /// Refuses, in this order: a stored risk that is not `write` (the one exception is a
+    /// `firewall.block_source` step, which carries `destructive` so a person's approval needs the
+    /// typed confirmation, and which a permit may authorize only when it carries a verified
+    /// safety identity); a permit that names
     /// another plan hash; a second authorization of either kind; a permit or window that has
     /// closed. On any refusal nothing changes.
     pub fn authorize_by_permit(
@@ -354,7 +361,7 @@ impl ExecutionRecord {
         let Some(permit) = authorization.policy_permit() else {
             return Err(ExecutionError::NotYetSupported);
         };
-        if self.risk != Some(Risk::Write) {
+        if !self.permit_may_authorize(permit.safety_identity().is_some()) {
             return Err(ExecutionError::PermitNotAllowed);
         }
         if permit.plan_hash() != self.plan_hash {
@@ -369,6 +376,19 @@ impl ExecutionRecord {
         self.permit = Some(Box::new(StoredPermit::new(permit.clone(), decision)));
         self.updated_at = now;
         Ok(())
+    }
+
+    /// Whether a permit may authorize this step: any write, or a block of a network source when
+    /// the permit names the verified safety identity it was issued against. Every other risk,
+    /// destructive included, stays a person's decision.
+    fn permit_may_authorize(&self, names_safety_identity: bool) -> bool {
+        match self.risk {
+            Some(Risk::Write) => true,
+            Some(Risk::Destructive) => {
+                self.contract.as_str() == PERMIT_DESTRUCTIVE_CONTRACT && names_safety_identity
+            }
+            _ => false,
+        }
     }
 
     /// Whether a person or a policy permit has authorized this execution.

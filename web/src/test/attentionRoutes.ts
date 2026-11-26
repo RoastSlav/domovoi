@@ -5,13 +5,17 @@ import type {
   OperationDetail,
   OperationSummary,
 } from "../api/types";
+import type { ContainmentStatus } from "../api/types";
 import { route } from "./apiMock";
 import { EMPTY_PAGE } from "./attentionFixtures";
+import { containmentStatus } from "./containmentFixtures";
 import { nas } from "./fixtures";
 import { operationDetail } from "./operationFixtures";
 
 /** What each attention source answers; an omitted source answers an empty first page. */
 export interface Served {
+  /** Each host's blocks by host name; a host not listed has none and no gate answer. */
+  containment?: Record<string, ContainmentStatus>;
   actions?: Partial<Record<string, Action[]>>;
   details?: Record<string, OperationDetail>;
   hosts?: Host[];
@@ -31,6 +35,10 @@ export function waitingDetail(id: string, goal: string): OperationDetail {
 /** Registers every route the attention sources and the approval cards read. */
 export function serveAttention(served: Served = {}): void {
   route("GET /api/v1/hosts", () => served.hosts ?? [nas]);
+  route(
+    "GET /api/v1/hosts/{name}/containment",
+    (init) => served.containment?.[init.params?.path?.name ?? ""] ?? containmentStatus(),
+  );
   route("GET /api/v1/incidents", () => ({ ...EMPTY_PAGE, items: served.incidents ?? [] }));
   route("GET /api/v1/actions", (init) => ({
     ...EMPTY_PAGE,

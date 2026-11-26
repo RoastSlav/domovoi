@@ -269,3 +269,32 @@ fn helper_config_keeps_read_groups_on_by_default() {
         assert!(groups.contains(&group), "{group}");
     }
 }
+
+#[test]
+fn max_elements_at_or_above_two_pow_32_is_rejected_at_config_load() {
+    assert!(!errors("[nft]\nmax_elements = 4294967296").is_empty());
+    assert!(!errors("[nft]\nmax_elements = 10001").is_empty());
+    assert!(errors("[nft]\nmax_elements = 10000").is_empty());
+}
+
+#[test]
+fn max_ttl_above_one_year_is_rejected_at_config_load() {
+    assert!(errors("[safety.containment]\nmax_ttl = \"365d\"").is_empty());
+    assert!(!errors("[safety.containment]\nmax_ttl = \"366d\"").is_empty());
+}
+
+#[test]
+fn max_active_above_max_elements_and_bad_nft_keys_are_rejected() {
+    let over = errors("[nft]\nmax_elements = 10\n[safety.containment]\nmax_active = 11");
+    assert!(
+        over.iter()
+            .any(|i| i.path == "safety.containment.max_active")
+    );
+    assert!(errors("[nft]\nmax_elements = 10\n[safety.containment]\nmax_active = 10").is_empty());
+    assert!(!errors("[nft]\ntable = \"Bad-Name\"").is_empty());
+    assert!(!errors("[nft]\ncall_timeout = \"31s\"").is_empty());
+    assert!(errors("[nft]\ncall_timeout = \"30s\"").is_empty());
+    let defaults = parse_helper("").expect("loads").0;
+    assert_eq!(defaults.nft.call_timeout.as_signed().as_secs(), 5);
+    assert_eq!(defaults.safety.containment.max_active, 0);
+}

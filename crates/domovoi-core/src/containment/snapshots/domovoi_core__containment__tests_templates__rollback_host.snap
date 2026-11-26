@@ -1,0 +1,6 @@
+---
+source: crates/domovoi-core/src/containment/tests_templates.rs
+expression: "rollback(&table(), &net(\"203.0.113.7\"))"
+---
+add element inet domovoi blocked4 { 203.0.113.7 timeout 5s }
+delete element inet domovoi blocked4 { 203.0.113.7 }

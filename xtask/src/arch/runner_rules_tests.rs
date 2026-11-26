@@ -51,6 +51,10 @@ fn units_with(service: &str, socket: &str) -> Vec<UnitFile> {
         UnitFile::parse(RUNNER_SOCKET, socket),
         UnitFile::parse("domovoi-helper@.service", HELPER_SERVICE_TEXT),
         UnitFile::parse("domovoi-helper.socket", HELPER_SOCKET_TEXT),
+        UnitFile::parse(
+            "domovoi-helper-selftest.service",
+            include_str!("../../../deploy/systemd/domovoi-helper-selftest.service"),
+        ),
         UnitFile::parse("domovoi-agent.service", AGENT_SERVICE_TEXT),
     ]
 }

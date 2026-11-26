@@ -1,0 +1,3 @@
+/dev/stdin:1:43-58: Error: element does not exist
+delete element inet domovoi blockednet4 { 198.51.100.64/26 }
+                                          ^^^^^^^^^^^^^^^^

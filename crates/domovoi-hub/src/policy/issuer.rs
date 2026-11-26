@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use domovoi_core::capability::containment::BLOCK_SOURCE_ID;
 use domovoi_core::capability::{TargetName, is_policy_dispatchable};
 use domovoi_core::policy_store::ShadowCandidate;
 use domovoi_core::ports::AuditDraft;
@@ -10,7 +11,12 @@ use domovoi_core::ports::{
     Clock, NotIssued, PermitGrant, PermitIssuer, PermitOutcome, PermitRefusal, PermitRepo,
     PermitRequest, PolicyRepo, TargetResolver, Transaction, UnitOfWork,
 };
-use domovoi_core::{Actor, Authorization, CapabilityPlan, PolicyPermit, PolicyPermitParts};
+use domovoi_core::{
+    Actor, Authorization, CapabilityPlan, ExecutionRecord, PlanHash, PolicyPermit,
+    PolicyPermitParts,
+};
+use domovoi_engine::containment::ContainmentDriver;
+use domovoi_engine::containment::permit::{BlockFacts, BlockFactsError, block_facts};
 use domovoi_engine::policy::{Outcome, evaluate};
 use domovoi_engine::policy_shadow::{
     AutonomyReading, DecisionEnvelope, ShadowEnvironment, Verdict, build, decode_rules,
@@ -46,6 +52,19 @@ pub struct IssuerDeps {
     pub clock: Arc<dyn Clock>,
     /// The `[policy]` settings.
     pub settings: PermitSettings,
+    /// The containment service, for the verified helper identity and the drills a block needs;
+    /// `None` leaves every block to a person.
+    pub contain: Option<Arc<ContainmentDriver>>,
+}
+
+/// What the plan binds, read now, and the evaluator inputs that come with it.
+struct Ground {
+    /// The plan hash recomputed now.
+    plan: PlanHash,
+    /// The arguments the evaluator reads.
+    args: std::collections::BTreeMap<String, String>,
+    /// The block's verified facts; `None` for a unit restart.
+    block: Option<BlockFacts>,
 }
 
 /// Issues policy permits.
@@ -109,33 +128,11 @@ impl HubPermitIssuer {
         {
             return Err(withheld(PermitRefusal::UnresolvedUnknown(unknown.step)));
         }
-        // 4. Re-resolve the unit now: a configuration change since the proposal withholds the
-        // permit and leaves the approval path.
-        let typed = row
-            .args
-            .get("unit")
-            .and_then(|text| TargetName::parse(text).ok())
-            .ok_or_else(|| withheld(PermitRefusal::InputsUnavailable))?;
-        let unit =
-            d.resolver
-                .resolve_unit(row.host, &typed)
-                .await
-                .map_err(|error| match error {
-                    domovoi_core::capability::TargetError::UnitRefused { refusal, .. } => {
-                        withheld(PermitRefusal::IdentityRefused(refusal))
-                    }
-                    _ => withheld(PermitRefusal::InputsUnavailable),
-                })?;
-        let plan = CapabilityPlan::unit_restart(
-            row.host,
-            &unit.target.host_key,
-            &unit.target.identity,
-            &unit.identity_hash,
-            &row.args,
-            row.execution,
-        )
-        .hash();
-        if plan != row.plan_hash {
+        // 4. Re-resolve what the plan binds now: a configuration change since the proposal
+        // withholds the permit and leaves the approval path. A block also needs a verified
+        // helper identity and passed drills, or it is left to a person.
+        let ground = self.ground(row, now).await?;
+        if ground.plan != row.plan_hash {
             return Err(withheld(PermitRefusal::PlanChanged));
         }
         // 5. The published policy. Shadow rules are never enforced: `evaluate` selects only the
@@ -158,14 +155,20 @@ impl HubPermitIssuer {
             contract_version: row.contract_version,
             check: row.check.clone(),
             target: row.target.clone(),
-            args: row.args.clone(),
+            args: ground.args.clone(),
             pinned: request.pinned.clone(),
             created_at: row.created_at,
         };
         let built = build(&candidate, &rules, &*d.env, now).await;
-        let (Verdict::Evaluate, Some(input)) = (built.verdict, built.request) else {
+        let (Verdict::Evaluate, Some(mut input)) = (built.verdict, built.request) else {
             return Err(withheld(PermitRefusal::InputsUnavailable));
         };
+        // The evaluator's containment input and the requested TTL come from the same verified
+        // reading the permit is bound to; without a TTL a ceiling's `max_ttl` would cover anything.
+        if let Some(block) = &ground.block {
+            input.containment = block.containment.clone();
+            input.requested_ttl = Some(block.ttl);
+        }
         let result = evaluate(&rules, &input);
         let document = DecisionEnvelope::from_result(&result)
             .to_json()
@@ -222,12 +225,83 @@ impl HubPermitIssuer {
             issued_at: now,
             expires_at,
             ceiling_hash: decision.ceiling_hash.as_deref().unwrap_or_default(),
-            safety_identity: None,
+            safety_identity: ground
+                .block
+                .as_ref()
+                .map(|block| block.safety_identity.as_str()),
         })
         .map_err(|_| withheld(PermitRefusal::InputsUnavailable))?;
         Ok(PermitGrant {
             authorization: Authorization::policy(permit),
             decision: document,
+        })
+    }
+
+    /// What the plan binds, read now: the unit's canonical identity for a restart, or the verified
+    /// helper identity, the passed drills and the evaluator's containment input for a block.
+    async fn ground(&self, row: &ExecutionRecord, now: Timestamp) -> Result<Ground, NotIssued> {
+        let d = &self.deps;
+        if row.contract.as_str() == BLOCK_SOURCE_ID {
+            return self.block_ground(row, now).await;
+        }
+        let typed = row
+            .args
+            .get("unit")
+            .and_then(|text| TargetName::parse(text).ok())
+            .ok_or_else(|| withheld(PermitRefusal::InputsUnavailable))?;
+        let unit =
+            d.resolver
+                .resolve_unit(row.host, &typed)
+                .await
+                .map_err(|error| match error {
+                    domovoi_core::capability::TargetError::UnitRefused { refusal, .. } => {
+                        withheld(PermitRefusal::IdentityRefused(refusal))
+                    }
+                    _ => withheld(PermitRefusal::InputsUnavailable),
+                })?;
+        let plan = CapabilityPlan::unit_restart(
+            row.host,
+            &unit.target.host_key,
+            &unit.target.identity,
+            &unit.identity_hash,
+            &row.args,
+            row.execution,
+        )
+        .hash();
+        Ok(Ground {
+            plan,
+            args: row.args.clone(),
+            block: None,
+        })
+    }
+
+    /// The block's ground: refused unless containment is set up, the drills passed and the helper
+    /// is verified. A person may still approve it.
+    async fn block_ground(
+        &self,
+        row: &ExecutionRecord,
+        now: Timestamp,
+    ) -> Result<Ground, NotIssued> {
+        let Some(driver) = &self.deps.contain else {
+            return Err(withheld(PermitRefusal::InputsUnavailable));
+        };
+        if !driver.drills_passed(row.host) {
+            return Err(withheld(PermitRefusal::DrillsNotPassed));
+        }
+        let facts = block_facts(driver, row, now)
+            .await
+            .map_err(|error| match error {
+                BlockFactsError::Unverified(reason) => {
+                    withheld(PermitRefusal::NotVerified(reason.token()))
+                }
+                BlockFactsError::BadRequest(_) | BlockFactsError::Unreadable(_) => {
+                    withheld(PermitRefusal::InputsUnavailable)
+                }
+            })?;
+        Ok(Ground {
+            plan: facts.plan,
+            args: facts.args.clone(),
+            block: Some(facts),
         })
     }
 

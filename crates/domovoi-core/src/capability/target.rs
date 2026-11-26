@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use super::availability::Availability;
 use super::effect::TargetKind;
 use super::ids::{TargetIdentity, TargetName};
+use crate::containment::Net;
 use crate::error::ValidationError;
 use crate::host::{KeyFingerprint, host_target_text};
 use crate::id::HostId;
@@ -97,6 +98,13 @@ pub enum TargetQuery {
         /// The unit name.
         name: TargetName,
     },
+    /// One external network address or prefix, blocked on a host.
+    NetworkSource {
+        /// The host that would hold the block.
+        host: HostId,
+        /// The canonical network.
+        source: Net,
+    },
 }
 
 impl TargetQuery {
@@ -104,7 +112,10 @@ impl TargetQuery {
     #[must_use]
     pub fn host(&self) -> HostId {
         match self {
-            Self::Host { host } | Self::Container { host, .. } | Self::Unit { host, .. } => *host,
+            Self::Host { host }
+            | Self::Container { host, .. }
+            | Self::Unit { host, .. }
+            | Self::NetworkSource { host, .. } => *host,
         }
     }
 
@@ -115,6 +126,7 @@ impl TargetQuery {
             Self::Host { .. } => TargetKind::Host,
             Self::Container { .. } => TargetKind::Container,
             Self::Unit { .. } => TargetKind::Unit,
+            Self::NetworkSource { .. } => TargetKind::NetworkSource,
         }
     }
 }
@@ -272,4 +284,20 @@ pub fn canonical_container_identity(
 ) -> Result<TargetIdentity, ValidationError> {
     let text = format!("container:{host}/{key}/{id}");
     TargetIdentity::parse(&text)
+}
+
+/// The canonical network identity: `ipnet:{canonical}@host:{host_id}/{fingerprint}`.
+///
+/// The only place the format is written. It embeds the host text, so a re-enrolment
+/// invalidates a bound block approval the way it does for a host.
+pub fn canonical_network_identity(
+    host: HostId,
+    key: &KeyFingerprint,
+    net: &Net,
+) -> Result<TargetIdentity, ValidationError> {
+    TargetIdentity::parse(&format!(
+        "ipnet:{}@{}",
+        net.canonical(),
+        host_target_text(host, key)
+    ))
 }

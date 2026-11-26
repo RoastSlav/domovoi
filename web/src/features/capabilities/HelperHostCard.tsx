@@ -12,6 +12,7 @@ import {
 } from "../../components";
 import { helperStateWord } from "../../design/helperVocab";
 import { helperKeyStateMeta } from "../../design/tone";
+import { ContainmentHost } from "../containment/ContainmentHost";
 import { HelperAttestation } from "./HelperAttestation";
 import { RELAYED, shownAttestation } from "./helperText";
 
@@ -55,6 +56,7 @@ export function HelperHostCard({ view }: { view: HelperView }) {
           </Cluster>
         </Cluster>
         <HelperAttestation view={view} />
+        <ContainmentHost host={view.host} />
         <Text block muted size="sm">
           Helper, as the agent says: {helperStateWord(view.helper.state)}. {RELAYED}
         </Text>

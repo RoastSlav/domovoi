@@ -15,6 +15,7 @@ mod accounts;
 mod actions;
 mod admission;
 mod audit;
+mod containment;
 mod conversations;
 mod hosts;
 mod incidents;
@@ -30,6 +31,9 @@ pub use accounts::{SessionRepo, SettingsRepo, UserRepo};
 pub use actions::{ActionFilter, ActionRepo, RAN_STATUSES};
 pub use admission::{AdmissionOutcome, AdmissionPurpose, AdmissionRepo};
 pub use audit::{AuditEvent, AuditFilter, AuditLog};
+pub use containment::{
+    BlockPhase, BlockRow, ContainmentRepo, PhaseGuard, PhaseUpdate, phase_journal,
+};
 pub use conversations::{ConversationFilter, ConversationRepo, ConversationRow};
 pub use hosts::{EnrollmentToken, HostRepo};
 pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalRepo};

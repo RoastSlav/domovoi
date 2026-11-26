@@ -34,6 +34,12 @@ pub enum Tool {
     Busctl,
     /// `systemctl`, run only as `restart -- <Id>`.
     Systemctl,
+    /// `nft`, run only with the fixed containment templates.
+    Nft,
+    /// `conntrack`, run only as `-D -s <source>` for a containment target.
+    Conntrack,
+    /// `ip`, run by the leak self-test to build and enter its throwaway namespace.
+    Ip,
 }
 
 impl Tool {
@@ -46,6 +52,14 @@ impl Tool {
             Self::Ss => &["/usr/bin/ss", "/bin/ss", "/usr/sbin/ss"],
             Self::Busctl => &["/usr/bin/busctl", "/bin/busctl"],
             Self::Systemctl => &["/usr/bin/systemctl", "/bin/systemctl"],
+            Self::Nft => &["/usr/sbin/nft", "/usr/bin/nft", "/sbin/nft", "/bin/nft"],
+            Self::Conntrack => &[
+                "/usr/sbin/conntrack",
+                "/usr/bin/conntrack",
+                "/sbin/conntrack",
+                "/bin/conntrack",
+            ],
+            Self::Ip => &crate::attest::ip_source::IP_PROGRAMS,
         }
     }
 }

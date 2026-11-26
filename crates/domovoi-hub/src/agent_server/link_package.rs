@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::containment::{ContainDispatch, ContainOutputs};
 use domovoi_core::install::MAX_CHUNK_BYTES;
 use domovoi_core::ports::LinkError;
 use domovoi_core::unit::{UnitCall, UnitDispatch, UnitOutputs, keys};
@@ -17,6 +18,7 @@ use domovoi_proto::{Base64Bytes, Sha256Bytes};
 use domovoi_proto::{Message, Open};
 use jiff::Timestamp;
 
+use super::contain::contain_run_capability_of;
 use super::{PendingRequest, WsAgentLink};
 
 /// The contract version every package capability is requested at.
@@ -292,6 +294,34 @@ impl WsAgentLink {
         self.capability_answer(host, handoff, deadline)
             .await
             .map(|outputs| UnitOutputs(outputs.0))
+    }
+}
+
+impl WsAgentLink {
+    /// Queues one containment request, to exactly the session and journal epoch given.
+    pub(super) async fn contain_dispatch(
+        &self,
+        host: HostId,
+        req: ContainDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        let run = contain_run_capability_of(&req)?;
+        self.queue_capability(host, run, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    /// Waits for the terminal answer to a request queued by [`Self::contain_dispatch`].
+    pub(super) async fn contain_answer(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<ContainOutputs, LinkError> {
+        self.capability_answer(host, handoff, deadline)
+            .await
+            .map(|outputs| ContainOutputs(outputs.0))
     }
 }
 

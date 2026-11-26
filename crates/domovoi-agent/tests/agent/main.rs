@@ -9,6 +9,9 @@ mod capability;
 #[path = "../common/skills.rs"]
 mod common;
 #[cfg(test)]
+#[cfg(target_os = "linux")]
+mod containment_capability;
+#[cfg(test)]
 mod docker;
 #[cfg(test)]
 mod dry_run;

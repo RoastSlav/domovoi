@@ -8,6 +8,7 @@ use super::*;
 const HELPER_SERVICE: &str = "\
 [Unit]
 Description=Domovoi helper (connection %i)
+After=nftables.service
 
 [Service]
 Type=simple
@@ -22,6 +23,7 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/domovoi-helper
 ProtectHome=yes
 PrivateTmp=yes
+RestrictNamespaces=yes
 PrivateDevices=no
 DevicePolicy=closed
 DeviceAllow=block-sd r
@@ -38,6 +40,7 @@ TimeoutStopSec=5s
 const HELPER_SOCKET: &str = "\
 [Unit]
 Description=Domovoi helper socket
+After=nftables.service
 
 [Socket]
 ListenStream=/run/domovoi-helper.sock
@@ -77,8 +80,25 @@ fn created() -> BTreeSet<String> {
     ])
 }
 
+const SELFTEST_SERVICE: &str = "\
+[Unit]
+Description=Domovoi helper firewall leak self-test
+Before=domovoi-helper.socket
+After=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/domovoi helper nft-selftest --if-changed
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+AmbientCapabilities=
+TimeoutStartSec=20min
+";
+
 fn baseline() -> Vec<UnitFile> {
     vec![
+        UnitFile::parse(SELFTEST_UNIT, SELFTEST_SERVICE),
         UnitFile::parse("domovoi-helper@.service", HELPER_SERVICE),
         UnitFile::parse("domovoi-helper.socket", HELPER_SOCKET),
         UnitFile::parse("domovoi-agent.service", AGENT_SERVICE),
@@ -355,4 +375,115 @@ fn agent_unit_runs_as_domovoi_agent() {
 fn no_unit_or_compose_file_binds_docker_socket_read_write_into_the_agent() {
     assert_eq!(shipped("UNIT-8"), []);
     assert_eq!(shipped("UNIT-2"), []);
+}
+
+fn with_selftest(text: &str) -> Vec<UnitFile> {
+    let mut units = baseline();
+    units.retain(|u| u.name != SELFTEST_UNIT);
+    units.push(UnitFile::parse(SELFTEST_UNIT, text));
+    units
+}
+
+fn unit3(units: &[UnitFile]) -> Vec<Violation> {
+    check_units(units, Some(&created()), false)
+        .into_iter()
+        .filter(|v| v.rule == "UNIT-3")
+        .collect()
+}
+
+#[test]
+fn selftest_unit_clause_passes_the_correct_unit() {
+    assert!(unit3(&baseline()).is_empty());
+}
+
+#[test]
+fn selftest_unit_clause_flags_a_missing_unit() {
+    let mut units = baseline();
+    units.retain(|u| u.name != SELFTEST_UNIT);
+    let found = unit3(&units);
+    assert!(
+        found
+            .iter()
+            .any(|v| v.message.contains("self-test unit is missing")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn selftest_unit_clause_flags_a_wider_capability_set_a_user_and_restricted_namespaces() {
+    for (from, to, needle) in [
+        (
+            "CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN",
+            "CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_SYS_PTRACE",
+            "CapabilityBoundingSet",
+        ),
+        ("Type=oneshot", "Type=simple", "Type"),
+        (
+            "TimeoutStartSec=20min",
+            "TimeoutStartSec=30s",
+            "TimeoutStartSec",
+        ),
+        (
+            "RemainAfterExit=yes",
+            "RemainAfterExit=no",
+            "RemainAfterExit",
+        ),
+        (
+            "NoNewPrivileges=yes",
+            "NoNewPrivileges=yes\nRestrictNamespaces=yes",
+            "RestrictNamespaces",
+        ),
+        (
+            "NoNewPrivileges=yes",
+            "NoNewPrivileges=yes\nUser=nobody",
+            "User",
+        ),
+        ("Before=domovoi-helper.socket\n", "", "Before"),
+        ("After=nftables.service\n", "", "After"),
+    ] {
+        let text = replace(SELFTEST_SERVICE, from, to);
+        let found = unit3(&with_selftest(&text));
+        assert!(
+            found.iter().any(|v| v.message.contains(needle)),
+            "{needle}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn helper_socket_and_template_must_run_after_nftables() {
+    for (name, text, from) in [
+        (
+            "domovoi-helper.socket",
+            HELPER_SOCKET,
+            "After=nftables.service\n",
+        ),
+        (
+            "domovoi-helper@.service",
+            HELPER_SERVICE,
+            "After=nftables.service\n",
+        ),
+    ] {
+        let mut units = baseline();
+        units.retain(|u| u.name != name);
+        units.push(UnitFile::parse(name, &replace(text, from, "")));
+        let found = unit3(&units);
+        assert!(
+            found.iter().any(|v| v.message.contains("nftables.service")),
+            "{name}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn long_lived_helper_template_restricts_namespaces() {
+    let text = replace(HELPER_SERVICE, "RestrictNamespaces=yes\n", "");
+    let units = [UnitFile::parse(HELPER_UNIT, &text)];
+    let found: Vec<_> = check_helper_unit(&units);
+    assert!(
+        found
+            .iter()
+            .any(|v| v.message.contains("RestrictNamespaces")),
+        "{found:?}"
+    );
 }

@@ -154,6 +154,14 @@ pub enum HelperResponse {
         /// At most 200 printable characters.
         detail: Option<String>,
     },
+    /// A containment operation was refused or failed: a token of the containment table and an
+    /// optional detail.
+    ContainRefused {
+        /// The token, such as `exclusion_overlap`.
+        token: String,
+        /// At most 200 printable characters.
+        detail: Option<String>,
+    },
     /// The request was refused before it was understood.
     Refused {
         /// Why.

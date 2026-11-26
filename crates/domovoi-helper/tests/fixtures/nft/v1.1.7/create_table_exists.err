@@ -1,0 +1,3 @@
+/dev/stdin:1:19-25: Error: Could not process rule: File exists
+create table inet domovoi
+                  ^^^^^^^

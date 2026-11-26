@@ -14,6 +14,7 @@ pub mod audit_chain;
 pub mod baseline;
 pub mod capability;
 pub mod card;
+pub mod containment;
 pub mod context;
 pub mod conversation;
 pub mod digest;

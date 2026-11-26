@@ -7,12 +7,14 @@ use std::sync::Arc;
 
 use domovoi_core::attest::Nonce32;
 use domovoi_core::capability::{CatalogPageData, CatalogQuery};
+use domovoi_core::containment::{ContainDispatch, ContainOutputs};
 use domovoi_core::ports::AgentLink;
 use domovoi_core::ports::{
     ActionAnswers, ActionCaps, AgentSnapshot, AttestationReply, AvailabilityProbe, CheckRecheck,
-    CheckRerun, EvidenceCaps, HandoffRunner, HelperRelay, HelperReport, HostAvailability,
-    HostObservation, HostRead, HostView, JournalStatus, LinkError, PackageCaps, PackageRelay,
-    Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnitCaps, UnitRelay,
+    CheckRerun, ContainCaps, ContainRelay, EvidenceCaps, HandoffRunner, HelperRelay, HelperReport,
+    HostAvailability, HostObservation, HostRead, HostView, JournalStatus, LinkError, PackageCaps,
+    PackageRelay, Presence, SkillDispatch, SkillHandoff, SkillOutput, ToolOutput, UnitCaps,
+    UnitRelay,
 };
 use domovoi_core::unit::{UnitCall, UnitDispatch, UnitName, UnitOutputs};
 use domovoi_core::{
@@ -355,4 +357,68 @@ impl HostCapabilities for LinkCapabilities {
     fn view(&self, host: HostId) -> Option<HostView> {
         self.link.host_view(host)
     }
+}
+
+struct ContainRelayOf {
+    link: Arc<dyn AgentLink>,
+}
+
+#[async_trait]
+impl ContainRelay for ContainRelayOf {
+    async fn dispatch_phase(
+        &self,
+        host: HostId,
+        req: ContainDispatch,
+        expected_session: AgentSessionId,
+        expected_epoch: JournalEpoch,
+        deadline: Timestamp,
+    ) -> Result<CapabilityHandoff, LinkError> {
+        self.link
+            .start_contain(host, req, expected_session, expected_epoch, deadline)
+            .await
+    }
+
+    async fn phase_result(
+        &self,
+        host: HostId,
+        handoff: CapabilityHandoff,
+        deadline: Timestamp,
+    ) -> Result<ContainOutputs, LinkError> {
+        self.link.contain_result(host, handoff, deadline).await
+    }
+}
+
+/// The capabilities containment needs, all over the one link.
+pub fn contain_caps(link: Arc<dyn AgentLink>) -> ContainCaps {
+    ContainCaps {
+        probe: Arc::new(ProbeOf { link: link.clone() }),
+        observer: Arc::new(ObserverOf { link: link.clone() }),
+        journal: Arc::new(JournalOf { link: link.clone() }),
+        relay: Arc::new(ContainRelayOf { link }),
+    }
+}
+
+/// The capability registry is the one place the compiled contracts, the agent's catalogue, hub
+/// enablement, the skill floors and the ceiling meet (RW-10). The engine gets it beside the narrow
+/// capabilities, never the link itself (ADR 0023).
+pub(super) async fn registry(
+    link: &Arc<dyn AgentLink>,
+    store: &Arc<domovoi_store::Store>,
+    clock: &Arc<dyn domovoi_core::ports::Clock>,
+) -> Result<Arc<crate::capability::HubRegistry>, super::RuntimeError> {
+    Ok(Arc::new(
+        crate::capability::HubRegistry::new(crate::capability::RegistryDeps {
+            contracts: Arc::new(
+                domovoi_core::capability::ContractIndex::new(
+                    domovoi_core::capability::known_contracts(),
+                )
+                .map_err(crate::capability::RegistryError::Index)?,
+            ),
+            agent: Arc::new(LinkCapabilities::new(link.clone())),
+            hosts: store.clone(),
+            store: store.clone(),
+            clock: clock.clone(),
+        })
+        .await?,
+    ))
 }

@@ -204,6 +204,39 @@ pub struct Api {
     /// The capability registry the install service reads: every package contract is available
     /// until a test says otherwise.
     pub package_registry: Arc<domovoi_testkit::FakeCapabilityRegistry>,
+    /// What the containment driver's relay answers, and what it was asked.
+    pub contain_relay: Arc<domovoi_testkit::FakeContainRelay>,
+    /// What the hub holds about each host's helper; a host never set is a host never seen.
+    pub helper_trust: Arc<domovoi_testkit::helper_attest::FakeHelperTrust>,
+    /// The management paths discovered on hosts, as the containment driver reads them.
+    pub contain_paths: Arc<SettablePaths>,
+}
+
+/// The discovered management paths a test sets; none until it does.
+#[derive(Default)]
+pub struct SettablePaths {
+    paths: std::sync::Mutex<Vec<domovoi_core::attest::Cidr>>,
+}
+
+impl SettablePaths {
+    /// Sets the paths every host reports from now on.
+    pub fn set(&self, paths: Vec<domovoi_core::attest::Cidr>) {
+        *self
+            .paths
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
+    }
+}
+
+#[async_trait]
+impl domovoi_engine::containment::PathSource for SettablePaths {
+    async fn discovered(&self, _host: HostId) -> Result<Vec<domovoi_core::attest::Cidr>, String> {
+        Ok(self
+            .paths
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone())
+    }
 }
 
 /// The variable that locks `triage.concurrency` in the settings tests.
@@ -457,9 +490,33 @@ async fn assemble(
             label: Some("Owner".to_owned()),
         }];
     }
+    let contain_relay = Arc::new(domovoi_testkit::FakeContainRelay::new());
+    let helper_trust = Arc::new(domovoi_testkit::helper_attest::FakeHelperTrust::new());
+    let paths = Arc::new(SettablePaths::default());
+    let containment = domovoi_engine::containment::ContainmentDriver::new(
+        domovoi_engine::containment::ContainDeps {
+            caps: domovoi_testkit::contain::contain_caps(link.clone(), contain_relay.clone()),
+            uow: store.clone(),
+            blocks: store.clone(),
+            trust: helper_trust.clone(),
+            paths: paths.clone(),
+            resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
+            clock: clock.clone(),
+            result_grace: SignedDuration::from_secs(30),
+        },
+    );
     let operations = if orchestration {
         Some(
-            crate::ops_harness::spawn(&store, &link, &clock, &shutdown, &nas, triage.clone()).await,
+            crate::ops_harness::spawn(
+                &store,
+                &link,
+                &clock,
+                &shutdown,
+                &nas,
+                triage.clone(),
+                Some(containment.clone()),
+            )
+            .await,
         )
     } else {
         None
@@ -640,6 +697,13 @@ async fn assemble(
                 clock: clock.clone(),
             },
         ),
+        containment: domovoi_hub::services::ContainmentDeps {
+            driver: Some(containment),
+            repo: store.clone(),
+            hosts: store.clone(),
+            auth: auth.clone(),
+            clock: clock.clone(),
+        },
         packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
             handle: package_handle,
             importer: package_importer,
@@ -705,6 +769,9 @@ async fn assemble(
         policy_env,
         coverage,
         package_registry,
+        contain_relay,
+        helper_trust,
+        contain_paths: paths,
     }
 }
 

@@ -53,6 +53,26 @@ fn every_request() -> Vec<HelperRequest> {
         id: UnitId::parse("example.service").expect("valid"),
         identity_hash: "ab".repeat(32).parse().expect("valid"),
     });
+    let block = Uuid::nil();
+    let source = BlockSource::new("203.0.113.7/32").expect("valid");
+    out.push(HelperRequest::FirewallApply {
+        block,
+        source: source.clone(),
+        ttl_s: 600,
+        expected_safety: None,
+    });
+    out.push(HelperRequest::FirewallConfirm {
+        block,
+        source: source.clone(),
+        ttl_s: 600,
+        expected_safety: None,
+    });
+    out.push(HelperRequest::FirewallRollback {
+        block,
+        source,
+        ttl_s: 600,
+    });
+    out.push(HelperRequest::FirewallListBlocks);
     out
 }
 
@@ -245,7 +265,11 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "safety_attest",
             "safety_public_key",
             "unit_identity",
-            "unit_restart"
+            "unit_restart",
+            "firewall_apply",
+            "firewall_confirm",
+            "firewall_rollback",
+            "firewall_list_blocks"
         ],
         "request variants changed"
     );
@@ -266,7 +290,11 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "safety_attest",
             "safety_public_key",
             "unit_identity",
-            "unit_restart"
+            "unit_restart",
+            "firewall_apply",
+            "firewall_confirm",
+            "firewall_rollback",
+            "firewall_list_blocks"
         ]
     );
     // No operation of the old placeholder shape or of any write verb exists.
@@ -288,7 +316,10 @@ fn helper_request_has_no_write_or_free_form_variant() {
     }
     // The one write operation is `unit_restart`; it belongs to `systemd.write` and to nothing
     // else, and every other operation names no write verb.
-    for variant in ops.iter().filter(|v| *v != "unit_restart") {
+    for variant in ops
+        .iter()
+        .filter(|v| *v != "unit_restart" && !v.starts_with("firewall_"))
+    {
         for bad in [
             "restart", "stop", "kill", "create", "exec", "remove", "write", "post",
         ] {
@@ -307,8 +338,14 @@ fn helper_request_has_no_write_or_free_form_variant() {
         .collect();
     assert_eq!(
         writes,
-        ["unit_restart"],
-        "exactly one request reaches a write group"
+        [
+            "unit_restart",
+            "firewall_apply",
+            "firewall_confirm",
+            "firewall_rollback",
+            "firewall_list_blocks"
+        ],
+        "only the unit restart and the nft group reach a write group"
     );
     // No free-form field type appears in the request definitions.
     let source = include_str!("request.rs");

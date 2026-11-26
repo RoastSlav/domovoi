@@ -17,6 +17,7 @@ pub mod availability;
 pub mod builtin;
 pub mod catalog;
 mod ceiling;
+pub mod containment;
 mod contract;
 mod effect;
 mod ids;
@@ -29,6 +30,8 @@ pub mod unit;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_containment;
 #[cfg(test)]
 mod tests_registry;
 #[cfg(test)]
@@ -54,6 +57,7 @@ pub use package::{known_contracts, package_contracts};
 pub use skill::{FloorError, SkillFloor, effective_effect, skill_contract, skill_input_schema};
 pub use target::{
     ContainerId, ResolvedTarget, TargetError, TargetQuery, TargetUnresolved,
-    canonical_container_identity, canonical_host_identity, validate_container_name,
+    canonical_container_identity, canonical_host_identity, canonical_network_identity,
+    validate_container_name,
 };
 pub use unit::{EXECUTABLE_BUILTINS, POLICY_DISPATCHABLE, is_policy_dispatchable, unit_contracts};

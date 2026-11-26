@@ -8,6 +8,7 @@
 mod attest;
 mod capability;
 mod catalog;
+mod firewall;
 mod overview;
 mod skills;
 mod tools;

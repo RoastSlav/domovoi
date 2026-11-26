@@ -602,6 +602,13 @@ async fn main() -> Result<()> {
                 clock: clock.clone(),
             },
         ),
+        containment: domovoi_hub::services::ContainmentDeps {
+            driver: None,
+            repo: store.clone(),
+            hosts: store.clone(),
+            auth: auth.clone(),
+            clock: clock.clone(),
+        },
         packages: domovoi_hub::services::PackageCommands::new(domovoi_hub::services::PackageDeps {
             handle: package_handle,
             importer: package_importer,

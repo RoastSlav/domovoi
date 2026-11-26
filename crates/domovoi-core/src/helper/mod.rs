@@ -4,6 +4,7 @@
 //! agent-to-hub wire version. One request is read and one answer written per connection.
 
 mod attestation;
+mod block;
 mod frame;
 mod group;
 pub mod read;
@@ -13,6 +14,7 @@ mod response;
 mod tests;
 
 pub use attestation::{SignedAttestation, UnsignedToken};
+pub use block::BlockSource;
 pub use frame::{FrameError, decode_request, decode_response, encode_frame, frame_len};
 pub use group::{HelperGroup, ReadGroup, write_tier_gate};
 pub use request::{HelperRequest, HelperRequestFrame, Nonce, NonceError};
@@ -47,4 +49,8 @@ pub(crate) const OPERATIONS: &[&str] = &[
     "safety_public_key",
     "unit_identity",
     "unit_restart",
+    "firewall_apply",
+    "firewall_confirm",
+    "firewall_rollback",
+    "firewall_list_blocks",
 ];

@@ -426,6 +426,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
                     settings: InvestigateSettings::default(),
                 }),
                 autonomy: None,
+                contain: None,
             },
             OperationSettings::default(),
         );

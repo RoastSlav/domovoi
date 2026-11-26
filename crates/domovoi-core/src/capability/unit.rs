@@ -12,9 +12,9 @@ use super::effect::{
 };
 use super::ids::{ContractCategory, ContractId, ContractVersion};
 
-/// The contracts a policy permit may dispatch. A closed list: 46 adds
-/// `firewall.block_source`, nothing else is added here.
-pub const POLICY_DISPATCHABLE: &[&str] = &["unit.restart"];
+/// The contracts a policy permit may dispatch. A closed list: `firewall.block_source` is the
+/// second; nothing else is added here.
+pub const POLICY_DISPATCHABLE: &[&str] = &["unit.restart", "firewall.block_source"];
 
 /// Whether a policy permit may dispatch `id`.
 #[must_use]
@@ -23,7 +23,7 @@ pub fn is_policy_dispatchable(id: &ContractId) -> bool {
 }
 
 /// The built-in contracts a plan may execute, besides skills.
-pub const EXECUTABLE_BUILTINS: &[&str] = &["unit.restart"];
+pub const EXECUTABLE_BUILTINS: &[&str] = &["unit.restart", "firewall.block_source"];
 
 fn schema(property: &str) -> Value {
     json!({

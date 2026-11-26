@@ -11,6 +11,8 @@ pub mod attest;
 #[cfg(unix)]
 pub mod inspect;
 #[cfg(unix)]
+pub mod nft;
+#[cfg(unix)]
 pub mod platform;
 #[cfg(unix)]
 pub mod probe;

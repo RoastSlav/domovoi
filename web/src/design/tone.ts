@@ -20,6 +20,7 @@ import {
   STEP_OUTCOMES,
 } from "./operationVocab";
 import { AUDIT_VOCABULARIES } from "./auditVocab";
+import { CONTAINMENT_VOCABULARIES } from "./containmentVocab";
 import { HELPER_VOCABULARIES } from "./helperVocab";
 import { TURN_STATUSES } from "./operatorVocab";
 import { PACKAGE_VOCABULARIES } from "./packageVocab";
@@ -36,6 +37,7 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
 
 export { TONES } from "./status";
 export { chainStatusMeta, legacyStatusMeta } from "./auditVocab";
+export { blockPhaseMeta, drillsStateMeta, gateStateMeta } from "./containmentVocab";
 export { attestationStateMeta, helperKeyStateMeta } from "./helperVocab";
 export {
   ceilingReportingMeta,
@@ -320,5 +322,6 @@ export const VOCABULARIES: {
   ...POLICY_VOCABULARIES,
   ...PACKAGE_VOCABULARIES,
   ...HELPER_VOCABULARIES,
+  ...CONTAINMENT_VOCABULARIES,
   ...AUDIT_VOCABULARIES,
 ];

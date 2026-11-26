@@ -1341,6 +1341,56 @@ fn helper_words(state: HelperState, ops: &[&str]) -> HostWords {
 }
 
 #[tokio::test]
+async fn registry_requires_the_nft_ops_in_the_helper_status() {
+    let fixture =
+        Fixture::new(domovoi_core::capability::containment::containment_contracts()).await;
+    let words = |ops: &[&str]| HostWords {
+        helper: HelperState::Ready,
+        helper_ops: ops.iter().map(|op| (*op).to_owned()).collect(),
+        ceiling_summary: Some(ceiling(&[("firewall.block_source", 2)])),
+        container_runtime: true,
+        ..HostWords::default()
+    };
+    // A ready helper with no nft group: neither contract is installed here.
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), words(&["unit.restart"]));
+    for id in ["firewall.block_source", "firewall.list_blocks"] {
+        assert_eq!(fixture.availability(id).await, Availability::NotInstalled);
+    }
+    // Part of the group is not enough: a block has three phases.
+    fixture.link.set_host_words(
+        fixture.host_id(),
+        words(&["firewall.apply", "firewall.confirm"]),
+    );
+    assert_eq!(
+        fixture.availability("firewall.block_source").await,
+        Availability::NotInstalled
+    );
+    // The whole group makes both available.
+    fixture.link.set_host_words(
+        fixture.host_id(),
+        words(&domovoi_core::containment::ops::NFT_OPS),
+    );
+    assert_eq!(
+        fixture.availability("firewall.list_blocks").await,
+        Availability::Available
+    );
+    assert_eq!(
+        fixture.availability("firewall.block_source").await,
+        Availability::Available
+    );
+    // No helper at all is still said as it is today.
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), helper_words(HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("firewall.block_source").await,
+        missing(UnavailableReason::HelperMissing)
+    );
+}
+
+#[tokio::test]
 async fn registry_reads_helper_ops() {
     let fixture = Fixture::new(domovoi_core::capability::unit_contracts()).await;
     // A ready helper that does not list the operation: not installed here.

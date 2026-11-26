@@ -8,6 +8,7 @@
 pub mod dto;
 pub mod dto_admin;
 pub mod dto_audit;
+pub mod dto_containment;
 pub mod dto_experience;
 pub mod dto_helper;
 pub mod dto_knowledge;
@@ -30,6 +31,7 @@ mod auth;
 mod autonomy;
 mod capability;
 mod capability_ceiling;
+mod containment;
 mod events;
 mod experience;
 mod followups;
@@ -305,6 +307,7 @@ pub(crate) async fn host_named(
         (name = "hosts", description = "Hosts, enrollment and skills"),
         (name = "notes", description = "Host and global notes"),
         (name = "packages", description = "Signed packages: import, install jobs and what hosts report"),
+        (name = "containment", description = "Timed blocks of one external source: status, refresh, approval and early release"),
         (name = "helper", description = "A host's privileged helper: its key, the owner's pin and the verified attestation"),
         (name = "me", description = "The signed-in person's own preferences"),
         (name = "system", description = "Settings, advisories, digest, events and health")
@@ -469,6 +472,9 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(packages_jobs::cancel))
         .routes(routes!(packages_hosts::list))
         .routes(routes!(packages_hosts::refresh))
+        .routes(routes!(containment::status))
+        .routes(routes!(containment::refresh))
+        .routes(routes!(containment::release))
         .routes(routes!(helper::show))
         .routes(routes!(helper::recheck))
         .routes(routes!(helper::pin, helper::unpin))
