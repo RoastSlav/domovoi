@@ -811,10 +811,21 @@ make_dir() {
 # Copies each starter skill that is not in the agent's skills directory yet, so a new
 # install gets all of them and an upgrade adds the ones a release has added. A folder
 # that is already there is never touched, so edits to a skill are kept. With a second
-# argument of "normalise" the copy also gets the modes of the three-identities layout.
+# argument of "normalise" the copy also gets the modes of the three-identities layout, and
+# the starter skills that change the host as root are left out: the skill runner's account
+# has no privilege to restart a unit or a container or to vacuum the journal, so on that
+# layout they could only fail. A unit restart goes through the helper instead.
 add_starter_skills() {
     for skill in "$1"/*/; do
         [ -d "$skill" ] || continue
+        if [ "${2:-}" = "normalise" ]; then
+            case "$(basename "$skill")" in
+                restart_container | restart_unit | vacuum_journal)
+                    say "Skipped the starter skill $(basename "$skill"): it needs a root agent."
+                    continue
+                    ;;
+            esac
+        fi
         dest="/etc/domovoi/skills/$(basename "$skill")"
         [ ! -e "$dest" ] || continue
         cp -R "$skill" "$dest"

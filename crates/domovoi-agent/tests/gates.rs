@@ -14,15 +14,18 @@ use std::collections::BTreeMap;
 use common::{Fixture, install};
 use domovoi_agent::requests::run_skill;
 use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
-use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome};
+use domovoi_proto::Message;
+use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome, SkillResult};
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
 
 #[cfg(test)]
-fn failure(outcome: SkillOutcome) -> SkillFailureCode {
-    match outcome {
-        SkillOutcome::Err(fail) => fail.code,
-        SkillOutcome::Ok(_) => panic!("the skill ran"),
+fn failure(reply: Message) -> SkillFailureCode {
+    match reply {
+        Message::SkillResult(SkillResult {
+            outcome: SkillOutcome::Err(fail),
+        }) => fail.code,
+        other => panic!("the skill did not fail as a skill: {other:?}"),
     }
 }
 

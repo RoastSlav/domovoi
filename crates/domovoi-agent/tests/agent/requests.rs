@@ -282,7 +282,7 @@ mod skills {
 
     use domovoi_agent::requests::run_skill;
     use domovoi_core::{ExecutionId, PlanHash, SkillName};
-    use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome};
+    use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome, SkillResult};
 
     use super::*;
     use crate::common::install;
@@ -318,10 +318,12 @@ mod skills {
         }
     }
 
-    fn code(outcome: SkillOutcome) -> SkillFailureCode {
-        match outcome {
-            SkillOutcome::Err(fail) => fail.code,
-            SkillOutcome::Ok(_) => panic!("the skill ran"),
+    pub(super) fn code(reply: Message) -> SkillFailureCode {
+        match reply {
+            Message::SkillResult(SkillResult {
+                outcome: SkillOutcome::Err(fail),
+            }) => fail.code,
+            other => panic!("the skill did not fail as a skill: {other:?}"),
         }
     }
 
@@ -362,17 +364,16 @@ mod skills {
         );
         assert!(fixture.exec.calls().is_empty(), "the runner was called");
 
-        // A valid write skill still fails closed: the legacy path has no journal-backed
-        // acceptance or process identity, so it must not run unjournaled.
+        // A valid write skill with no journal fails with a clear reason and never runs.
         assert_eq!(code(run_skill(&ctx, &valid).await), SkillFailureCode::Exec);
         assert!(
             fixture.exec.calls().is_empty(),
-            "a mutating skill ran without a journal-backed path"
+            "a mutating skill ran without a journal"
         );
     }
 
     #[tokio::test]
-    async fn destructive_skill_fails_closed_even_when_policy_allows_it() {
+    async fn write_skill_without_a_journal_names_the_journal_in_its_reason() {
         let fixture = Fixture::new();
         install(&fixture.skills(), "wipe_cache", "destructive");
         let ctx = fixture.ctx(
@@ -381,14 +382,15 @@ mod skills {
             Vec::new(),
         );
         let request = request(&fixture, &ctx, "wipe_cache", "plex");
-        assert_eq!(
-            code(run_skill(&ctx, &request).await),
-            SkillFailureCode::Exec
-        );
-        assert!(
-            fixture.exec.calls().is_empty(),
-            "a destructive skill ran without a journal-backed path"
-        );
+        let Message::SkillResult(SkillResult {
+            outcome: SkillOutcome::Err(fail),
+        }) = run_skill(&ctx, &request).await
+        else {
+            panic!("expected a skill failure");
+        };
+        assert_eq!(fail.code, SkillFailureCode::Exec);
+        assert!(fail.message.contains("action journal"), "{}", fail.message);
+        assert!(fixture.exec.calls().is_empty());
     }
 
     #[tokio::test]

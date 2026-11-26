@@ -15,7 +15,10 @@ use domovoi_core::ports::ProcessOutput;
 use domovoi_core::skill_runner::RunnerReply;
 use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
 use domovoi_proto::messages::SkillRunnerStatus;
-use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome, ToolFailureCode};
+use domovoi_proto::Message;
+use domovoi_proto::messages::{
+    RunSkill, SkillFailureCode, SkillOutcome, SkillResult, ToolFailureCode,
+};
 use domovoi_testkit::build::T0;
 use domovoi_testkit::{FakeClock, FakeProcessExecutor};
 use jiff::SignedDuration;
@@ -50,10 +53,12 @@ fn run_request(ctx: &domovoi_agent::requests::RequestCtx) -> RunSkill {
     }
 }
 
-fn failure(outcome: SkillOutcome) -> (SkillFailureCode, String) {
-    match outcome {
-        SkillOutcome::Err(fail) => (fail.code, fail.message),
-        SkillOutcome::Ok(_) => panic!("the skill ran"),
+fn failure(reply: Message) -> (SkillFailureCode, String) {
+    match reply {
+        Message::SkillResult(SkillResult {
+            outcome: SkillOutcome::Err(fail),
+        }) => (fail.code, fail.message),
+        other => panic!("the skill did not fail as a skill: {other:?}"),
     }
 }
 
@@ -143,13 +148,21 @@ async fn run_skill_and_read_skill_use_the_same_route() {
     let ctx = ctx_with_route(&rig, vec![Risk::Read]);
     run_read_skill(&ctx, &reader(), &args()).await.unwrap();
     let outcome = run_skill(&ctx, &run_request(&ctx)).await;
-    assert!(matches!(outcome, SkillOutcome::Ok(_)), "{outcome:?}");
+    assert!(
+        matches!(
+            outcome,
+            Message::SkillResult(SkillResult {
+                outcome: SkillOutcome::Ok(_)
+            })
+        ),
+        "{outcome:?}"
+    );
     assert_eq!(rig.runner.seen().len(), 2);
     assert!(rig.fixture.exec.calls().is_empty());
 }
 
 #[tokio::test]
-async fn mutating_skill_is_still_refused_before_the_route() {
+async fn mutating_skill_without_a_journal_is_refused_before_the_route() {
     let rig = rig(always(Action::Reply(RunnerReply::Run(run_reply("no")))));
     install(&rig.fixture.skills(), "changer", "write");
     let mut ctx = rig

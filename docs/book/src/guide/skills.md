@@ -24,7 +24,7 @@ The release archive includes eleven skills in `examples/skills/` (installed to `
 | `restart_unit` | write | `systemctl restart` one unit, then re-check | `unit` |
 | `vacuum_journal` | destructive | Delete journal files older than 7, 14 or 30 days | `keep`: `7d`, `14d` or `30d` |
 
-The agent installer copies them into `/etc/domovoi/skills`. Each folder stands alone: to stop one from running, delete its folder and restart the agent. The installer adds a deleted starter skill back on the next upgrade, so to keep one removed, edit it instead (for example, set `risk` to a level your agent does not allow).
+The agent installer copies them into `/etc/domovoi/skills` (on the three-identities layout it leaves out the three skills that change the host as root, see [What a skill can reach](#what-a-skill-can-reach)). Each folder stands alone: to stop one from running, delete its folder and restart the agent. The installer adds a deleted starter skill back on the next upgrade, so to keep one removed, edit it instead (for example, set `risk` to a level your agent does not allow).
 
 ## Where skills live
 
@@ -135,7 +135,7 @@ A container agent has no skill runner. Skills are not run there, and the hub ref
 
 An agent that runs as root, where the boundary is not in effect, runs skills itself instead of through the runner, and `run_as` works there. The host is labelled "privilege boundary not in effect". This does not apply to the container image.
 
-The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a host with the three identities they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
+The starter skills `restart_container`, `restart_unit` and `vacuum_journal` change the host as root, and the readers of the journal and other protected state need access the `domovoi-skill` account does not have. The installer therefore copies the three write skills only to an agent that runs as root. On a host with the three identities restart a failed unit through the helper's `unit.restart` operation instead ([Restarting a service](unit-restart.md)); a copy of one of the three skills added by hand runs, and then fails with the real permission error. The other starter skills only read what an unprivileged account can read.
 
 POSIX `sh` is fine for the script itself, as long as it starts with a shebang. Quote every argument (`"$1"`), and pass it after `--` where the tool supports that.
 

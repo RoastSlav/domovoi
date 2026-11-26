@@ -19,9 +19,11 @@ use domovoi_proto::messages::{
 use domovoi_runner::LoadedSkill;
 
 use super::{RequestCtx, ToolFail};
+use domovoi_proto::Message;
+use domovoi_proto::messages::SkillResult;
 use crate::skill_runner::RouteError;
 
-fn fail(code: SkillFailureCode, message: impl Into<String>) -> SkillOutcome {
+pub(super) fn fail(code: SkillFailureCode, message: impl Into<String>) -> SkillOutcome {
     SkillOutcome::Err(SkillFailure {
         code,
         message: message.into(),
@@ -53,7 +55,7 @@ fn admit<'a>(
     Ok((skill, validated))
 }
 
-fn redacted(ctx: &RequestCtx, mut output: SkillOutput) -> SkillOutput {
+pub(super) fn redacted(ctx: &RequestCtx, mut output: SkillOutput) -> SkillOutput {
     output.stdout = ctx.redactor.redact(&output.stdout);
     output.stderr = ctx.redactor.redact(&output.stderr);
     output
@@ -61,7 +63,7 @@ fn redacted(ctx: &RequestCtx, mut output: SkillOutput) -> SkillOutput {
 
 /// The failure message for a route error. The wire has no value for an unavailable runner or
 /// an unsupported `run_as`, so the token leads an `Exec` message.
-fn failure_message(skill: &str, err: &RouteError) -> String {
+pub(super) fn failure_message(skill: &str, err: &RouteError) -> String {
     match err {
         RouteError::RunAsUnsupported { run_as } => format!(
             "run_as_unsupported: {skill} names run_as {run_as}; only {} is supported on this host",
@@ -71,8 +73,12 @@ fn failure_message(skill: &str, err: &RouteError) -> String {
     }
 }
 
-/// Handles `run_skill`.
-pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
+fn reply(outcome: SkillOutcome) -> Message {
+    Message::SkillResult(SkillResult { outcome })
+}
+
+/// Handles `run_skill`. Skills that change the host run through the action journal.
+pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> Message {
     let skill_name = run.skill.as_str();
     let (skill, validated) = match admit(ctx, &run.skill, &run.args) {
         Ok(admitted) => admitted,
@@ -82,10 +88,10 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
                 step = "catalog",
                 "refused a skill not in the local catalogue"
             );
-            return fail(
+            return reply(fail(
                 SkillFailureCode::NotFound,
                 format!("no skill named {skill_name} on this host"),
-            );
+            ));
         }
         Err(Refusal::RiskNotAllowed(risk)) => {
             tracing::warn!(
@@ -94,10 +100,10 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
                 ?risk,
                 "refused a skill whose risk is not allowed"
             );
-            return fail(
+            return reply(fail(
                 SkillFailureCode::RiskNotAllowed,
                 format!("{skill_name} has risk {risk:?}, which this host's policy does not allow"),
-            );
+            ));
         }
         Err(Refusal::InvalidArgs(reason)) => {
             tracing::warn!(
@@ -105,7 +111,7 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
                 step = "args",
                 "refused invalid arguments"
             );
-            return fail(SkillFailureCode::InvalidArgs, reason);
+            return reply(fail(SkillFailureCode::InvalidArgs, reason));
         }
     };
     let expected =
@@ -116,30 +122,17 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
             step = "plan_hash",
             "refused a plan that does not match the local manifest"
         );
-        return fail(
+        return reply(fail(
             SkillFailureCode::PlanMismatch,
             "the approved plan does not match this host's skill; approve it again",
-        );
+        ));
     }
-    // The legacy `run_skill` path has no journal-backed acceptance and no process identity,
-    // so a mutating skill cannot be given durable `accepted`/`started`/`finished` records or
-    // counted by the local mutation limiter. Fail closed rather than execute unjournaled.
     if skill.manifest().risk != Risk::Read {
-        tracing::warn!(
-            skill = skill_name,
-            risk = ?skill.manifest().risk,
-            "refused a mutating skill without a journal-backed execution path"
-        );
-        return fail(
-            SkillFailureCode::Exec,
-            format!(
-                "{skill_name} changes the host and needs a journal-backed execution path; \
-                 this agent refuses it"
-            ),
-        );
+        // A skill that changes the host goes through the action journal.
+        return super::skill_journal::run_journaled(ctx, run, skill, &validated).await;
     }
     tracing::info!(skill = skill_name, action = %run.action_id, "running an approved skill");
-    match ctx.skills.run(skill, &ctx.catalog, &validated).await {
+    let outcome = match ctx.skills.run(skill, &ctx.catalog, &validated).await {
         Ok(output) => {
             tracing::info!(skill = skill_name, exit_code = ?output.exit_code, "skill finished");
             SkillOutcome::Ok(SkillSuccess::from(redacted(ctx, output)))
@@ -152,7 +145,8 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
             tracing::warn!(skill = skill_name, %err, "skill could not run");
             fail(SkillFailureCode::Exec, failure_message(skill_name, &err))
         }
-    }
+    };
+    reply(outcome)
 }
 
 /// The `run_read_skill` tool: like `run_skill`, but only for skills whose risk is `read`, and

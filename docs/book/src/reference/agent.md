@@ -152,6 +152,8 @@ Before an approved skill reaches the runner, the agent checks, in order:
 
 Logs name the skill and the step that refused it, never argument values.
 
+A skill whose risk is `write` or `destructive` is also journaled, the way a capability is. After step 4 the agent needs its action journal (a missing one is refused with a message that names `domovoi agent journal init`); it then writes the durable `accepted` record, which applies the same deduplication and `[mutation_limits]` as other changes (the contract id is `skill.<name>`, so `per_capability` can name one), then `started`, runs the skill, and writes `finished` before it replies. A replayed execution id never runs the skill twice: it is answered as in progress or as already recorded, and the hub reads the result from the journal. A crash in the middle leaves the run as "outcome unknown". The journal keeps the exit status and run time, not the output. Read skills are not journaled.
+
 The approved skill then goes to the runner, which has the final say:
 
 - The agent refuses a `run_as` other than `domovoi-skill` before it connects, and does not connect at all while the runner status is not `Ok`. The failure message starts with `skill_runner_unavailable` or `run_as_unsupported`.

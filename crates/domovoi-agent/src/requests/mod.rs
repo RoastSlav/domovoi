@@ -10,6 +10,7 @@ mod capability;
 mod catalog;
 mod firewall;
 mod overview;
+mod skill_journal;
 mod skills;
 mod tools;
 mod unit;
@@ -249,8 +250,8 @@ fn catalog_reply(ctx: &RequestCtx, query: &GetCatalog) -> Message {
 /// Why an `action_status` query is answered conservatively.
 ///
 /// The journal can only prove that a run never arrived when every execution path records
-/// its arrival. The legacy `run_skill` path does not record anything in the journal, so an
-/// id it does not know may still have run. Until executions are journal-backed, absence is
+/// its arrival. A read skill run through `run_skill` records nothing in the journal (skills
+/// that change the host do), so an id it does not know may still have run. Until executions are journal-backed, absence is
 /// reported as an unknowable outcome and never as `not_found`, so the hub cannot turn it
 /// into "nothing was started". It is also why this agent does not advertise
 /// `AUTHORITATIVE_ABSENCE` on `hello`: it cannot make that promise while a run can execute
@@ -367,15 +368,16 @@ pub async fn handle(ctx: &RequestCtx, kind: &RequestKind) -> Message {
             Message::ToolResult(ToolResult { outcome })
         }
         RequestKind::Skill(run) => {
-            let outcome = by_deadline(clock, run.deadline, run_skill(ctx, run))
+            by_deadline(clock, run.deadline, run_skill(ctx, run))
                 .await
                 .unwrap_or_else(|| {
-                    SkillOutcome::Err(SkillFailure {
-                        code: SkillFailureCode::Timeout,
-                        message: "the skill missed its deadline".to_owned(),
+                    Message::SkillResult(SkillResult {
+                        outcome: SkillOutcome::Err(SkillFailure {
+                            code: SkillFailureCode::Timeout,
+                            message: "the skill missed its deadline".to_owned(),
+                        }),
                     })
-                });
-            Message::SkillResult(SkillResult { outcome })
+                })
         }
         RequestKind::Check(run) => by_deadline(clock, run.deadline, run_check(ctx, run))
             .await

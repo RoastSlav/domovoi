@@ -39,7 +39,7 @@ To watch another machine, choose **Add host** on **Hosts** and follow [Install a
 
 ## 5. Starter skills
 
-Skills are the only things Domovoi can ever run on a host, and only after you approve. The agent installer copies the eleven starter skills into `/etc/domovoi/skills`, and on every later upgrade it adds any starter skill that is missing. Skills you edit are never overwritten. To check them:
+Skills are the only things Domovoi can ever run on a host, and only after you approve. The agent installer copies the starter skills (eleven on a root agent, eight on the three-identities layout) into `/etc/domovoi/skills`, and on every later upgrade it adds any starter skill that is missing. Skills you edit are never overwritten. To check them:
 
 ```sh
 sudo domovoi check skills /etc/domovoi/skills

@@ -71,6 +71,7 @@ A Discord button has no room for the whole code, so it carries a short prefix. T
 - **Nothing retries on its own.** A refused or failed step stays that way. To try again, the investigation proposes a new step, and someone approves it.
 - **The loop guard limits repeat runs.** The same skill runs at most `loop_guard_per_hour` times (default 3) per host in any hour. A further approval is blocked, and the operation says so.
 - **An offline agent holds the step.** If the host's agent is not reachable, Domovoi waits for it up to `agent_wait_limit` before refusing the step; an agent this hub rejected as incompatible is refused at once.
+- **Changes are journaled.** The agent records every write or destructive skill in its action journal (accepted, started, finished) before it replies, and the same hourly limits that cap other changes apply to it.
 - **Runs are bounded.** The agent runs the skill directly, with no shell, as the skill's user and within the skill's timeout.
 - **Results are verified.** A skill with a `verify` section is checked again after its delay. A write skill that applies to the incident's check is checked after 30 seconds. The re-check is scheduled in the same commit that records the run, so a hub restart between the run and the re-check does not skip it. A re-check that cannot reach the host is retried with growing delays (30 seconds doubling up to one hour, five attempts in all) and is then recorded as verification failed, with the reason that it could not run.
 

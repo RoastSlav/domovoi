@@ -51,6 +51,9 @@ mod runtime;
 mod scheduler;
 #[cfg(test)]
 #[cfg(unix)]
+mod skill_journal;
+#[cfg(test)]
+#[cfg(unix)]
 mod skill_runner;
 #[cfg(test)]
 #[cfg(unix)]
