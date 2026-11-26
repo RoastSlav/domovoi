@@ -260,11 +260,11 @@ Rules for code:
 
 Operations screens, from the code:
 
-| Category | Elements (`id`)                                                                                                                                                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | `operation.banner`, `operation.title`, `operation.controls`, `operation.progress`, `operation.scope`, `operation.waiting`, `operation.stale-note`, `operation.schema-warning`, `operations.state`, `operations.table`, `approval.card`, `incident.investigation-status`               |
-| P1       | `operation.steps-head`, `operation.incidents`, `operation.budgets`, `operation.cycle-tag`, `operation.cycle-label`, `operation.earlier-steps`, `operation.scope-note`, `operations.filters`, `operations.legacy-tag`, `approval.reason`, `approval.origin`, `incident.investigations` |
-| P3       | `operation.metadata`                                                                                                                                                                                                                                                                  |
+| Category | Elements (`id`)                                                                                                                                                                                                                                                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | `operation.banner`, `operation.title`, `operation.controls`, `operation.progress`, `operation.scope`, `operation.waiting`, `operation.stale-note`, `operation.schema-warning`, `operations.state`, `operations.table`, `approval.card`, `incident.investigation-status` |
+| P1       | `operation.steps-head`, `operation.incidents`, `operation.budgets`, `operation.cycle-tag`, `operation.cycle-label`, `operation.earlier-steps`, `operation.scope-note`, `operations.filters`, `approval.reason`, `approval.origin`, `incident.investigations`            |
+| P3       | `operation.metadata`                                                                                                                                                                                                                                                    |
 
 Control room, attention and search:
 
@@ -584,8 +584,7 @@ act within ten seconds.
   severity pills sit next to it once.
 - One primary action per view. On an incident, Acknowledge is primary; Mute and Dismiss are
   secondary. An Approve button inside a step approval card is secondary (with the accent icon)
-  while another primary is on screen. Legacy actions are read-only history and carry no
-  Approve or Deny.
+  while another primary is on screen.
 - A destructive step's Approve is a danger button that opens a `ConfirmDialog` naming the
   skill, the host, the arguments and the consequence. A write action shows its arguments
   before approval.
@@ -615,7 +614,7 @@ the same confirmation. Approve is the primary button there and secondary in the 
 where the page is a summary. Rows that are not approvals link to the place of decision: the
 operation, the incident or the host.
 
-**Approve a fix.** A step approval card follows the rules above and is decided on its operation's page. The Approvals page does not yet gather pending steps across operations: its "Waiting for you" area is an empty state that points to Operations. "Recently decided" shows the decision, who decided and when, in a compact list, and legacy actions appear there read-only.
+**Approve a fix.** A step approval card follows the rules above and is decided on its operation's page. The Approvals page does not yet gather pending steps across operations: its "Waiting for you" area is an empty state that points to Operations. "Recently decided" shows the decision, who decided and when, in a compact list.
 
 **Choose how much to see.** The default level is Detailed, so nothing is missing for a new
 owner. Someone who finds a screen busy picks Standard or Essential from the account menu, or

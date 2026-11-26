@@ -23,12 +23,11 @@ const view = (url = "/audit") => renderAt(url, "/audit", <AuditPage />);
 
 beforeEach(() => resetApi());
 
-test("audit_page_shows_the_chain_status_and_no_legacy_section", async () => {
+test("audit_page_shows_the_chain_status_without_tabs", async () => {
   serve();
   view();
   expect(await screen.findByRole("heading", { name: "Hash chain" })).toBeVisible();
   expect(screen.getByText("Intact")).toBeVisible();
-  expect(screen.queryByText(/legacy/i)).toBeNull();
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
