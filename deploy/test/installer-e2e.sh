@@ -68,10 +68,10 @@ check() {
     echo "this machine is not running systemd" >&2
     exit 2
 }
-[ -n "${E2E_BINARY:-}" ] && [ -x "$E2E_BINARY" ] || {
+if [ -z "${E2E_BINARY:-}" ] || [ ! -x "$E2E_BINARY" ]; then
     echo "set E2E_BINARY to a built domovoi binary (cargo build --release -p domovoi)" >&2
     exit 2
-}
+fi
 "$E2E_BINARY" version >/dev/null 2>&1 || {
     echo "$E2E_BINARY does not run on this machine" >&2
     exit 2

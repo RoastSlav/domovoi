@@ -2531,8 +2531,9 @@ resolve_net() {
         printf '%s\n' "$bind_opt" | grep -Eq '^([0-9]{1,3}(\.[0-9]{1,3}){3}|\[[0-9A-Fa-f:]+\]):[0-9]{1,5}$' ||
             fail_with 2 "--bind $bind_opt is not usable: use lan, loopback, or a numeric HOST:PORT such as 192.168.1.50:7420"
         rn_port="${bind_opt##*:}"
-        [ "$rn_port" -ge 1 ] && [ "$rn_port" -le 65535 ] ||
+        if [ "$rn_port" -lt 1 ] || [ "$rn_port" -gt 65535 ]; then
             fail_with 2 "--bind $bind_opt has a port outside 1 to 65535"
+        fi
         set_bind="$bind_opt"
         ;;
     esac
@@ -2565,8 +2566,9 @@ resolve_net() {
 # user running this script, and copies its first line to DEST (0600). FLAG names the option
 # in the messages. Exit 2 for anything else; the content is never printed.
 read_secret_file() { # FLAG FILE DEST
-    [ -f "$2" ] && [ ! -L "$2" ] ||
+    if [ ! -f "$2" ] || [ -L "$2" ]; then
         fail_with 2 "$1 $2 must be a regular file, not a link or a directory"
+    fi
     rs_stat="$(stat -c '%a %u' "$2" 2>/dev/null)" ||
         fail_with 2 "cannot read the mode of $2"
     case "$rs_stat" in
@@ -2592,8 +2594,9 @@ prepare_admin_password() {
         sed -n '1{s/\r$//;p;q}' >"$tmp/admin.pw" || fail_with 2 "cannot read the password from standard input"
     fi
     chmod 0600 "$tmp/admin.pw"
-    [ -s "$tmp/admin.pw" ] && [ "$(tr -d '\r\n' <"$tmp/admin.pw" | wc -c)" -gt 0 ] ||
+    if [ ! -s "$tmp/admin.pw" ] || [ "$(tr -d '\r\n' <"$tmp/admin.pw" | wc -c)" -eq 0 ]; then
         fail_with 2 "the admin password is empty"
+    fi
 }
 
 # Writes the keys the flags named to hub.env, creating it (0640 root:domovoi) when absent.
