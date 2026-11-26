@@ -2800,7 +2800,7 @@ if [ "$hub_part" -eq 1 ] && [ "$started" -eq 1 ] && [ "$both_wait" -eq 0 ]; then
     finish_summary
     exit 0
 fi
-if [ "$enroll_on" -eq 1 ]; then
+if [ "$role" = "agent" ] && [ "$enroll_on" -eq 1 ]; then
     agent_started_summary
     finish_summary
     exit 0
