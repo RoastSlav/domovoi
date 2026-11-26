@@ -170,12 +170,10 @@ Domovoi does not protect you from a compromised root account on a host, from you
 
 ## Quick start
 
-On a Linux machine (x86-64 or 64-bit ARM), install and start the hub, then open the setup link it prints:
+On a Linux machine (x86-64 or 64-bit ARM), install the hub (the installer starts it and prints the setup link), then open that link:
 
 ```sh
 curl -fsSL https://github.com/RoastSlav/domovoi/releases/latest/download/install.sh | sudo sh -s -- --role hub
-sudo systemctl enable --now domovoi-hub
-sudo journalctl -u domovoi-hub | grep -A1 setup
 ```
 
 No config file is needed. The guided first run sets up Discord, a model and your first host, and the [quick start](docs/book/src/quick-start.md) goes from there to a first triaged card in about ten minutes. For Docker, see [`deploy/compose`](deploy/compose); for the agent in a container, for example on a NAS, see the [container agent guide](docs/book/src/install/container-agent.md).
