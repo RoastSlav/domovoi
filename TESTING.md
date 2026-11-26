@@ -343,5 +343,6 @@ The helper service is a template (`domovoi-helper@.service`) and the agent unit 
 
 - **Port 7420 or 7421 is in use.** Another hub or the dev hub is still running. Stop it, or set `DOMOVOI_WEB__BIND` / `DOMOVOI_AGENT_SERVER__BIND` to other addresses.
 - **`error: a hub is already running on …`.** `hub token create`, `hub set-password` and similar commands need the hub stopped. Stop it, or use the web UI.
+- **The hub refuses a database from an earlier development build.** The schema starts at one baseline migration, so a database created before it holds migration versions this build does not know. Delete the database file (and its `-wal` and `-shm` files) and let the hub create a new one.
 - **Tests hang.** Install cargo-nextest: `.config/nextest.toml` kills a test after 2 minutes, while plain `cargo test` waits forever.
 - **A web check says generated API types are stale.** Run the [generated files](#running-part-of-the-test-suite) commands, then commit the results.
