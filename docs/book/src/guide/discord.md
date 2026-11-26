@@ -85,3 +85,7 @@ Messages in an incident's thread are follow-up questions to the triage agent, wh
 | `/digest` | Sends today's digest now |
 
 Answers are visible only to you. The commands are registered in the incident channel's server when the bot connects, so they appear right away.
+
+## One bot per hub
+
+Give each hub its own Discord bot and token. Two hubs on one token both receive every button press and slash command. A hub answers "Not possible: no such incident" for an incident it does not own, so the two answers collide and the person sees the wrong one.

@@ -488,6 +488,16 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
                 .layer(DefaultBodyLimit::max(upload_limit)),
         )
         .layer(axum::middleware::map_response(error::json_rejections))
+        .layer(axum::middleware::map_response(no_store))
+}
+
+/// API answers hold sessions, secrets and live state: no cache keeps a copy.
+async fn no_store(mut response: axum::response::Response) -> axum::response::Response {
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }
 
 /// The OpenAPI document of [`routes()`].

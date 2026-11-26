@@ -243,3 +243,14 @@ async fn smart_check_maps_helper_errors_to_a_check_error() {
     let err = h.try_run(&check).await.unwrap_err();
     assert!(matches!(err, CheckError::Helper(text) if text.contains("not installed")));
 }
+
+#[tokio::test]
+async fn a_disk_without_smart_is_not_applicable_rather_than_a_failed_check() {
+    let check = SmartHealth::new().unwrap();
+    let mut h = Harness::new("proc/ports_base").await;
+    h.privileged = Some(port(Err(PrivilegedError::Failed(
+        ReadToken::OutputMalformed,
+    ))));
+    let report = h.run(&check).await;
+    assert!(report.observations.is_empty(), "{:?}", report.observations);
+}

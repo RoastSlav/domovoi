@@ -282,7 +282,16 @@ impl Check for SmartHealth {
                 tracing::warn!(device = name, "skipping a device with an odd name");
                 continue;
             };
-            let text = report_text(ctx, &path).await?;
+            let text = match report_text(ctx, &path).await {
+                Ok(text) => text,
+                // A disk that has no SMART (an SD card, a virtual disk) makes smartctl print
+                // nothing the helper can parse. That is "not applicable", not a failed check.
+                Err(CheckError::Helper(why)) if why.contains("output_malformed") => {
+                    tracing::debug!(device = path.as_str(), "no SMART data: {why}");
+                    continue;
+                }
+                Err(err) => return Err(err),
+            };
             let Some(report) = parse_report(&text).filter(Report::has_data) else {
                 tracing::debug!(
                     device = path.as_str(),

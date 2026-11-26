@@ -3016,7 +3016,7 @@ trap 'exit 1' INT TERM
 while [ $# -gt 0 ]; do
     case "$1" in
     --role)
-        [ $# -ge 2 ] || fail "--role needs hub or agent"
+        [ $# -ge 2 ] || fail "--role needs hub, agent or both"
         role="$2"
         shift 2
         ;;

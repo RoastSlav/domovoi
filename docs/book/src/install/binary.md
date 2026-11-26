@@ -212,3 +212,16 @@ The in-hub agent is the agent of the hub's own host, so that host is named by `[
 - [Unattended install](unattended.md), for scripts and automation agents
 - [Upgrading and uninstalling](upgrading.md)
 - [Advanced: config as code](config-as-code.md), to manage the hub from files instead of the web UI.
+
+## Commands on an installed agent
+
+The files under `/etc/domovoi` are readable by root and the agent account only, so a normal user gets "Permission denied" without `sudo`. Name the config file every time:
+
+```sh
+sudo -u domovoi-agent domovoi agent selftest -c /etc/domovoi/agent.toml
+sudo -u domovoi-agent domovoi agent status -c /etc/domovoi/agent.toml
+sudo -u domovoi-agent domovoi check run -c /etc/domovoi/agent.toml --only disk.free
+sudo -u domovoi-agent domovoi check skills /etc/domovoi/skills
+```
+
+Run the self-test as `domovoi-agent`, not as root. As root it reports "tier: blocked" because the agent must not run as root; that verdict describes the account you ran it as, not the install.

@@ -24,7 +24,7 @@ fn docker(ctx: &RequestCtx) -> Result<&dyn ContainerSource, ToolFail> {
     ctx.containers.as_deref().ok_or_else(|| {
         ToolFail::new(
             ToolFailureCode::Unavailable,
-            "Docker is not enabled on this host",
+            "Docker is not enabled on this host; set [docker] enabled = true in agent.toml",
         )
     })
 }

@@ -65,3 +65,11 @@ async fn logout_invite_revoke_and_notes_each_leave_an_audit_row() {
     assert_eq!(rows.len(), 1);
     assert!(rows[0].actor.starts_with("user:"));
 }
+
+#[tokio::test]
+async fn api_answers_are_never_cached() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(reply.headers["cache-control"], "no-store");
+}

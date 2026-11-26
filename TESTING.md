@@ -333,11 +333,13 @@ CI runs the first group in the `Containment namespace tests` job on pull request
 ```sh
 printf '#!/bin/sh\n' | sudo tee /usr/local/bin/domovoi >/dev/null && sudo chmod 0755 /usr/local/bin/domovoi
 systemd-analyze verify --man=no deploy/systemd/domovoi-hub.service deploy/systemd/domovoi-agent.service \
-  deploy/systemd/domovoi-helper.socket deploy/systemd/domovoi-helper@.service
+  deploy/systemd/domovoi-helper.socket deploy/systemd/domovoi-helper@.service \
+  deploy/systemd/domovoi-helper-selftest.service deploy/systemd/domovoi-skill-runner.socket \
+  deploy/systemd/domovoi-skill-runner@.service
 sudo rm /usr/local/bin/domovoi
 ```
 
-The helper service is a template (`domovoi-helper@.service`) and the agent unit wants the helper socket, so all four units go in one run.
+The helper service is a template (`domovoi-helper@.service`) and the agent unit wants the helper socket, so all seven units go in one run.
 
 ## Troubleshooting
 

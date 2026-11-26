@@ -155,6 +155,12 @@ mod unix {
         } else {
             let affected = skills_not_on_the_skill_account(&dirs);
             print!("{}", render_text(&report, &decision, &affected));
+            if is_root {
+                println!(
+                    "\nThis ran as root, so the agent-account checks are expected to fail. To check the install, \
+                     run it as the agent account: sudo -u domovoi-agent domovoi agent selftest -c /etc/domovoi/agent.toml"
+                );
+            }
         }
         Ok(ExitCode::from(
             u8::try_from(exit_code(&report)).unwrap_or(1),
