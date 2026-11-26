@@ -1,6 +1,5 @@
 mod delivery_state;
 mod harness;
-mod legacy_retirement;
 mod orchestration;
 mod packages;
 

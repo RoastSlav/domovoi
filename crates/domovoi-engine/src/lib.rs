@@ -14,8 +14,7 @@
 //!   [`digest`] the daily digest, [`advisories`] the hygiene findings, and [`render`] turns
 //!   them into short markdown. All pure; sending happens elsewhere.
 //! - [`operations`] approves steps (only with a human approval), re-validates, dispatches,
-//!   verifies and audits them; [`legacy`] retires the actions the first-generation executor
-//!   left open.
+//!   verifies and audits them.
 //! - [`triage`] runs the model over read-only tools and attaches its report; [`redact`]
 //!   removes secrets from everything that reaches a prompt or leaves the hub.
 
@@ -31,7 +30,6 @@ pub mod effects;
 pub mod events;
 pub mod evidence;
 pub mod knowledge;
-pub mod legacy;
 pub mod manager;
 pub mod notify;
 pub mod operations;

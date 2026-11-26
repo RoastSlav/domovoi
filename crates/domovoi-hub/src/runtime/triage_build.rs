@@ -107,7 +107,6 @@ pub(super) async fn build(
             signals: store.clone(),
             notes: store.clone(),
             hosts: store.clone(),
-            actions: store.clone(),
             cache: store.clone(),
             usage: store.clone(),
             admission: store.clone(),

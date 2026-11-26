@@ -43,7 +43,7 @@ pub fn title_of(source: &ContextSourceId, purpose: ContextPurpose, layer: Contex
         "similar_incidents" => "Similar resolved incidents",
         "skills" if purpose == ContextPurpose::Chat => "Read-only skills you may use on this host",
         "skills" => "Skills you may propose",
-        "incident_thread" => "This incident so far: report, actions and timeline",
+        "incident_thread" => "This incident so far: report and timeline",
         _ => "",
     };
     if !fixed.is_empty() {

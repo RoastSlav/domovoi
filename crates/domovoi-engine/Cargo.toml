@@ -67,9 +67,5 @@ path = "tests/operations/main.rs"
 name = "conversations"
 path = "tests/conversations/main.rs"
 
-[[test]]
-name = "legacy"
-path = "tests/legacy.rs"
-
 [lints]
 workspace = true

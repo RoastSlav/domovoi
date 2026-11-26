@@ -24,7 +24,7 @@ pub(crate) async fn build(shared: &Shared, incident: &Incident, skills: &[SkillS
 }
 
 /// Builds the redacted context for a follow-up question about `incident`: everything an
-/// investigation sees, and the incident's report, actions and timeline.
+/// investigation sees, and the incident's report and timeline.
 pub(crate) async fn build_follow_up(
     shared: &Shared,
     incident: &Incident,

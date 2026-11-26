@@ -1115,7 +1115,7 @@ fn titles_cover_the_known_sources_and_label_the_fallbacks() {
             "incident_thread",
             FollowUp,
             Incident,
-            "This incident so far: report, actions and timeline",
+            "This incident so far: report and timeline",
         ),
     ];
     for (source, purpose, layer, expected) in known {

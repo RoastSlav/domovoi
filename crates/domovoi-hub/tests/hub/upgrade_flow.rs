@@ -1,5 +1,5 @@
 //! The end-to-end upgrade: a database written before the rework opens at the current
-//! schema, its open legacy actions are retired, the services run against it, new writes are chained and journaled, the audit
+//! schema, the services run against it, new writes are chained and journaled, the audit
 //! history still verifies, and the invariants hold after a restart.
 //!
 //! The fixture is never modified: every test copies it into a temporary directory first.
@@ -10,14 +10,13 @@ use std::sync::Arc;
 
 use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyScope};
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AggregateRef, AuditFilter, AuditLog, IncidentFilter, IncidentRepo,
-    JournalEntry, JournalRead, Page, VersionedRead,
+    ActionFilter, ActionRepo, AggregateRef, IncidentFilter, IncidentRepo, JournalEntry,
+    JournalRead, Page, VersionedRead,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, ActionStatus, CheckKey, HostId, IncidentId, Severity, Signal,
-    SignalClass, SourceKind, UserId,
+    ActionId, ActionRequest, CheckKey, HostId, IncidentId, Severity, Signal, SignalClass,
+    SourceKind, UserId,
 };
-use domovoi_engine::legacy::{LegacyDrainDeps, LegacyDrainReport, drain_legacy_actions};
 use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::FakeClock;
@@ -177,56 +176,12 @@ async fn new_incident_after_upgrade_is_stored_and_journaled() {
     harness.stop().await;
 }
 
-/// U4: the actions left open by the old executor are retired at the first start: the
-/// proposal expires, the approval is not run, and the retirement is audited and journaled.
-#[tokio::test]
-async fn open_legacy_actions_are_retired_after_upgrade() {
-    let dir = tempfile::tempdir().expect("a temporary directory");
-    let (store, _path) = upgraded(dir.path()).await;
-    let before = actions(&store).await;
-    let proposed = before
-        .iter()
-        .find(|action| action.status() == &ActionStatus::Proposed)
-        .expect("the fixture has a proposal");
-    let approved = before
-        .iter()
-        .find(|action| action.status() == &ActionStatus::Approved)
-        .expect("the fixture has an approved action");
-
-    let report = drain(&store).await;
-
-    assert_eq!(report.expired, 1, "the proposal is retired");
-    assert_eq!(report.not_run, 1, "the approval is retired");
-    assert_eq!(
-        terminal(&store, proposed.id()).await.status(),
-        &ActionStatus::Expired
-    );
-    assert!(
-        matches!(
-            terminal(&store, approved.id()).await.status(),
-            ActionStatus::NotRun { .. }
-        ),
-        "an approved action that never ran is recorded as not run"
-    );
-    for action in [proposed, approved] {
-        let kinds = audit_kinds(&store, action.id()).await;
-        assert!(!kinds.is_empty(), "the retirement is audited: {kinds:?}");
-        let moves = journal_for(&store, AggregateRef::action(action.id())).await;
-        assert!(
-            moves.iter().any(|entry| entry.kind == "action.transition"),
-            "the retirement is journaled"
-        );
-    }
-    assert_eq!(drain(&store).await, LegacyDrainReport::default());
-}
-
-/// U5: the legacy history still matches its anchor and everything written afterwards is a
+/// U5: the legacy history still matches its anchor and anything written afterwards is a
 /// chain.
 #[tokio::test]
 async fn audit_verifies_after_upgrade() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let (store, _path) = upgraded(dir.path()).await;
-    drain(&store).await;
 
     let report = store
         .verify_audit(VerifyScope::Full)
@@ -238,7 +193,10 @@ async fn audit_verifies_after_upgrade() {
         report.legacy
     );
     assert!(
-        matches!(report.chained, ChainStatus::Intact { .. }),
+        matches!(
+            report.chained,
+            ChainStatus::Empty | ChainStatus::Intact { .. }
+        ),
         "the rows written after the upgrade are chained: {:?}",
         report.chained
     );
@@ -254,7 +212,6 @@ async fn invariants_hold_after_upgrade_and_a_restart() {
         .await
         .expect("the upgraded fixture alone satisfies the invariants");
 
-    drain(&store).await;
     let harness = Harness::start(store.clone());
     let incident = open_incident(&store).await;
     harness
@@ -389,40 +346,6 @@ async fn timeline_journal(store: &Store, incident: IncidentId) -> Vec<JournalEnt
         .collect()
 }
 
-/// Every audit kind recorded for `action`.
-async fn audit_kinds(store: &Store, action: ActionId) -> Vec<String> {
-    AuditLog::list(
-        store,
-        &AuditFilter {
-            subject: Some(format!("action:{action}")),
-            ..AuditFilter::default()
-        },
-        &Page::first(Page::MAX_LIMIT),
-    )
-    .await
-    .expect("the audit log is readable")
-    .items
-    .into_iter()
-    .map(|event| event.kind)
-    .collect()
-}
-
-/// The stored `action`, which must be past every open status.
-async fn terminal(store: &Store, action: ActionId) -> ActionRequest {
-    let found = ActionRepo::get(store, action)
-        .await
-        .expect("the action is readable")
-        .expect("the action is still there");
-    assert!(
-        !matches!(
-            found.status(),
-            ActionStatus::Proposed | ActionStatus::Approved | ActionStatus::Dispatched { .. }
-        ),
-        "action {action} is still open"
-    );
-    found
-}
-
 /// What the fixture wrote before the journal existed, so the invariants can allow for it. The
 /// upgrade copies every legacy timeline row into the journal, so no timeline entry is exempt.
 async fn legacy(store: &Store) -> Exempt {
@@ -470,20 +393,6 @@ impl Harness {
         self.shutdown.cancel();
         join(self.manager_task.take()).await;
     }
-}
-
-/// Retires the open legacy actions as the hub does before it starts any service.
-async fn drain(store: &Arc<SqliteStore>) -> LegacyDrainReport {
-    drain_legacy_actions(&LegacyDrainDeps {
-        actions: store.clone(),
-        incidents: store.clone(),
-        uow: store.clone(),
-        effects: store.clone(),
-        effect_read: store.clone(),
-        clock: Arc::new(FakeClock::new(T0)),
-    })
-    .await
-    .expect("the open legacy actions are retired")
 }
 
 /// Waits for a service task, bounded so a stuck task fails the test instead of hanging.

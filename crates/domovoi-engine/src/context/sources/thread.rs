@@ -1,23 +1,20 @@
-//! The incident so far, for a follow-up answer: its latest report, its actions and its recent
+//! The incident so far, for a follow-up answer: its latest report and its recent
 //! timeline.
 
 use async_trait::async_trait;
+use domovoi_core::TriageOutcome;
 use domovoi_core::context::{
     ContextBatch, ContextLayer, ContextQuery, ContextSelector, ContextSourceId, ItemStatus, Origin,
 };
-use domovoi_core::ports::{ActionFilter, ContextSource, IncidentTimelineEntry, Page};
-use domovoi_core::{ActionStatus, IncidentId, TriageOutcome};
+use domovoi_core::ports::{ContextSource, IncidentTimelineEntry};
 
 use super::{Maker, Spec, incident_of};
 use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, TriageDeps};
 
-/// Most actions listed.
-const MAX_ACTIONS: u16 = 20;
-
 /// Most timeline lines listed, taking the newest.
 const MAX_LINES: usize = 20;
 
-/// The report, actions and timeline of the incident. Follow-up entries are left out because
+/// The report and timeline of the incident. Follow-up entries are left out because
 /// the conversation itself is sent back to the model separately.
 #[derive(Clone)]
 pub(crate) struct ThreadSource {
@@ -25,7 +22,7 @@ pub(crate) struct ThreadSource {
 }
 
 impl ThreadSource {
-    /// A source over the incident and action repositories.
+    /// A source over the incident repository.
     pub(crate) fn new(deps: TriageDeps) -> Self {
         Self { deps }
     }
@@ -64,51 +61,6 @@ fn timeline_body(timeline: &[IncidentTimelineEntry]) -> String {
         .map(|entry| format!("{}: {}", entry.kind, entry.summary))
         .collect::<Vec<String>>()
         .join("\n")
-}
-
-impl ThreadSource {
-    /// The actions of `incident`, one per line: skill, arguments, status and, for a
-    /// rejected or failed one, the reason. `None` when they could not be read.
-    async fn actions_body(&self, incident: IncidentId) -> Option<String> {
-        let filter = ActionFilter {
-            incident: Some(incident),
-            ..ActionFilter::default()
-        };
-        let actions = self
-            .deps
-            .actions
-            .list(&filter, &Page::first(MAX_ACTIONS))
-            .await
-            .ok()?
-            .items;
-        let lines: Vec<String> = actions
-            .iter()
-            .map(|action| {
-                let reason = match action.status() {
-                    ActionStatus::Rejected { reason } | ActionStatus::Failed { reason } => {
-                        format!(" reason: {reason}")
-                    }
-                    _ => String::new(),
-                };
-                let args: Vec<String> = action
-                    .args()
-                    .iter()
-                    .map(|(name, value)| format!("{name}={value}"))
-                    .collect();
-                let args = if args.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {}", args.join(" "))
-                };
-                format!(
-                    "{skill}{args} status: {status}{reason}",
-                    skill = action.skill(),
-                    status = action.status().name(),
-                )
-            })
-            .collect();
-        Some(lines.join("\n"))
-    }
 }
 
 #[async_trait]
@@ -150,13 +102,6 @@ impl ContextSource for ThreadSource {
                 lines = Some(timeline_body(&timeline)).filter(|text| !text.is_empty());
             }
         }
-        let mut actions = None;
-        match self.actions_body(id).await {
-            None => batch
-                .gaps
-                .push(maker.gap("the incident's actions could not be read")),
-            Some(text) => actions = Some(text).filter(|text| !text.is_empty()),
-        }
         for (key, title, origin, reference, body) in [
             (
                 "report",
@@ -164,13 +109,6 @@ impl ContextSource for ThreadSource {
                 Origin::Inferred,
                 format!("triage report of incident:{id}"),
                 report,
-            ),
-            (
-                "actions",
-                "Actions of this incident",
-                Origin::Observed,
-                format!("actions of incident:{id}"),
-                actions,
             ),
             (
                 "timeline",

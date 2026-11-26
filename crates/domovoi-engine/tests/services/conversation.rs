@@ -248,14 +248,13 @@ async fn questions_answered_out_of_order_play_in_question_order() {
 }
 
 #[tokio::test]
-async fn the_follow_up_context_names_the_report_and_the_action_on_record() {
+async fn the_follow_up_context_names_the_report() {
     let w = world(Setup::default()).await;
     w.primary.push_text(report());
     let TriageOutcome::Report(report) = w.run().await else {
         panic!("a report");
     };
     assert_eq!(report.cause, "A bad config file, fairly sure.");
-    w.seed_legacy_action("nginx").await;
 
     w.primary.push_text("Nothing new to add.");
     w.triage
@@ -271,10 +270,6 @@ async fn the_follow_up_context_names_the_report_and_the_action_on_record() {
     assert!(
         opening.contains(report.cause.as_str()),
         "the incident's own report is in the follow-up context: {opening}"
-    );
-    assert!(
-        opening.contains("restart_container container=nginx status: proposed"),
-        "the action on record is named with its arguments and status: {opening}"
     );
 }
 

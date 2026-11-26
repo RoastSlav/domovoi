@@ -1,4 +1,4 @@
-//! The crash sweep: every incident, operation and legacy-action write, crashed at every commit, on the
+//! The crash sweep: every incident, operation write, crashed at every commit, on the
 //! in-memory store, plus the gates that keep the sweep covering every write.
 
 #[cfg(test)]
@@ -8,7 +8,6 @@ mod coverage;
 #[cfg(test)]
 mod knowledge;
 #[cfg(test)]
-mod legacy;
 #[cfg(test)]
 mod memory;
 #[cfg(test)]
