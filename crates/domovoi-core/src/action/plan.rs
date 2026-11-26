@@ -191,7 +191,4 @@ pub enum PlanError {
         /// The rejected id.
         id: String,
     },
-    /// The host has no enrolled, non-revoked agent key to bind.
-    #[error("the host has no enrolled agent key; a plan cannot bind its identity")]
-    NoEnrolledKey,
 }
