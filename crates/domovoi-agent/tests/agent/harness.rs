@@ -125,6 +125,35 @@ fn start_link_full(
     status: domovoi_agent::link::handshake::AgentStatusSource,
     transfers: Option<mpsc::Sender<IncomingTransfer>>,
 ) -> RunningLink {
+    start_link_ext(hub, identity, clock, dir, spool, status, (transfers, false))
+}
+
+/// A link whose hello announces that the agent runs in a container.
+pub fn start_link_in_container(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+) -> RunningLink {
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    let extensions = domovoi_agent::link::handshake::HelloExtensions {
+        in_container: true,
+        ..Default::default()
+    };
+    let status = domovoi_agent::link::handshake::AgentStatusSource::new(extensions.status());
+    start_link_ext(hub, identity, clock, dir, spool, status, (None, true))
+}
+
+fn start_link_ext(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    spool: Arc<SharedSpool>,
+    status: domovoi_agent::link::handshake::AgentStatusSource,
+    options: (Option<mpsc::Sender<IncomingTransfer>>, bool),
+) -> RunningLink {
+    let (transfers, in_container) = options;
     let connector = Arc::new(TlsConnector::new(
         hub.url.clone(),
         Arc::new(PinnedVerifier::new(identity.hub_fingerprint)),
@@ -140,6 +169,7 @@ fn start_link_full(
         docker: None,
         extensions: domovoi_agent::link::handshake::HelloExtensions {
             journal_epoch: uuid::Uuid::now_v7(),
+            in_container,
             ..Default::default()
         },
         status,

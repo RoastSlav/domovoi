@@ -26,7 +26,9 @@ use domovoi_testkit::build::T0;
 use ed25519_dalek::{Signature, VerifyingKey};
 use jiff::SignedDuration;
 
-use crate::harness::{clock, empty_fs, identity, settle, start_link, start_link_with_status};
+use crate::harness::{
+    clock, empty_fs, identity, settle, start_link, start_link_in_container, start_link_with_status,
+};
 use crate::hub::{TestHub, guard};
 
 pub fn config(dir: &tempfile::TempDir, hub: &TestHub) -> AgentConfig {
@@ -553,6 +555,7 @@ fn status(runs_as_root: bool) -> AgentStatus {
         helper_identity: None,
         skill_runner_status: SkillRunnerStatus::Absent,
         runs_as_root,
+        in_container: false,
         ceiling_hash: None,
         ceiling_summary: None,
     }
@@ -572,6 +575,21 @@ async fn agent_status_is_sent_after_welcome() {
         matches!(&first.message, Message::AgentStatus(status) if !status.runs_as_root),
         "the initial status is sent after welcome: {first:?}"
     );
+    link.shutdown.cancel();
+}
+
+#[tokio::test]
+async fn hello_and_agent_status_carry_in_container() {
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link_in_container(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    let hello = conn.welcome_raw(&identity, 3600).await;
+    assert!(hello.in_container, "hello reports the container");
+    let status = guard(conn.expect_agent_status()).await;
+    assert!(status.in_container, "agent_status reports the container");
     link.shutdown.cancel();
 }
 

@@ -40,6 +40,8 @@ pub struct HelloExtensions {
     pub helper_status: HelperStatus,
     /// Whether the agent's effective uid is 0.
     pub runs_as_root: bool,
+    /// Whether the agent runs inside a container.
+    pub in_container: bool,
     /// The helper's public key when one is present.
     pub helper_identity: Option<HelperIdentity>,
 }
@@ -55,6 +57,7 @@ impl Default for HelloExtensions {
             skill_runner_status: SkillRunnerStatus::Absent,
             helper_status: HelperStatus::Absent,
             runs_as_root: false,
+            in_container: false,
             helper_identity: None,
         }
     }
@@ -69,6 +72,7 @@ impl HelloExtensions {
             helper_identity: self.helper_identity.clone(),
             skill_runner_status: self.skill_runner_status.clone(),
             runs_as_root: self.runs_as_root,
+            in_container: self.in_container,
             ceiling_hash: self.ceiling_hash,
             ceiling_summary: self.ceiling_summary.clone(),
         }
@@ -126,6 +130,7 @@ fn absent_status() -> AgentStatus {
         helper_identity: None,
         skill_runner_status: SkillRunnerStatus::Absent,
         runs_as_root: false,
+        in_container: false,
         ceiling_hash: None,
         ceiling_summary: None,
     }
@@ -196,6 +201,7 @@ pub async fn handshake(
         skill_runner_status: announce.extensions.skill_runner_status.clone(),
         helper_status: announce.extensions.helper_status.clone(),
         runs_as_root: announce.extensions.runs_as_root,
+        in_container: announce.extensions.in_container,
         helper_identity: announce.extensions.helper_identity.clone(),
         skills: announce.skills.to_vec(),
         checks: announce.checks.to_vec(),

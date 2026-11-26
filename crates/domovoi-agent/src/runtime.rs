@@ -94,6 +94,8 @@ pub struct AgentRuntime {
     state_dir: std::path::PathBuf,
     /// `allow_install` and `compressed_bytes` from `[packages]`, when it exists.
     transfer_policy: Option<(bool, u64)>,
+    /// Whether the agent runs in a container, detected once at start.
+    in_container: bool,
 }
 
 /// The container policy from `[containers]`.
@@ -130,6 +132,15 @@ pub(crate) fn runs_as_root() -> bool {
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn runs_as_root() -> bool {
     false
+}
+
+/// The tool host: a container when detection says so or `host_root` is not `/`.
+pub(crate) fn tool_host(host_root: &Path) -> ToolHost {
+    if crate::container::in_container(host_root) {
+        ToolHost::Container
+    } else {
+        ToolHost::from_host_root(host_root)
+    }
 }
 
 fn load_catalog(dir: &Path) -> SkillCatalog {
@@ -191,13 +202,8 @@ impl AgentRuntime {
             effective = effective.with_docker(docker.clone());
         }
         let checks: Arc<dyn CheckSet> = Arc::new(registry);
-        let commands = Arc::new(
-            Commands::resolve(
-                &*deps.toolfs,
-                ToolHost::from_host_root(&config.agent.host_root),
-            )
-            .await,
-        );
+        let commands =
+            Arc::new(Commands::resolve(&*deps.toolfs, tool_host(&config.agent.host_root)).await);
         let store = Arc::new(CheckStore::open(state_dir)?);
         let spool = Arc::new(SharedSpool::new(Spool::open(state_dir)?));
         let journal = open_journal(&config, &deps).await?;
@@ -262,6 +268,7 @@ impl AgentRuntime {
             relay,
             jitter: random_jitter(),
             state_dir: state_dir.clone(),
+            in_container: crate::container::in_container(&config.agent.host_root),
             transfer_policy: config
                 .packages
                 .as_ref()
@@ -311,6 +318,7 @@ impl AgentRuntime {
         let extensions = HelloExtensions {
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
+            in_container: self.in_container,
             helper_status,
             helper_identity,
             skill_runner_status: runner
