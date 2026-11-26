@@ -103,11 +103,18 @@ const OP_EXECUTE: &str = "deps.handoff.hand_off(host, dispatch, session, epoch, 
 
 /// The fixture's `operations/effects/dispatch.rs`: the one authorizing constructor and the one
 /// dispatch of the operation service.
-const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\nexecute_unit::execute_unit_restart(shared, held, authorized, session).await?;\n";
+const OP_DISPATCH: &str = "let authorized = AuthorizedStep::of(row)?;\nexecute::execute_step(shared, held, authorized, skill, args, session).await?;\nexecute_unit::execute_unit_restart(shared, held, authorized.clone(), session).await?;\nexecute_contain::execute_containment_step(shared, held, authorized, session).await?;\n";
 
 /// The fixture's `operations/execute_unit.rs`: the one hand-off of a unit restart and the one wait
 /// for its answer.
 const OP_UNIT: &str = "relay.dispatch_restart(host, request, session, epoch, deadline).await;\nrelay.restart_result(host, handoff, deadline).await;\n";
+
+/// The fixture's `operations/execute_contain.rs`: the one authorizing constructor of a block.
+const OP_CONTAIN: &str = "let authorized = AuthorizedContainment::of(step)?;\n";
+
+/// The fixture's `containment/phases.rs`: the one hand-off of a containment phase and the one wait
+/// for its answer.
+const PHASES: &str = "relay.dispatch_phase(host, request, session, epoch, deadline).await;\nrelay.phase_result(host, handoff, deadline).await;\n";
 
 /// The fixture's `targets/mod.rs`: the one read of a unit's identity.
 const TARGETS: &str = "units.relay.read_identity(host, name, session, deadline).await;\n";
@@ -160,6 +167,11 @@ fn boundary_tree() -> Vec<(String, String)> {
             OP_DISPATCH.to_owned(),
         ),
         (crate_path("operations/execute_unit.rs"), OP_UNIT.to_owned()),
+        (
+            crate_path("operations/execute_contain.rs"),
+            OP_CONTAIN.to_owned(),
+        ),
+        (crate_path("containment/phases.rs"), PHASES.to_owned()),
         (crate_path("targets/mod.rs"), TARGETS.to_owned()),
         (crate_path("operations/writer/mod.rs"), OP_WRITER.to_owned()),
         (crate_path("packages/worker.rs"), PKG_WORKER.to_owned()),

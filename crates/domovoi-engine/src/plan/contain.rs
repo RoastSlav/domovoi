@@ -17,9 +17,7 @@ use super::validate::{
     Fail, PlanValidator, PlannedStep, REASON_MAX, RunKey, check_history, fail, plain,
 };
 use crate::containment::STEP_ONE_SECS;
-
-/// The longest block a plan may ask for: a year, which `nft` accepts.
-const MAX_TTL_S: i64 = 31_536_000;
+use crate::containment::input::MAX_TTL_S;
 
 impl PlanValidator<'_> {
     /// The checks of a `firewall.block_source` step.

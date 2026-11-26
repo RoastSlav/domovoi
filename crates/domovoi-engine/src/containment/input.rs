@@ -6,6 +6,8 @@
 //! verified against the owner's pinned key, and the overlap test is the same pure function the
 //! helper applies, so the two cannot drift (ADR 0038).
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use domovoi_core::HostId;
 use domovoi_core::action::PlanAssurance;
@@ -13,9 +15,9 @@ use domovoi_core::attest::{
     Authority, Cidr, Decision, ExpectedSafety, Hash32, Report, SafetyIdentity, TrustView,
     UnverifiedReason, VerifiedState, decide, gate, parse_report,
 };
-use domovoi_core::containment::{ExclusionInputs, Net, effective_exclusions};
+use domovoi_core::containment::{ExclusionInputs, Net, effective_exclusions, keys};
 use domovoi_core::ports::HelperTrustRead;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 
 use crate::policy::{ContainmentInput, ManagementPath};
 
@@ -209,4 +211,29 @@ pub fn expected_from_assurance(assurance: &str) -> Option<ExpectedSafety> {
         }),
         _ => None,
     }
+}
+
+/// The longest block a request may ask for: a year, which `nft` accepts.
+pub const MAX_TTL_S: i64 = 31_536_000;
+
+/// The network and the TTL a containment step asks for, from its stored arguments.
+pub fn parse_request(args: &BTreeMap<String, String>) -> Result<(Net, SignedDuration), String> {
+    let source = args
+        .get(keys::ARG_SOURCE)
+        .ok_or_else(|| "a containment step names its source".to_owned())?;
+    let net = Net::parse(source).map_err(|err| format!("invalid_target: {err}"))?;
+    if net.canonical() != *source {
+        return Err("invalid_target: the source is not in canonical form".to_owned());
+    }
+    let ttl: i64 = args
+        .get(keys::ARG_TTL_S)
+        .and_then(|text| text.parse().ok())
+        .ok_or_else(|| "a containment step names its ttl_s".to_owned())?;
+    if ttl <= super::STEP_ONE_SECS {
+        return Err("ttl_too_short".to_owned());
+    }
+    if ttl > MAX_TTL_S {
+        return Err("ttl_above_maximum".to_owned());
+    }
+    Ok((net, SignedDuration::from_secs(ttl)))
 }

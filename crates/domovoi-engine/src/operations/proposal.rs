@@ -162,7 +162,7 @@ async fn containment_hash(
     let Some(driver) = &shared.deps.contain else {
         return Err("containment is not set up on this hub".to_owned());
     };
-    let (net, ttl) = super::execute_contain::parse_request(&intent.args)?;
+    let (net, ttl) = crate::containment::input::parse_request(&intent.args)?;
     let deps = driver.deps();
     let resolved = deps
         .resolver

@@ -10,7 +10,6 @@
 use domovoi_core::action::{AuthorizationKind, ContainmentPlan};
 use domovoi_core::attest::Authority;
 use domovoi_core::capability::TargetQuery;
-use domovoi_core::containment::{Net, keys};
 use domovoi_core::ports::AgentSnapshot;
 use domovoi_core::{ExecutionRecord, StepOutcome};
 use jiff::SignedDuration;
@@ -18,13 +17,10 @@ use jiff::SignedDuration;
 use super::effects::{Ending, settle};
 use super::execute::commit_dispatch;
 use super::writer::{Held, OpShared, queue_reconcile};
-use crate::containment::input::{AssessError, assess};
+use crate::containment::input::{AssessError, assess, parse_request};
 use crate::containment::phases::{ContainEnd, Prepared, execute_containment};
-use crate::containment::{AuthorizedContainment, MIN_WINDOW, STEP_ONE_SECS};
+use crate::containment::{AuthorizedContainment, MIN_WINDOW};
 use crate::operations::{AuthorizedStep, ExecuteError};
-
-/// The longest block a request may ask for: a year, which `nft` accepts.
-const MAX_TTL_S: i64 = 31_536_000;
 
 fn log(result: Result<(), super::OperationError>, row: &ExecutionRecord) {
     if let Err(err) = result {
@@ -43,30 +39,6 @@ async fn refuse(
         .holding(held);
     log(settle(shared, ending).await, row);
     ExecuteError::Refused(reason)
-}
-
-/// The network and the TTL a containment step asks for, from its stored arguments.
-pub(crate) fn parse_request(
-    args: &std::collections::BTreeMap<String, String>,
-) -> Result<(Net, SignedDuration), String> {
-    let source = args
-        .get(keys::ARG_SOURCE)
-        .ok_or_else(|| "a containment step names its source".to_owned())?;
-    let net = Net::parse(source).map_err(|err| format!("invalid_target: {err}"))?;
-    if net.canonical() != *source {
-        return Err("invalid_target: the source is not in canonical form".to_owned());
-    }
-    let ttl: i64 = args
-        .get(keys::ARG_TTL_S)
-        .and_then(|text| text.parse().ok())
-        .ok_or_else(|| "a containment step names its ttl_s".to_owned())?;
-    if ttl <= STEP_ONE_SECS {
-        return Err("ttl_too_short".to_owned());
-    }
-    if ttl > MAX_TTL_S {
-        return Err("ttl_above_maximum".to_owned());
-    }
-    Ok((net, SignedDuration::from_secs(ttl)))
 }
 
 /// Sends one authorized `firewall.block_source` to its host's agent, or settles the step without
