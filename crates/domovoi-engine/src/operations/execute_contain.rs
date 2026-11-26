@@ -150,6 +150,18 @@ pub(super) async fn execute_containment_step(
             return Err(ExecuteError::NotDispatched);
         }
     };
+    // A permit is bound to the verified identity it was issued against: when the helper's
+    // identity is no longer that one, nothing is sent and the step is left to a person.
+    if let Some(stored) = row.permit() {
+        let current = match &assessment.assurance {
+            domovoi_core::action::PlanAssurance::Verified(identity) => Some(identity.canonical()),
+            domovoi_core::action::PlanAssurance::Unverified(_) => None,
+        };
+        let named = stored.permit().safety_identity();
+        if named.is_none() || named != current.as_deref() {
+            return Err(refuse(shared, held, row, "safety_changed".to_owned()).await);
+        }
+    }
     let resolved = match cd
         .resolver
         .resolve(TargetQuery::NetworkSource { host, source: net })

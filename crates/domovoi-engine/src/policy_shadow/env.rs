@@ -92,6 +92,17 @@ pub trait ShadowEnvironment: Send + Sync {
         None
     }
 
+    /// The network `source` as a target of `host`: the name rules match on and the canonical
+    /// identity (network, host and enrolled key) a permit binds. An environment that cannot
+    /// build it answers that the network cannot be resolved.
+    async fn network_target(
+        &self,
+        _host: HostId,
+        _source: &domovoi_core::containment::Net,
+    ) -> Result<HostTarget, GapReason> {
+        Err(GapReason::Unresolvable)
+    }
+
     /// The host's unattended ceiling.
     async fn ceiling(&self, host: HostId) -> CeilingReading;
 

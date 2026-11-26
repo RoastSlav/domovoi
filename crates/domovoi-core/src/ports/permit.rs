@@ -43,6 +43,11 @@ pub enum PermitRefusal {
     NoPublishedPolicy,
     /// The inputs the evaluator needs could not be read.
     InputsUnavailable,
+    /// A block needs the host's firewall drills to have passed; they have not.
+    DrillsNotPassed,
+    /// A block needs a verified helper identity covering every discovered path; there is none, for
+    /// this reason (a token of [`crate::attest::UnverifiedReason`]).
+    NotVerified(&'static str),
 }
 
 impl PermitRefusal {
@@ -61,11 +66,14 @@ impl PermitRefusal {
             Self::IdentityRefused(refusal) => format!("identity_refused:{}", refusal.token()),
             Self::NoPublishedPolicy => "no_published_policy".to_owned(),
             Self::InputsUnavailable => "inputs_unavailable".to_owned(),
+            Self::DrillsNotPassed => "drills_not_passed".to_owned(),
+            Self::NotVerified(reason) => format!("not_verified:{reason}"),
         }
     }
 
     /// Whether the refusal is a safety guard whose withholding is audited (`paused`,
-    /// `rule_suspended`, `unresolved_unknown`, `rate_limited`), to bound audit volume.
+    /// `rule_suspended`, `unresolved_unknown`, `rate_limited`, `drills_not_passed`,
+    /// `not_verified`), to bound audit volume.
     #[must_use]
     pub fn is_audited(&self) -> bool {
         matches!(
@@ -74,6 +82,8 @@ impl PermitRefusal {
                 | Self::RuleSuspended(_)
                 | Self::UnresolvedUnknown(_)
                 | Self::RateLimited(_)
+                | Self::DrillsNotPassed
+                | Self::NotVerified(_)
         )
     }
 }

@@ -101,6 +101,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
             ttl: policy.permit_ttl.as_signed(),
             max_per_hour: policy.max_permits_per_hour,
         },
+        contain: Some(containment.clone()),
     });
     let autonomy = AutonomyDeps {
         relay: units.relay.clone(),

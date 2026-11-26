@@ -17,7 +17,7 @@ Domovoi sits between things you do not fully control (logs, alerts, webhooks, a 
 
 These hold however the model behaves. Each one is enforced by code and by named tests that must never be deleted.
 
-1. **Only a person can approve an action.** The model's tools can only read; there is no approve tool, and nothing a model or a chat message says counts as approval. A policy permit is not an approval: only the hub's permit issuer makes one, only for a restart that a published rule allows, and every other change still needs you. *(INV-1)*
+1. **Only a person can approve an action.** The model's tools can only read; there is no approve tool, and nothing a model or a chat message says counts as approval. A policy permit is not an approval: only the hub's permit issuer makes one, only for a restart or a block of a network source that a published rule allows, and every other change still needs you. *(INV-1)*
 2. **Nothing runs through a shell.** Only the runner starts processes, always as a plain argument list. *(INV-2)*
 3. **Agents decide for themselves.** Each request is checked against the manifests on the agent's own disk and its risk policy. The hub cannot send a script. *(INV-3)*
 4. **You approve exactly what runs.** At dispatch, the plan, the manifest's hash and the arguments must still match what was approved. Editing a skill cancels its pending approvals. *(INV-4)*
@@ -78,7 +78,7 @@ A wrong mode or owner on the helper's directory, lock, key or state makes the he
 
 ## The permit path
 
-Unattended action has one door. A step that restarts a service is evaluated against the published rules, and a permit is issued only when the answer is Allow and every guard holds: the pause switch is off, the rule's circuit breaker is closed, no earlier outcome of the step is unknown, the unit's identity still matches the plan, and the rate limits hold. The hub's issuer is the only code that makes a permit. No endpoint accepts a permit or an approval from a client, and no chat message can create one.
+Unattended action has one door. A step that restarts a service, or blocks a network source, is evaluated against the published rules, and a permit is issued only when the answer is Allow and every guard holds: the pause switch is off, the rule's circuit breaker is closed, no earlier outcome of the step is unknown, the unit's identity still matches the plan, and the rate limits hold. The hub's issuer is the only code that makes a permit. No endpoint accepts a permit or an approval from a client, and no chat message can create one.
 
 Three local files then decide whether the restart runs, and the hub cannot change them: the agent's `[unattended]` ceiling, and the helper's `restart_units` and `protected_units`. Pausing, resuming, resetting a rule and resolving an unknown outcome are human-only. Resuming, resetting and resolving ask for your password; pausing needs only your session so it is always one click away.
 
@@ -92,7 +92,7 @@ Accepted limitation: a compromised hub can mislabel a request as allowed by poli
 - **Only the hub confirms.** A block starts with a 30 second kernel timeout. Only the hub, after a request has reached the agent and been answered, sends the confirmation that gives the block its lifetime. If the path to the hub is cut by the rule itself, nothing confirms and the kernel removes the block. If a flood from the blocked source keeps the confirmation from arriving in time, the block also expires; that protects the management path and does not contain the source.
 - **Rollback skips the safety checks.** Removing a block is never refused for a safety reason, because refusing could leave a block in place that cuts a management path. Rollback still takes the lock, records the removal and canonicalises its target.
 
-A block needs a human approval of the step, or a policy permit on a host with a verified helper report and passed drills. A permit is never issued for an unverified host. When the report cannot be verified, only you can approve, with your password, by typing the source network and by acknowledging that coverage cannot be verified; the card lists every path that is not protected, and the approval is audited. No model, chat command or background job can create a block.
+A block needs a human approval of the step, or a policy permit on a host with a verified helper report and passed drills. A permit is never issued for an unverified host, and it names the verified identity it was issued against: the hub sends nothing if the helper's identity is no longer that one, and a permit without an identity cannot authorize a block. A block step stays destructive, so a person's approval still needs the typed confirmation; the only thing a permit may authorize beyond a write is this one contract. When the report cannot be verified, only you can approve, with your password, by typing the source network and by acknowledging that coverage cannot be verified; the card lists every path that is not protected, and the approval is audited. No model, chat command or background job can create a block.
 
 The helper's leak self-test decides whether blocking is allowed at all on a kernel; see [Containment](guide/containment.md). Neither it nor the drills prove that a block stops every packet.
 

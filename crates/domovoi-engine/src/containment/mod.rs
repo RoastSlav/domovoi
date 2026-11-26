@@ -22,6 +22,7 @@ pub use domovoi_core::containment::{
 pub(crate) mod audit;
 mod driver;
 pub mod input;
+pub mod permit;
 pub(crate) mod phases;
 mod reconcile;
 mod run;

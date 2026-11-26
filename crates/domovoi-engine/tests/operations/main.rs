@@ -1,6 +1,8 @@
 //! The operation aggregate: the pure decision function and its properties.
 
 #[cfg(test)]
+mod block_permit;
+#[cfg(test)]
 mod chat_steps;
 #[cfg(test)]
 mod decide;

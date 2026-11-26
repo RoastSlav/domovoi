@@ -90,6 +90,15 @@ pub async fn build(
                 Err(_) => return Built::refused(Verdict::Unevaluable("target_unresolved")),
             }
         }
+        TargetKind::NetworkSource => {
+            let Some(net) = source_of(candidate) else {
+                return Built::refused(Verdict::Unevaluable("target_unresolved"));
+            };
+            match env.network_target(host, &net).await {
+                Ok(network) => network,
+                Err(_) => return Built::refused(Verdict::Unevaluable("target_unresolved")),
+            }
+        }
         _ => return Built::refused(Verdict::Unevaluable("target_kind_unsupported")),
     };
     let Ok(version) = ContractVersion::new(candidate.contract_version) else {
@@ -98,13 +107,7 @@ pub async fn build(
 
     let mut gaps = Vec::new();
     let args = canonical_args(candidate);
-    let pinned = pinned_identities(
-        candidate,
-        env,
-        meta.target_kind == TargetKind::Unit,
-        &mut gaps,
-    )
-    .await;
+    let pinned = pinned_identities(candidate, env, meta.target_kind, &mut gaps).await;
     let rule_targets = rule_targets(rules, &target);
 
     let ceiling = match env.ceiling(host).await {
@@ -226,13 +229,22 @@ fn canonical_args(candidate: &ShadowCandidate) -> CanonicalArgs {
     CanonicalArgs::from_canonical(text)
 }
 
-/// The identity of every distinct pinned host that resolves, and, for a unit contract, of every
-/// pinned unit whose canonical identity can be built. Container subjects are not resolved here:
-/// the sweep makes no live read.
+/// The network a block step names in its `source` argument, in canonical form only.
+fn source_of(candidate: &ShadowCandidate) -> Option<domovoi_core::containment::Net> {
+    let text = candidate
+        .args
+        .get(domovoi_core::containment::keys::ARG_SOURCE)?;
+    let net = domovoi_core::containment::Net::parse(text).ok()?;
+    (net.canonical() == *text).then_some(net)
+}
+
+/// The identity of every distinct pinned host that resolves, for a unit contract of every pinned
+/// unit whose canonical identity can be built, and for a block of every pinned network. Container
+/// subjects are not resolved here: the sweep makes no live read.
 async fn pinned_identities(
     candidate: &ShadowCandidate,
     env: &dyn ShadowEnvironment,
-    units: bool,
+    kind: TargetKind,
     gaps: &mut Vec<InputGap>,
 ) -> BTreeSet<domovoi_core::capability::TargetIdentity> {
     let hosts: BTreeSet<HostId> = candidate.pinned.iter().map(|p| p.host).collect();
@@ -247,11 +259,14 @@ async fn pinned_identities(
     }
     let mut unresolved = false;
     for subject in candidate.pinned.iter().filter(|p| p.target.is_some()) {
-        let unit = match (&subject.target, units) {
-            (Some(key), true) => env.unit_identity(subject.host, key.as_str()).await,
+        let named = match (&subject.target, kind) {
+            (Some(key), TargetKind::Unit) => env.unit_identity(subject.host, key.as_str()).await,
+            (Some(key), TargetKind::NetworkSource) => {
+                pinned_network(env, subject.host, key.as_str()).await
+            }
             _ => None,
         };
-        match unit {
+        match named {
             Some(identity) => {
                 identities.insert(identity);
             }
@@ -262,6 +277,24 @@ async fn pinned_identities(
         gaps.push(gap(GapInput::PinnedTargets, GapReason::NotProducedYet));
     }
     identities
+}
+
+/// The canonical identity of the network a pinned `ipnet:` subject names, or `None` when the key
+/// is not a canonical network or the environment cannot build its identity.
+async fn pinned_network(
+    env: &dyn ShadowEnvironment,
+    host: HostId,
+    key: &str,
+) -> Option<domovoi_core::capability::TargetIdentity> {
+    let text = key.strip_prefix("ipnet:")?;
+    let net = domovoi_core::containment::Net::parse(text).ok()?;
+    if net.canonical() != text {
+        return None;
+    }
+    env.network_target(host, &net)
+        .await
+        .ok()
+        .map(|target| target.identity)
 }
 
 /// `{host name -> host identity}` when a rule names the host, otherwise nothing.
