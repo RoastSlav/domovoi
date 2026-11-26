@@ -32,15 +32,27 @@ agent_unit_path="/etc/systemd/system/domovoi-agent.service"
 record_dir="/etc/domovoi/identity-migration"
 
 usage() {
-    cat <<'EOF'
+    cat <<'USAGE'
 Usage: install.sh --role hub|agent [options]
        install.sh --rollback-identity
 
 Options:
   --role hub|agent     what this machine runs (required)
   --version vX.Y.Z     the release to install (default: the latest)
-  --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local)
+  --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local);
+                       an absolute path
   --no-service         install only the binary and examples: no user, directories or unit
+  --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
+                       confirmation that exists, the typed word of --migrate-identity, is
+                       not skipped by it: that step needs a terminal by design
+  --dry-run            run the preflight, print every file, user, unit and directory the
+                       install would create or change, and exit 0 without changing anything
+                       or downloading the archive (the latest version is still looked up)
+  --json               machine mode: stdout carries only JSON lines, one per step event and
+                       one final {"event":"result",...} object; the text goes to the log file
+  --quiet              print errors and the final summary only
+  --verbose            print the details of each step
+  --force-downgrade    allow installing an older version than the one found
   --print-unit NAME    print a systemd unit and exit: hub, agent, helper-socket,
                        helper-service, runner-socket, runner-service, or agent-legacy
                        (the root agent unit used where the privilege boundary cannot be
@@ -51,15 +63,193 @@ Options:
   -h, --help           show this help
 
 Environment:
-  DOMOVOI_RELEASE_BASE  download from this base URL instead of GitHub releases
-EOF
+  DOMOVOI_RELEASE_BASE     download from this base URL instead of GitHub releases; plain
+                           http is refused unless it is loopback or DOMOVOI_ALLOW_HTTP=1
+  DOMOVOI_ALLOW_HTTP=1     allow a plain-http DOMOVOI_RELEASE_BASE
+  DOMOVOI_NONINTERACTIVE=1 same as --yes
+  DOMOVOI_INSTALL_LOG      the log file (default: /var/log/domovoi-install.log when it is
+                           writable, else ~/.cache/domovoi-install.log)
+  DOMOVOI_MIN_FREE_MB      free disk space needed in the temp directory and the prefix
+                           (default: 200)
+  NO_COLOR                 set it to turn colours off
+
+Exit codes:
+  0   done
+  2   usage: a bad flag or value
+  10  preflight: this machine cannot take the install, or an older version without
+      --force-downgrade
+  20  download or checksum
+  30  install: the binary or its files
+  40  service: users, directories, units or sockets
+  50  self-test failed
+  1   anything else
+USAGE
 }
 
-say() { printf '%s\n' "$*"; }
-warn() { printf 'install.sh: %s\n' "$*" >&2; }
-fail() {
+# --- Output -------------------------------------------------------------------------------
+# say prints a line (not with --quiet); say_always prints it regardless; both append it to
+# the log file. With --json stdout is closed to the text and fd 3 carries the JSON lines.
+quiet=0
+verbose=0
+json=0
+yes=0
+dry_run=0
+force_downgrade=0
+log_file=""
+log_keep=1
+tmp=""
+step_n=0
+step_total=0
+step_name=""
+step_text=""
+last_error=""
+fail_code=2
+result_pending=0
+result_done=0
+next_list=""
+role=""
+version="latest"
+bin=""
+layout=""
+c_bold=""
+c_red=""
+c_green=""
+c_yellow=""
+c_off=""
+
+log_line() { [ -z "${log_file:-}" ] || printf '%s\n' "$*" >>"$log_file" 2>/dev/null || true; }
+say() { log_line "$*"; if [ "${quiet:-0}" -eq 0 ]; then printf '%s\n' "$*"; fi; }
+say_always() { log_line "$*"; printf '%s\n' "$*"; }
+say_c() { log_line "$2"; if [ "${quiet:-0}" -eq 0 ]; then printf '%s%s%s\n' "$1" "$2" "${c_off:-}"; fi; }
+vsay() { log_line "$*"; if [ "${verbose:-0}" -eq 1 ] && [ "${quiet:-0}" -eq 0 ]; then printf '%s\n' "$*"; fi; }
+err() {
     printf 'install.sh: %s\n' "$*" >&2
-    exit 1
+    if [ "${json:-0}" -eq 0 ]; then log_line "install.sh: $*"; fi
+}
+# Shows a captured report: always logged, printed unless --quiet.
+show_file() { log_line "$(cat "$1")"; if [ "${quiet:-0}" -eq 0 ]; then cat "$1"; fi; }
+# The same for a failure: always printed.
+show_file_err() { log_line "$(cat "$1")"; cat "$1"; }
+
+# Escapes a string for a JSON value: control characters other than newline are dropped (a tab
+# becomes a space), then backslash and quote are escaped and newlines become \n.
+json_escape() {
+    printf '%s' "$1" | tr -d '\000-\010\013-\037' | tr '\t' ' ' |
+        sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
+# Turns the lines of stdin into a JSON array of strings.
+lines_to_json() {
+    lj_out=""
+    while IFS= read -r lj_line; do
+        [ -n "$lj_line" ] || continue
+        lj_out="$lj_out${lj_out:+,}\"$(json_escape "$lj_line")\""
+    done
+    printf '[%s]' "$lj_out"
+}
+emit_json() { if [ "${json:-0}" -eq 1 ]; then printf '%s\n' "$1" >&3; fi; }
+json_step() { # STATUS MESSAGE
+    emit_json "$(printf '{"event":"step","n":%s,"total":%s,"name":"%s","status":"%s","message":"%s"}' \
+        "$step_n" "$step_total" "$(json_escape "$step_name")" "$1" "$(json_escape "$2")")"
+}
+# Starts a numbered step; the previous one, if still open, is closed as ok.
+step() { # NAME TEXT
+    step_end
+    step_n=$((step_n + 1))
+    step_name="$1"
+    step_text="$2"
+    say_c "$c_bold" "[$step_n/$step_total] $2"
+    json_step start "$2"
+}
+step_end() {
+    if [ -n "${step_name:-}" ]; then
+        json_step ok "$step_text"
+        step_name=""
+    fi
+}
+warn() {
+    err "$*"
+    if [ -n "${step_name:-}" ]; then json_step warn "$*"; fi
+}
+fail_with() { # CODE MESSAGE
+    fw_code="$1"
+    shift
+    last_error="$*"
+    err "$*"
+    exit "$fw_code"
+}
+# Stops with the exit code of the phase that is running ($fail_code).
+fail() { fail_with "${fail_code:-1}" "$@"; }
+
+init_colors() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "$json" -eq 0 ] && [ "${TERM:-dumb}" != "dumb" ]; then
+        c_bold="$(printf '\033[1m')"
+        c_red="$(printf '\033[31m')"
+        c_green="$(printf '\033[32m')"
+        c_yellow="$(printf '\033[33m')"
+        c_off="$(printf '\033[0m')"
+    fi
+}
+
+# Chooses the log file: DOMOVOI_INSTALL_LOG, /var/log, ~/.cache, or a temporary file. A dry
+# run writes nothing outside the temp directory unless a log file is named.
+setup_log() {
+    if [ -n "${DOMOVOI_INSTALL_LOG:-}" ]; then
+        log_file="$DOMOVOI_INSTALL_LOG"
+    elif [ "$dry_run" -eq 1 ]; then
+        log_file="$tmp/install.log"
+        log_keep=0
+    elif ( : >>/var/log/domovoi-install.log ) 2>/dev/null; then
+        log_file="/var/log/domovoi-install.log"
+    elif [ -n "${HOME:-}" ] && mkdir -p "$HOME/.cache" 2>/dev/null &&
+        ( : >>"$HOME/.cache/domovoi-install.log" ) 2>/dev/null; then
+        log_file="$HOME/.cache/domovoi-install.log"
+    else
+        log_file="$(mktemp "${TMPDIR:-/tmp}/domovoi-install.XXXXXX")"
+    fi
+    if ! ( : >>"$log_file" ) 2>/dev/null; then
+        log_file="$tmp/install.log"
+        log_keep=0
+    fi
+    log_line "== install.sh $(date -u '+%Y-%m-%dT%H:%M:%SZ') =="
+}
+
+# Builds and prints the one JSON result object, once.
+emit_result() { # OK CODE
+    if [ "$result_done" -eq 1 ]; then return 0; fi
+    result_done=1
+    er_log=""
+    if [ "$log_keep" -eq 1 ]; then er_log="$log_file"; fi
+    er_plan="[]"
+    if [ -n "$tmp" ] && [ -f "$tmp/plan" ]; then er_plan="$(lines_to_json <"$tmp/plan")"; fi
+    emit_json "$(printf '{"event":"result","ok":%s,"exit_code":%s,"role":"%s","version":"%s","layout":"%s","paths":{"binary":"%s","log":"%s"},"next_steps":%s,"plan":%s,"error":"%s"}' \
+        "$1" "$2" "$(json_escape "$role")" "$(json_escape "$version")" \
+        "$(json_escape "${layout:-$role}")" "$(json_escape "$bin")" "$(json_escape "$er_log")" \
+        "$(printf '%s\n' "$next_list" | lines_to_json)" "$er_plan" "$(json_escape "$last_error")")"
+}
+
+# The EXIT trap: closes the open step, prints the JSON result, points at the log, and removes
+# the temp directory. A script that dies without calling fail still ends with a documented code.
+on_exit() {
+    oe_rc=$?
+    trap - EXIT INT TERM
+    if [ "$oe_rc" -ne 0 ] && [ -z "$last_error" ]; then
+        last_error="stopped unexpectedly; see the log"
+        oe_rc="${fail_code:-1}"
+    fi
+    if [ "$result_pending" -eq 1 ]; then
+        if [ "$oe_rc" -eq 0 ]; then
+            step_end
+            emit_result true 0
+        else
+            if [ -n "$step_name" ]; then json_step fail "$last_error"; fi
+            emit_result false "$oe_rc"
+        fi
+    fi
+    if [ "$oe_rc" -ne 0 ] && [ "$log_keep" -eq 1 ] && [ -n "$log_file" ]; then
+        printf 'install.sh: the log is %s\n' "$log_file" >&2
+    fi
+    if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
+    exit "$oe_rc"
 }
 
 hub_unit() {
@@ -478,23 +668,23 @@ account_problems() {
     ap_primary="$(id -gn "$ap_name")"
     ap_shell="$(getent passwd "$ap_name" | cut -d: -f7)"
     if [ "$ap_uid" -eq 0 ]; then
-        say "its uid is 0"
+        printf '%s\n' "its uid is 0"
     fi
     if [ "$ap_primary" != "$ap_name" ]; then
-        say "its primary group is $ap_primary, not $ap_name"
+        printf '%s\n' "its primary group is $ap_primary, not $ap_name"
     fi
     case "$ap_shell" in
     */nologin | */false) ;;
-    *) say "its login shell is ${ap_shell:-empty}; it must be nologin or false" ;;
+    *) printf '%s\n' "its login shell is ${ap_shell:-empty}; it must be nologin or false" ;;
     esac
     id -Gn "$ap_name" | tr ' ' '\n' | while read -r ap_group; do
         case " $ap_name $ap_extra " in
         *" $ap_group "*) ;;
-        *) say "it is in the group $ap_group, but may only be in its own${ap_extra:+ and $ap_extra}" ;;
+        *) printf '%s\n' "it is in the group $ap_group, but may only be in its own${ap_extra:+ and $ap_extra}" ;;
         esac
     done
     if getent group docker | cut -d: -f4 | tr ',' '\n' | grep -qx "$ap_name"; then
-        say "it is a member of the docker group, which is root on a Docker host"
+        printf '%s\n' "it is a member of the docker group, which is root on a Docker host"
     fi
 }
 
@@ -768,22 +958,22 @@ start_sockets() {
     systemctl enable --now domovoi-helper.socket
     say "Started domovoi-helper.socket"
     if "$bin" agent selftest --installer --record >"$tmp/selftest.out" 2>&1; then
-        cat "$tmp/selftest.out"
+        show_file "$tmp/selftest.out"
     else
-        cat "$tmp/selftest.out"
+        show_file_err "$tmp/selftest.out"
         systemctl disable --now domovoi-helper.socket || true
         ss_failed="$(failed_checks "$tmp/selftest.out")"
-        fail "the self-test failed (${ss_failed:-see the report above}); the helper socket is disabled, the skill runner socket was not started and nothing else was started"
+        fail_with 50 "the self-test failed (${ss_failed:-see the report above}); the helper socket is disabled, the skill runner socket was not started and nothing else was started"
     fi
     systemctl enable --now domovoi-skill-runner.socket
     say "Started domovoi-skill-runner.socket"
     if "$bin" agent selftest --installer >"$tmp/runner-selftest.out" 2>&1; then
-        cat "$tmp/runner-selftest.out"
+        show_file "$tmp/runner-selftest.out"
     else
-        cat "$tmp/runner-selftest.out"
+        show_file_err "$tmp/runner-selftest.out"
         systemctl disable --now domovoi-skill-runner.socket || true
         ss_failed="$(failed_checks "$tmp/runner-selftest.out")"
-        fail "the self-test failed with the skill runner socket up (${ss_failed:-see the report above}); the skill runner socket is disabled, so skills stay unavailable, and the helper socket keeps running"
+        fail_with 50 "the self-test failed with the skill runner socket up (${ss_failed:-see the report above}); the skill runner socket is disabled, so skills stay unavailable, and the helper socket keeps running"
     fi
 }
 
@@ -879,13 +1069,13 @@ migrate_plan() {
     say ""
 }
 
-# Asks for the typed word on the terminal. There is no --yes.
+# Asks for the typed word on the terminal. --yes does not skip it, and nothing else does.
 migrate_confirm() {
     ( : </dev/tty ) 2>/dev/null ||
-        fail "--migrate-identity asks for confirmation on the terminal and has no --yes; run it from an interactive shell"
+        fail_with 2 "--migrate-identity asks for confirmation on the terminal and --yes does not skip it; run it from an interactive shell"
     printf 'Type migrate to continue, anything else to stop: ' >/dev/tty
     IFS= read -r mc_answer </dev/tty || mc_answer=""
-    [ "$mc_answer" = "migrate" ] || fail "not confirmed; nothing was changed"
+    [ "$mc_answer" = "migrate" ] || fail_with 2 "not confirmed; nothing was changed"
 }
 
 # Waits up to 30 seconds for the converted agent to be active and for the self-test to
@@ -902,7 +1092,7 @@ wait_for_agent() {
         wa_i=$((wa_i + 1))
         sleep 1
     done
-    cat "$tmp/wait.out" 2>/dev/null || true
+    if [ -f "$tmp/wait.out" ]; then show_file_err "$tmp/wait.out"; fi
     return 1
 }
 
@@ -990,14 +1180,440 @@ migrate_apply() {
     say "  Skills now run as domovoi-skill through the skill runner socket."
 }
 
-role=""
-version="latest"
+# --- Preflight ----------------------------------------------------------------------------
+# One row per check, in $tmp/preflight as STATUS|NAME|DETAIL where STATUS is ok, warn or fail.
+pf_failed=0
+pf_add() { # STATUS NAME DETAIL
+    printf '%s|%s|%s\n' "$1" "$2" "$3" >>"$tmp/preflight"
+    if [ "$1" = "fail" ]; then pf_failed=$((pf_failed + 1)); fi
+}
+
+# The closest directory at or above $1 that exists.
+nearest_dir() {
+    nd_dir="$1"
+    while [ ! -d "$nd_dir" ]; do
+        nd_dir="$(dirname "$nd_dir")"
+    done
+    printf '%s\n' "$nd_dir"
+}
+
+# Adds a row for the free space on the file system that holds $2.
+check_free() { # LABEL DIR
+    cf_dir="$(nearest_dir "$2")"
+    cf_kb="$(df -Pk "$cf_dir" 2>/dev/null | awk 'NR == 2 { print $4 }')" || cf_kb=""
+    case "$cf_kb" in
+    "" | *[!0-9]*) pf_add warn "$1" "could not read the free space of $cf_dir" ;;
+    *)
+        cf_mb=$((cf_kb / 1024))
+        if [ "$cf_mb" -lt "$min_free_mb" ]; then
+            pf_add fail "$1" "$cf_mb MB free in $cf_dir; at least $min_free_mb MB is needed"
+        else
+            pf_add ok "$1" "$cf_mb MB free in $cf_dir"
+        fi
+        ;;
+    esac
+}
+
+# Prints 0 when something listens on TCP port $1, 1 when nothing does, 2 when this host has
+# neither ss nor /proc/net/tcp to tell.
+port_state() {
+    ps_port="$1"
+    if command -v ss >/dev/null 2>&1 && ps_out="$(ss -ltn 2>/dev/null)"; then
+        if printf '%s\n' "$ps_out" | awk -v p="$ps_port" 'NR > 1 { n = split($4, a, ":"); if (a[n] == p) f = 1 } END { exit !f }'; then
+            echo 0
+        else
+            echo 1
+        fi
+        return 0
+    fi
+    if [ -r /proc/net/tcp ]; then
+        ps_hex="$(printf '%04X' "$ps_port")"
+        if cat /proc/net/tcp /proc/net/tcp6 2>/dev/null |
+            awk -v h="$ps_hex" '$4 == "0A" { n = split($2, a, ":"); if (a[n] == h) f = 1 } END { exit !f }'; then
+            echo 0
+        else
+            echo 1
+        fi
+        return 0
+    fi
+    echo 2
+}
+
+# Collects every local check of the machine into $tmp/preflight. Reads only.
+preflight_local() {
+    : >"$tmp/preflight"
+    pf_failed=0
+    pf_os="$(uname -s)"
+    if [ "$pf_os" = "Linux" ]; then
+        pf_add ok os "Linux"
+    else
+        pf_add fail os "only Linux is supported; this is $pf_os"
+    fi
+    case "$(uname -m)" in
+    x86_64 | amd64)
+        target="x86_64-unknown-linux-musl"
+        pf_add ok arch "x86_64"
+        ;;
+    aarch64 | arm64)
+        target="aarch64-unknown-linux-musl"
+        pf_add ok arch "aarch64"
+        ;;
+    *) pf_add fail arch "no release build for $(uname -m); build from source instead" ;;
+    esac
+    if [ "$(id -u)" -eq 0 ]; then
+        pf_add ok root "running as root"
+    elif [ "$service" -eq 0 ]; then
+        pf_add ok root "not root: installing for this user (--no-service)"
+    else
+        pf_add fail root "run as root (sudo), or pass --no-service with a --prefix you can write to"
+    fi
+    if [ "$(id -u)" -ne 0 ]; then
+        pf_dir="$(nearest_dir "$bin_dir")"
+        if [ -w "$pf_dir" ]; then
+            pf_add ok prefix "$bin_dir is writable"
+        else
+            pf_add fail prefix "cannot write to $pf_dir; run as root or choose another --prefix"
+        fi
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        dl="curl"
+        pf_add ok download "curl"
+    elif command -v wget >/dev/null 2>&1; then
+        dl="wget"
+        pf_add ok download "wget"
+    else
+        pf_add fail download "curl or wget is needed"
+    fi
+    for pf_tool in sha256sum tar; do
+        if command -v "$pf_tool" >/dev/null 2>&1; then
+            pf_add ok "$pf_tool" "found"
+        else
+            pf_add fail "$pf_tool" "$pf_tool is needed"
+        fi
+    done
+    pf_stat=0
+    if stat -c %a / >/dev/null 2>&1; then
+        pf_stat=1
+        pf_add ok stat "GNU stat"
+    else
+        pf_add fail stat "GNU stat (stat -c) is needed; BSD stat is not enough"
+    fi
+    check_free disk-temp "$tmp"
+    check_free disk-prefix "$prefix"
+    if [ "$service" -eq 1 ]; then
+        pf_systemd=0
+        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+            pf_systemd=1
+            pf_add ok systemd "present"
+        else
+            pf_add warn systemd "not present: units are skipped and an agent keeps the root layout"
+        fi
+        pf_need_accounts=0
+        pf_adduser_ok=0
+        if [ "$role" = "hub" ]; then
+            pf_adduser_ok=1
+            if ! id domovoi >/dev/null 2>&1; then pf_need_accounts=1; fi
+        elif [ "$pf_systemd" -eq 1 ] && [ "$pf_stat" -eq 1 ]; then
+            classify_host
+            if [ "$layout" = "fresh" ] || [ "$layout" = "migrated" ]; then
+                if ! command -v getent >/dev/null 2>&1; then
+                    pf_add fail getent "getent is needed to check the domovoi-agent and domovoi-skill accounts"
+                fi
+                if ! id domovoi-agent >/dev/null 2>&1 || ! id domovoi-skill >/dev/null 2>&1; then
+                    pf_need_accounts=1
+                fi
+            fi
+        fi
+        if [ "$pf_need_accounts" -eq 1 ]; then
+            if command -v useradd >/dev/null 2>&1; then
+                pf_add ok useradd "found"
+            elif [ "$pf_adduser_ok" -eq 1 ] && command -v adduser >/dev/null 2>&1; then
+                pf_add ok adduser "found"
+            else
+                pf_add fail useradd "useradd is needed to create the system accounts"
+            fi
+        fi
+        if [ "$role" = "hub" ]; then
+            for pf_port in 7420 7421; do
+                pf_busy="$(port_state "$pf_port")"
+                case "$pf_busy" in
+                0)
+                    if [ -e /etc/systemd/system/domovoi-hub.service ]; then
+                        pf_add warn "port-$pf_port" "in use, probably by the hub that is installed"
+                    else
+                        pf_add fail "port-$pf_port" "already in use by another program"
+                    fi
+                    ;;
+                1) pf_add ok "port-$pf_port" "free" ;;
+                esac
+            done
+        fi
+    fi
+}
+
+# Prints the preflight rows as a table; a failed preflight is printed even with --quiet.
+print_preflight() {
+    pp_quiet="$quiet"
+    if [ "$pf_failed" -gt 0 ]; then quiet=0; fi
+    say "Preflight:"
+    while IFS='|' read -r pp_status pp_name pp_detail; do
+        case "$pp_status" in
+        ok) pp_color="$c_green" ;;
+        warn) pp_color="$c_yellow" ;;
+        *) pp_color="$c_red" ;;
+        esac
+        say_c "$pp_color" "$(printf '  %-5s %-12s %s' "$pp_status" "$pp_name" "$pp_detail")"
+    done <"$tmp/preflight"
+    quiet="$pp_quiet"
+}
+
+# A one-line text of every failed row, for the error message.
+preflight_failures() {
+    sed -n 's/^fail|\([^|]*\)|\(.*\)$/\1: \2/p' "$tmp/preflight" | tr '\n' ';' | sed 's/;$//; s/;/; /g'
+}
+
+# The fetch and resolve_latest functions of the downloader that preflight found.
+define_downloader() {
+    if [ "$dl" = "curl" ]; then
+        fetch() { curl -fsSL --proto '=https,http' -o "$2" "$1"; }
+        resolve_latest() { curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASE_BASE/latest"; }
+    else
+        fetch() { wget -q -O "$2" "$1"; }
+        resolve_latest() {
+            wget -S --spider "$RELEASE_BASE/latest" 2>&1 | sed -n 's/^ *[Ll]ocation: *//p' | tail -n 1 | tr -d '\r'
+        }
+    fi
+}
+
+# Turns "latest" into the tag it points at, and sets $name.
+resolve_version() {
+    if [ "$version" = "latest" ]; then
+        url="$(resolve_latest)" || fail_with 20 "could not find the latest release at $RELEASE_BASE/latest"
+        url="${url%/}"
+        version="${url##*/}"
+        case "$version" in
+        v*) ;;
+        *) fail_with 20 "could not find the latest release at $RELEASE_BASE/latest (got $url)" ;;
+        esac
+    fi
+    name="domovoi-$version-$target"
+}
+
+# Compares two versions on their first four dot-separated numbers; prints lt, eq or gt.
+ver_cmp() {
+    vc_a="${1#v}"
+    vc_b="${2#v}"
+    vc_a="${vc_a%%[-+]*}"
+    vc_b="${vc_b%%[-+]*}"
+    vc_i=1
+    while [ "$vc_i" -le 4 ]; do
+        vc_x="$(printf '%s' "$vc_a" | cut -d. -f"$vc_i")"
+        vc_y="$(printf '%s' "$vc_b" | cut -d. -f"$vc_i")"
+        case "$vc_x" in "" | *[!0-9]*) vc_x=0 ;; esac
+        case "$vc_y" in "" | *[!0-9]*) vc_y=0 ;; esac
+        if [ "$vc_x" -lt "$vc_y" ]; then
+            echo lt
+            return 0
+        elif [ "$vc_x" -gt "$vc_y" ]; then
+            echo gt
+            return 0
+        fi
+        vc_i=$((vc_i + 1))
+    done
+    echo eq
+}
+
+# Sets $state to fresh, upgrade or downgrade from the binary that is installed, and adds the
+# row of it to the preflight.
+detect_state() {
+    state="fresh"
+    installed_version=""
+    if [ -x "$bin" ]; then
+        installed_version="$("$bin" version 2>/dev/null | head -n 1 |
+            sed -n 's/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*[-0-9A-Za-z.]*\).*/\1/p' | sed 's/\.$//')" || installed_version=""
+        state="upgrade"
+        if [ -n "$installed_version" ] && [ "$(ver_cmp "$version" "$installed_version")" = "lt" ]; then
+            state="downgrade"
+        fi
+    fi
+    case "$state" in
+    fresh) pf_add ok state "fresh install of $version" ;;
+    upgrade)
+        if [ -z "$installed_version" ]; then
+            pf_add ok state "upgrade: a binary is installed at $bin; it will be replaced by $version"
+        elif [ "$(ver_cmp "$version" "$installed_version")" = "eq" ]; then
+            pf_add ok state "upgrade: $installed_version is installed; $version is the same version"
+        else
+            pf_add ok state "upgrade: $installed_version -> $version"
+        fi
+        ;;
+    downgrade)
+        if [ "$force_downgrade" -eq 1 ]; then
+            pf_add warn state "downgrade: $installed_version -> $version (--force-downgrade)"
+        else
+            pf_add fail state "downgrade: $installed_version is installed and $version is older; pass --force-downgrade to go back"
+        fi
+        ;;
+    esac
+}
+
+# --- Plan (--dry-run) ---------------------------------------------------------------------
+plan_add() { # ACTION TEXT
+    printf '%-8s %s\n' "$1" "$2" >>"$tmp/plan"
+}
+plan_dir() { # PATH MODE OWNER
+    if [ -d "$1" ]; then plan_add keep "$1 (exists; mode and owner are not changed)"; else plan_add create "$1 (mode $2, owner $3)"; fi
+}
+plan_account() {
+    if id "$1" >/dev/null 2>&1; then plan_add keep "user $1 (exists; checked, not changed)"; else plan_add create "system user $1"; fi
+}
+plan_unit() { # NAME FUNCTION
+    pn_path="/etc/systemd/system/$1"
+    if [ ! -e "$pn_path" ]; then
+        plan_add create "$pn_path"
+    else
+        "$2" | sed "s|/usr/local/bin/domovoi|$bin|" >"$tmp/plan-unit"
+        if cmp -s "$tmp/plan-unit" "$pn_path"; then
+            plan_add keep "$pn_path (up to date)"
+        else
+            plan_add keep "$pn_path (differs from this release; the new text goes to $prefix/share/domovoi/$1)"
+        fi
+    fi
+}
+
+# Writes what the install would do to $tmp/plan, from the state preflight found.
+build_plan() {
+    : >"$tmp/plan"
+    plan_add download "$RELEASE_BASE/download/$version/$name.tar.gz and its .sha256"
+    plan_add verify "the SHA-256 of the archive"
+    if [ "$state" = "fresh" ]; then
+        plan_add create "$bin (domovoi $version)"
+    else
+        plan_add replace "$bin (${installed_version:-unknown version} -> $version)"
+    fi
+    plan_add update "$prefix/share/domovoi/examples (the release examples)"
+    if [ "$service" -eq 0 ]; then
+        plan_add skip "user, directories and systemd units (--no-service)"
+    elif [ "$role" = "hub" ]; then
+        plan_account domovoi
+        plan_dir /etc/domovoi 0750 root:domovoi
+        plan_dir /var/lib/domovoi 0750 domovoi:domovoi
+        plan_unit domovoi-hub.service hub_unit
+        plan_add reload "systemctl daemon-reload (when systemd is present)"
+        plan_add note "the hub is not started; the next steps are printed at the end"
+    elif [ "$migrate" -eq 1 ]; then
+        plan_add migrate "the agent moves from root to domovoi-agent (see the plan above); the typed word is asked for"
+    else
+        classify_host
+        case "$layout" in
+        fresh | migrated)
+            plan_account domovoi-agent
+            plan_account domovoi-skill
+            plan_dir /etc/domovoi 0750 root:domovoi-agent
+            plan_dir /etc/domovoi/skills 0755 root:root
+            plan_dir /var/lib/domovoi-agent 0700 domovoi-agent:domovoi-agent
+            plan_dir /var/lib/domovoi-packages 0755 domovoi-agent:domovoi-agent
+            plan_dir /var/lib/domovoi-helper 0700 root:root
+            if [ -e /etc/domovoi/helper.toml ]; then
+                plan_add keep "/etc/domovoi/helper.toml (exists)"
+            else
+                plan_add create "/etc/domovoi/helper.toml (mode 0600, owner root:root)"
+            fi
+            runner_skills_dir="/etc/domovoi/skills"
+            runner_packages_dir="/var/lib/domovoi-packages"
+            plan_unit domovoi-helper.socket helper_socket_unit
+            plan_unit domovoi-helper@.service helper_service_unit
+            plan_unit domovoi-helper-selftest.service helper_selftest_unit
+            plan_unit domovoi-skill-runner.socket runner_socket_unit
+            plan_unit domovoi-skill-runner@.service render_runner_service
+            plan_unit domovoi-agent.service agent_unit
+            plan_add start "domovoi-helper.socket, then the self-test, then domovoi-skill-runner.socket"
+            ;;
+        *)
+            plan_dir /etc/domovoi 0750 root:root
+            plan_dir /etc/domovoi/skills 0750 root:root
+            plan_dir /var/lib/domovoi-agent 0700 root:root
+            plan_unit domovoi-agent.service legacy_agent_unit
+            plan_add note "the agent keeps the root layout on this host ($layout)"
+            ;;
+        esac
+    fi
+}
+
+# Prints the plan.
+print_plan() {
+    say "Plan for $role $version (dry run; nothing is changed or downloaded):"
+    while IFS= read -r pl_line; do
+        say "  $pl_line"
+    done <"$tmp/plan"
+}
+
+# --- Final summary ------------------------------------------------------------------------
+record_next() {
+    next_list="$next_list${next_list:+
+}$1"
+}
+# One next step: printed and kept for the JSON result.
+ns() {
+    say_always "  $1"
+    record_next "$1"
+}
+finish_summary() {
+    say_always ""
+    if [ "$dry_run" -eq 1 ]; then
+        say_always "Dry run done: domovoi $version ($role) would be installed at $bin."
+    else
+        say_always "Done: domovoi $version ($role) is installed at $bin."
+    fi
+    if [ "$log_keep" -eq 1 ]; then say_always "Log file: $log_file"; fi
+}
+
+# Rejects a value the installer cannot use, before anything is looked at or changed.
+validate_inputs() {
+    case "$version" in
+    latest) ;;
+    *[!0-9A-Za-z.-]*) fail_with 2 "--version $version is not a release tag; use latest or a tag such as v0.1.0" ;;
+    *)
+        printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$' ||
+            fail_with 2 "--version $version is not a release tag; use latest or a tag such as v0.1.0"
+        ;;
+    esac
+    case "$prefix" in
+    /*) ;;
+    *) fail_with 2 "--prefix must be an absolute path, not $prefix" ;;
+    esac
+    case "$RELEASE_BASE" in
+    *@* | *" "*) fail_with 2 "DOMOVOI_RELEASE_BASE must not contain a user name or a space" ;;
+    https://*) ;;
+    http://127.0.0.1 | http://127.0.0.1[:/]* | http://localhost | http://localhost[:/]* | "http://[::1]" | "http://[::1]"[:/]*) ;;
+    http://*)
+        [ "${DOMOVOI_ALLOW_HTTP:-}" = "1" ] ||
+            fail_with 2 "DOMOVOI_RELEASE_BASE uses plain http, which anyone on the network can change; use https, or set DOMOVOI_ALLOW_HTTP=1 to allow it"
+        ;;
+    *) fail_with 2 "DOMOVOI_RELEASE_BASE must start with https://" ;;
+    esac
+    case "$version" in
+    latest | v*) ;;
+    *) version="v$version" ;;
+    esac
+}
+
 prefix="/usr/local"
 service=1
 migrate=0
 rollback=0
-layout=""
 upgrade=0
+installed_version=""
+state="fresh"
+target=""
+name=""
+dl=""
+min_free_mb="${DOMOVOI_MIN_FREE_MB:-200}"
+case "$min_free_mb" in "" | *[!0-9]*) min_free_mb=200 ;; esac
+if [ "${DOMOVOI_NONINTERACTIVE:-}" = "1" ]; then yes=1; fi
+
+trap on_exit EXIT
+trap 'exit 1' INT TERM
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -1030,6 +1646,30 @@ while [ $# -gt 0 ]; do
         ;;
     --no-service)
         service=0
+        shift
+        ;;
+    --yes)
+        yes=1
+        shift
+        ;;
+    --dry-run)
+        dry_run=1
+        shift
+        ;;
+    --json)
+        json=1
+        shift
+        ;;
+    --quiet)
+        quiet=1
+        shift
+        ;;
+    --verbose)
+        verbose=1
+        shift
+        ;;
+    --force-downgrade)
+        force_downgrade=1
         shift
         ;;
     --migrate-identity)
@@ -1065,11 +1705,24 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+[ "$quiet" -eq 0 ] || [ "$verbose" -eq 0 ] || fail "--quiet and --verbose cannot be used together"
+
+tmp="$(mktemp -d)" || fail_with 10 "cannot create a temporary directory"
+setup_log
+exec 3>&1
+if [ "$json" -eq 1 ]; then
+    exec 1>/dev/null 2>>"$log_file"
+fi
+init_colors
+result_pending=1
+log_line "arguments: role=$role version=$version prefix=$prefix service=$service dry_run=$dry_run json=$json yes=$yes"
+
 if [ "$rollback" -eq 1 ]; then
-    [ "$migrate" -eq 0 ] || fail "--rollback-identity and --migrate-identity cannot be used together"
-    [ "$(id -u)" -eq 0 ] || fail "--rollback-identity must run as root (sudo)"
+    fail_code=40
+    [ "$migrate" -eq 0 ] || fail_with 2 "--rollback-identity and --migrate-identity cannot be used together"
+    [ "$(id -u)" -eq 0 ] || fail_with 10 "--rollback-identity must run as root (sudo)"
     if [ ! -d /run/systemd/system ] || ! command -v systemctl >/dev/null 2>&1; then
-        fail "--rollback-identity needs a systemd host"
+        fail_with 10 "--rollback-identity needs a systemd host"
     fi
     rollback_apply
     exit 0
@@ -1089,81 +1742,67 @@ if [ "$migrate" -eq 1 ]; then
     [ "$service" -eq 1 ] || fail "--migrate-identity cannot be combined with --no-service"
 fi
 
-case "$version" in
-latest | v*) ;;
-*) version="v$version" ;;
-esac
+validate_inputs
 
 bin_dir="$prefix/bin"
 bin="$bin_dir/domovoi"
+RELEASE_BASE="${RELEASE_BASE%/}"
 
-if [ "$(id -u)" -ne 0 ]; then
-    if [ "$service" -eq 1 ]; then
-        fail "run as root (sudo), or pass --no-service with a --prefix you can write to"
-    fi
-    mkdir -p "$bin_dir" 2>/dev/null || true
-    [ -w "$bin_dir" ] || fail "cannot write to $bin_dir; run as root or choose another --prefix"
-fi
-
-# The release archive for this machine.
-case "$(uname -s)" in
-Linux) ;;
-*) fail "only Linux is supported; this is $(uname -s)" ;;
-esac
-case "$(uname -m)" in
-x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;
-aarch64 | arm64) target="aarch64-unknown-linux-musl" ;;
-*) fail "no release build for $(uname -m); build from source instead" ;;
-esac
-
-if command -v curl >/dev/null 2>&1; then
-    fetch() { curl -fsSL --proto '=https,http' -o "$2" "$1"; }
-    resolve_latest() { curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASE_BASE/latest"; }
-elif command -v wget >/dev/null 2>&1; then
-    fetch() { wget -q -O "$2" "$1"; }
-    resolve_latest() {
-        wget -S --spider "$RELEASE_BASE/latest" 2>&1 | sed -n 's/^ *[Ll]ocation: *//p' | tail -n 1 | tr -d '\r'
-    }
+fail_code=10
+if [ "$dry_run" -eq 1 ]; then
+    step_total=2
 else
-    fail "curl or wget is needed"
+    step_total=$((4 + service))
 fi
-command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is needed"
-command -v tar >/dev/null 2>&1 || fail "tar is needed"
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-trap 'exit 1' INT TERM
+step preflight "Checking this machine"
+preflight_local
+if [ "$pf_failed" -eq 0 ]; then
+    define_downloader
+    if [ "$migrate" -eq 1 ]; then migrate_preconditions; fi
+    resolve_version
+    detect_state
+fi
+print_preflight
+[ "$pf_failed" -eq 0 ] || fail "preflight failed: $(preflight_failures)"
+if [ "$state" = "downgrade" ]; then
+    warn "downgrading from $installed_version to $version (--force-downgrade)"
+fi
 
-# The migration checks the host, shows its plan and asks before anything is downloaded
-# or changed.
+if [ "$dry_run" -eq 1 ]; then
+    step plan "Planning the install"
+    build_plan
+    if [ "$migrate" -eq 1 ]; then migrate_plan; fi
+    print_plan
+    say ""
+    say "Dry run: nothing was changed, and the archive was not downloaded."
+    finish_summary
+    exit 0
+fi
+
+# The migration shows its plan and asks before anything is downloaded or changed.
 if [ "$migrate" -eq 1 ]; then
-    migrate_preconditions
     migrate_plan
     migrate_confirm
 fi
 
-if [ "$version" = "latest" ]; then
-    url="$(resolve_latest)" || fail "could not find the latest release at $RELEASE_BASE/latest"
-    url="${url%/}"
-    version="${url##*/}"
-    case "$version" in
-    v*) ;;
-    *) fail "could not find the latest release at $RELEASE_BASE/latest (got $url)" ;;
-    esac
-fi
-
-name="domovoi-$version-$target"
-
-say "Downloading $name.tar.gz"
+step download "Downloading $name.tar.gz"
+fail_code=20
 fetch "$RELEASE_BASE/download/$version/$name.tar.gz" "$tmp/$name.tar.gz" ||
     fail "could not download $RELEASE_BASE/download/$version/$name.tar.gz"
 fetch "$RELEASE_BASE/download/$version/$name.tar.gz.sha256" "$tmp/$name.tar.gz.sha256" ||
     fail "could not download the checksum for $name.tar.gz"
+
+vsay "Fetched $RELEASE_BASE/download/$version/$name.tar.gz into $tmp"
+
+step verify "Verifying the checksum"
 (cd "$tmp" && sha256sum -c "$name.tar.gz.sha256" >/dev/null 2>&1) ||
     fail "the SHA-256 of $name.tar.gz does not match its .sha256 file; nothing was installed"
 say "Checksum verified. To check where the archive was built, download it and run"
 say "  gh attestation verify $name.tar.gz --repo $REPO"
 
+step install "Installing the binary"
+fail_code=30
 tar -C "$tmp" -xzf "$tmp/$name.tar.gz"
 [ -f "$tmp/$name/domovoi" ] || fail "$name.tar.gz has no domovoi binary"
 "$tmp/$name/domovoi" version >/dev/null 2>&1 || fail "the downloaded binary does not run on this machine"
@@ -1180,11 +1819,15 @@ fi
 
 if [ "$service" -eq 0 ]; then
     say "Skipped the user, directories and systemd unit (--no-service)."
+    finish_summary
     exit 0
 fi
 
+step service "Setting up the $role service"
+fail_code=40
 if [ "$migrate" -eq 1 ]; then
     migrate_apply
+    finish_summary
     exit 0
 fi
 
@@ -1223,24 +1866,29 @@ legacy)
     ;;
 esac
 
-say ""
-say "Next steps:"
+say_always ""
+say_always "Next steps:"
 if [ "$upgrade" -eq 1 ]; then
-    say "  systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
+    ns "systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
 elif [ "$role" = "hub" ]; then
-    say "  systemctl enable --now domovoi-hub"
-    say "  journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
-    say "  sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"
-    say ""
-    say "No config file is needed: everything is set in the web UI."
+    ns "systemctl enable --now domovoi-hub"
+    ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    ns "sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"
+    say_always ""
+    say_always "No config file is needed: everything is set in the web UI."
 elif [ "$layout" = "fresh" ] || [ "$layout" = "migrated" ]; then
-    say "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here,"
-    say "     with sudo: the files it writes are handed to the domovoi-agent account automatically."
-    say "  2. systemctl enable --now domovoi-agent"
-    say ""
-    say "The helper and skill runner sockets are running. After a runner failure, clear it with:"
-    say "  systemctl reset-failed 'domovoi-skill-runner@*'"
+    say_always "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here,"
+    say_always "     with sudo: the files it writes are handed to the domovoi-agent account automatically."
+    say_always "  2. systemctl enable --now domovoi-agent"
+    record_next "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here, with sudo: the files it writes are handed to the domovoi-agent account automatically."
+    record_next "systemctl enable --now domovoi-agent"
+    say_always ""
+    say_always "The helper and skill runner sockets are running. After a runner failure, clear it with:"
+    say_always "  systemctl reset-failed 'domovoi-skill-runner@*'"
 else
-    say "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
-    say "  2. systemctl enable --now domovoi-agent"
+    say_always "  1. In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
+    say_always "  2. systemctl enable --now domovoi-agent"
+    record_next "In the hub's web UI, open Hosts, then Add host, and run the enroll command it shows here."
+    record_next "systemctl enable --now domovoi-agent"
 fi
+finish_summary
