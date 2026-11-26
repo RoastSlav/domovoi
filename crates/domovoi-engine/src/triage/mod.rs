@@ -18,6 +18,8 @@ pub(crate) mod context;
 mod followup;
 mod history;
 pub(crate) mod meta;
+#[cfg(test)]
+mod prepare_tests;
 mod prompt;
 pub(crate) mod proposals;
 pub(crate) mod report;

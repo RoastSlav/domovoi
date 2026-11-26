@@ -280,6 +280,19 @@ mod tests {
     }
 
     #[test]
+    fn conversation_journal_kinds_round_trip() {
+        for (kind, wire) in [
+            (JournalKind::ConversationCreated, "conversation.created"),
+            (JournalKind::ConversationMessage, "conversation.message"),
+            (JournalKind::ConversationUpdated, "conversation.updated"),
+            (JournalKind::ConversationDeleted, "conversation.deleted"),
+        ] {
+            assert_eq!(kind.as_str(), wire);
+            assert_eq!(JournalKind::parse(wire), Some(kind));
+        }
+    }
+
+    #[test]
     fn timeline_journal_mirrors_the_entry_exactly() {
         let entry = IncidentTimelineEntry {
             incident: IncidentId::from_uuid(uuid::Uuid::from_u128(3)),
