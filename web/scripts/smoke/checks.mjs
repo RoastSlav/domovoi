@@ -187,7 +187,7 @@ async function graphToken(page) {
 
 export const CHECKS = [
     {
-        name: "the list shows the operation and a Legacy row",
+        name: "the list shows the operation",
         async run(ctx) {
             await open(ctx, "/operations");
             await visible(
@@ -195,7 +195,6 @@ export const CHECKS = [
                 "the heading",
             );
             await visible(ctx.page.getByText(await goal(ctx)), "the waiting operation");
-            await visible(ctx.page.getByText("Legacy", { exact: true }), "a row tagged Legacy");
             await visible(
                 ctx.page.getByRole("link", { name: "Operations", exact: true }),
                 "Operations in the navigation",
@@ -220,7 +219,6 @@ export const CHECKS = [
             expect(text.includes("nas"), "The card does not name the host.");
             expect(text.includes("name = plex"), "The card does not list the arguments.");
             expect(text.includes(`Plan ${PLAN_HASH.slice(0, 8)}`), "The card has no plan prefix.");
-            expect(/v2/.test(text), "The card does not say v2.");
         },
     },
     {
@@ -399,7 +397,6 @@ export const CHECKS = [
                                 text.includes(`Plan ${PLAN_HASH.slice(0, 8)}`),
                                 `No plan prefix on the card (${what}).`,
                             );
-                            expect(/v2/.test(text), `The card does not say v2 (${what}).`);
                             const approve = page.getByRole("button", { name: /^Approve/ }).first();
                             await visible(approve, `Approve (${what})`);
                             expect(await approve.isEnabled(), `Approve is disabled (${what}).`);
@@ -994,18 +991,6 @@ export const CHECKS = [
                     headings.indexOf("Act now") < headings.indexOf("Waiting for you"),
                 `The headings are in the wrong order: ${headings.join(", ")}.`,
             );
-            await visible(page.getByText("prune_images on nas"), "the result-unknown row");
-            const order = await page.evaluate(() => {
-                const unknown = [...document.querySelectorAll("main a")].find((a) =>
-                    a.textContent?.includes("prune_images on nas"),
-                );
-                const approval = document.querySelector('main [role="group"]');
-                if (!unknown || !approval) return false;
-                return Boolean(
-                    unknown.compareDocumentPosition(approval) & Node.DOCUMENT_POSITION_FOLLOWING,
-                );
-            });
-            expect(order, "The approval card is not after the result-unknown row.");
             const link = page.getByRole("link", { name: /^Attention/ }).first();
             const linkText = await link.innerText();
             expect(/\d/.test(linkText), `The Attention link shows no count ("${linkText}").`);

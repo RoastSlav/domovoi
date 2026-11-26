@@ -33,8 +33,7 @@ export function experienceFixture(name) {
 }
 
 /**
- * A fresh, mutable state for one run: one legacy action and, by default, the waiting-approval
- * operation; `trace` names another of the golden trace fixtures to serve instead.
+ * A fresh, mutable state for one run: by default the waiting-approval operation; `trace` names another of the golden trace fixtures to serve instead.
  */
 export function makeState({ destructive = false, trace: fixture = "waiting-approval" } = {}) {
     const trace = load(fixture);
@@ -90,7 +89,6 @@ export function executions(state) {
             args: { name: state.hostTarget },
             state: state.executionState,
             plan_hash: PLAN_HASH,
-            plan_binding: "v2",
             risk: state.destructive ? "destructive" : "write",
             confirm_required: state.destructive,
             expires_at: "2099-01-01T00:00:00Z",
@@ -272,47 +270,6 @@ export function hosts(state) {
     ];
 }
 
-/** The classic actions by status: one proposed (tagged Legacy in lists), one whose result is unknown. */
-function classicActions(state) {
-    const base = {
-        host_id: state.hostId,
-        risk: "write",
-        plan_binding: "v1",
-        proposed_by: "system:triage",
-        expires_at: "2099-01-01T00:00:00Z",
-        created_at: "2026-10-30T12:00:00Z",
-        updated_at: "2026-10-30T12:00:00Z",
-        legacy: true,
-    };
-    return [
-        {
-            ...base,
-            id: "act-legacy",
-            incident_id: "inc-legacy",
-            skill: "restart_container",
-            args: { name: "web" },
-            status: "proposed",
-            plan_hash: "9f2c1a4b".repeat(8),
-            plan_hash_v1: "1a4b9f2c".repeat(8),
-        },
-        {
-            ...base,
-            id: "act-unknown",
-            incident_id: "inc-unknown",
-            skill: "prune_images",
-            args: { all: false },
-            status: "outcome_unknown",
-            plan_hash: "3c7e5d21".repeat(8),
-            plan_hash_v1: "5d213c7e".repeat(8),
-        },
-    ];
-}
-
-/** `GET /actions`: without a status only the proposed one (the list tags it Legacy). */
-export function actions(state, status) {
-    return classicActions(state).filter((action) => action.status === (status ?? "proposed"));
-}
-
 /** Incidents the mock knows, with the group each belongs to (not sent to the page). */
 const INCIDENTS = [
     ["inc-plex", "plex keeps restarting", "critical", "needs_action", "2026-10-31T11:50:00Z"],
@@ -377,8 +334,6 @@ export function overview(state) {
         operations_waiting_approval: waitingApproval,
         operations_waiting_user: 1,
         operations_paused: paused,
-        actions_outcome_unknown: 1,
-        approvals_waiting: 1,
         hosts_offline: 1,
     };
     const needsAction = 1;
@@ -395,11 +350,9 @@ export function overview(state) {
         ...counts,
         attention_total:
             needsAction +
-            counts.approvals_waiting +
             counts.operations_waiting_approval +
             counts.operations_waiting_user +
             counts.operations_paused +
-            counts.actions_outcome_unknown +
             counts.hosts_offline,
         hosts_total: 2,
         as_of_seq: state.seq,
