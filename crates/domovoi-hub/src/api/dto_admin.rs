@@ -49,7 +49,8 @@ pub struct HostDto {
     pub id: String,
     /// Host name.
     pub name: String,
-    /// `agent`, `container_agent` or `external`.
+    /// `local`, `remote`, `container_agent` (a remote host whose live agent reports that it
+    /// runs in a container) or `external`.
     pub kind: String,
     /// Whether the agent is connected now.
     pub connected: bool,

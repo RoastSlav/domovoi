@@ -147,6 +147,7 @@ pub fn all() -> Vec<Message> {
             skill_runner_status: SkillRunnerStatus::Absent,
             helper_status: HelperStatus::Absent,
             runs_as_root: true,
+            in_container: true,
             helper_identity: None,
             skills: vec![skill_summary()],
             checks: vec![CheckInfo {
@@ -295,6 +296,7 @@ pub fn all() -> Vec<Message> {
             helper_identity: None,
             skill_runner_status: SkillRunnerStatus::Absent,
             runs_as_root: true,
+            in_container: true,
             ceiling_hash: None,
             ceiling_summary: None,
         }

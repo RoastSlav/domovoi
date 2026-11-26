@@ -236,6 +236,16 @@ impl AgentServer {
         self.inner.registry.checks(host).unwrap_or_default()
     }
 
+    /// Whether the host's live agent reports that it runs in a container; `false` while it
+    /// is offline.
+    #[must_use]
+    pub fn host_in_container(&self, host: HostId) -> bool {
+        self.inner
+            .registry
+            .host_view(host)
+            .is_some_and(|view| view.words.in_container)
+    }
+
     /// The last `agent_status` the host's live session reported; `None` while it is offline
     /// or before the agent sent one in this session.
     #[must_use]

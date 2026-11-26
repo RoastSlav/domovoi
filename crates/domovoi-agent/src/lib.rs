@@ -15,6 +15,7 @@
 pub mod boot;
 pub mod checks;
 pub mod config_file;
+pub mod container;
 pub mod containment;
 pub mod docker;
 pub mod dry_run;

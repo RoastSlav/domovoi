@@ -274,7 +274,11 @@ impl HubRegistry {
         }
         if contract.execution == ExecutionPath::Helper && seen.words.helper == HelperState::Absent {
             return Availability::Unavailable {
-                reason: UnavailableReason::HelperMissing,
+                reason: if seen.words.in_container {
+                    UnavailableReason::AgentInContainer
+                } else {
+                    UnavailableReason::HelperMissing
+                },
             };
         }
         match host_allows(contract, &seen.words) {
@@ -353,6 +357,7 @@ fn entry_of(contract: &CapabilityContract, state: Availability, seen: &Seen) -> 
         state,
         catalogue: seen.catalogue.state.clone(),
         root_agent: seen.words.runs_as_root,
+        in_container: seen.words.in_container,
         runner_installed: seen.words.runner == RunnerState::Ready,
         from_hello_skills: contract.id.is_skill(),
     }

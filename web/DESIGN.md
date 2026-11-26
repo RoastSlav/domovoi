@@ -828,7 +828,7 @@ The lint rules live in `eslint/domovoi-rules.js`; `src/guardrails.test.ts` prove
 
 ## Performance budget
 
-<!-- budget:initial-js-gzip-kb 185 -->
+<!-- budget:initial-js-gzip-kb 186 -->
 
 | Measure (gzip, `npm run size`) | Main before the redesign | Now      | Limit                                                                  |
 | ------------------------------ | ------------------------ | -------- | ---------------------------------------------------------------------- |
@@ -983,3 +983,5 @@ fits; then add the primitive and semantic token for light and both dark blocks a
 - [ ] Every action answers back; every disabled control says why; every status is a pill
 - [ ] Messages follow the voice rules; new components and states are in `/dev/design`
 - [ ] `npm run lint && npm run typecheck && npm test && npm run build`
+
+Bundle size after the container agent label: initial JS 185.0 kB gzip, largest chunk 111.7 kB, CSS 29.4 kB (the budget rose from 185 to 186 kB: the host kind words and the setup banner now know the `container_agent` kind).

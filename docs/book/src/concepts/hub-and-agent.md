@@ -30,10 +30,14 @@ Chat's `/status` command takes an optional host name. `/status <host>` (case-ins
 
 A hub and an agent talk only when their protocol `major.minor` are equal; the Hosts page marks an agent that speaks another version. Upgrade the hub first, then the agents. See [Upgrading](../install/upgrading.md).
 
+## Container agents
+
+An agent that runs in a container reports `in_container` to the hub, and the hub labels the host a container agent. It watches disks, memory, processes and Docker, but it has no helper and no skill runner, so capabilities that need them are refused with `agent_in_container`. See [what a container agent can and cannot do](../install/container-agent.md#what-a-container-agent-can-and-cannot-do).
+
 ## Where to run the hub
 
 - **On one machine with an agent**: the simplest start. Install both roles, as in the [quick start](../quick-start.md). If that machine dies, nobody notices.
 - **On a separate small machine**: a Raspberry Pi or a VM elsewhere. Now a host that goes silent is noticed and reported.
-- **In a container**: see [Docker](../install/docker.md). Run the [container agent](../install/container-agent.md) next to it to watch the Docker host.
+- **In a container**: see [Docker](../install/docker.md). Run the [container agent](../install/container-agent.md) next to it to watch the Docker host. It only watches: it cannot restart units or run skills.
 
 The hub can also run an agent for its own machine inside its own process (`domovoi hub run --with-local-agent agent.toml`). The two then share the hub's unprivileged sandbox, so checks that need root report errors. Two separate services are usually the better choice; see [one machine](../install/binary.md#one-machine).

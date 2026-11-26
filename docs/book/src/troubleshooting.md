@@ -54,7 +54,7 @@ Run `sudo domovoi agent selftest --installer` to see every check. [Command line]
 
 ### The host says "privilege boundary not in effect"
 
-The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: an agent installed before the three-identities layout (it runs as root), a hub on the same host, a container install, or no systemd. For an old root agent, `sudo sh install.sh --role agent --migrate-identity` moves it ([Binary and systemd](install/binary.md#already-installed)). The host gets no unattended execution until the boundary is in effect.
+The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: an agent installed before the three-identities layout (it runs as root), a hub on the same host, a container install (the host is also labelled a container agent, and write capabilities are refused with `agent_in_container`), or no systemd. For an old root agent, `sudo sh install.sh --role agent --migrate-identity` moves it ([Binary and systemd](install/binary.md#already-installed)). The host gets no unattended execution until the boundary is in effect.
 
 ### The helper refuses to start
 

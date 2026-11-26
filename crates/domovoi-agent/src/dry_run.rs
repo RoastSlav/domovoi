@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_checks::commands::{Commands, ToolHost};
+use domovoi_checks::commands::Commands;
 use domovoi_checks::containers::ContainerDeps;
 use domovoi_checks::framework::{CheckContext, CheckState, HostDeps, Registry, run_bounded};
 use domovoi_config::AgentConfig;
@@ -82,7 +82,7 @@ pub async fn run_checks_once(
     }
     let commands = Commands::resolve(
         &*deps.toolfs,
-        ToolHost::from_host_root(&config.agent.host_root),
+        crate::runtime::tool_host(&config.agent.host_root),
     )
     .await;
     let host = HostId::new();

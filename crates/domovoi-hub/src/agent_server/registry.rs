@@ -190,6 +190,7 @@ impl Registry {
             .and_then(|entry| entry.live.as_mut())
             .filter(|live| live.session == session)
         {
+            live.in_container = status.in_container;
             live.agent_status = Some(status);
         }
     }
@@ -370,6 +371,7 @@ impl Registry {
         Some(HostView {
             words: HostWords {
                 runs_as_root: live.runs_as_root,
+                in_container: live.in_container,
                 runner: match live.skill_runner_status {
                     SkillRunnerStatus::Absent => RunnerState::Absent,
                     SkillRunnerStatus::Unsupported { .. } => RunnerState::Unsupported,

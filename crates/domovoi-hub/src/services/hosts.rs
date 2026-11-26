@@ -21,6 +21,8 @@ pub struct HostStatus {
     pub name: HostName,
     /// Where it runs relative to the hub.
     pub kind: HostKind,
+    /// Whether the live agent reports that it runs in a container.
+    pub in_container: bool,
     /// Whether its agent is connected.
     pub connected: bool,
     /// Whether an agent is enrolled for it.
@@ -84,6 +86,7 @@ impl HostService {
             id: host.id,
             name: host.name.clone(),
             kind: host.kind,
+            in_container: connected && self.agents.in_container(host.id),
             connected,
             agent_enrolled: agent.is_some(),
             version: None,

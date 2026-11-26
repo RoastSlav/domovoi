@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { resetApi, route } from "../../test/apiMock";
+import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { SetupBanner } from "./SetupBanner";
 
@@ -35,4 +36,11 @@ test("setup_banner_stays_dismissed_and_shows_nothing_when_all_is_set_up", async 
   renderAt("/incidents", "/incidents", <SetupBanner />);
   await screen.findByTestId("location");
   expect(screen.queryByText("Setup is not finished")).toBeNull();
+});
+
+test("setup_banner_counts_a_container_agent_as_a_host", async () => {
+  route("GET /api/v1/hosts", () => [{ ...nas, kind: "container_agent" }]);
+  settings({ discord: { channel_id: "1" } });
+  renderAt("/incidents", "/incidents", <SetupBanner />);
+  expect(await screen.findByText("Still to add: a model.")).toBeVisible();
 });

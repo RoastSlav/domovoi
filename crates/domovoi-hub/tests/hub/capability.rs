@@ -1463,3 +1463,73 @@ async fn container_restart_is_unavailable_for_both_labels() {
         missing(UnavailableReason::DockerWriteUnsupported)
     );
 }
+
+fn container_words(helper: HelperState) -> HostWords {
+    HostWords {
+        in_container: true,
+        helper,
+        ..HostWords::default()
+    }
+}
+
+#[tokio::test]
+async fn container_agent_helper_contract_is_refused_with_agent_in_container() {
+    let fixture = Fixture::new(domovoi_core::capability::unit_contracts()).await;
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), container_words(HelperState::Absent));
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        missing(UnavailableReason::AgentInContainer)
+    );
+    assert_eq!(
+        UnavailableReason::AgentInContainer.code(),
+        "agent_in_container"
+    );
+    assert!(fixture.row("unit.restart").await.in_container);
+}
+
+#[tokio::test]
+async fn non_container_agent_without_helper_still_gets_helper_missing() {
+    let fixture = Fixture::new(domovoi_core::capability::unit_contracts()).await;
+    fixture
+        .link
+        .set_host_words(fixture.host_id(), helper_words(HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("unit.restart").await,
+        missing(UnavailableReason::HelperMissing)
+    );
+    assert!(!fixture.row("unit.restart").await.in_container);
+}
+
+#[tokio::test]
+async fn container_agent_skill_is_refused_with_agent_in_container() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![summary("prune_logs", Risk::Read)]);
+    fixture.complete(&[("skill.prune_logs", 1)]);
+    fixture.words(HostWords {
+        in_container: true,
+        ..HostWords::default()
+    });
+    assert_eq!(
+        fixture.skill_state("prune_logs").await,
+        missing(UnavailableReason::AgentInContainer)
+    );
+}
+
+#[tokio::test]
+async fn container_agent_read_contracts_are_unchanged() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.complete(&[("container.logs", 1)]);
+    fixture.words(HostWords {
+        in_container: true,
+        container_runtime: true,
+        ..HostWords::default()
+    });
+    assert_eq!(
+        fixture.availability("container.logs").await,
+        Availability::Available
+    );
+}

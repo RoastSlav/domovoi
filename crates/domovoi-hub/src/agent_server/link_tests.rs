@@ -122,6 +122,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
         skills: Vec::new(),
         catalog_hash: None,
         runs_as_root: false,
+        in_container: false,
         skill_runner_status: domovoi_proto::messages::SkillRunnerStatus::Absent,
         helper_status: domovoi_proto::messages::HelperStatus::Absent,
         helper_identity: None,
@@ -328,6 +329,7 @@ async fn received_key_from_hello_is_stored_and_fingerprinted_by_the_hub() {
             }),
             skill_runner_status: SkillRunnerStatus::Absent,
             runs_as_root: false,
+            in_container: false,
             ceiling_hash: None,
             ceiling_summary: None,
         },
@@ -340,4 +342,29 @@ async fn received_key_from_hello_is_stored_and_fingerprinted_by_the_hub() {
             reason: "restarting".to_owned()
         }
     );
+}
+
+#[tokio::test]
+async fn session_carries_in_container_from_hello_and_agent_status() {
+    use domovoi_proto::messages::{AgentStatus, HelperStatus, SkillRunnerStatus};
+
+    let w = world(Arc::new(InMemoryStore::new()));
+    let (mut live, session) = live_session(mpsc::channel(1).0);
+    live.in_container = true;
+    w.registry.register(w.host, live, None).unwrap();
+    assert!(w.registry.host_view(w.host).unwrap().words.in_container);
+    w.registry.set_agent_status(
+        w.host,
+        session,
+        AgentStatus {
+            helper_status: HelperStatus::Absent,
+            helper_identity: None,
+            skill_runner_status: SkillRunnerStatus::Absent,
+            runs_as_root: false,
+            in_container: false,
+            ceiling_hash: None,
+            ceiling_summary: None,
+        },
+    );
+    assert!(!w.registry.host_view(w.host).unwrap().words.in_container);
 }

@@ -12,6 +12,7 @@ expression: "pretty(&message, reply)"
     "helper_status": {
       "state": "absent"
     },
+    "in_container": true,
     "runs_as_root": true,
     "skill_runner_status": {
       "state": "absent"

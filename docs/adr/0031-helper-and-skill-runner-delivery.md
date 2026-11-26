@@ -360,3 +360,7 @@ Decision 6 now exists as code: the installer creates the accounts and directorie
 ## Revision (2026-11-25)
 
 B5 (helper unit directive set): the baseline is widened by [0036](0036-helper-read-operations.md) for the read groups (`PrivateDevices=no` with `DevicePolicy=closed`, four read-only `DeviceAllow=` lines and six capabilities). The set is still unmeasured per group; the privileged rows of `deploy/test/identities.sh` measure it. Status unchanged.
+
+## Addendum (2026-11-26)
+
+Item 8 stands: a container agent gets no helper and no skill runner. It now says so itself. The agent detects that it runs in a container and reports `in_container` (wire 1.2, additive, default `false`); the hub labels the host `container_agent` and refuses a capability that needs the helper or skill runner with the reason `agent_in_container`, instead of `helper_missing` or `skill_runner_missing`. Reads through the `/host` mounts and the read-only Docker socket proxy are unchanged.

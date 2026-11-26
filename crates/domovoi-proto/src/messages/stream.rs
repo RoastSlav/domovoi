@@ -90,6 +90,9 @@ pub struct AgentStatus {
     pub skill_runner_status: SkillRunnerStatus,
     /// Whether the agent's effective uid is 0.
     pub runs_as_root: bool,
+    /// Whether the agent runs inside a container.
+    #[serde(default)]
+    pub in_container: bool,
     /// Hash of the unattended ceiling. `None` until it exists.
     #[serde(default)]
     pub ceiling_hash: Option<Sha256Bytes>,

@@ -196,6 +196,10 @@ pub struct Hello {
     /// Whether the agent's effective uid is 0.
     #[serde(default)]
     pub runs_as_root: bool,
+    /// Whether the agent found that it runs inside a container. The hub labels the host and
+    /// says why host-level actions are not offered. `false` from older agents.
+    #[serde(default)]
+    pub in_container: bool,
     /// The helper's public key when a helper is present. `None` until it exists.
     #[serde(default)]
     pub helper_identity: Option<HelperIdentity>,

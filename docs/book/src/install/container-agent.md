@@ -4,6 +4,26 @@ On a machine where you cannot or would rather not install packages (Unraid, True
 
 The agent sees the host through read-only mounts under `/host`, and sees Docker through a socket proxy that only allows reads. It never gets the Docker socket itself, which would amount to root on the host.
 
+## What a container agent can and cannot do
+
+A container agent is for watching. It has no root helper and no skill runner, so it cannot change anything on the host.
+
+**It can:**
+
+- Check disk usage, memory, load and processes through the `/host` mounts.
+- Check Docker containers (health, restarts, expected-down, new ones) and read their state and events through the read-only socket proxy.
+
+**It cannot:**
+
+- Restart host systemd units.
+- Block a network source.
+- Run skills through the isolated skill runner, or use the root helper.
+- Read the host's journal or systemd, so the unit, kernel-log and login checks report "unavailable".
+
+When you ask for one of these on a container agent, the hub refuses with `agent_in_container`: "this agent runs in a container and cannot reach the host's helper or skill runner". It does not say `helper_missing` or `skill_runner_missing`. To get those capabilities, [install the agent on the host](binary.md).
+
+The agent works out that it runs in a container at start. It looks for `/.dockerenv`, `/run/.containerenv`, a container name in `/proc/1/cgroup`, the `container` environment variable, and a `host_root` other than `/`. The hub then lists the host as a **container agent** on the Hosts page and on the host's page. If the guess is wrong, set `DOMOVOI_AGENT__IN_CONTAINER=true` or `false` on the agent; it wins over the detection.
+
 ## With Compose
 
 [`deploy/compose/agent.yml`](https://github.com/RoastSlav/domovoi/blob/main/deploy/compose/agent.yml) runs the agent and the socket proxy:

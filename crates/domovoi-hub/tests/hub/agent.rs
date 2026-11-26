@@ -137,6 +137,7 @@ pub fn hello_running(agent: AgentId, protocol: ProtocolVersion, version: &str) -
         skill_runner_status: domovoi_proto::messages::SkillRunnerStatus::Absent,
         helper_status: domovoi_proto::messages::HelperStatus::Absent,
         runs_as_root: false,
+        in_container: false,
         helper_identity: None,
         skills: Vec::new(),
         checks: Vec::new(),

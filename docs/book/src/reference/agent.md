@@ -61,7 +61,13 @@ The reasons and what to do about each are in [Troubleshooting](../troubleshootin
 
 An agent running as root does not probe the runner and runs skills itself, as before.
 
-The agent also decides whether the privilege boundary is in effect when it starts. It is only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. A root agent, a container agent and the single-process mode are labelled "not in effect", and package results say so.
+The agent also decides whether the privilege boundary is in effect when it starts. It is only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. A root agent, a container agent and the single-process mode are labelled "not in effect", and package results say so. A container agent is also labelled `container_agent` (see [Container detection](#container-detection)).
+
+## Container detection
+
+At start the agent decides whether it runs in a container. It is in one when any of these holds: `/.dockerenv` exists, `/run/.containerenv` exists, `/proc/1/cgroup` names a container runtime, the `container` environment variable is set, or `host_root` is not `/`. `DOMOVOI_AGENT__IN_CONTAINER=true` or `false` overrides all of them.
+
+The result rides in `hello.in_container` and `agent_status.in_container` (protocol 1.2; an older agent omits it, which reads as `false`). The hub shows the host as a container agent. A capability that needs the helper or skill runner is then refused with `agent_in_container` instead of `helper_missing` or `skill_runner_missing`. The agent runs no helper probe or skill runner probe in this case.
 
 ## Safety attestation relay
 

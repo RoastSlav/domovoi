@@ -24,6 +24,10 @@ pub trait AgentAdmin: Send + Sync {
     fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
+    /// Whether `host`'s live agent reports that it runs in a container.
+    fn in_container(&self, _host: HostId) -> bool {
+        false
+    }
     /// The recent log lines `host`'s agent keeps, oldest first. Fails with a
     /// [`domovoi_core::ports::LinkError`] when it is not connected, did not answer,
     /// or is too old to send logs.
@@ -59,6 +63,10 @@ impl AgentAdmin for AgentServer {
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         self.host_skills(host)
+    }
+
+    fn in_container(&self, host: HostId) -> bool {
+        self.host_in_container(host)
     }
 
     async fn logs(

@@ -131,6 +131,7 @@ fn hello(agent: AgentId) -> Message {
         skill_runner_status: SkillRunnerStatus::Absent,
         helper_status: HelperStatus::Absent,
         runs_as_root: false,
+        in_container: false,
         helper_identity: None,
         skills: Vec::new(),
         checks: Vec::new(),

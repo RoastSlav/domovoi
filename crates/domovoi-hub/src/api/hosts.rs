@@ -20,9 +20,10 @@ use super::{ApiState, Authed, host_named};
 /// How far back host detail looks for digest facts.
 pub const FACT_WINDOW: SignedDuration = SignedDuration::from_hours(24);
 
-fn kind(kind: HostKind) -> &'static str {
+fn kind(kind: HostKind, in_container: bool) -> &'static str {
     match kind {
         HostKind::Local => "local",
+        HostKind::Remote if in_container => "container_agent",
         HostKind::Remote => "remote",
         HostKind::External => "external",
     }
@@ -44,7 +45,7 @@ pub(crate) async fn host_dto(
     Ok(HostDto {
         id: status.id.to_string(),
         name: status.name.to_string(),
-        kind: kind(status.kind).to_owned(),
+        kind: kind(status.kind, status.in_container).to_owned(),
         connected: status.connected,
         agent_enrolled: status.agent_enrolled,
         version: status.version,
@@ -299,4 +300,16 @@ pub(super) async fn logs(
             })
             .collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_kind_is_container_agent_for_a_remote_host_in_a_container() {
+        assert_eq!(kind(HostKind::Remote, true), "container_agent");
+        assert_eq!(kind(HostKind::Remote, false), "remote");
+        assert_eq!(kind(HostKind::Local, true), "local");
+    }
 }

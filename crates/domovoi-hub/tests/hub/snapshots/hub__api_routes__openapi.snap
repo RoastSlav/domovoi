@@ -1,5 +1,6 @@
 ---
 source: crates/domovoi-hub/tests/hub/api_routes.rs
+assertion_line: 401
 expression: spec
 ---
 {
@@ -1095,6 +1096,10 @@ expression: spec
             "description": "Whether the implementation came from `hello.skills[]`.",
             "type": "boolean"
           },
+          "in_container": {
+            "description": "Whether the agent runs in a container. A label, never a refusal.",
+            "type": "boolean"
+          },
           "reason": {
             "description": "The reason code of a refusal, when it has one.",
             "type": [
@@ -1141,6 +1146,7 @@ expression: spec
           "describe",
           "catalogue",
           "root_agent",
+          "in_container",
           "runner_installed",
           "from_hello_skills"
         ],
@@ -3148,7 +3154,7 @@ expression: spec
             ]
           },
           "kind": {
-            "description": "`agent`, `container_agent` or `external`.",
+            "description": "`local`, `remote`, `container_agent` (a remote host whose live agent reports that it\nruns in a container) or `external`.",
             "type": "string"
           },
           "last_seen": {

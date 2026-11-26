@@ -471,6 +471,7 @@ Identity and helper invariants (ADR 0030, 0031 and 0033):
 - The helper cannot be reached by the hub, by the skill runner or by a package. Only the uid of the `domovoi-agent` account is served, and the socket is `root:domovoi-agent 0660` at most.
 - The helper's request type is a closed enum with no free-form string, `docker.write` named in `helper.toml` is ignored and reported, and it offers no `run_as`, `sudo`, `systemd-run` or command execution.
 - The helper start check only reads. A wrong mode, owner or type on its directory, lock, key or state refuses start and reports each path; only the owner-confirmed local command `domovoi helper repair` changes a mode or owner, and nothing else can reach it.
+- An agent that runs in a container reports `in_container`; the hub labels the host `container_agent` and refuses capabilities that need the helper or skill runner with `agent_in_container`.
 - A host is labelled "privilege boundary not in effect" unless the agent runs as `domovoi-agent` with exactly the expected groups. A platform is never `Supported` while the published list is empty, and a check that was not run never counts as a pass.
 - Rules (enforced by `cargo xtask arch-check`, defined in ADR 0033): `HELPER-1`, `HELPER-2`, `IDENT-1`, `ID-2`, `ID-3`, `UNIT-2` (docker clause), `UNIT-3` (helper unit), `UNIT-4`, `UNIT-5`, `UNIT-7`, `UNIT-8`, `UNIT-9`, `INSTALL-1`, `SELFTEST-1`.
 
