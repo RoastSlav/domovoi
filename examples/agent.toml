@@ -16,9 +16,19 @@ hub_url = "wss://hub.example.net:7421"
 state_dir = "/var/lib/domovoi-agent"
 # Where skill manifests are read from.
 skills_dir = "/etc/domovoi/skills"
+# Where installed packages live. Must be absolute.
+packages_dir = "/var/lib/domovoi-packages"
 # Where the host filesystem is mounted. Set to "/host" when the agent runs in a
 # container with the host's root mounted there.
 host_root = "/"
+
+# How many mutating capability executions this agent accepts. Local and root-owned: the hub
+# cannot send, widen or override it.
+[agent.mutation_limits]
+# Mutating executions per rolling hour; 0 blocks every mutation.
+per_hour = 30
+# Per-contract per-hour limits, keyed by contract id; 0 blocks that contract (example; optional).
+per_capability = { "unit.restart" = 5 }
 
 [policy]
 # Risk classes of skills this agent will run. Add "destructive" to opt in to skills that
@@ -61,3 +71,49 @@ bind = "127.0.0.1:7422"
 token = { env = "DOMOVOI_LOCAL_WEBHOOK_TOKEN" }
 # Allow a non-loopback bind address (default false).
 allow_non_loopback = false
+
+# Package installation (optional; omit to disable: nothing is installed or advertised).
+[packages]
+# Whether the hub may ask this agent to install or remove packages. Listing installed
+# packages is allowed either way.
+allow_install = false
+# Key ids (16 lowercase hex characters) that are never trusted, even when also listed below.
+revoked = []
+
+# Size and time caps applied while receiving and unpacking a package.
+[packages.limits]
+compressed_bytes = 20971520
+uncompressed_bytes = 104857600
+file_bytes = 20971520
+entries = 2000
+path_bytes = 255
+path_depth = 8
+extraction_time = "60s"
+
+# Keys whose signatures this agent accepts. Read at start; the hub cannot change them. The key
+# id is the first 16 hex characters of the SHA-256 of the raw public key (example; repeat
+# for more).
+# [[packages.trusted_keys]]
+# id = "0123456789abcdef"
+# label = "release signing key"
+# public_key = "<the Ed25519 public key, 32 bytes in padded base64>"
+
+# The ceiling on what a policy-labelled request may do, set here and nowhere else (optional;
+# omit to accept none).
+[unattended]
+# Master switch. When false every policy-labelled request is refused.
+enabled = false
+
+# What may run unattended, one entry per contract (example; repeat for more).
+[[unattended.allow]]
+# The exact contract id. No wildcard.
+capability = "unit.restart"
+# Unit ids that may be restarted. "*" must be written explicitly.
+targets = ["nginx.service"]
+# Policy-labelled executions of this contract per rolling hour. At least 1.
+max_per_hour = 2
+# firewall.block_source also takes max_active, max_ttl and args; unit.restart accepts none of
+# them:
+# max_active = 10
+# max_ttl = "1h"
+# args = { prefix_len_v4 = ["24"], prefix_len_v6 = ["64"] }
