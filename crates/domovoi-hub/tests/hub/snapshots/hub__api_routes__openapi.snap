@@ -3343,6 +3343,13 @@ expression: spec
             "$ref": "#/components/schemas/IncidentSummary",
             "description": "The incident."
           },
+          "known_condition": {
+            "description": "The id of the known condition made when this incident was dismissed with a period, so\nthe page can link to it; null when it was not dismissed or no rule was made.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "operations": {
             "description": "Operations about this incident, newest first.",
             "items": {
