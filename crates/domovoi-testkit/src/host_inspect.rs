@@ -84,13 +84,6 @@ impl FakeHostInspect {
         self
     }
 
-    /// Makes `getgroups()` fail.
-    #[must_use]
-    pub fn groups_error(mut self, err: InspectError) -> Self {
-        self.groups = Some(Err(err));
-        self
-    }
-
     /// Adds an account whose `getgrouplist` is `groups_of`.
     #[must_use]
     pub fn user(mut self, entry: UserEntry, groups_of: &[u32]) -> Self {
@@ -178,13 +171,6 @@ impl FakeHostInspect {
     #[must_use]
     pub fn timings(mut self, micros: &[u64]) -> Self {
         self.timings = Some(Ok(micros.to_vec()));
-        self
-    }
-
-    /// Makes `state_write_timings` fail.
-    #[must_use]
-    pub fn timings_error(mut self, err: InspectError) -> Self {
-        self.timings = Some(Err(err));
         self
     }
 

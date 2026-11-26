@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use domovoi_core::{
     ArgError, CheckKey, Host, HostId, HostKind, HostName, Incident, IncidentEvent, IncidentPolicy,
-    KeyFingerprint, PlanError, PlanTarget, Risk, Severity, Signal, SignalClass, SkillManifest,
-    SkillName, SourceKind, TargetKey, TransitionError, ValidationError, apply,
+    KeyFingerprint, PlanError, Risk, Severity, Signal, SignalClass, SkillManifest, SkillName,
+    SourceKind, TargetKey, TransitionError, ValidationError, apply,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -131,16 +131,6 @@ pub fn manifest(name: &str, risk: Risk) -> Result<SkillManifest, BuildError> {
 #[must_use]
 pub fn key_fingerprint() -> KeyFingerprint {
     KeyFingerprint::of_public_key(&[7u8; 32])
-}
-
-/// A v2 plan target for `host` with the fixture key and a `disk.usage` check.
-pub fn plan_target(host: HostId) -> Result<PlanTarget, BuildError> {
-    Ok(PlanTarget::new(
-        host,
-        key_fingerprint(),
-        CheckKey::parse("disk.usage")?,
-        None,
-    ))
 }
 
 #[cfg(test)]

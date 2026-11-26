@@ -82,15 +82,6 @@ impl FakeAgentLink {
             .push_back(answer);
     }
 
-    /// Answers `capability_result` for `execution` with `result`, instead of the handler.
-    pub fn answer_capability(
-        &self,
-        execution: ExecutionId,
-        result: Result<PackageOutputs, LinkError>,
-    ) {
-        lock(&self.package.results).insert(execution, result);
-    }
-
     /// Answers every `capability_result` that has no per-execution script with `handler`.
     pub fn on_capability(
         &self,

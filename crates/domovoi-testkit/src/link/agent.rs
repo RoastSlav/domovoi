@@ -128,9 +128,6 @@ impl AgentLink for FakeAgentLink {
     fn snapshot(&self, host: HostId) -> Option<AgentSnapshot> {
         self.snapshot_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(scripted) = lock(&self.scripted_snapshots).pop_front() {
-            return scripted;
-        }
         match self.presence(host) {
             Presence::Connected { .. } => Some(AgentSnapshot {
                 session: self.session_id(host),
