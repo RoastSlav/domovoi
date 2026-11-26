@@ -2,8 +2,7 @@
 
 use domovoi_core::ports::Versioned;
 use domovoi_core::{
-    ExecutionRecord, ExecutionState, Operation, OperationSnapshot, StepId, StepIntent, StepOutcome,
-    StepRecord,
+    ExecutionRecord, ExecutionState, Operation, OperationSnapshot, StepId, StepIntent, StepRecord,
 };
 
 use super::decide::Decision;
@@ -26,12 +25,6 @@ impl OperationState {
     #[must_use]
     pub fn snapshot(&self) -> &OperationSnapshot {
         &self.snapshot
-    }
-
-    /// Gives the snapshot back.
-    #[must_use]
-    pub fn into_snapshot(self) -> OperationSnapshot {
-        self.snapshot
     }
 
     /// The operation.
@@ -101,16 +94,5 @@ impl OperationState {
         }
         next.version += 1;
         Self { snapshot: next }
-    }
-
-    /// Whether any step is still pending or running.
-    #[must_use]
-    pub fn has_open_steps(&self) -> bool {
-        self.snapshot.steps.iter().any(|r| {
-            matches!(
-                r.progress.outcome,
-                StepOutcome::Pending | StepOutcome::Running
-            )
-        })
     }
 }
