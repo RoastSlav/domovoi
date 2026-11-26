@@ -84,6 +84,7 @@ async fn hub_network_down_raises_hub_network_degraded_and_no_host_down() {
     let (_ident, agent) = online(&hub, "nas").await;
     drop(agent);
     hub.probes.gateway.store(false, Ordering::SeqCst);
+    hub.probes.outside.store(false, Ordering::SeqCst);
     hub.probes.hosts_up.store(false, Ordering::SeqCst);
     hub.clock.advance(SILENT);
     hub.server.check_presence().await;
@@ -93,8 +94,9 @@ async fn hub_network_down_raises_hub_network_degraded_and_no_host_down() {
     assert_eq!(signals[0].check().as_str(), "hub.network_degraded");
     assert_eq!(signals[0].host(), hub.hub_host);
 
-    // The network comes back: the hub resolves its own signal, then looks at the host.
-    hub.probes.gateway.store(true, Ordering::SeqCst);
+    // The network comes back: the hub resolves its own signal, then looks at the host. One
+    // answer is enough; a gateway that drops probes does not keep the hub degraded.
+    hub.probes.outside.store(true, Ordering::SeqCst);
     hub.server.check_presence().await;
     let checks: Vec<(String, SignalStatus)> = hub
         .signals()

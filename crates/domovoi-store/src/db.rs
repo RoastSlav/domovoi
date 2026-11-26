@@ -95,6 +95,35 @@ pub(crate) fn create_private_dir(dir: &Path) -> Result<(), StoreOpenError> {
     builder.create(dir).map_err(|e| io(dir, e))
 }
 
+/// Makes the database file readable by its owner only. A missing file is created empty first:
+/// SQLite gives the `-wal` and `-shm` files the mode of the main file, so all three follow.
+fn restrict_to_owner(path: &Path) -> Result<(), StoreOpenError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| io(path, e))?;
+        let wide = path
+            .metadata()
+            .map_err(|e| io(path, e))?
+            .permissions()
+            .mode()
+            & 0o077
+            != 0;
+        if wide {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| io(path, e))?;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 fn connect_options(path: &Path) -> SqliteConnectOptions {
     SqliteConnectOptions::new()
         .filename(path)
@@ -158,6 +187,7 @@ impl Store {
             create_private_dir(dir)?;
         }
         let existed = path.metadata().is_ok_and(|m| m.len() > 0);
+        restrict_to_owner(path)?;
         let available: Vec<i64> = MIGRATOR
             .iter()
             .chain(extra.iter())
