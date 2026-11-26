@@ -14,7 +14,17 @@
 #   5. checks that the password is nowhere in the install log;
 #   6. runs the installer again (an upgrade) and checks it keeps the admin and the hub running.
 #
+# With E2E_BOTH=1 it then runs a second section on top of that hub, for the machine that runs
+# the hub and should be watched by it:
+#   7. runs install.sh --role both --name e2e-host --json: the hub is restarted, stopped for
+#      the token, started again, and the agent is enrolled, started and connected;
+#   8. checks the result (enrolled_host, agent_started), both units, `agent status`, and after
+#      a login that GET /api/v1/hosts lists the host; the token is in no log;
+#   9. runs --role both again (an upgrade): nothing is enrolled a second time, both services
+#      are restarted and the host is still listed and connected.
+#
 #   E2E_BINARY=/path/to/target/release/domovoi sudo -E deploy/test/installer-e2e.sh
+#   E2E_BOTH=1 E2E_BINARY=... sudo -E deploy/test/installer-e2e.sh    # adds the --role both section
 #
 # Needs: curl, python3, tar, sha256sum, systemd. The binary must run on this machine.
 set -eu
@@ -170,9 +180,64 @@ check "a second run creates no admin" test "$(result_field "$work/result2.json" 
 check "the unit is still active" systemctl is-active --quiet domovoi-hub
 check "the admin can still log in" test "$(login "$work/login.json")" = 200
 
+# --role both: the agent of the machine the hub runs on (opt-in: E2E_BOTH=1).
+if [ "${E2E_BOTH:-0}" = 1 ]; then
+    host="e2e-host"
+    cookies="$work/cookies"
+    login_cookie() { # logs in as admin and keeps the session cookie; prints the HTTP status
+        curl -s -o /dev/null -w '%{http_code}' -c "$cookies" -X POST \
+            -H 'Origin: http://127.0.0.1:7420' -H 'Content-Type: application/json' \
+            --data-binary "@$work/login.json" http://127.0.0.1:7420/api/v1/auth/login
+    }
+    agent_connected() { "/usr/local/bin/domovoi" agent status 2>&1 | grep -q '^connected since'; }
+    wait_connected() { # up to 30 s: the link may take a moment after a restart
+        wc_i=0
+        until agent_connected; do
+            wc_i=$((wc_i + 1))
+            [ "$wc_i" -lt 30 ] || return 1
+            sleep 1
+        done
+    }
+    rc=0
+    sh "$installer" --role both --version "$tag" --name "$host" --json >"$work/result3.json" 2>"$work/install3.err" || rc=$?
+    check "both: the installer exits 0" test "$rc" -eq 0
+    if [ "$rc" -ne 0 ]; then
+        echo "the --role both run exited $rc; its result and its error output follow"
+        cat "$work/result3.json" "$work/install3.err"
+    fi
+    check "both: the result is ok" test "$(result_field "$work/result3.json" 'r["ok"]')" = "True"
+    check "both: the role and layout are reported" test "$(result_field "$work/result3.json" '(r["role"], r["layout"])')" = "('both', 'hub')"
+    check "both: the hub was started" test "$(result_field "$work/result3.json" 'r["started"]')" = "True"
+    check "both: the agent was started" test "$(result_field "$work/result3.json" 'r["agent_started"]')" = "True"
+    check "both: the enrolled host is reported" test "$(result_field "$work/result3.json" 'r["enrolled_host"]')" = "$host"
+    check "both: the hub unit is active" systemctl is-active --quiet domovoi-hub
+    check "both: the agent unit is active" systemctl is-active --quiet domovoi-agent
+    check "both: the agent unit is enabled" systemctl is-enabled --quiet domovoi-agent
+    check "both: /readyz answers 200" test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7420/readyz)" = 200
+    check "both: the agent reports a connected link" wait_connected
+    check "both: the admin can log in" test "$(login_cookie)" = 200
+    check "both: the host is listed by GET /api/v1/hosts" sh -c "curl -s -b '$cookies' http://127.0.0.1:7420/api/v1/hosts | grep -q '$host'"
+    check "both: no enrollment token is in the install log" sh -c "! grep -Eq -- '--token +[A-Za-z0-9_-]{16,}' '$install_log' '$work/result3.json' '$work/install3.err'"
+    check "both: no temporary token file is left behind" sh -c "! find /tmp -name enroll.tok -o -name token.out 2>/dev/null | grep -q ."
+    # A second run is an upgrade: nothing is enrolled again.
+    rc=0
+    sh "$installer" --role both --version "$tag" --json >"$work/result4.json" 2>"$work/install4.err" || rc=$?
+    check "both: a second run exits 0" test "$rc" -eq 0
+    if [ "$rc" -ne 0 ]; then
+        echo "the second --role both run exited $rc; its result and its error output follow"
+        cat "$work/result4.json" "$work/install4.err"
+    fi
+    check "both: a second run restarts the hub" test "$(result_field "$work/result4.json" 'r["started"]')" = "True"
+    check "both: a second run enrolls nothing" test "$(result_field "$work/result4.json" '(r["enrolled_host"], r["agent_started"])')" = "('', False)"
+    check "both: both units are still active" sh -c "systemctl is-active --quiet domovoi-hub && systemctl is-active --quiet domovoi-agent"
+    check "both: the agent connects again" wait_connected
+    check "both: the admin can log in again" test "$(login_cookie)" = 200
+    check "both: the host is still listed" sh -c "curl -s -b '$cookies' http://127.0.0.1:7420/api/v1/hosts | grep -q '$host'"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"
-    echo "the hub log: journalctl -u domovoi-hub -n 50 --no-pager"
+    echo "the hub log: journalctl -u domovoi-hub -n 50 --no-pager; the agent: journalctl -u domovoi-agent -n 50 --no-pager"
     exit 1
 fi
 echo "all end-to-end checks passed"
