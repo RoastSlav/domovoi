@@ -371,6 +371,11 @@ pub(super) async fn create(
         }
         (None, None) => None,
     };
+    if expires_at.is_some_and(|at| at <= now) {
+        return Err(ApiError::BadRequest(
+            "expires_at is already in the past; give a time in the future".to_owned(),
+        ));
+    }
     let rule = AckRule {
         id: AckRuleId::new(),
         host,

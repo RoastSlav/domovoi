@@ -45,6 +45,12 @@ impl Validate for HubConfig {
                 "must be at least 1",
             ));
         }
+        if self.triage.enabled && self.triage.per_hour_runs == 0 {
+            issues.push(ConfigIssue::warning(
+                "triage.per_hour_runs",
+                "0 skips every triage run; set triage.enabled = false to turn triage off",
+            ));
+        }
         // Only an explicit reservation can be wrong: an omitted one is derived from the
         // hour, and a zero hour has nothing to keep free.
         if self.triage.per_hour_runs > 0
@@ -244,6 +250,14 @@ fn provider_rules(path: &str, provider: &LlmProvider, issues: &mut Vec<ConfigIss
                 ));
             }
         }
+    }
+    if let Some(url) = &provider.base_url
+        && !(matches!(url.scheme(), "http" | "https") && url.has_host())
+    {
+        issues.push(ConfigIssue::error(
+            format!("{path}.base_url"),
+            "must be an http or https URL such as \"http://localhost:11434/v1\"",
+        ));
     }
     if let Some(price) = &provider.price
         && !(non_negative(price.input_per_mtok_usd) && non_negative(price.output_per_mtok_usd))

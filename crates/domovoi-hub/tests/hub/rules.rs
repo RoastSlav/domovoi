@@ -244,6 +244,7 @@ async fn invalid_rule_fields_are_refused() {
         ("note", json!("")),
         ("expires_in_minutes", json!(0)),
         ("expires_in_minutes", json!(525_601)),
+        ("expires_at", json!("2020-01-01T00:00:00Z")),
     ]
     .into_iter()
     .map(|(field, value)| (rule_body(field, value), field))
