@@ -124,6 +124,19 @@ Before the hub lets an unattended action touch a host's network, it needs proof 
 | A webhook from the internet | Rejected without a valid signature or token, and limited in size. |
 | A secret in a log that triage reads | Known secrets and common credential patterns are redacted before the text reaches the model. |
 
+## What is not protected
+
+Domovoi narrows what can go wrong; it does not make these cases safe:
+
+- **A host whose root account is taken over.** Root can do anything there, including tamper with the agent. The hub then receives what that host chooses to send.
+- **The machine that runs the hub.** Whoever holds the hub's database and `secret.key` can read the secrets you saved and can compute any plan hash. The agent's own checks and its `allow_risk` limit still bound what a hub can ask a host to do, and the audit chain makes edits to the log detectable, but the hub is the part you must keep safe.
+- **Approving what you did not read.** An approval is a person's decision. Domovoi shows the exact plan and binds the approval to it, and then trusts you. The plan hash does not cover transitive dependencies, interpreters, other files in a skill folder or the runtime environment, so a skill that calls out to other software is as safe as that software.
+- **Chat approvals from the account that holds them.** A press by an allowlisted Discord user runs as the hub's one admin account. Keep `discord.allowed_user_ids` short.
+- **An agent that still runs as root.** Without the three-identities layout there is no privilege boundary: skills run as root or as the user their manifest names. The host is labelled "privilege boundary not in effect" everywhere it appears.
+- **Bad advice from a model.** A model can misjudge an incident. It cannot act on its own, but a card can still send you down the wrong path, so the evidence on each card is there to be checked.
+- **Secrets the redactor does not know.** Known secrets and common credential patterns are removed before text reaches a model or a chat. A secret in an unusual form can get through, so keep secrets out of notes and logs.
+- **A rewritten audit log.** The chain detects edits, deletions in the middle and rows inserted by tools that do not compute it. It cannot detect a full rewrite that recomputes every hash, or the deletion of the newest rows, unless you keep the head hash elsewhere (`domovoi audit head`).
+
 ## How this is tested
 
 - **Gate tests** in each crate prove the invariants directly: the tools offered to the model, approvals from chat, secrets in requests, report text never executed.
