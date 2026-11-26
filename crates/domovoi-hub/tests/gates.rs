@@ -1838,3 +1838,52 @@ fn engine_never_builds_an_authorization_for_permits() {
         }
     }
 }
+
+/// The availability code decides whether a host offers containment from the operations its helper
+/// lists, through the table of names in core, and says nothing the capability layer may not say:
+/// no approval, no safety state, no containment class, no relay.
+#[test]
+fn registry_code_stays_free_of_forbidden_strings() {
+    let sources = hub_sources();
+    let rules = sources
+        .iter()
+        .find(|(path, _)| path.ends_with("src/capability/host_rules.rs"))
+        .expect("the host availability rules are in the hub sources");
+    assert!(
+        rules.1.contains("containment::ops::offers_nft_group"),
+        "the nft operations are checked through the table of names in core"
+    );
+    let capability: Vec<_> = sources
+        .iter()
+        .filter(|(path, _)| path.contains("/src/capability/"))
+        .collect();
+    assert!(
+        capability.len() >= 3,
+        "the scan found {} files",
+        capability.len()
+    );
+    for (path, text) in capability {
+        for forbidden in [
+            "HumanApproval",
+            "PolicyPermit",
+            "Authorization",
+            "expected_safety",
+            "EffectClass::Contain",
+            "Contain {",
+            "ContainRelay",
+            "ContainDispatch",
+            "firewall_apply",
+            "firewall_confirm",
+            "firewall_rollback",
+        ] {
+            assert!(
+                !text
+                    .split("#[cfg(test)]")
+                    .next()
+                    .unwrap_or(text)
+                    .contains(forbidden),
+                "{path} mentions {forbidden}"
+            );
+        }
+    }
+}

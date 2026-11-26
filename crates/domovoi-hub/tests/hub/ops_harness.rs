@@ -87,6 +87,7 @@ pub async fn spawn(
     shutdown: &CancellationToken,
     host: &Host,
     triage: Option<TriageHandle>,
+    contain: Option<Arc<domovoi_engine::containment::ContainmentDriver>>,
 ) -> OperationHandle {
     let started = domovoi_core::ports::Clock::now(&**clock);
     link.set_presence(
@@ -146,7 +147,7 @@ pub async fn spawn(
                 settings: InvestigateSettings::default(),
             }),
             autonomy: None,
-            contain: None,
+            contain,
         },
         OperationSettings::default(),
     )

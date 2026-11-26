@@ -451,3 +451,65 @@ async fn a_configuration_change_or_a_helper_refusal_since_the_proposal_withholds
         &PermitRefusal::IdentityRefused(UnitRefusal::TargetStale)
     );
 }
+
+/// A proposed block of `203.0.113.0/24` whose plan binds an unverified helper, the way a step
+/// proposed on a host with no pinned key would.
+fn unverified_block_request(r: &Rig) -> PermitRequest {
+    use domovoi_core::action::{ContainmentPlan, PlanAssurance};
+    use domovoi_core::attest::UnverifiedReason;
+    use domovoi_core::containment::Net;
+    let source = "203.0.113.0/24";
+    let net = Net::parse(source).unwrap();
+    let plan = ContainmentPlan::new(
+        &net,
+        SignedDuration::from_secs(600),
+        r.host,
+        &domovoi_testkit::build::key_fingerprint(),
+        &PlanAssurance::Unverified(UnverifiedReason::KeyNotPinned),
+    )
+    .hash();
+    let step = StepId::new();
+    let intent = ExecutionIntent {
+        contract: ContractId::parse("firewall.block_source").unwrap(),
+        contract_version: 1,
+        host: r.host,
+        check: CheckKey::parse("firewall.block").unwrap(),
+        target: Some(TargetKey::parse(&format!("ipnet:{source}")).unwrap()),
+        args: BTreeMap::from([
+            ("source".to_owned(), source.to_owned()),
+            ("ttl_s".to_owned(), "600".to_owned()),
+        ]),
+        retry_of: None,
+    };
+    let execution = domovoi_core::ExecutionRecord::propose(
+        &intent,
+        step,
+        OperationId::new(),
+        plan,
+        T0 + SignedDuration::from_hours(1),
+        Risk::Destructive,
+        T0,
+    );
+    PermitRequest {
+        execution,
+        pinned: vec![PinnedSubject {
+            host: r.host,
+            check: CheckKey::parse("firewall.block").unwrap(),
+            target: Some(TargetKey::parse(&format!("ipnet:{source}")).unwrap()),
+        }],
+    }
+}
+
+/// Today the issuer builds a permit for a unit restart only: a block asked of it, whatever the
+/// helper's state, gets none. A permit for a block must never carry an unverified identity; when
+/// the issuer learns blocks this test is the one to extend with the verified and the unverified
+/// case side by side.
+#[tokio::test]
+async fn policy_permit_is_never_issued_with_unverified() {
+    let r = rig(Some(vec![allow_rule("r-block", Outcome::Allow)]), 12).await;
+    let outcome = r.issuer.issue(unverified_block_request(&r)).await;
+    assert!(
+        matches!(outcome, PermitOutcome::NotIssued(_)),
+        "a block for an unverified helper was permitted: {outcome:?}"
+    );
+}
