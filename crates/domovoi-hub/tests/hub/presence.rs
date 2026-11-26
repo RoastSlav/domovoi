@@ -21,13 +21,28 @@ async fn silent_agent_with_reachable_host_raises_agent_down() {
     let hub = Hub::start().await;
     let (ident, mut agent) = online(&hub, "nas").await;
     hub.server.check_presence().await;
-    assert!(hub.signals().is_empty(), "a fresh session is not silent");
+    // A fresh session is not silent. The first time the hub sees the agent alive it closes any
+    // liveness incident left from before a restart: two resolved signals, once.
+    let first: Vec<_> = hub
+        .signals()
+        .iter()
+        .map(|s| (s.check().as_str().to_owned(), s.status()))
+        .collect();
+    assert_eq!(
+        first,
+        [
+            ("agent.down".to_owned(), SignalStatus::Resolved),
+            ("host.down".to_owned(), SignalStatus::Resolved)
+        ]
+    );
+    hub.server.check_presence().await;
+    assert_eq!(hub.signals().len(), 2, "reconciled once per start");
 
     hub.clock.advance(SILENT);
     hub.server.check_presence().await;
     let signals = hub.signals();
-    assert_eq!(signals.len(), 1);
-    let down = &signals[0];
+    assert_eq!(signals.len(), 3);
+    let down = &signals[2];
     assert_eq!(down.check().as_str(), "agent.down");
     assert_eq!(down.host(), ident.host);
     assert_eq!(down.severity(), Severity::Warning);
@@ -40,7 +55,7 @@ async fn silent_agent_with_reachable_host_raises_agent_down() {
     assert_eq!(hub.probes.asked(), ["1.1.1.1:53", "127.0.0.1:22"]);
 
     hub.server.check_presence().await;
-    assert_eq!(hub.signals().len(), 1, "raised once per silence");
+    assert_eq!(hub.signals().len(), 3, "raised once per silence");
 
     // Any frame from the agent resolves it. The hub may be sending its own ping, so read
     // until the answer to ours arrives.
@@ -52,9 +67,9 @@ async fn silent_agent_with_reachable_host_raises_agent_down() {
     }
     hub.server.check_presence().await;
     let signals = hub.signals();
-    assert_eq!(signals.len(), 2);
-    assert_eq!(signals[1].check().as_str(), "agent.down");
-    assert_eq!(signals[1].status(), SignalStatus::Resolved);
+    assert_eq!(signals.len(), 4);
+    assert_eq!(signals[3].check().as_str(), "agent.down");
+    assert_eq!(signals[3].status(), SignalStatus::Resolved);
 }
 
 #[tokio::test]

@@ -68,6 +68,12 @@ pub(crate) async fn check(inner: &Inner) {
     {
         resolve(inner, watch, now).await;
     }
+    for watch in watches
+        .iter()
+        .filter(|w| w.raised.is_none() && !is_silent(w))
+    {
+        reconcile(inner, watch, now).await;
+    }
     let silent: Vec<&Watch> = watches
         .iter()
         .filter(|w| w.raised.is_none() && is_silent(w))
@@ -217,5 +223,38 @@ async fn resolve(inner: &Inner, watch: &Watch, now: Timestamp) {
     );
     if submit(inner, signal).await {
         inner.registry.set_raised(watch.host, None);
+    }
+}
+
+/// The first time after a start that a host's agent is seen alive, closes any `agent.down` or
+/// `host.down` incident left from before the start: the memory of what was raised is gone,
+/// but the incident is in the store. A signal that matches nothing is harmless.
+async fn reconcile(inner: &Inner, watch: &Watch, now: Timestamp) {
+    let first = inner
+        .reconciled
+        .lock()
+        .map(|mut seen| seen.insert(watch.host))
+        .unwrap_or(false);
+    if !first {
+        return;
+    }
+    let name = host_name(inner, watch.host).await;
+    for liveness in [Liveness::AgentDown, Liveness::HostDown] {
+        let Some(check) = key(liveness_key(liveness)) else {
+            continue;
+        };
+        let signal = Signal::resolved(
+            SourceKind::Probe,
+            watch.host,
+            check,
+            None,
+            format!("{name}: the agent is back"),
+            now,
+        );
+        if !submit(inner, signal).await
+            && let Ok(mut seen) = inner.reconciled.lock()
+        {
+            seen.remove(&watch.host);
+        }
     }
 }

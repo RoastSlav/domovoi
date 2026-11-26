@@ -91,6 +91,10 @@ struct Inner {
     registry: Arc<Registry>,
     link: Arc<WsAgentLink>,
     network_degraded: AtomicBool,
+    /// Hosts whose liveness incidents were closed after this hub started, once their agent
+    /// was seen alive. The raised state is memory only, so an incident raised before a
+    /// restart would otherwise stay open after the agent is back.
+    reconciled: std::sync::Mutex<std::collections::BTreeSet<HostId>>,
     shutdown: CancellationToken,
     /// Where per-host check overrides are read from, once the runtime provides it.
     overrides: OnceLock<Arc<dyn domovoi_core::ports::SettingsRepo>>,
@@ -132,6 +136,7 @@ impl AgentServer {
                 registry,
                 link,
                 network_degraded: AtomicBool::new(false),
+                reconciled: std::sync::Mutex::new(std::collections::BTreeSet::new()),
                 shutdown: CancellationToken::new(),
                 overrides: OnceLock::new(),
                 reconciler: OnceLock::new(),
