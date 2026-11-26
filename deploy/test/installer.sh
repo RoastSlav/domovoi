@@ -310,7 +310,8 @@ check "no agent.toml written" test ! -e /etc/domovoi/agent.toml
 check "agent unit installed (the root unit: there is no systemd here)" \
     sh -c "sh '$installer' --print-unit agent-legacy | cmp -s - /etc/systemd/system/domovoi-agent.service"
 check "agent next steps printed" grep -q "Add host" "$work/out"
-# With no /run/systemd/system the agent keeps today's layout: no accounts, no helper, today's modes.
+check "agent next steps list the journal init after the enroll and before the start" \
+    sh -c "a=\$(grep -n 'Add host' '$work/out' | head -n 1 | cut -d: -f1); b=\$(grep -n 'agent journal init' '$work/out' | head -n 1 | cut -d: -f1); c=\$(grep -n 'sudo systemctl enable --now domovoi-agent' '$work/out' | head -n 1 | cut -d: -f1); test -n \"\$a\" && test -n \"\$b\" && test -n \"\$c\" && test \"\$a\" -lt \"\$b\" && test \"\$b\" -lt \"\$c\""
 check "privilege boundary notice printed without systemd" \
     grep -q "privilege boundary not in effect: no systemd on this host" "$work/out"
 check "no domovoi-agent account created" sh -c "! id domovoi-agent >/dev/null 2>&1"
@@ -633,6 +634,20 @@ case "\$*" in
     : >/etc/domovoi/agent.toml
     echo "Enrolled as host 1 (agent 2)."
     ;;
+"agent journal init")
+    id -un >"$out_dir/journal-ran-as"
+    if [ -e "$out_dir/journal-fails" ]; then
+        echo "error: the action journal could not be created" >&2
+        exit 1
+    fi
+    if [ -e /var/lib/domovoi-agent/action-journal.json ] || [ -e /var/lib/domovoi-agent/action-journal.bin ]; then
+        echo "error: an action journal exists" >&2
+        exit 1
+    fi
+    : >/var/lib/domovoi-agent/action-journal.json
+    : >/var/lib/domovoi-agent/action-journal.bin
+    echo "The action journal at /var/lib/domovoi-agent now uses epoch 1."
+    ;;
 "agent status")
     if [ -e "$out_dir/connect" ]; then
         echo "connected since 2030-01-01T00:00:00Z."
@@ -664,6 +679,7 @@ calls_reset() {
 enroll_reset() { # a host with a hub user and nothing running or enrolled
     hub_reset
     rm -f /etc/domovoi/agent.toml "$work/agent-active" "$out_dir/connect" "$out_dir/enroll-fails" \
+        /var/lib/domovoi-agent/action-journal.json /var/lib/domovoi-agent/action-journal.bin "$out_dir/journal-fails" "$out_dir/journal-ran-as" \
         "$out_dir/token-fails" "$out_dir/enroll.env" "$out_dir/token-ran-as" "$out_dir/enroll-ran-as"
     calls_reset
     printf '%s\n' "$journal_link" >"$work/journal.txt"
@@ -703,7 +719,9 @@ check "enroll: enroll got the hub, fingerprint and name" grep -qx "domovoi agent
 check "enroll: the token reached enroll through its environment" test "$(cat "$out_dir/enroll.env")" = "$tok"
 check "enroll: enroll ran as root" test "$(cat "$out_dir/enroll-ran-as")" = root
 check "enroll: the token is in no argument, output or log" no_token_run
-check "enroll: the order is enroll, enable, status" in_order 'domovoi agent enroll' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
+check "enroll: the order is enroll, journal init, enable, status" in_order 'domovoi agent enroll' 'domovoi agent journal init' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
+check "enroll: the journal was created as root" test "$(cat "$out_dir/journal-ran-as")" = root
+check "enroll: the journal files exist" sh -c "test -e /var/lib/domovoi-agent/action-journal.json && test -e /var/lib/domovoi-agent/action-journal.bin"
 check "enroll: the summary says the agent is connected" grep -q "The agent is enrolled as host nas and connected to wss://hub.lan:7421" "$work/out"
 check "enroll: the agent next steps of before are not printed" sh -c "! grep -q 'Add host' '$work/out'"
 check "enroll: the boundary notice still names the hub" grep -q "privilege boundary not in effect" "$work/out"
@@ -745,12 +763,25 @@ check "enroll: a refused enroll does not start the agent" sh -c "! grep -q 'enab
 check "enroll: a refused enroll shows the message with the token hidden" grep -q "was refused (--token REDACTED" "$work/out"
 check "enroll: a refused enroll keeps the token out of everything" no_token_run
 check "enroll: a refused enroll says what to do by hand" grep -q "Add host" "$work/out"
+# An existing journal is kept: init would refuse, so it is not run.
+enroll_reset
+touch "$out_dir/connect"
+: >/var/lib/domovoi-agent/action-journal.json
+check "enroll: an agent with a journal installs" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas)" = 0
+check "enroll: an existing journal is not initialised again" sh -c "! grep -q 'agent journal init' '$out_dir/calls.log'"
+# A journal that cannot be created: exit 40 and the unit is not started.
+enroll_reset
+touch "$out_dir/journal-fails"
+check "enroll: a failed journal init exits 40" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas)" = 40
+check "enroll: a failed journal init does not start the agent" sh -c "! grep -q 'enable --now domovoi-agent' '$work/systemctl.log'"
+check "enroll: a failed journal init names the command to run" grep -q "sudo /usr/local/bin/domovoi agent journal init" "$work/out" "$work/err"
 # The dry run names the steps and runs none of them.
 enroll_reset
 check "enroll: the dry run succeeds" test "$(agent_rc --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" --name nas --dry-run)" = 0
 check "enroll: the dry run lists the enroll command" grep -q "domovoi agent enroll --hub wss://hub.lan:7421 --fingerprint $fp --name nas" "$work/out"
+check "enroll: the dry run lists the journal" grep -q "domovoi agent journal init" "$work/out"
 check "enroll: the dry run lists the start and the wait" grep -q "enable --now domovoi-agent, then wait up to 30 s" "$work/out"
-check "enroll: the dry run ran nothing" sh -c "! grep -qE 'agent enroll|token create|systemctl' '$out_dir/calls.log'"
+check "enroll: the dry run ran nothing" sh -c "! grep -qE 'agent enroll|journal init|token create|systemctl' '$out_dir/calls.log'"
 check "enroll: the dry run does not show the token" no_token "$work/out" "$work/err"
 
 # --role both: hub, stop, token, hub, enroll, enable.
@@ -759,7 +790,7 @@ touch "$out_dir/connect"
 check "both: a machine with a hub and an agent installs" test "$(agent_rc --role both --public-url https://domovoi.example --bind loopback --name nas --admin-password-file "$adminpw")" = 0
 check "both: the order is start, stop, token, start, enroll, enable, status" in_order \
     'systemctl enable --now domovoi-hub' 'systemctl stop domovoi-hub' 'domovoi hub token create nas --ttl 15m' \
-    'systemctl start domovoi-hub' 'domovoi agent enroll' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
+    'systemctl start domovoi-hub' 'domovoi agent enroll' 'domovoi agent journal init' 'systemctl enable --now domovoi-agent' 'domovoi agent status'
 check "both: the token was made as the hub user" test "$(cat "$out_dir/token-ran-as")" = domovoi
 check "both: enroll ran as root" test "$(cat "$out_dir/enroll-ran-as")" = root
 check "both: enroll got the token only through its environment" test "$(cat "$out_dir/enroll.env")" = "$tok"
@@ -793,6 +824,13 @@ check "both: a second run makes no token" sh -c "! grep -q 'token create' '$out_
 check "both: a second run enrolls nothing" sh -c "! grep -q 'agent enroll' '$out_dir/calls.log'"
 check "both: a second run restarts the hub and the agent" sh -c "grep -qx 'systemctl restart domovoi-hub' '$out_dir/calls.log' && grep -qx 'systemctl restart domovoi-agent' '$out_dir/calls.log'"
 check "both: a second run says the agent was not enrolled again" grep -q "already enrolled" "$work/out"
+check "both: a second run leaves the journal alone" sh -c "! grep -q 'journal init' '$out_dir/calls.log'"
+# An agent set up by an older installer has no journal: a re-run creates it before restarting.
+rm -f /var/lib/domovoi-agent/action-journal.json /var/lib/domovoi-agent/action-journal.bin
+calls_reset
+check "both: a run that finds no journal succeeds" test "$(agent_rc --role both)" = 0
+check "both: the journal is created before the agent restarts" in_order 'domovoi agent journal init' 'systemctl restart domovoi-agent'
+check "both: the healing run enrolls nothing" sh -c "! grep -q 'agent enroll' '$out_dir/calls.log'"
 # Failures after the hub started leave it running and say what to run.
 enroll_reset
 touch "$out_dir/token-fails"

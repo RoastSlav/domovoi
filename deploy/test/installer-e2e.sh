@@ -215,6 +215,8 @@ if [ "${E2E_BOTH:-0}" = 1 ]; then
     check "both: the agent unit is enabled" systemctl is-enabled --quiet domovoi-agent
     check "both: /readyz answers 200" test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7420/readyz)" = 200
     check "both: the agent reports a connected link" wait_connected
+    check "both: the action journal was created before the first start" sh -c "test -e /var/lib/domovoi-agent/action-journal.json && test -e /var/lib/domovoi-agent/action-journal.bin"
+    check "both: the agent did not crash-loop on a missing journal" sh -c "! journalctl -u domovoi-agent --no-pager 2>/dev/null | grep -q 'no action journal'"
     check "both: the admin can log in" test "$(login_cookie)" = 200
     check "both: the host is listed by GET /api/v1/hosts" sh -c "curl -s -b '$cookies' http://127.0.0.1:7420/api/v1/hosts | grep -q '$host'"
     check "both: no enrollment token is in the install log" sh -c "! grep -Eq -- '--token +[A-Za-z0-9_-]{16,}' '$install_log' '$work/result3.json' '$work/install3.err'"
@@ -233,6 +235,15 @@ if [ "${E2E_BOTH:-0}" = 1 ]; then
     check "both: the agent connects again" wait_connected
     check "both: the admin can log in again" test "$(login_cookie)" = 200
     check "both: the host is still listed" sh -c "curl -s -b '$cookies' http://127.0.0.1:7420/api/v1/hosts | grep -q '$host'"
+    # An agent set up before the installer made the journal has none: a re-run creates it and
+    # the agent connects, which is the proof.
+    systemctl stop domovoi-agent
+    rm -f /var/lib/domovoi-agent/action-journal.json /var/lib/domovoi-agent/action-journal.bin
+    rc=0
+    sh "$installer" --role both --version "$tag" --json >"$work/result5.json" 2>"$work/install5.err" || rc=$?
+    check "both: a run that finds no journal exits 0" test "$rc" -eq 0
+    check "both: the journal is created again" sh -c "test -e /var/lib/domovoi-agent/action-journal.json && test -e /var/lib/domovoi-agent/action-journal.bin"
+    check "both: the agent connects with the new journal" wait_connected
 fi
 
 if [ "$failures" -gt 0 ]; then

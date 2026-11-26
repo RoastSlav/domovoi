@@ -575,7 +575,7 @@ efns="$work/enroll-functions.sh"
 for fn in say log_line say_always err warn fail_with fail show_file show_file_err ns env_get \
     local_web_url probe_ready redact_tokens wait_ready check_url read_secret_file default_host_name \
     resolve_enroll_name resolve_enroll scrub_token agent_hint wait_agent_link enroll_and_start_agent \
-    both_make_token check_schema_reset ver_cmp; do
+    both_make_token check_schema_reset ver_cmp agent_state_dir journal_exists ensure_agent_journal heal_agent_journal; do
     if grep -q "^$fn() {.*}\$" "$installer"; then
         grep "^$fn() {.*}\$" "$installer" >>"$efns"
     else
@@ -584,8 +584,9 @@ for fn in say log_line say_always err warn fail_with fail show_file show_file_er
 done
 # record_next has a line that starts with a closing brace, so it is stubbed rather than extracted.
 printf '%s\n' 'record_next() { :; }' >>"$efns"
-check "the enrollment functions were extracted" test "$(grep -c '^[a-z_]*() {' "$efns")" -eq 28
+check "the enrollment functions were extracted" test "$(grep -c '^[a-z_]*() {' "$efns")" -eq 32
 elog="$work/elog"
+jdir="$work/agent-state"
 mkdir -p "$elog" "$work/et" "$work/estub"
 fp_colon="$fpc"
 cat >"$work/estub/domovoi" <<STUB
@@ -600,6 +601,16 @@ case "\$*" in
     fi
     echo "Wrote /etc/domovoi/agent.toml."
     echo "Enrolled as host 1 (agent 2). It echoes $tok by mistake."
+    ;;
+"agent journal init")
+    if [ -e "$elog/journal-fails" ]; then
+        echo "error: the action journal could not be created" >&2
+        exit 1
+    fi
+    mkdir -p "$jdir"
+    : >"$jdir/action-journal.json"
+    : >"$jdir/action-journal.bin"
+    echo "The action journal at $jdir now uses epoch 1."
     ;;
 "agent status")
     if [ -e "$elog/connected" ]; then
@@ -624,13 +635,16 @@ esac
 STUB
 chmod 0755 "$work/estub/domovoi"
 # shellcheck disable=SC2016 # the stubs are for the child shell
-estubs='systemctl() { echo "systemctl $*" >>"'"$elog"'/argv.log"; case "$1 $2" in "stop domovoi-hub") rm -f "'"$elog"'/hub-active" ;; "start domovoi-hub") touch "'"$elog"'/hub-active" ;; esac; }; journalctl() { echo "agent: dialing wss://hub.lan:7421"; echo "agent: enroll --token '"$tok"'"; }; run_as_domovoi() { "$@"; }; probe_ready() { return 0; }'
+estubs='systemctl() { echo "systemctl $*" >>"'"$elog"'/argv.log"; case "$1 $2" in "stop domovoi-hub") rm -f "'"$elog"'/hub-active" ;; "start domovoi-hub") touch "'"$elog"'/hub-active" ;; esac; }; journalctl() { echo "agent: dialing wss://hub.lan:7421"; echo "agent: enroll --token '"$tok"'"; }; run_as_domovoi() { "$@"; }; probe_ready() { return 0; }; step() { echo "$*" >>"'"$elog"'/steps.log"; }'
 erun() { # SCRIPT: runs it with the extracted functions and the stubs
     rm -rf "$work/et"
     mkdir -p "$work/et"
+    printf 'state_dir = "%s"\n' "$jdir" >"$work/agent.toml"
+    : >"$work/agent.unit"
+    if [ -z "${keep_journal:-}" ]; then rm -rf "$jdir"; fi
     printf '%s\n' "$tok" >"$work/et/enroll.tok"
     chmod 0600 "$work/et/enroll.tok"
-    sh -c "set -eu; . '$efns'; sleep() { :; }; $estubs; tmp='$work/et'; log_file='$work/e.log'; hub_env='$work/e.env'; quiet=0; json=0; bin='$work/estub/domovoi'; enroll_hub=wss://hub.lan:7421; enroll_fp='$fp'; enroll_name=nas; agent_timeout=3; enrolled_host=''; agent_started=0; hub_stopped=0; role=agent; $1" \
+    sh -c "set -eu; . '$efns'; sleep() { :; }; $estubs; tmp='$work/et'; log_file='$work/e.log'; hub_env='$work/e.env'; quiet=0; json=0; bin='$work/estub/domovoi'; agent_toml='$work/agent.toml'; agent_unit_path='$work/agent.unit'; enroll_hub=wss://hub.lan:7421; enroll_fp='$fp'; enroll_name=nas; agent_timeout=3; enrolled_host=''; agent_started=0; hub_stopped=0; role=agent; $1" \
         >"$work/e.out" 2>"$work/e.err"
 }
 no_token_anywhere() {
@@ -658,6 +672,9 @@ check "the token reaches enroll through its environment" test "$(cat "$elog/enro
 check "the token is in no argument list" sh -c "! grep -q '$tok' '$elog/argv.log'"
 check "the token is not in the output or the log" no_token_anywhere
 check "enroll came before the unit was enabled" sh -c "test \"\$(grep -n 'agent enroll' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'enable --now domovoi-agent' '$elog/argv.log' | cut -d: -f1)\""
+check "the journal was created after enroll and before the unit was enabled" sh -c "test \"\$(grep -n 'agent enroll' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'agent journal init' '$elog/argv.log' | cut -d: -f1)\" && test \"\$(grep -n 'agent journal init' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'enable --now domovoi-agent' '$elog/argv.log' | cut -d: -f1)\""
+check "the journal step was announced" grep -qx "journal Creating the agent's action journal" "$elog/steps.log"
+check "the journal files exist after the start" test -e "$jdir/action-journal.json" -a -e "$jdir/action-journal.bin"
 check "the status was asked after the unit was enabled" sh -c "test \"\$(grep -n 'enable --now domovoi-agent' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'agent status' '$elog/argv.log' | cut -d: -f1)\""
 check "a leaked token in the enroll output is hidden" grep -q "REDACTED" "$work/e.out"
 rm -f "$elog"/*
@@ -669,6 +686,35 @@ check "a failed enroll does not enable the unit" sh -c "! grep -q 'enable --now 
 check "a failed enroll shows the message with the token hidden" grep -q "was refused (--token REDACTED" "$work/e.out"
 check "a failed enroll leaves the token out of everything" no_token_anywhere
 check "a failed enroll says what to do by hand" grep -q "To finish the agent by hand" "$work/e.out"
+# The journal: skipped when it exists, exit 40 when init fails, healed on a re-run.
+rm -f "$elog"/*
+keep_journal=1
+mkdir -p "$jdir"
+: >"$jdir/action-journal.bin"
+check "an existing journal is left alone" erun "touch '$elog/connected'; enroll_and_start_agent"
+check "init is not run when a journal file exists" sh -c "! grep -q 'agent journal init' '$elog/argv.log'"
+check "the unit is still enabled when the journal exists" grep -q 'enable --now domovoi-agent' "$elog/argv.log"
+keep_journal=
+rm -f "$elog"/*
+touch "$elog/journal-fails"
+e_rc=0
+erun "enroll_and_start_agent" || e_rc=$?
+check "a failed journal init exits 40" test "$e_rc" -eq 40
+check "a failed journal init does not enable the unit" sh -c "! grep -q 'enable --now domovoi-agent' '$elog/argv.log'"
+check "a failed journal init shows its message" grep -q "action journal could not be created" "$work/e.out" "$work/e.err"
+check "a failed journal init names the command to run by hand" grep -q "sudo $work/estub/domovoi agent journal init" "$work/e.out"
+check "a failed journal init names the unit to enable" grep -q "sudo systemctl enable --now domovoi-agent" "$work/e.out"
+rm -f "$elog"/*
+check "a re-run creates a journal an older installer left out" erun "heal_agent_journal; test \"\$ej_created\" = 1"
+check "the heal ran init before the restart" sh -c "test \"\$(grep -n 'agent journal init' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'restart domovoi-agent' '$elog/argv.log' | cut -d: -f1)\""
+check "the heal did not enroll again" sh -c "! grep -q 'agent enroll' '$elog/argv.log'"
+rm -f "$elog"/*
+keep_journal=1
+: >"$jdir/action-journal.json"
+: >"$elog/argv.log"
+check "a re-run with a journal changes nothing" erun "heal_agent_journal; test \"\$ej_created\" = 0"
+check "a re-run with a journal neither inits nor restarts" sh -c "! grep -q 'journal init\|restart' '$elog/argv.log'"
+keep_journal=
 # Waiting for the link.
 rm -f "$elog"/*
 e_rc=0
