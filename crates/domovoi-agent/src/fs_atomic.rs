@@ -71,13 +71,7 @@ pub enum DurableWriteError {
     Indeterminate(StateError),
 }
 
-impl DurableWriteError {
-    /// Whether the rename succeeded but the directory `fsync` did not.
-    #[must_use]
-    pub fn is_indeterminate(&self) -> bool {
-        matches!(self, Self::Indeterminate(_))
-    }
-}
+impl DurableWriteError {}
 
 /// Like [`write_atomic`], then `fsync` the parent directory so the rename itself is durable.
 ///
