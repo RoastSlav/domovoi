@@ -713,7 +713,7 @@ The operation detail page is laid out in this order: the header, one banner at a
 ## Planned (added with the operation UI)
 
 Nothing in this section exists in the code yet, and no test reads it. It records the agreed
-direction from `docs/design-pack` so work on operations, the graph and the new pages starts from
+direction so work on operations, the graph and the new pages starts from
 one set of rules. Each item moves into the sections above in the PR that builds it, together
 with its tokens, kit component, `/dev/design` demo and test.
 
@@ -742,7 +742,7 @@ the shell.
 
 **New kit components** (`OperatorThread` is in the kit; the Operator is a surface of the right slot, and its `turn status` vocabulary is `Answering`, `Answered`, `Not answered`, `Stopped`) (each added to the kit, this list and `/dev/design` together): an inspector; a split pane with a keyboard-operable divider; a
 virtual list; the one structured approval card (contract, target, arguments, effect class,
-reversibility, expiry, plan-hash prefix, a label for which plan hash the approval binds ("v1 binding" or "v2 binding" during the migration, RW-11), policy decision, an agent refusal reason such as a rate limit, and the unverified human variant for containment without verified helper coverage (reason, NOT PROTECTED path list, step-up then typed confirmation, RW-37); model text secondary and labelled); a
+reversibility, expiry, plan-hash prefix, policy decision, an agent refusal reason such as a rate limit, and the unverified human variant for containment without verified helper coverage (reason, NOT PROTECTED path list, step-up then typed confirmation); model text secondary and labelled); a
 freshness label.
 
 **Freshness.** `QueryBoundary` gains refreshing, stale and refresh-error states and a "last
@@ -758,13 +758,13 @@ through `tone.ts`: `knowledgeStatusMeta` (current, stale, disputed, replaced, re
 states only, "Cannot be verified yet" and "Checked when you confirm". There is no state that reads
 as covered. Words for sources, predicates and relations are plain lookups in
 `design/knowledgeText.ts`, not statuses. The host state **`Incompatible`** (agent upgrade required:
-the agent speaks another protocol minor than the hub, D-20) is its own status with an
+the agent speaks another protocol minor than the hub) is its own status with an
 upgrade-required hint and is never shown with the offline status; its banner and host page keep
 history readable. It is read from the persisted agent record, so it survives a hub restart, and
-after a hub upgrade a host that has not reconnected reads "expected incompatible" (RW-17). The
-privilege states (D-29, RW-39) are statuses too: a **root-agent warning** (the agent runs as root,
+after a hub upgrade a host that has not reconnected reads "expected incompatible". The
+privilege states are statuses too: a **root-agent warning** (the agent runs as root,
 the privilege boundary is not in effect, no unattended execution; shown as a banner and on the host
-page), **skill runner unavailable** (`skill_runner_status` is `absent`, `unsupported{reason}` or `error{reason}`, RW-42: every skill is `Unavailable(skill_runner_*)` with the reason, and skills never fall back to the control agent)
+page), **skill runner unavailable** (`skill_runner_status` is `absent`, `unsupported{reason}` or `error{reason}`: every skill is `Unavailable(skill_runner_*)` with the reason, and skills never fall back to the control agent)
 and **helper unavailable** (the root-owned helper is absent or in error; shown on each
 affected check and capability, never as a failure or as offline).
 The host page shows the helper's verified effective set (computed and signed by the helper, relayed
@@ -772,7 +772,7 @@ unchanged by the agent, never an agent-reported summary; the UI has no second ed
 read-only beside the confirmed management paths, each discovered path marked covered or uncovered
 judged only against verified data, with the attestation's freshness, an unverified state when no
 fresh verified report exists, and the instruction to edit `helper.toml` on the host (then Re-check)
-for an uncovered path (RW-37). The enrollment screen shows the received helper key's full
+for an uncovered path. The enrollment screen shows the received helper key's full
 fingerprint as unverified until the owner confirms it against the host's own printout (nothing is
 pinned automatically; the key id is a label); a changed key reads "helper key changed: re-enroll" and blocks
 containment; the helper's fail-closed reasons (`state_missing`, `state_corrupt`, `state_key_mismatch`,
