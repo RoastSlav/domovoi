@@ -248,3 +248,31 @@ async fn investigate_and_wait_times_out_with_a_skipped_outcome() {
     assert_eq!(w.count(&w.incident, "triage.report").await, 1);
     assert_eq!(w.llm.requests().len(), 1);
 }
+
+#[tokio::test]
+async fn manual_run_replaces_a_parked_retry_instead_of_answering_already_running() {
+    let w = inv(hourly(1)).await;
+    take_the_slot(&w).await;
+    let parked = w.start().await;
+    until_skipped(&w, parked).await;
+    w.until(parked, |s| !of_kind(s, StepKind::Notification).is_empty())
+        .await;
+
+    // The automatic path keeps the parked operation: its retry has a due time of its own.
+    assert_eq!(
+        w.ops.investigate(&w.incident, false).await.unwrap(),
+        parked,
+        "an event does not restart a parked retry"
+    );
+
+    // A person asking for a run does not get "already running" for up to an hour. The
+    // replacement goes through the same hourly limit, so it is skipped again, not run.
+    let outcome = w.spawn_wait().await.unwrap();
+    assert!(
+        !matches!(outcome, Err(InvestigateError::AlreadyRunning(_))),
+        "{outcome:?}"
+    );
+    let old = w.until_closed(parked).await;
+    assert_eq!(old.operation.status, OperationStatus::Cancelled);
+    assert_eq!(w.llm.requests().len(), 1, "the hourly limit still holds");
+}
