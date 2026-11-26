@@ -9,13 +9,25 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM rust:1.97-alpine AS build
+# The toolchain image with cargo-chef, which splits the build in two: the dependencies are
+# compiled from a recipe that only changes when a Cargo.toml or Cargo.lock does, so that layer is
+# reused while the workspace sources change.
+FROM rust:1.97-alpine AS chef
 RUN apk add --no-cache musl-dev
 # Use the image's toolchain instead of downloading the one pinned in rust-toolchain.toml.
 ENV RUSTUP_TOOLCHAIN=1.97.0 CARGO_TERM_COLOR=always
+RUN cargo install cargo-chef --locked --version 0.1.78
+WORKDIR /src
+
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS build
 # The cargo profile to build with. CI passes `smoke`, which skips link-time optimisation.
 ARG PROFILE=release
-WORKDIR /src
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --profile "$PROFILE" --locked --package domovoi --features embed-ui --recipe-path recipe.json
 COPY . .
 COPY --from=web /src/web/dist web/dist
 RUN cargo build --profile "$PROFILE" --locked --package domovoi --features embed-ui \
