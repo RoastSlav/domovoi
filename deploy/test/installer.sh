@@ -71,12 +71,12 @@ check "an unknown unit name is refused" \
 # The runner steps need systemd, so they are tested through the functions of install.sh, taken
 # out of the script as written, with stubs for the binary and for systemctl.
 fns="$work/install-functions.sh"
-grep '^say() {' "$installer" >"$fns" # a one-line function
-for fn in fail failed_checks runner_service_unit render_runner_service runner_prefix_ok \
+grep '^\(say\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
+for fn in err fail_with failed_checks runner_service_unit render_runner_service runner_prefix_ok \
     runner_dirs place_unit start_sockets; do
     sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
 done
-check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 9
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 14
 
 rendered="$work/rendered.service"
 render_with() {
@@ -248,6 +248,36 @@ run_install() {
     sh "$installer" "$@" >"$work/out" 2>&1
 }
 
+
+# The usage text, the input checks and --dry-run need no state, so they run before the first
+# install: a dry run must leave a clean machine clean.
+exit_of() { sh "$installer" "$@" >"$work/out" 2>&1 && echo 0 || echo $?; }
+check "usage lists the exit codes" sh -c "sh '$installer' --help | grep -q 'Exit codes:' && sh '$installer' --help | grep -Eq '^  50  '"
+check "a bad --version exits 2" test "$(exit_of --role hub --version 'v1;x')" = 2
+check "a relative --prefix exits 2" test "$(exit_of --role hub --prefix rel/dir)" = 2
+check "a plain-http base outside loopback exits 2" \
+    test "$(DOMOVOI_RELEASE_BASE=http://example.invalid/r exit_of --role hub --version v9.9.0 --dry-run)" = 2
+check "DOMOVOI_ALLOW_HTTP=1 allows a plain-http base" \
+    test "$(DOMOVOI_ALLOW_HTTP=1 DOMOVOI_RELEASE_BASE=http://example.invalid/r exit_of --role hub --version v9.9.0 --dry-run)" = 0
+check "hub dry run exits 0" test "$(exit_of --role hub --version v9.9.0 --dry-run)" = 0
+check "hub dry run prints the plan" grep -q "create   system user domovoi" "$work/out"
+check "agent dry run exits 0" test "$(exit_of --role agent --dry-run)" = 0
+check "dry run created no binary" test ! -e /usr/local/bin/domovoi
+check "dry run created no user" sh -c "! id domovoi >/dev/null 2>&1"
+check "dry run created no directory" sh -c "test ! -e /etc/domovoi && test ! -e /var/lib/domovoi && test ! -e /var/lib/domovoi-agent"
+check "dry run installed no unit" sh -c "test ! -e /etc/systemd/system/domovoi-hub.service && test ! -e /etc/systemd/system/domovoi-agent.service"
+check_json() {
+    python3 -I -c '
+import json, sys
+objs = [json.loads(l) for l in open(sys.argv[1]).read().splitlines()]
+assert objs and [o["event"] for o in objs].count("result") == 1 and objs[-1]["event"] == "result"
+assert all(o["event"] == "step" for o in objs[:-1])
+assert objs[-1]["ok"] is True and objs[-1]["exit_code"] == 0
+' "$1"
+}
+sh "$installer" --role hub --version v9.9.0 --dry-run --json >"$work/json.out" 2>/dev/null
+check "json dry run is only JSON lines ending in one result" check_json "$work/json.out"
+
 # A hub, at an explicit version.
 check "hub install succeeds" run_install --role hub --version v9.9.0
 check "binary installed" test -x /usr/local/bin/domovoi
@@ -316,6 +346,12 @@ check "upgrade does not suggest enable --now" test -z "$(grep "enable --now" "$w
 check "changed mode kept" test "$(mode_of /var/lib/domovoi)" = 700
 check "unchanged unit reported up to date" sh -c "sh '$installer' --role agent 2>&1 | grep -q 'domovoi-agent.service is up to date'"
 
+
+# --json on a real run, over an install that already exists.
+sh "$installer" --role hub --json >"$work/json.out" 2>/dev/null
+check "json install is only JSON lines ending in one result" check_json "$work/json.out"
+check "json result names the binary" sh -c "grep -q '\"binary\":\"/usr/local/bin/domovoi\"' '$work/json.out'"
+
 # The identity migration and its rollback need systemd and say so before touching anything.
 if run_install --role agent --migrate-identity; then
     fail "migrate-identity is refused without systemd"
@@ -329,17 +365,27 @@ if run_install --rollback-identity; then
 else
     pass "rollback-identity is refused without systemd"
 fi
-if run_install --role agent --yes; then
-    fail "there is no --yes"
+# --yes never prompts, and it is not a way past the typed word of --migrate-identity.
+if run_install --role agent --yes --migrate-identity; then
+    fail "--yes does not bypass the migration's confirmation"
 else
-    pass "there is no --yes"
+    pass "--yes does not bypass the migration's confirmation"
 fi
 
-# A bad checksum stops the install before anything is replaced.
+# An older version than the one installed is refused without --force-downgrade.
 before="$(sha256sum /usr/local/bin/domovoi)"
+if run_install --role hub --version v9.9.0; then
+    fail "a downgrade is refused without --force-downgrade"
+else
+    pass "a downgrade is refused without --force-downgrade"
+fi
+check "the downgrade refusal names the flag" grep -q "force-downgrade" "$work/out"
+check "binary untouched after a refused downgrade" test "$(sha256sum /usr/local/bin/domovoi)" = "$before"
+
+# A bad checksum stops the install before anything is replaced.
 echo "0000000000000000000000000000000000000000000000000000000000000000  domovoi-v9.9.0-$target.tar.gz" \
     >"$work/srv/download/v9.9.0/domovoi-v9.9.0-$target.tar.gz.sha256"
-if run_install --role hub --version v9.9.0; then
+if run_install --role hub --version v9.9.0 --force-downgrade; then
     fail "bad checksum is refused"
 else
     pass "bad checksum is refused"
