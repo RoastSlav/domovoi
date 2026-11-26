@@ -55,3 +55,4 @@ An ADR records one decision that shapes the codebase: the context, the decision 
 | [0036](0036-helper-read-operations.md) | Helper read operations: typed read requests, a read-only Docker client, fixed tool spawns and the widened helper unit | Proposed |
 | [0037](0037-permit-issuer-and-unit-restart.md) | Permit issuer, plan family and unit restart: the one issuer, a closed unit call and the rules that guard them | Proposed |
 | [0038](0038-containment-boundary.md) | Containment boundary: a closed call, three phases under one plan hash, the hub's confirmation and the helper's independence | Proposed |
+| [0039](0039-single-baseline-migration.md) | Start from a single baseline migration: the history is squashed once and migrations are immutable from the first release | Accepted |
