@@ -45,7 +45,7 @@ fn run_request(ctx: &domovoi_agent::requests::RequestCtx) -> RunSkill {
         action_id: ExecutionId::new(),
         skill: reader(),
         args: args(),
-        plan_hash: PlanHash::compute(&reader(), skill.manifest_hash(), ctx.host_id, &validated),
+        plan_hash: PlanHash::agent_check(&reader(), skill.manifest_hash(), ctx.host_id, &validated),
         deadline: T0 + SignedDuration::from_mins(1),
     }
 }
@@ -163,7 +163,7 @@ async fn mutating_skill_is_still_refused_before_the_route() {
         action_id: ExecutionId::new(),
         skill: name.clone(),
         args: args(),
-        plan_hash: PlanHash::compute(&name, skill.manifest_hash(), ctx.host_id, &validated),
+        plan_hash: PlanHash::agent_check(&name, skill.manifest_hash(), ctx.host_id, &validated),
         deadline: T0 + SignedDuration::from_mins(1),
     };
     let (code, _) = failure(run_skill(&ctx, &request).await);

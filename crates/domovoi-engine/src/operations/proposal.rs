@@ -29,7 +29,7 @@ pub(crate) fn plan_hash(
     step: StepId,
 ) -> Result<PlanHash, String> {
     let contract = PlanContract::skill(&skill.name, contract_version).map_err(|e| e.to_string())?;
-    Ok(PlanHash::compute_v2(
+    Ok(PlanHash::compute(
         &contract,
         ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
         target,

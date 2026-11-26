@@ -19,7 +19,6 @@ function step(overrides: Partial<Execution>): Execution {
     args: { name: "plex" },
     state: "awaiting_approval",
     plan_hash: HASH,
-    plan_binding: "v2",
     risk: "write",
     confirm_required: false,
     expires_at: new Date(NOW + 45 * 60_000).toISOString(),

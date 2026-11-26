@@ -11052,7 +11052,6 @@
           "args",
           "state",
           "plan_hash",
-          "plan_binding",
           "confirm_required",
           "expires_at"
         ],
@@ -11125,13 +11124,9 @@
             "type": "string",
             "description": "The host it runs on."
           },
-          "plan_binding": {
-            "type": "string",
-            "description": "Always `v2`."
-          },
           "plan_hash": {
             "type": "string",
-            "description": "The v2 plan hash a person approves, 64 hex characters."
+            "description": "The plan hash a person approves, 64 hex characters."
           },
           "reason": {
             "type": [

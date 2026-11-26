@@ -308,7 +308,7 @@ mod skills {
             action_id: ExecutionId::new(),
             skill: name(skill),
             args: args(service),
-            plan_hash: PlanHash::compute(
+            plan_hash: PlanHash::agent_check(
                 &name(skill),
                 loaded.manifest_hash(),
                 fixture.host_id,

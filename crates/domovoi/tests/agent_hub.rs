@@ -316,7 +316,7 @@ async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
     // Approved for a different host, so the agent's own plan hash cannot match.
     let dispatch = SkillDispatch {
         execution: ExecutionId::new(),
-        plan_hash: PlanHash::compute(&skill, manifest_hash, HostId::new(), &validated),
+        plan_hash: PlanHash::agent_check(&skill, manifest_hash, HostId::new(), &validated),
         skill,
         args: validated,
     };

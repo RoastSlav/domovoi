@@ -1,4 +1,4 @@
-//! Plan hash v2: inputs, canonical encoding, target identity and domain separation.
+//! Plan hash: inputs, canonical encoding, target identity and domain separation.
 
 use std::collections::BTreeMap;
 
@@ -103,11 +103,11 @@ fn hash(
     args: &ValidatedArgs,
     execution: ExecutionId,
 ) -> PlanHash {
-    PlanHash::compute_v2(contract, implementation, target, args, execution)
+    PlanHash::compute(contract, implementation, target, args, execution)
 }
 
 #[test]
-fn plan_hash_v2_covers_every_v2_input() {
+fn plan_hash_covers_every_input() {
     let base_contract = contract("restart_container", 1);
     let base_impl = impl_hash(1, 2);
     let base_target = target(host(), 7, "docker.container", Some("web"));
@@ -166,27 +166,30 @@ fn plan_hash_v2_covers_every_v2_input() {
         ),
     ];
     for (i, other) in changed.iter().enumerate() {
-        assert_ne!(*other, base, "v2 ignores input {i}");
+        assert_ne!(*other, base, "the hash ignores input {i}");
     }
 }
 
 #[test]
-fn plan_hash_v2_is_domain_separated_from_v1() {
+fn plan_hash_is_domain_separated_from_the_agent_check_hash() {
     let skill = summary("restart_container", Risk::Write);
     let plan_args = args("web");
-    let v1 = PlanHash::compute(&skill.name, skill.manifest_hash, host(), &plan_args);
-    let v2 = hash(
+    let agent = PlanHash::agent_check(&skill.name, skill.manifest_hash, host(), &plan_args);
+    let plan = hash(
         &contract("restart_container", 1),
         ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
         &target(host(), 7, "docker.container", Some("web")),
         &plan_args,
         execution(),
     );
-    assert_ne!(v1, v2, "the domain line must keep the families apart");
+    assert_ne!(
+        agent, plan,
+        "the domain line must keep the two hashes apart"
+    );
 }
 
 #[test]
-fn plan_hash_v2_encoding_is_unambiguous() {
+fn plan_hash_encoding_is_unambiguous() {
     // Two pairs a naive newline join could confuse: the arguments already end with a newline,
     // and the execution id follows them behind a length prefix.
     let one = hash(
@@ -209,12 +212,12 @@ fn plan_hash_v2_encoding_is_unambiguous() {
     assert_eq!(
         one.to_string(),
         "6d0e99661d9d646295a5e61963c5aba4f4b2dddbc5ef1b4d26dadedd5a45c22a",
-        "the v2 encoding changed"
+        "the plan hash encoding changed"
     );
 }
 
 #[test]
-fn plan_hash_v2_rejects_a_non_canonical_contract_id() {
+fn plan_hash_rejects_a_non_canonical_contract_id() {
     for id in ["Restart", "", "restart@1", &"a".repeat(65)] {
         assert!(
             matches!(PlanContract::new(id, 1), Err(PlanError::ContractId { .. })),
@@ -225,7 +228,7 @@ fn plan_hash_v2_rejects_a_non_canonical_contract_id() {
 }
 
 #[test]
-fn plan_hash_v2_rejects_a_non_canonical_target() {
+fn plan_hash_rejects_a_non_canonical_target() {
     assert!(TargetKey::parse(" web").is_err());
     assert!(TargetKey::parse("web\n").is_err());
     assert!(TargetKey::parse("web\u{7f}").is_err());

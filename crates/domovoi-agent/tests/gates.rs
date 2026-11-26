@@ -50,7 +50,7 @@ async fn hub_cannot_run_skill_not_in_local_catalog() {
         };
         let request = RunSkill {
             action_id: ExecutionId::new(),
-            plan_hash: PlanHash::compute(
+            plan_hash: PlanHash::agent_check(
                 &skill,
                 pushed.manifest_hash(),
                 fixture.host_id,
@@ -90,9 +90,9 @@ async fn plan_hash_mismatch_never_executes() {
     let mut changed = loaded.manifest().clone();
     changed.description = "edited after approval".to_owned();
     let wrong = [
-        PlanHash::compute(&skill, loaded.manifest_hash(), other_host, &validated),
-        PlanHash::compute(&skill, loaded.manifest_hash(), fixture.host_id, &other_args),
-        PlanHash::compute(&skill, changed.manifest_hash(), fixture.host_id, &validated),
+        PlanHash::agent_check(&skill, loaded.manifest_hash(), other_host, &validated),
+        PlanHash::agent_check(&skill, loaded.manifest_hash(), fixture.host_id, &other_args),
+        PlanHash::agent_check(&skill, changed.manifest_hash(), fixture.host_id, &validated),
     ];
     for plan_hash in wrong {
         let request = RunSkill {

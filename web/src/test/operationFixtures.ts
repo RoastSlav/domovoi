@@ -33,7 +33,6 @@ export function execution(overrides: Partial<Execution> = {}): Execution {
     args: { name: "plex" },
     state: "awaiting_approval",
     plan_hash: PLAN_HASH,
-    plan_binding: "v2",
     risk: "write",
     confirm_required: false,
     expires_at: "2099-01-01T00:00:00Z",

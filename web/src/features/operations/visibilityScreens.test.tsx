@@ -553,7 +553,6 @@ describe("approval card", () => {
       expect(within(card).getByText(riskMeta("write").label)).toBeVisible();
       expect(within(card).getByText(/Expires in/)).toBeVisible();
       expect(within(card).getByText(`Plan ${PLAN_HASH.slice(0, 8)}`)).toBeVisible();
-      expect(within(card).getByText("v2")).toBeVisible();
       expect(within(card).getByRole("button", { name: "Approve" })).toBeVisible();
       expect(within(card).getByRole("button", { name: "Deny" })).toBeVisible();
       expect(card.closest('[data-visibility="P0"]')).not.toBeNull();

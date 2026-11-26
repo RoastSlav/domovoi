@@ -86,7 +86,7 @@ The controls are:
 - **Raise a spent limit** lets the operation go on after one of its budgets ran out.
 - **Answer a question** sends your reply to the operation. The reply is shown to the model as information, never as an instruction.
 
-A step that needs approval shows its plan code, marked `v2 binding`. Check what the action will do, then approve or deny it. Approval is the only way an action runs. A destructive action, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
+A step that needs approval shows its plan code, for example `Plan a1b2c3d4`. Check what the action will do, then approve or deny it. Approval is the only way an action runs. A destructive action, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
 
 When an operation ends, Domovoi writes a summary of it. See [Experience](experience.md).
 

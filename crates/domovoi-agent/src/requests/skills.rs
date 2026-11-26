@@ -108,7 +108,8 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> SkillOutcome {
             return fail(SkillFailureCode::InvalidArgs, reason);
         }
     };
-    let expected = PlanHash::compute(&run.skill, skill.manifest_hash(), ctx.host_id, &validated);
+    let expected =
+        PlanHash::agent_check(&run.skill, skill.manifest_hash(), ctx.host_id, &validated);
     if expected != run.plan_hash {
         tracing::warn!(
             skill = skill_name,

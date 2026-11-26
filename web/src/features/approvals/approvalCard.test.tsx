@@ -40,7 +40,6 @@ describe("step approval card", () => {
     expect(within(card).getByText("name = plex")).toBeVisible();
     expect(within(card).getByText(/Expires in/)).toBeVisible();
     expect(within(card).getByText(`Plan ${PLAN_HASH.slice(0, 8)}`)).toBeVisible();
-    expect(within(card).getByText("v2")).toBeVisible();
   });
 
   it("step_approve_asks_first_and_sends_the_plan_hash_it_showed", async () => {

@@ -185,7 +185,7 @@ async fn a_stalled_lookup_in_start_skill_is_bounded_by_the_deadline_too() {
         let args = built.validate_args(&BTreeMap::new()).unwrap();
         let req = SkillDispatch {
             execution: ExecutionId::new(),
-            plan_hash: PlanHash::compute(&skill, built.manifest_hash(), host, &args),
+            plan_hash: PlanHash::agent_check(&skill, built.manifest_hash(), host, &args),
             skill,
             args,
         };

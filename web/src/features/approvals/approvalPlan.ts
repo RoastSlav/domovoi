@@ -38,7 +38,6 @@ export interface ApprovalPlan {
   waiting: boolean;
   inFlight: boolean;
   planHash: string;
-  planBinding: string;
   expiresAt: string;
   approvedBy: string | null;
   /** Who authorized it, in words: a person in the web UI, or a policy and its rules. */
@@ -73,7 +72,6 @@ export function planFromExecution(execution: Execution, host?: string): Approval
     waiting: execution.state === "awaiting_approval",
     inFlight: execution.state === "authorized" || execution.state === "dispatched",
     planHash: execution.plan_hash,
-    planBinding: execution.plan_binding,
     expiresAt: execution.expires_at,
     approvedBy: execution.approved_by ?? null,
     authorizedBy: authorizationText(execution.authorization),

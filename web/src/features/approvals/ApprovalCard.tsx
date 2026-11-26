@@ -197,7 +197,7 @@ export function ApprovalCard({
               </Text>
             )}
             {plan.waiting && <Expiry until={plan.expiresAt} />}
-            <PlanTag planHash={plan.planHash} binding={plan.planBinding} />
+            <PlanTag planHash={plan.planHash} />
             {operation && <Link to={`/operations/${operation.id}`}>{operation.goal}</Link>}
           </Cluster>
 

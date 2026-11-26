@@ -3071,9 +3071,7 @@ export interface components {
             expires_at: string;
             /** @description The host it runs on. */
             host_id: string;
-            /** @description Always `v2`. */
-            plan_binding: string;
-            /** @description The v2 plan hash a person approves, 64 hex characters. */
+            /** @description The plan hash a person approves, 64 hex characters. */
             plan_hash: string;
             /** @description Why it was refused, not run, unavailable or failed. */
             reason?: string | null;

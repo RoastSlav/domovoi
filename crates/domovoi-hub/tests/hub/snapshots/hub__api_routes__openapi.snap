@@ -2350,12 +2350,8 @@ expression: spec
             "description": "The host it runs on.",
             "type": "string"
           },
-          "plan_binding": {
-            "description": "Always `v2`.",
-            "type": "string"
-          },
           "plan_hash": {
-            "description": "The v2 plan hash a person approves, 64 hex characters.",
+            "description": "The plan hash a person approves, 64 hex characters.",
             "type": "string"
           },
           "reason": {
@@ -2397,7 +2393,6 @@ expression: spec
           "args",
           "state",
           "plan_hash",
-          "plan_binding",
           "confirm_required",
           "expires_at"
         ],

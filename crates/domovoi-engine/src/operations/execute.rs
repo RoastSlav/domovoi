@@ -175,7 +175,7 @@ pub(super) async fn execute_step(
         let reason = "the plan can no longer be verified".to_owned();
         return Err(refuse(shared, held, row, reason).await);
     };
-    let wire_hash = PlanHash::compute(&skill.name, skill.manifest_hash, host, &args);
+    let wire_hash = PlanHash::agent_check(&skill.name, skill.manifest_hash, host, &args);
     let epoch = commit_dispatch(shared, held, row, approval_hash, &session).await?;
     // The writer's answer is not proof the step is still dispatched: an outside decision may
     // have settled it while this run held the gate. Read it again before anything is sent.
