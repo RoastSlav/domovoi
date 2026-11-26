@@ -271,14 +271,16 @@ Watches listening sockets in `/proc/1/net/{tcp,tcp6,udp,udp6}`, which is the hos
 - UDP sockets count when they are unconnected and bound outside the ephemeral range in `/proc/sys/net/ipv4/ip_local_port_range`, so client sockets are ignored.
 - Loopback listeners are ignored.
 
-The first run learns every listener without reporting it. Later, a listener seen for the first time fires once, with warning severity, and is learned after two runs, so it does not alert again. The incident stays open until a person dismisses or resolves it, even when the listener stops. Learned listeners gone for `expiry_days` are forgotten.
+The check keeps no list of its own and learns nothing. It reports every non-loopback listener on every run, and the hub decides what is fine, in its [known conditions](../concepts/incidents.md#known-conditions):
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `expiry_days` | 7 | Days a learned listener may be gone before it is forgotten |
+- A listener with no known condition opens an incident and notifies, with warning severity. The incident never resolves by itself, not when a later run reports it again and not when the listener stops. Acknowledging it keeps it open; dismissing it closes it. Dismiss with **always** (or a chosen period) to add the listener to the known conditions, with who dismissed it and why. A shorter period or none adds nothing.
+- A listener that matches a known condition opens no notification and no triage. Its signals are still stored, and shown in the history as quiet.
+- On its first run an agent marks what it finds with `first_run`. The hub records those listeners as known conditions with the note "Found on first run (not reviewed)" in one step, with one audit entry, and opens no incident for them. The Known conditions page counts them. Edit one to review it, or remove it.
+
+`expiry_days` is still accepted in an existing config and has no effect.
 
 - **Target:** `addr:port/proto`, such as `0.0.0.0:22/tcp` or `[::]:443/tcp`.
-- **Evidence:** `address`, `port`, `proto`.
+- **Evidence:** `address`, `port`, `proto`; `first_run` on the first run.
 
 ## Network probes
 

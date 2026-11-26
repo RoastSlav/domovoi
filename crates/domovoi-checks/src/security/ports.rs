@@ -4,12 +4,13 @@
 //!   container mode), falling back to `/proc/net/*`. TCP sockets in `LISTEN` count; UDP
 //!   sockets count when they are unconnected and bound outside the ephemeral range
 //!   (`/proc/sys/net/ipv4/ip_local_port_range`), so client sockets are ignored.
-//! - **Baseline:** the first run learns every listener without reporting it. Later, a
-//!   listener seen for the first time fires once and is learned after two runs. Listeners
-//!   gone for `expiry_days` (default 7) are dropped. Loopback listeners are ignored.
+//! - **No baseline:** every non-loopback listener is reported on every run. Which ones are
+//!   fine is decided on the hub, in its known conditions; nothing is learned here. The
+//!   first run marks its observations `first_run`, so the hub can record them as one
+//!   reviewable group. Loopback listeners are ignored.
 //! - **Target:** `addr:port/proto`, such as `0.0.0.0:22/tcp` or `[::]:443/tcp`.
 //!   **Severity:** warning. **Class:** immediate.
-//! - **Evidence:** `address`, `port`, `proto`.
+//! - **Evidence:** `address`, `port`, `proto`; `first_run` on the first run.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -21,10 +22,9 @@ use domovoi_core::{CheckKey, EvidenceValue, Severity, SignalClass, ValidationErr
 use jiff::SignedDuration;
 
 use crate::framework::{Check, CheckContext, CheckError, CheckReport, Observation, key, target};
-use crate::learn::Baseline;
 
-/// The state key of the listener baseline.
-pub const BASELINE_STATE: &str = "baseline";
+/// The state key that says this agent has reported its listeners once.
+pub const REPORTED_STATE: &str = "reported";
 /// Linux's default ephemeral port range.
 pub const DEFAULT_EPHEMERAL: (u16, u16) = (32768, 60999);
 /// Most listeners read from one file.
@@ -129,11 +129,12 @@ pub fn parse_port_range(text: &str) -> Option<(u16, u16)> {
     }
 }
 
-/// `[checks."security.new_port"]` thresholds.
+/// `[checks."security.new_port"]` thresholds. The check keeps no baseline of its own any more,
+/// so `expiry_days` is accepted for an existing config and ignored.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PortThresholds {
-    /// Days a learned listener may be gone before it is forgotten.
+    /// Ignored; the expected listeners are the hub's known conditions.
     pub expiry_days: u32,
 }
 
@@ -216,35 +217,28 @@ impl Check for NewPorts {
     }
 
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
-        let thresholds: PortThresholds = ctx.settings.thresholds()?;
-        let now = ctx.clock.now();
+        let _: PortThresholds = ctx.settings.thresholds()?;
         let current = listeners(ctx.fs).await;
-        let names: Vec<String> = current.iter().map(ToString::to_string).collect();
-        let mut baseline = Baseline::load(ctx.state, BASELINE_STATE);
+        // The first run on this agent marks what it finds, so the hub can record the whole
+        // group as one reviewable list of expected listeners instead of one alert each.
+        let first_run = ctx.state.get(REPORTED_STATE).is_none();
         let mut report = CheckReport::default();
-        if baseline.bootstrapped() {
-            for (listener, name) in current.iter().zip(&names) {
-                if baseline.contains(name) {
-                    continue;
-                }
-                report.observations.push(
-                    Observation::firing(
-                        target(name),
-                        Severity::Warning,
-                        format!("new listener on {name}"),
-                    )
-                    .with_text("address", listener.addr.to_string())
-                    .with("port", EvidenceValue::Int(i64::from(listener.port)))
-                    .with_text("proto", listener.proto.as_str()),
-                );
+        for listener in &current {
+            let name = listener.to_string();
+            let mut observation = Observation::firing(
+                target(&name),
+                Severity::Warning,
+                format!("new listener on {name}"),
+            )
+            .with_text("address", listener.addr.to_string())
+            .with("port", EvidenceValue::Int(i64::from(listener.port)))
+            .with_text("proto", listener.proto.as_str());
+            if first_run {
+                observation = observation.with("first_run", EvidenceValue::Bool(true));
             }
-            baseline.observe(names.iter().map(String::as_str), now);
-            let expiry = SignedDuration::from_hours(24 * i64::from(thresholds.expiry_days));
-            baseline.expire(expiry, now);
-        } else {
-            baseline.learn_all(names.iter().map(String::as_str), now);
+            report.observations.push(observation);
         }
-        baseline.save(ctx.state, BASELINE_STATE);
+        ctx.state.set(REPORTED_STATE, "1");
         Ok(report)
     }
 }

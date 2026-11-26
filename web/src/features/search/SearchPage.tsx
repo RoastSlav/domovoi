@@ -11,6 +11,7 @@ import {
 import { ActiveOperationsGroup } from "./groups/ActiveOperationsGroup";
 import { FactsGroup } from "./groups/FactsGroup";
 import { HostsGroup } from "./groups/HostsGroup";
+import { KnownConditionsGroup } from "./groups/KnownConditionsGroup";
 import { IncidentsGroup } from "./groups/IncidentsGroup";
 import { NotesGroup } from "./groups/NotesGroup";
 import { PastOperationsGroup } from "./groups/PastOperationsGroup";
@@ -66,6 +67,7 @@ export function SearchPage() {
             <NotesGroup q={q} state={groups.notes} />
             <FactsGroup state={groups.facts} />
             <HostsGroup q={q} state={groups.hosts} />
+            <KnownConditionsGroup q={q} state={groups.rules} />
             <Visible category="P0" id="search.status">
               {settled && failed && (
                 <InlineMessage tone="warning" title="Some sources could not be searched">

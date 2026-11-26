@@ -58,6 +58,7 @@ mod preferences;
 pub(crate) mod profile;
 pub mod readiness;
 mod rules;
+mod rules_patch;
 pub(crate) mod settings;
 mod settings_skill;
 mod settings_write;
@@ -430,7 +431,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::get, notes::replace, notes::delete))
         .routes(routes!(preferences::get, preferences::put))
         .routes(routes!(rules::list, rules::create))
-        .routes(routes!(rules::delete))
+        .routes(routes!(rules::delete, rules_patch::update))
         .routes(routes!(settings::show, settings_write::update))
         .routes(routes!(settings_write::schema))
         .routes(routes!(settings_write::test_discord))

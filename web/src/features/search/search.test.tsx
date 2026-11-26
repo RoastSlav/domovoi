@@ -44,6 +44,7 @@ interface Serve {
   notes?: unknown;
   operations?: Record<string, { items: OperationSummary[]; next?: string }>;
   past?: unknown;
+  rules?: unknown;
 }
 
 function serve(options: Serve = {}) {
@@ -58,6 +59,7 @@ function serve(options: Serve = {}) {
     "GET /api/v1/experience/search",
     () => options.past ?? { items: [], label: HUB_LABEL, query: "", scope: "global" },
   );
+  route("GET /api/v1/ack-rules", () => options.rules ?? []);
   route("GET /api/v1/notes/search", () => options.notes ?? []);
   route("GET /api/v1/knowledge/facts", () => options.facts ?? { items: [], next_cursor: null });
 }
@@ -88,13 +90,14 @@ test("search_groups_run_for_a_query_and_show_their_headings_and_the_scope_senten
     "Notes",
     "Facts",
     "Hosts",
+    "Known conditions",
   ]) {
     expect(await screen.findByRole("heading", { name })).toBeVisible();
   }
   expect(
     screen.getByText(
-      "Searches incidents, active operations, past operations, notes, facts and hosts. " +
-        "Active operations and hosts are matched here against complete lists; the rest are " +
+      "Searches incidents, active operations, past operations, notes, facts, hosts and known conditions. " +
+        "Active operations and hosts and known conditions are matched here against complete lists; the rest are " +
         "searched by the hub.",
     ),
   ).toBeVisible();
@@ -310,7 +313,7 @@ test("no_match_anywhere_says_nothing_found_only_when_every_group_succeeded", asy
   view("/search?q=zzzz");
   expect(await screen.findByText("Nothing found")).toBeVisible();
   expect(screen.getByText("Nothing matches “zzzz” in the sources above.")).toBeVisible();
-  expect(screen.getAllByText(/match\./)).toHaveLength(6);
+  expect(screen.getAllByText(/match\./)).toHaveLength(7);
 });
 
 test("nothing_found_waits_while_a_group_is_still_loading", async () => {

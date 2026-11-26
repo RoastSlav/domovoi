@@ -103,7 +103,7 @@ pub struct AckRuleInput {
     pub expires_at: Option<String>,
 }
 
-fn parse_id(id: &str) -> Result<AckRuleId, ApiError> {
+pub(super) fn parse_id(id: &str) -> Result<AckRuleId, ApiError> {
     id.parse().map_err(|_| ApiError::NotFound)
 }
 
@@ -136,7 +136,7 @@ fn evidence_key(key: &str) -> Result<String, ApiError> {
     Ok(key.to_owned())
 }
 
-fn predicate_to_core(dto: PredicateDto) -> Result<EvidencePredicate, ApiError> {
+pub(super) fn predicate_to_core(dto: PredicateDto) -> Result<EvidencePredicate, ApiError> {
     let key = evidence_key(&dto.key)?;
     let value = dto.value.trim();
     match dto.op {
@@ -227,7 +227,7 @@ fn predicate_to_dto(predicate: &EvidencePredicate) -> PredicateDto {
 
 /// The rule as a DTO, with the host's name. A host that is not in the store shows as
 /// `unknown host` with its id, so a hand-edited database cannot make the whole list fail.
-async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, ApiError> {
+pub(super) async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, ApiError> {
     let host = match rule.host {
         Some(id) => {
             let host = state.deps.hosts.get_host(id).await?;
@@ -252,7 +252,10 @@ async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckRuleDto, Api
 }
 
 /// The host named in `name`, by name; null is no limit.
-async fn host_limit(state: &ApiState, name: Option<&String>) -> Result<Option<HostId>, ApiError> {
+pub(super) async fn host_limit(
+    state: &ApiState,
+    name: Option<&String>,
+) -> Result<Option<HostId>, ApiError> {
     match name {
         Some(name) => {
             let host = host_named(state, name).await.map_err(|err| match err {
@@ -263,6 +266,60 @@ async fn host_limit(state: &ApiState, name: Option<&String>) -> Result<Option<Ho
         }
         None => Ok(None),
     }
+}
+
+/// A rule's target pattern, validated; `None` matches any target.
+pub(super) fn parse_pattern(pattern: Option<&str>) -> Result<Option<TargetPattern>, ApiError> {
+    pattern
+        .map(|pattern| {
+            TargetPattern::parse(pattern).map_err(|e| ApiError::BadRequest(e.to_string()))
+        })
+        .transpose()
+}
+
+/// A rule's note, trimmed and checked for its length.
+pub(super) fn parse_note(note: &str) -> Result<String, ApiError> {
+    let note = note.trim();
+    if note.is_empty() || note.chars().count() > MAX_NOTE_CHARS {
+        return Err(ApiError::BadRequest(format!(
+            "the note must have 1 to {MAX_NOTE_CHARS} characters"
+        )));
+    }
+    Ok(note.to_owned())
+}
+
+/// When a rule expires: the exact time when given, else `minutes` from `now`, else never.
+/// A time that has passed is refused.
+pub(super) fn parse_expiry(
+    expires_at: Option<&str>,
+    minutes: Option<u32>,
+    now: Timestamp,
+) -> Result<Option<Timestamp>, ApiError> {
+    let expires_at = match (expires_at, minutes) {
+        (Some(text), _) => Some(text.trim().parse::<Timestamp>().map_err(|_| {
+            ApiError::BadRequest(
+                "expires_at is a time in RFC 3339 form, such as 2026-12-01T10:00:00Z".to_owned(),
+            )
+        })?),
+        (None, Some(mins)) => {
+            if !(1..=MAX_EXPIRY_MINUTES).contains(&mins) {
+                return Err(ApiError::BadRequest(format!(
+                    "minutes must be between 1 and {MAX_EXPIRY_MINUTES}"
+                )));
+            }
+            Some(
+                now.checked_add(SignedDuration::from_mins(i64::from(mins)))
+                    .map_err(|e| ApiError::BadRequest(e.to_string()))?,
+            )
+        }
+        (None, None) => None,
+    };
+    if expires_at.is_some_and(|at| at <= now) {
+        return Err(ApiError::BadRequest(
+            "expires_at is already in the past; give a time in the future".to_owned(),
+        ));
+    }
+    Ok(expires_at)
 }
 
 /// Every rule, expired ones included. Rules that never expire come last.
@@ -328,18 +385,9 @@ pub(super) async fn create(
     Json(input): Json<AckRuleInput>,
 ) -> Result<(StatusCode, Json<AckRuleDto>), ApiError> {
     let check = CheckKey::parse(&input.check).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    let target_pattern = match &input.target_pattern {
-        Some(pattern) => {
-            Some(TargetPattern::parse(pattern).map_err(|e| ApiError::BadRequest(e.to_string()))?)
-        }
-        None => None,
-    };
-    let note = input.note.trim();
-    if note.is_empty() || note.chars().count() > MAX_NOTE_CHARS {
-        return Err(ApiError::BadRequest(format!(
-            "the note must have 1 to {MAX_NOTE_CHARS} characters"
-        )));
-    }
+    super::rules_patch::require_known_check(&state, &check).await?;
+    let target_pattern = parse_pattern(input.target_pattern.as_deref())?;
+    let note = parse_note(&input.note)?;
     if input.predicates.len() > MAX_PREDICATES {
         return Err(ApiError::BadRequest(format!(
             "a rule has at most {MAX_PREDICATES} conditions"
@@ -352,37 +400,14 @@ pub(super) async fn create(
         .collect::<Result<Vec<_>, _>>()?;
     let host = host_limit(&state, input.host.as_ref()).await?;
     let now = state.deps.clock.now();
-    let expires_at = match (&input.expires_at, input.expires_in_minutes) {
-        (Some(text), _) => Some(text.trim().parse::<Timestamp>().map_err(|_| {
-            ApiError::BadRequest(
-                "expires_at is a time in RFC 3339 form, such as 2026-12-01T10:00:00Z".to_owned(),
-            )
-        })?),
-        (None, Some(mins)) => {
-            if !(1..=MAX_EXPIRY_MINUTES).contains(&mins) {
-                return Err(ApiError::BadRequest(format!(
-                    "minutes must be between 1 and {MAX_EXPIRY_MINUTES}"
-                )));
-            }
-            Some(
-                now.checked_add(SignedDuration::from_mins(i64::from(mins)))
-                    .map_err(|e| ApiError::BadRequest(e.to_string()))?,
-            )
-        }
-        (None, None) => None,
-    };
-    if expires_at.is_some_and(|at| at <= now) {
-        return Err(ApiError::BadRequest(
-            "expires_at is already in the past; give a time in the future".to_owned(),
-        ));
-    }
+    let expires_at = parse_expiry(input.expires_at.as_deref(), input.expires_in_minutes, now)?;
     let rule = AckRule {
         id: AckRuleId::new(),
         host,
         check,
         target_pattern,
         predicates,
-        note: note.to_owned(),
+        note,
         expires_at,
         created_at: Some(now),
         created_by: Some(current.user.username.clone()),

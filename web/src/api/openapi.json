@@ -136,6 +136,76 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "Edits a rule: its host, target pattern, note, conditions or expiry. The check cannot change;\ndelete the rule and make a new one for that. The same checks as on create apply.",
+        "operationId": "update_ack_rule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Rule id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AckRulePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AckRuleDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid change",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/advisories": {
@@ -8969,6 +9039,59 @@
           }
         }
       },
+      "AckRulePatch": {
+        "type": "object",
+        "description": "The fields of a known condition that can change. Anything left out stays as it is.",
+        "properties": {
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The exact time the rule stops applying, as RFC 3339; null means it never expires."
+          },
+          "expires_in_minutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Minutes from now until the rule stops applying. Ignored when `expires_at` is given.",
+            "minimum": 0
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Host by name; null makes the rule apply to every host."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the condition is acceptable, 1 to 500 characters."
+          },
+          "predicates": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PredicateDto"
+            },
+            "description": "Replaces the conditions on the evidence; at most 10."
+          },
+          "target_pattern": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Target pattern with `*` allowed at the ends; null matches any target."
+          }
+        }
+      },
       "AdvisoryDto": {
         "type": "object",
         "description": "An open advisory.",
@@ -12091,6 +12214,13 @@
           "incident": {
             "$ref": "#/components/schemas/IncidentSummary",
             "description": "The incident."
+          },
+          "known_condition": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the known condition made when this incident was dismissed with a period, so\nthe page can link to it; null when it was not dismissed or no rule was made."
           },
           "operations": {
             "type": "array",

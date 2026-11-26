@@ -167,7 +167,34 @@ pub(super) async fn detail(
         operations: super::operations::for_incident(&state, incident.id()).await?,
         tools_used: tool_usage(&timeline),
         as_of_seq,
+        known_condition: dismissed_rule(&state, &incident, &timeline).await?,
     }))
+}
+
+/// The newest known condition made for a dismissed incident: same host and check, and a
+/// target pattern equal to the incident's target. A dismissal without a period makes none.
+async fn dismissed_rule(
+    state: &ApiState,
+    incident: &Incident,
+    timeline: &[domovoi_core::ports::IncidentTimelineEntry],
+) -> Result<Option<String>, ApiError> {
+    if !timeline.iter().any(|entry| entry.kind == "human.dismissed") {
+        return Ok(None);
+    }
+    let target = incident.target().map(|t| t.as_str().to_owned());
+    Ok(state
+        .deps
+        .acks
+        .list_rules()
+        .await?
+        .into_iter()
+        .filter(|rule| {
+            rule.host == Some(incident.host())
+                && rule.check == *incident.check()
+                && rule.target_pattern.as_ref().map(ToString::to_string) == target
+        })
+        .max_by_key(|rule| rule.created_at)
+        .map(|rule| rule.id.to_string()))
 }
 
 /// Acknowledges an incident.

@@ -21,6 +21,9 @@ function appliesTo(rule: AckRule, host: string | undefined): boolean {
   return host === undefined || !rule.host || rule.host === host;
 }
 
+/** The note the hub gives an entry made from an agent's first run, until a person edits it. */
+export const FIRST_RUN_NOTE = "Found on first run (not reviewed)";
+
 /** Known conditions: list, add and delete them, for the host the selector names. */
 export function RulesPage() {
   const rules = useAckRules();
@@ -85,6 +88,11 @@ export function RulesPage() {
               }
               return (
                 <Stack gap={3}>
+                  {data.some((rule) => rule.note === FIRST_RUN_NOTE) && (
+                    <InlineMessage tone="warning" title="Listeners found on first run">
+                      {`${data.filter((rule) => rule.note === FIRST_RUN_NOTE).length} known conditions were made from what an agent found when it first ran. Nobody has reviewed them. Edit one to review it, or delete the ones that should alert.`}
+                    </InlineMessage>
+                  )}
                   {selected !== undefined && hidden > 0 && (
                     <InlineMessage tone="info">
                       {`Showing the known conditions that apply to ${selected}. Choose All hosts to see the others.`}

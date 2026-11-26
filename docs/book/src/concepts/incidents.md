@@ -47,6 +47,10 @@ such as `192.168.1.0/24`. All of them must hold for the rule to match.
 
 Signals that match a known condition are stored, incidents still change, and the history stays complete; nothing is notified and triage does not run for them. The page lists every rule, soonest expiry first, rules that never expire last, and shows expired rules so you can delete them. A rule stops applying on its own when it expires.
 
+Open a rule's menu and choose **Edit** to change its host, target pattern, note or expiry later; the change is checked like a new rule and goes in the [audit log](../guide/audit.md). The search page has a **Known conditions** group, so a listener, a login or a note can be found there. An incident that was dismissed with a period links to the rule it made.
+
+When an agent runs for the first time, the listeners it finds are recorded as known conditions in one step, with the note "Found on first run (not reviewed)", and no incident opens for them. The page shows how many nobody has reviewed. Editing an entry's note marks it reviewed. This is the only time entries are made without a person dismissing an incident.
+
 A new rule applies to signals that arrive after it is created. An incident that is already open keeps its card and its thread: a rule only holds back the notifications the next signal would cause.
 
 A value that looks like a number in an **equals** condition is compared as a number. `port equals 22` matches a check reporting the number 22; `user equals 1000` does not match evidence stored as the text `1000`. Built-in checks report numbers as numbers, so this is mostly about webhook evidence, where a number arriving as a string needs **contains** rather than **equals**.

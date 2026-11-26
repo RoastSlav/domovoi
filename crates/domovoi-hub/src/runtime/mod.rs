@@ -8,6 +8,7 @@ mod delivery;
 mod dispatcher;
 mod error;
 pub(crate) mod every;
+pub mod first_run;
 mod helper;
 mod knowledge;
 mod local;
@@ -173,7 +174,12 @@ impl HubRuntime {
                 clock: clock.clone(),
                 hosts: store.clone(),
                 facts: store.clone(),
-                sink: Arc::new(manager.clone()),
+                sink: Arc::new(first_run::FirstRunSink::new(
+                    Arc::new(manager.clone()),
+                    store.clone(),
+                    store.clone(),
+                    clock.clone(),
+                )),
                 audit: store.clone(),
                 probes: Arc::new(RealNetProbes::new(clock.clone())),
                 hub_host,

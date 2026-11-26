@@ -671,3 +671,113 @@ async fn a_created_rule_reports_who_created_it_and_when() {
     assert!(old_row["created_at"].is_null());
     assert!(old_row["created_by"].is_null());
 }
+
+#[tokio::test]
+async fn a_known_condition_can_be_edited_and_the_edit_is_audited() {
+    let a = api().await;
+    let login = a.admin().await;
+    let created = created_rule(&a, &login, rule_body("note", json!("first note"))).await;
+    let uri = format!("/api/v1/ack-rules/{}", created["id"].as_str().unwrap());
+
+    let edit = |body: Value| a.send(Method::PATCH, &uri, Some(&login), Some(body));
+    let reply = edit(json!({
+        "note": "  better note  ",
+        "target_pattern": "tank*",
+        "host": null,
+        "expires_at": null,
+    }))
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["note"], "better note");
+    assert_eq!(reply.body["target_pattern"], "tank*");
+    assert_eq!(reply.body["host"], Value::Null, "null means every host");
+    assert_eq!(reply.body["expires_at"], Value::Null, "null means never");
+    assert_eq!(reply.body["check"], created["check"], "the check stays");
+    assert_eq!(
+        listed_rules(&a, &login).await[0],
+        reply.body,
+        "the list shows the edit"
+    );
+
+    // A relative expiry, and a field left out stays as it is.
+    let reply = edit(json!({ "expires_in_minutes": 30 })).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    assert_eq!(reply.body["note"], "better note");
+    assert!(reply.body["expires_at"].is_string());
+
+    let events = a.audit_events("ack_rule.updated").await;
+    assert_eq!(events.len(), 2, "one row per edit");
+    assert_eq!(
+        events[1].detail["changed"],
+        json!(["host", "target_pattern", "note", "expires_at"])
+    );
+}
+
+#[tokio::test]
+async fn an_edit_is_checked_like_a_create() {
+    let a = api().await;
+    let login = a.admin().await;
+    let created = created_rule(&a, &login, rule_body("note", json!("note"))).await;
+    let uri = format!("/api/v1/ack-rules/{}", created["id"].as_str().unwrap());
+    for bad in [
+        json!({}),
+        json!({ "note": "   " }),
+        json!({ "target_pattern": "a*b" }),
+        json!({ "host": "no-such-host" }),
+        json!({ "expires_at": "2000-01-01T00:00:00Z" }),
+        json!({ "expires_at": "tomorrow" }),
+    ] {
+        let reply = a
+            .send(Method::PATCH, &uri, Some(&login), Some(bad.clone()))
+            .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::BAD_REQUEST,
+            "{bad}: {}",
+            reply.text
+        );
+    }
+    assert_eq!(
+        listed_rules(&a, &login).await[0],
+        created,
+        "nothing changed"
+    );
+    let missing = a
+        .send(
+            Method::PATCH,
+            &format!("/api/v1/ack-rules/{}", AckRuleId::new()),
+            Some(&login),
+            Some(json!({ "note": "x" })),
+        )
+        .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_check_name_nothing_raises_is_refused_with_a_clear_message() {
+    let a = api().await;
+    let login = a.admin().await;
+    let reply = a
+        .post(
+            "/api/v1/ack-rules",
+            &login,
+            rule_body("check", json!("nope.nothing")),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    assert!(
+        reply.text.contains("no check is named nope.nothing"),
+        "{}",
+        reply.text
+    );
+    assert!(listed_rules(&a, &login).await.is_empty());
+    // A built-in check is accepted.
+    let ok = a
+        .post(
+            "/api/v1/ack-rules",
+            &login,
+            rule_body("check", json!("security.new_port")),
+        )
+        .await;
+    assert_eq!(ok.status, StatusCode::CREATED, "{}", ok.text);
+}

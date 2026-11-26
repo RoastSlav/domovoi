@@ -32,6 +32,12 @@ export function IncidentMeta({ detail }: { detail: IncidentDetail }) {
             · resolved <RelativeTime at={incident.resolved_at} />
           </>
         )}
+        {detail.known_condition && (
+          <>
+            {" "}
+            · dismissed as a <Link to="/rules">known condition</Link>
+          </>
+        )}
       </Text>
     </>
   );

@@ -279,6 +279,9 @@ pub struct IncidentDetail {
     pub tools_used: Vec<ToolUsageDto>,
     /// The journal position this snapshot was read at; apply only events with a greater `seq`.
     pub as_of_seq: u64,
+    /// The id of the known condition made when this incident was dismissed with a period, so
+    /// the page can link to it; null when it was not dismissed or no rule was made.
+    pub known_condition: Option<String>,
 }
 
 /// One skill or tool used while triaging or answering a follow-up.

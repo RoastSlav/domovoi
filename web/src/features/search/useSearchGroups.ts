@@ -5,10 +5,12 @@ import type {
   KnowledgeFact,
   NoteHit,
   OperationSummary,
+  AckRule,
 } from "../../api/types";
 import { useFactSearch } from "../../api/hooks/knowledge";
 import { useExperienceSearch } from "../../api/hooks/experience";
 import { useHostNames, useHosts } from "../../api/hooks/hosts";
+import { useAckRules } from "../../api/hooks/rules";
 import { useIncidents } from "../../api/hooks/incidents";
 import { useNoteSearch } from "../../api/hooks/notes";
 import { useOperations } from "../../api/hooks/operations";
@@ -28,8 +30,9 @@ export const SEARCH_GROUPS = [
   { id: "notes", label: "Notes", matched: "hub" },
   { id: "facts", label: "Facts", matched: "hub" },
   { id: "hosts", label: "Hosts", matched: "browser" },
+  { id: "rules", label: "Known conditions", matched: "browser" },
 ] as const satisfies readonly {
-  id: "incidents" | "operations" | "past" | "notes" | "facts" | "hosts";
+  id: "incidents" | "operations" | "past" | "notes" | "facts" | "hosts" | "rules";
   label: string;
   matched: "hub" | "browser";
 }[];
@@ -53,6 +56,7 @@ export interface SearchGroups {
   incidents: GroupState<IncidentSummary>;
   notes: GroupState<NoteHit>;
   operations: GroupState<OperationSummary>;
+  rules: GroupState<AckRule>;
   past: GroupState<PastHit>;
 }
 
@@ -132,6 +136,7 @@ export function useSearchGroups(q: string): SearchGroups {
   const past = useExperienceSearch(active ? { q, scope: "global" } : undefined);
   const notes = useNoteSearch(active ? q : "", undefined);
   const facts = useFactSearch({ q }, active);
+  const rules = useAckRules(active);
 
   const failed = lists.find((list) => list.isError);
   const waiting = lists.some((list) => list.isPending || list.data === undefined);
@@ -163,6 +168,14 @@ export function useSearchGroups(q: string): SearchGroups {
     historyLabel: active ? past.data?.label : undefined,
     notes: stateOf(active, notes, (data) => data),
     facts: stateOf(active, facts, (data) => data.items),
+    rules: stateOf(active, rules, (data) =>
+      data.filter((rule) =>
+        matchesAll(
+          [rule.check, rule.target_pattern ?? "", rule.note, rule.host ?? ""].join(" "),
+          wanted,
+        ),
+      ),
+    ),
     hosts: stateOf(active, hosts, (data) => data.filter((host) => matchesAll(host.name, wanted))),
   };
 }

@@ -6,7 +6,7 @@ use domovoi_checks::security::{
     Fail2banBans, Network, NewPorts, SshLogins, SudoFailures, classify_ip, parse_accepted,
     parse_sudo_failure,
 };
-use domovoi_core::Severity;
+use domovoi_core::{EvidenceValue, Severity};
 use jiff::SignedDuration;
 
 use crate::harness::{
@@ -120,37 +120,49 @@ async fn fail2ban_counts_are_evidence_only() {
 }
 
 #[tokio::test]
-async fn new_listening_port_fires_after_baseline() {
+async fn every_listener_is_reported_every_run_and_only_the_first_run_is_marked() {
     let check = NewPorts::new().unwrap();
     let mut h = Harness::new("proc/ports_base").await;
-    assert!(h.run(&check).await.observations.is_empty());
+    let first = h.run(&check).await;
+    assert_eq!(
+        targets(&first),
+        ["0.0.0.0:22/tcp", "0.0.0.0:53/udp", "[::]:443/tcp"]
+    );
+    for target in targets(&first) {
+        assert_eq!(
+            find(&first, target).evidence.get("first_run"),
+            Some(&EvidenceValue::Bool(true))
+        );
+    }
+
+    // Nothing is learned: a quiet run reports the same listeners again, unmarked, so the
+    // hub's known conditions are the only list of what is fine.
     h.advance(SignedDuration::from_mins(1));
-    assert!(h.run(&check).await.observations.is_empty());
+    let second = h.run(&check).await;
+    assert_eq!(targets(&second), targets(&first));
+    assert!(
+        second
+            .observations
+            .iter()
+            .all(|o| o.evidence.get("first_run").is_none())
+    );
 
     h.use_fs("proc/ports_new");
     h.advance(SignedDuration::from_mins(1));
-    let report = h.run(&check).await;
-    assert_eq!(targets(&report), ["0.0.0.0:8080/tcp"]);
-    let obs = find(&report, "0.0.0.0:8080/tcp");
-    assert_firing(&report, "0.0.0.0:8080/tcp", Severity::Warning);
+    let third = h.run(&check).await;
+    assert!(targets(&third).contains(&"0.0.0.0:8080/tcp"));
+    let obs = find(&third, "0.0.0.0:8080/tcp");
+    assert_firing(&third, "0.0.0.0:8080/tcp", Severity::Warning);
     assert!(is_immediate(obs, &check));
     assert_eq!(number(obs, "port"), 8080.0);
 
-    h.advance(SignedDuration::from_mins(1));
-    assert!(h.run(&check).await.observations.is_empty());
-}
-
-#[tokio::test]
-async fn port_baseline_expires_after_expiry_days() {
-    let check = NewPorts::new().unwrap();
-    let mut h = Harness::new("proc/ports_new").await;
-    h.run(&check).await;
+    // The listener goes away and comes back: still reported, never forgotten or learned.
     h.use_fs("proc/ports_base");
-    h.advance(SignedDuration::from_hours(24 * 8));
-    assert!(h.run(&check).await.observations.is_empty());
+    h.advance(SignedDuration::from_hours(24 * 30));
+    assert!(!targets(&h.run(&check).await).contains(&"0.0.0.0:8080/tcp"));
     h.use_fs("proc/ports_new");
     h.advance(SignedDuration::from_mins(1));
-    assert_eq!(targets(&h.run(&check).await), ["0.0.0.0:8080/tcp"]);
+    assert!(targets(&h.run(&check).await).contains(&"0.0.0.0:8080/tcp"));
 }
 
 #[tokio::test]

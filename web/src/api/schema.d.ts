@@ -36,7 +36,11 @@ export interface paths {
         delete: operations["delete_ack_rule"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edits a rule: its host, target pattern, note, conditions or expiry. The check cannot change;
+         *     delete the rule and make a new one for that. The same checks as on create apply.
+         */
+        patch: operations["update_ack_rule"];
         trace?: never;
     };
     "/api/v1/advisories": {
@@ -2191,6 +2195,24 @@ export interface components {
             /** @description Target pattern with `*` allowed at the ends; null matches any target. */
             target_pattern?: string | null;
         };
+        /** @description The fields of a known condition that can change. Anything left out stays as it is. */
+        AckRulePatch: {
+            /** @description The exact time the rule stops applying, as RFC 3339; null means it never expires. */
+            expires_at?: string | null;
+            /**
+             * Format: int32
+             * @description Minutes from now until the rule stops applying. Ignored when `expires_at` is given.
+             */
+            expires_in_minutes?: number | null;
+            /** @description Host by name; null makes the rule apply to every host. */
+            host?: string | null;
+            /** @description Why the condition is acceptable, 1 to 500 characters. */
+            note?: string | null;
+            /** @description Replaces the conditions on the evidence; at most 10. */
+            predicates?: components["schemas"]["PredicateDto"][] | null;
+            /** @description Target pattern with `*` allowed at the ends; null matches any target. */
+            target_pattern?: string | null;
+        };
         /** @description An open advisory. */
         AdvisoryDto: {
             /** @description When it was raised. */
@@ -3415,6 +3437,11 @@ export interface components {
             host: string;
             /** @description The incident. */
             incident: components["schemas"]["IncidentSummary"];
+            /**
+             * @description The id of the known condition made when this incident was dismissed with a period, so
+             *     the page can link to it; null when it was not dismissed or no rule was made.
+             */
+            known_condition?: string | null;
             /** @description Operations about this incident, newest first. */
             operations: components["schemas"]["OperationSummaryDto"][];
             report?: components["schemas"]["ReportDto"] | null;
@@ -5623,6 +5650,60 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such rule */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_ack_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Rule id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AckRulePatch"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AckRuleDto"];
+                };
+            };
+            /** @description Invalid change */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
             };
             /** @description Not logged in */
             401: {

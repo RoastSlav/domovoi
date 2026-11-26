@@ -203,5 +203,14 @@ async fn targets_never_contain_counts_or_timestamps() {
     h.run(&check).await;
     h.use_fs("proc/ports_new");
     let reports = twice(&mut h, &check).await;
-    assert_targets(&check, &reports, &["0.0.0.0:8080/tcp"]);
+    assert_targets(
+        &check,
+        &reports,
+        &[
+            "0.0.0.0:22/tcp",
+            "0.0.0.0:53/udp",
+            "[::]:443/tcp",
+            "0.0.0.0:8080/tcp",
+        ],
+    );
 }

@@ -429,7 +429,8 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | `/api/v1/ack-rules` | Every rule, expired ones included. Rules that never expire come last. |
-| POST | `/api/v1/ack-rules` | Creates a rule. |
+| POST | `/api/v1/ack-rules` | Creates a rule. A check name that no agent reports, no built-in check has and no incident was raised for is refused with 400 and a message that says so. |
+| PATCH | `/api/v1/ack-rules/{id}` | Edits a rule: `host`, `target_pattern`, `note`, `predicates`, `expires_at` (a time, or null for never) or `expires_in_minutes`. A field left out stays; null clears `host`, `target_pattern` and `expires_at`. The check cannot change. The same validation as create applies, and the change is audited as `ack_rule.updated`. |
 | DELETE | `/api/v1/ack-rules/{id}` | Deletes a rule. |
 | GET | `/api/v1/incidents` | Incidents, newest first, with optional filters. |
 | GET | `/api/v1/incidents/{id}` | Everything about one incident: report, card, timeline and actions. |

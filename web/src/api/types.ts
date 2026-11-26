@@ -105,6 +105,7 @@ export type Predicate = Schemas["PredicateDto"];
 export type PredicateOp = Schemas["PredicateOpDto"];
 /** A new rule. */
 export type AckRuleInput = Schemas["AckRuleInput"];
+export type AckRulePatch = Schemas["AckRulePatch"];
 /** Dismissing an incident as a known condition: the reason, and how long the check stays quiet. */
 export type DismissInput = Schemas["DismissRequest"];
 /** One line from the hub's own log. */
