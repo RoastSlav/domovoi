@@ -171,7 +171,14 @@ impl KnowledgeCommands {
         expected: u64,
         proof: StepUp<'_>,
     ) -> Result<ManagementPathView, KnowledgeCommandError> {
-        self.stored(id).await?;
+        // Say that a fact cannot be confirmed before asking for a password to confirm it.
+        let fact = self.stored(id).await?;
+        if fact.value.predicate != domovoi_core::knowledge::Predicate::ManagementPath {
+            return Err(KnowledgeError::InvalidInput(
+                "only a management path can be confirmed".to_owned(),
+            )
+            .into());
+        }
         self.step_up(caller, proof).await?;
         Ok(self
             .service

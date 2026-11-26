@@ -216,7 +216,9 @@ pub struct DraftSavedDto {
 /// Preview a candidate rule set.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct PreviewRequest {
-    /// The draft revision the rules come from; `null` measures against the active version.
+    /// What the candidate is measured against, which decides its `preview_hash`. `null` measures
+    /// against the active version: the preview to publish. A draft revision measures against that
+    /// draft: the preview to save over it. The two hashes differ, so publish needs the `null` one.
     #[serde(default)]
     pub base_revision: Option<u64>,
     /// The candidate rules.

@@ -300,3 +300,43 @@ fn openapi_lists_the_autonomy_routes() {
         );
     }
 }
+
+#[tokio::test]
+async fn a_missing_or_broken_body_gets_the_api_error_shape_not_a_raw_parse_message() {
+    let a = api().await;
+    let login = a.admin().await;
+
+    // No body: the pause needs a reason, and says so in the API's own error body.
+    let empty = a
+        .send(
+            Method::POST,
+            "/api/v1/policy/autonomy/pause",
+            Some(&login),
+            None,
+        )
+        .await;
+    assert!(empty.status.is_client_error(), "{}", empty.text);
+    assert!(
+        empty.body["error"].is_string() && empty.body["message"].is_string(),
+        "{}",
+        empty.text
+    );
+    assert!(!empty.text.contains("Failed to parse"), "{}", empty.text);
+
+    // Resuming with no body at all is "no password": 403, not a parse error.
+    let resume = a
+        .send(
+            Method::POST,
+            "/api/v1/policy/autonomy/resume",
+            Some(&login),
+            None,
+        )
+        .await;
+    assert_ne!(
+        resume.status,
+        StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        "{}",
+        resume.text
+    );
+    assert_ne!(resume.status, StatusCode::BAD_REQUEST, "{}", resume.text);
+}

@@ -4374,7 +4374,9 @@ export interface components {
         PreviewRequest: {
             /**
              * Format: int64
-             * @description The draft revision the rules come from; `null` measures against the active version.
+             * @description What the candidate is measured against, which decides its `preview_hash`. `null` measures
+             *     against the active version: the preview to publish. A draft revision measures against that
+             *     draft: the preview to save over it. The two hashes differ, so publish needs the `null` one.
              */
             base_revision?: number | null;
             /** @description The candidate rules. */

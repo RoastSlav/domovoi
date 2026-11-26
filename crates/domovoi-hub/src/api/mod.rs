@@ -485,6 +485,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
                 .routes(routes!(packages::import))
                 .layer(DefaultBodyLimit::max(upload_limit)),
         )
+        .layer(axum::middleware::map_response(error::json_rejections))
 }
 
 /// The OpenAPI document of [`routes()`].
