@@ -45,8 +45,8 @@ There are no release-number floors. The wire variant `agent_too_old` can be deco
 
 ## Enrollment
 
-1. On the hub, `domovoi hub token create <host>` prints a single-use token valid for 15 minutes.
-2. On the host, `domovoi agent enroll --hub <url> --token <token>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
+1. On the hub, `domovoi hub token create <host>` prints a single-use token, valid for 15 minutes unless `--ttl` says otherwise.
+2. On the host, `domovoi agent enroll --hub <url> --token <token> --fingerprint <sha256>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
 3. The hub replies `enrolled` with the agent id, host id and its certificate fingerprint, or `reject` with `bad_token`. The agent checks that the fingerprint matches the certificate it saw on this connection, then pins it.
 
 ## Handshake
@@ -199,7 +199,7 @@ Each transfer id is fresh for every attempt, and each transfer gets exactly one 
 
 ## Examples
 
-Each example is a complete frame with fixed ids and times.
+Each example is a complete frame with fixed ids and times. The frames match the snapshots that pin the wire format.
 
 ### `enroll`
 
@@ -256,6 +256,27 @@ Each example is a complete frame with fixed ids and times.
       "docker",
       "journal"
     ],
+    "catalog_hash": null,
+    "ceiling_hash": null,
+    "ceiling_summary": null,
+    "checks": [
+      {
+        "enabled": true,
+        "interval_seconds": 300,
+        "key": "disk.usage",
+        "thresholds": {
+          "warn_percent": 85
+        }
+      }
+    ],
+    "docker": {
+      "available": true,
+      "enabled": true,
+      "endpoint": "unix:///run/podman/podman.sock",
+      "engine": "Podman",
+      "locked": false,
+      "problem": null
+    },
     "facts": {
       "arch": "x86_64",
       "boot_id": "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
@@ -266,9 +287,20 @@ Each example is a complete frame with fixed ids and times.
       "mem_total_bytes": 17179869184,
       "os": "Debian GNU/Linux 13"
     },
+    "features": [],
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "in_container": true,
+    "journal_epoch": "01900000-0000-7000-8000-0000000000f0",
     "protocol": {
       "major": 1,
-      "minor": 1
+      "minor": 2
+    },
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
     },
     "skills": [
       {
@@ -276,6 +308,7 @@ Each example is a complete frame with fixed ids and times.
           "container.restart_loop"
         ],
         "description": "Restart one container.",
+        "entry_script_digest": "fc07a55ac3f7c7d7ae2b7117459aa0b7e27421c964467ecd6f59c5c24bd1ad0b",
         "manifest_hash": "abababababababababababababababababababababababababababababababab",
         "name": "restart_container",
         "params": [
@@ -290,7 +323,10 @@ Each example is a complete frame with fixed ids and times.
             "required": true
           }
         ],
-        "risk": "write"
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
       }
     ]
   },
@@ -343,6 +379,7 @@ Each example is a complete frame with fixed ids and times.
           }
         }
       },
+      "docker": false,
       "heartbeat_seconds": 30
     },
     "hub_version": "0.1.0",
@@ -364,7 +401,7 @@ Each example is a complete frame with fixed ids and times.
       "code": "incompatible",
       "hub": {
         "major": 1,
-        "minor": 1
+        "minor": 2
       }
     }
   },
@@ -505,6 +542,50 @@ Each example is a complete frame with fixed ids and times.
 }
 ```
 
+### `get_logs`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "get_logs",
+  "payload": {
+    "deadline": "2023-11-14T22:14:50Z",
+    "lines": 50,
+    "min_level": "info",
+    "offset": 0
+  },
+  "v": 1
+}
+```
+
+### `logs`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "logs",
+  "payload": {
+    "has_more": false,
+    "lines": [
+      {
+        "at": "2023-11-14T22:13:20Z",
+        "level": "warn",
+        "message": "/srv is 97% full",
+        "target": "agent.checks"
+      },
+      {
+        "at": "2023-11-14T22:13:20Z",
+        "level": "error",
+        "message": "agent not connected; retrying in 4s",
+        "target": "agent.link"
+      }
+    ]
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
 ### `run_skill`
 
 ```json
@@ -622,6 +703,7 @@ A successful run:
           }
         }
       },
+      "docker": false,
       "heartbeat_seconds": 30
     }
   },
@@ -650,8 +732,318 @@ A successful run:
   "id": "01900000-0000-7000-8000-000000000001",
   "kind": "unsupported",
   "payload": {
-    "kind": "future_kind"
+    "type": "future_kind"
   },
+  "v": 1
+}
+```
+
+### `agent_status`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "agent_status",
+  "payload": {
+    "ceiling_hash": null,
+    "ceiling_summary": null,
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "in_container": true,
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
+    }
+  },
+  "v": 1
+}
+```
+
+### `run_capability`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "container": "plex"
+    },
+    "authorization_kind": "human",
+    "contract": "container.restart",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": null,
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "container:plex",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+A containment request. `expected_safety` is required:
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "source": "203.0.113.9/32"
+    },
+    "authorization_kind": "human",
+    "contract": "firewall.block_source",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": {
+      "boot_id": "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
+      "config_hash": "0101010101010101010101010101010101010101010101010101010101010101",
+      "fingerprint": "abababababababababababababababababababababababababababababababab",
+      "generation": 7,
+      "route_state_hash": "0202020202020202020202020202020202020202020202020202020202020202",
+      "state": "verified"
+    },
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "host:nas",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+The same request authorized by a person while the helper is unverified:
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "source": "203.0.113.9/32"
+    },
+    "authorization_kind": "human",
+    "contract": "firewall.block_source",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": {
+      "reason": "key_not_pinned",
+      "state": "unverified"
+    },
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "host:nas",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+### `capability_result`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "capability_result",
+  "payload": {
+    "outcome": {
+      "succeeded": {
+        "outputs": {
+          "previous_state": "running"
+        }
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `refused`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "refused",
+  "payload": {
+    "code": "rate_limited",
+    "detail": "too many mutations this hour",
+    "retry_after": 30,
+    "scope": "global"
+  },
+  "v": 1
+}
+```
+
+### `action_status`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "action_status",
+  "payload": {
+    "execution_ids": [
+      "01900000-0000-7000-8000-0000000000f1"
+    ],
+    "expected_epoch": "01900000-0000-7000-8000-0000000000f0"
+  },
+  "v": 1
+}
+```
+
+### `action_status_answers`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "action_status_answers",
+  "payload": {
+    "answers": [
+      {
+        "execution_id": "01900000-0000-7000-8000-0000000000f1",
+        "state": {
+          "finished": {
+            "result": {
+              "outcome": {
+                "succeeded": {
+                  "outputs": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "epoch": "01900000-0000-7000-8000-0000000000f0"
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `get_catalog`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "get_catalog",
+  "payload": {
+    "page": 0,
+    "page_size": 50
+  },
+  "v": 1
+}
+```
+
+### `catalog_page`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "catalog_page",
+  "payload": {
+    "entries": [
+      {
+        "contract": "container.restart",
+        "descriptor": {
+          "family": "container",
+          "verb": "restart"
+        },
+        "version": 1
+      }
+    ],
+    "next_page": null
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `transfer_begin`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_begin",
+  "payload": {
+    "kind": "package_artifact",
+    "sha256": "0404040404040404040404040404040404040404040404040404040404040404",
+    "size": 3,
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_chunk`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_chunk",
+  "payload": {
+    "bytes": "AQID",
+    "seq": 0,
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_end`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_end",
+  "payload": {
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_result`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_result",
+  "payload": {
+    "outcome": "stored",
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `attest_safety`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "attest_safety",
+  "payload": {
+    "nonce": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+  },
+  "v": 1
+}
+```
+
+### `safety_attestation`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "safety_attestation",
+  "payload": {
+    "public_key": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY=",
+    "report": "ZG9tb3ZvaS1hdHRlc3RhdGlvbg==",
+    "signature": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw=="
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
   "v": 1
 }
 ```
