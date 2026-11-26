@@ -24,13 +24,13 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 **The enroll command fails with a connection error.** The agent dials the address in the command, `wss://<name>:7421` until you set the hub's agent address. Set it on **Settings → Hub** to an address the agent can reach, then create a new command with **Add host**. Check that port 7421 is open from the agent to the hub.
 
-**"token is invalid or expired".** Enroll tokens work once, for 15 minutes. Create a new one with **Add host**.
+**"the hub refused the enrollment token; it may be used or expired".** Enroll tokens work once, for 15 minutes. Create a new one with **Add host**.
 
-**"certificate fingerprint does not match".** The hub's certificate changed, usually because its data directory was lost or replaced. Restore `tls/` from a backup, or enroll the agent again: remove `/var/lib/domovoi-agent/identity.json`, then run a new enroll command.
+**"the hub presented a certificate whose fingerprint is not the pinned one".** The hub's certificate changed, usually because its data directory was lost or replaced. Restore `tls/` from a backup, or enroll the agent again: remove `/var/lib/domovoi-agent/identity.json`, then run a new enroll command.
 
 **The host shows "silent".** The agent stopped sending heartbeats. Check `systemctl status domovoi-agent` on the host, and the network between the two. If several hosts went silent at once, the hub's own network is the likely cause.
 
-**"revoked" or "unknown agent" in the agent's log.** The host was revoked or re-enrolled elsewhere. Enroll it again.
+**"the hub rejected this agent (revoked)" or "(unknown agent)" in the agent's log.** The host was revoked or re-enrolled elsewhere. Enroll it again.
 
 **"incompatible" in the agent's log.** The agent and the hub speak different protocol `major.minor` versions. Upgrade the hub first, then the agent, and restart the agent. `domovoi agent status` shows both versions.
 

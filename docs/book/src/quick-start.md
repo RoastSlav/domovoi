@@ -12,7 +12,7 @@ sudo sh install.sh --role hub
 sudo sh install.sh --role agent
 ```
 
-The installer checks the download's SHA-256, installs `/usr/local/bin/domovoi` and two systemd units, and writes no config file. See [Binary and systemd](install/binary.md) for what it creates and how to verify it.
+The installer checks the download's SHA-256, installs `/usr/local/bin/domovoi` and the systemd units, and writes no config file for the hub. On the agent it writes only `/etc/domovoi/helper.toml`. See [Binary and systemd](install/binary.md) for what it creates and how to verify it.
 
 ## 2. Start the hub and create your account
 
@@ -27,11 +27,11 @@ Open the link. From another machine, replace `127.0.0.1` with this machine's add
 
 The first run walks through the rest. Each step can be skipped and done later on **Settings**:
 
-1. **Hub:** a name, and the addresses people and agents use. For one machine, the agent address is `wss://127.0.0.1:7421`.
+1. **Hub:** a name, a time zone and the public URL people open. The address agents dial is **Agent server URL** under **Settings**, **Hub**. Until you set it, the enroll command uses `wss://<hub name>:7421`; for one machine, set it to `wss://127.0.0.1:7421`.
 2. **Discord:** create the bot, invite it and paste its token, the channel id and your user id. The [Discord guide](guide/discord.md) has the clicks.
 3. **Model:** pick a provider and paste its key. **Test** sends one short request. See [LLM providers](guide/llm-providers.md).
-4. **Digest:** the time of the daily summary.
-5. **First host:** continue to the next step here.
+4. **Digest and quiet hours:** the time of the daily summary, and the hours when only critical alerts get through.
+5. **First host:** choose **Add a host** here, or continue with the next section.
 
 The bar above the steps shows where you are and which steps you finished or skipped. **Test** on a step checks the connection before you go on. If the page says the hub did not answer, the hub is unreachable: check that it is running and choose **Retry**. The last page lists what you set up and what you skipped, each with a link to its section of **Settings**.
 
