@@ -16,7 +16,9 @@ fn examples_parse_and_validate() {
         .with("DISCORD_WEBHOOK_URL", "https://discord.test/hook")
         .with("DOMOVOI_ALERTS_TOKEN", "alerts-test")
         .with("DOMOVOI_HEARTBEAT_URL", "https://hc.test/ping")
-        .with("DOMOVOI_LOCAL_WEBHOOK_TOKEN", "local-test");
+        .with("DOMOVOI_LOCAL_WEBHOOK_TOKEN", "local-test")
+        .with("DOMOVOI_METRICS_TOKEN", "metrics-test")
+        .with("OLLAMA_API_KEY", "ollama-test");
 
     let (hub, warnings) = load_hub(&example("hub.full.toml"), &env).unwrap();
     assert!(warnings.is_empty(), "{warnings:#?}");

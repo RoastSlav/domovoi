@@ -1,5 +1,6 @@
 //! Integration tests for loading, validating and resolving configuration.
 
+mod example_coverage;
 mod examples;
 mod helpers;
 mod hub_packages;
