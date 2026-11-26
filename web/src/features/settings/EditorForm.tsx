@@ -205,7 +205,7 @@ export function EditorForm({
           }
         >
           <span className={shared.barTag}>
-            <Tag hint="Saving applies your changes by restarting the hub. It is back in a few seconds.">
+            <Tag hint="Saving applies your changes by restarting the hub. A triage that is running is stopped and tried again after the restart. The hub is back in a few seconds.">
               Restarts the hub
             </Tag>
           </span>

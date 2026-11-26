@@ -183,7 +183,9 @@ A message is `{"id", "ordinal", "role", "status", "turn", "text", "failure", "fa
 
 The settings answer also includes a `retention` block: the nine periods, each with `days`, `default_days`, `applies` (`now` or `later`) and `applies_once`, plus `backups_keep` and `backups_keep_pre_migrate`.
 
-`PATCH /api/v1/settings` saves a change and restarts the hub with it:
+`PATCH /api/v1/settings` saves a change and restarts the hub with it. A triage that is running when the hub restarts is stopped, and the hub starts it again after the restart (it waits a few seconds first so agents can reconnect). The settings page says so beside the Save button.
+
+The body:
 
 ```json
 {
