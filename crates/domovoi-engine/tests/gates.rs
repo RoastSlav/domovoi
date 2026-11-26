@@ -1679,7 +1679,6 @@ fn no_enforcement_path_reads_a_policy_decision() {
     let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let roots = [
         engine.join("src/operations"),
-        engine.join("src/legacy.rs"),
         engine.join("../domovoi-hub/src/auth"),
     ];
     let needles = [
@@ -1805,18 +1804,16 @@ fn chat_token_pieces_step_approval_needs_still_exist() {
     );
 }
 
-/// Legacy action rows are written by one engine module, the upgrade drain, and by the store and
-/// testkit crates that implement and exercise the unit of work; nothing else builds the write.
+/// No hub or engine code writes an action row: the unit of work only holds that write for the
+/// store, and the old drain that produced such rows is gone.
 #[test]
-fn legacy_rows_are_written_only_by_the_drain() {
-    let allowed = [
-        "crates/domovoi-engine/src/legacy.rs",
-        "crates/domovoi-store/",
-        "crates/domovoi-testkit/",
-    ];
+fn no_engine_or_hub_code_writes_an_action_row() {
     let offenders: Vec<String> = workspace_sources()
         .into_iter()
-        .filter(|(rel, _)| !allowed.iter().any(|ok| rel.starts_with(ok)))
+        .filter(|(rel, _)| {
+            rel.starts_with("crates/domovoi-engine/src/")
+                || rel.starts_with("crates/domovoi-hub/src/")
+        })
         .flat_map(|(rel, text)| {
             code_lines(&text)
                 .filter(|(_, line)| names_path(line, "StateWrite::Action"))
@@ -1826,16 +1823,13 @@ fn legacy_rows_are_written_only_by_the_drain() {
         .collect();
     assert!(
         offenders.is_empty(),
-        "a legacy action row is written outside the drain: {offenders:#?}"
+        "an action row is written outside the store: {offenders:#?}"
     );
-    let drain = crate_sources("domovoi-engine")
-        .into_iter()
-        .find(|(rel, _)| rel == "crates/domovoi-engine/src/legacy.rs")
-        .map(|(_, text)| text)
-        .unwrap_or_default();
     assert!(
-        drain.contains("StateWrite::Action"),
-        "the drain no longer writes through the unit of work"
+        !std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/legacy.rs")
+            .exists(),
+        "the upgrade drain for old action rows is back"
     );
 }
 
