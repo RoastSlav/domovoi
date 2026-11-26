@@ -11,7 +11,8 @@ use jiff::SignedDuration;
 
 use super::dto::{LogLineDto, LogsQuery};
 use super::dto_admin::{
-    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, RevokeRequest, SkillDto, VerifyDto,
+    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, RevokeRequest, SkillDto,
+    VerifyDto,
 };
 use super::error::{ApiError, ErrorBody};
 use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};

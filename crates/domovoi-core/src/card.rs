@@ -133,6 +133,10 @@ pub struct Card {
     pub details: Option<String>,
     /// Whether the incident has resolved.
     pub resolved: bool,
+    /// What a person did with it, for the card to show: "Acknowledged" or "Muted until 23:35
+    /// UTC". None while nobody has.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl Card {
@@ -171,6 +175,7 @@ mod tests {
             plans: Vec::new(),
             details: None,
             resolved: false,
+            status: None,
         };
         assert!(card.validate().is_ok());
         card.bullets.push("d".into());
@@ -205,6 +210,7 @@ mod tests {
             plans: vec![plan(Vec::new()), plan(Vec::new()), plan(Vec::new())],
             details: None,
             resolved: false,
+            status: None,
         };
         assert!(card.validate().is_ok());
         card.plans.push(plan(Vec::new()));

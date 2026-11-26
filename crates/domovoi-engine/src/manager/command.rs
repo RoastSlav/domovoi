@@ -105,7 +105,7 @@ pub enum CommandError {
     #[error("no such incident {0}")]
     UnknownIncident(IncidentId),
     /// The incident cannot make that change from its current status.
-    #[error("not allowed now: {0}")]
+    #[error("{0}")]
     NotAllowed(String),
     /// The store failed; the command can be retried.
     #[error("store error: {0}")]

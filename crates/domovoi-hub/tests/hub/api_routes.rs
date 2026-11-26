@@ -240,11 +240,19 @@ async fn hosts_enrollment_skills_and_notes() {
         StatusCode::BAD_REQUEST
     );
     let wrong = a
-        .post("/api/v1/hosts/nas/revoke", &login, json!({ "confirm": "nope" }))
+        .post(
+            "/api/v1/hosts/nas/revoke",
+            &login,
+            json!({ "confirm": "nope" }),
+        )
         .await;
     assert_eq!(wrong.status, StatusCode::BAD_REQUEST, "{}", wrong.text);
     let revoke = a
-        .post("/api/v1/hosts/nas/revoke", &login, json!({ "confirm": "nas" }))
+        .post(
+            "/api/v1/hosts/nas/revoke",
+            &login,
+            json!({ "confirm": "nas" }),
+        )
         .await;
     assert_eq!(revoke.body["revoked"], false);
 

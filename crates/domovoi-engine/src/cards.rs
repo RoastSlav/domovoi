@@ -201,10 +201,22 @@ pub fn build_card(
         report.map_or(incident.title(), |r| r.headline.as_str()),
         HEADLINE_MAX_CHARS,
     );
+    let status = match incident.status() {
+        IncidentStatus::Acked => Some("Acknowledged".to_owned()),
+        IncidentStatus::Muted { until } => {
+            Some(format!("Muted until {}", until.strftime("%H:%M UTC")))
+        }
+        _ => None,
+    };
     let mut buttons = Vec::new();
     if !resolved {
-        buttons.push(CardButton::Ack);
-        buttons.push(CardButton::Mute1h);
+        // A button for what was already done would only answer "not possible".
+        if status.is_none() {
+            buttons.push(CardButton::Ack);
+        }
+        if !matches!(incident.status(), IncidentStatus::Muted { .. }) {
+            buttons.push(CardButton::Mute1h);
+        }
     }
     buttons.push(CardButton::Details);
     let (plans, waiting_buttons) = waiting_plans_and_buttons(links);
@@ -222,5 +234,6 @@ pub fn build_card(
         plans,
         details: details(report),
         resolved,
+        status,
     }
 }

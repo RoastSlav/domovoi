@@ -442,3 +442,37 @@ fn unknown_risk_is_shown_as_destructive_on_the_card() {
     let card = card_of(&step_links(vec![step], true));
     assert_eq!(card.plans[0].risk, Risk::Destructive);
 }
+
+#[test]
+fn an_acked_or_muted_card_says_so_and_drops_the_buttons_that_would_be_refused() {
+    use domovoi_core::{IncidentEvent, IncidentPolicy, UserId, apply};
+
+    let at = ts("2026-10-31T09:00:00Z");
+    let mut incident = open(Severity::Warning, at);
+    let plain = |incident: &domovoi_core::Incident| {
+        build_card(incident, None, &host(), &CardLinks::default(), None)
+    };
+
+    apply(
+        &mut incident,
+        IncidentEvent::Ack { by: UserId::new() },
+        &IncidentPolicy::default(),
+        at,
+    )
+    .unwrap();
+    let acked = plain(&incident);
+    assert_eq!(acked.status.as_deref(), Some("Acknowledged"));
+    assert_eq!(acked.buttons, [CardButton::Mute1h, CardButton::Details]);
+
+    let until = ts("2026-10-31T23:35:00Z");
+    apply(
+        &mut incident,
+        IncidentEvent::Mute { until },
+        &IncidentPolicy::default(),
+        at,
+    )
+    .unwrap();
+    let muted = plain(&incident);
+    assert_eq!(muted.status.as_deref(), Some("Muted until 23:35 UTC"));
+    assert_eq!(muted.buttons, [CardButton::Details]);
+}

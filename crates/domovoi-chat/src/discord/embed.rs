@@ -93,6 +93,9 @@ fn plan_lines(plan: &CardPlan) -> [String; 3] {
 #[must_use]
 pub fn description(card: &Card) -> String {
     let mut lines: Vec<String> = Vec::new();
+    if let Some(status) = &card.status {
+        lines.push(format!("**{status}**"));
+    }
     for plan in card.plans.iter().take(domovoi_core::card::MAX_PLANS) {
         if !lines.is_empty() {
             lines.push(String::new());

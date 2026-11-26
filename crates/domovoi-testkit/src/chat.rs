@@ -246,6 +246,7 @@ mod tests {
             plans: Vec::new(),
             details: None,
             resolved: false,
+            status: None,
         };
         let msg = gateway.post_card(&card).await.unwrap();
         let first = gateway.open_thread(&msg, "t").await.unwrap();

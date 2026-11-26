@@ -47,6 +47,7 @@ pub(crate) fn test_card(host: &HostName, headline: &str) -> Card {
         plans: Vec::new(),
         details: None,
         resolved: true,
+        status: None,
     }
 }
 

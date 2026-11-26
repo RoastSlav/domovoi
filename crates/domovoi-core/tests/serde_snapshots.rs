@@ -159,6 +159,7 @@ fn card_json_snapshot() {
         }],
         details: Some("Full reasoning goes here.".to_owned()),
         resolved: false,
+        status: None,
     };
     card.validate().unwrap();
     insta::assert_json_snapshot!(card);

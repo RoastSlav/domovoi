@@ -14,6 +14,7 @@ fn badges_and_verdicts_use_wire_names() {
         buttons: Vec::new(),
         plans: Vec::new(),
         resolved: false,
+        status: None,
     };
     let verdict = CardDto::from(&card(CardBadge::Verdict(Verdict::Monitor)));
     assert_eq!(verdict.badge, "MONITOR");

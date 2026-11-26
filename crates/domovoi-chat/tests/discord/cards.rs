@@ -40,6 +40,7 @@ fn card(badge: CardBadge, buttons: Vec<CardButton>) -> Card {
         plans: Vec::new(),
         details: Some("The nightly job kept every snapshot.".to_owned()),
         resolved: false,
+        status: None,
     }
 }
 

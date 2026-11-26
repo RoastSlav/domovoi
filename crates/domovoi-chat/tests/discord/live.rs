@@ -44,6 +44,7 @@ async fn live_card_thread_and_reply() {
         plans: Vec::new(),
         details: None,
         resolved: false,
+        status: None,
     };
     let message = gateway.post_card(&card).await.unwrap();
     let thread = gateway

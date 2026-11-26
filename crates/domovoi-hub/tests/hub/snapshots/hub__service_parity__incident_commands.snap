@@ -27,7 +27,7 @@ expression: replies(&all)
   {
     "body": {
       "error": "conflict",
-      "message": "event Unmute is not allowed while incident is Open"
+      "message": "This incident is not muted."
     },
     "status": 409
   },
