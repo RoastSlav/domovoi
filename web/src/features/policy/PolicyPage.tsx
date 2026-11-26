@@ -108,7 +108,9 @@ export function PolicyPage() {
           {(data) => (
             <Stack gap={4}>
               <DraftStale overview={data} />
-              <Grid min="sm" gap={4}>
+              {/* Two cards, each at least 26rem: with a narrower minimum the grid made five
+                  ~200px columns on a wide page and the labels left a character of value per line. */}
+              <Grid min="lg" gap={4}>
                 <Visible category="P0" id="policy.active">
                   <ActiveSummary version={data.active} zone={data.time_window_zone} />
                 </Visible>
