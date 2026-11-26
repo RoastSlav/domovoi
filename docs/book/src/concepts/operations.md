@@ -9,9 +9,9 @@ An operation is one durable piece of work on your hosts: find out why something 
 
 ## On by default
 
-Operations are on unless you switch them off under `[orchestration]`. With `enabled = false`, Domovoi does not start the operation service and does not investigate incidents automatically: alert cards still go out, without a report. Follow-up questions and chat keep working, and the Operations endpoints answer 503. Actions that were still open when you upgraded are closed at the first start and kept as read-only history, labelled Legacy; see [Actions and approvals](actions.md). Approval is per step: you approve or deny each Execution step on the web or from its card in chat.
+Operations are on unless you switch them off under `[orchestration]`. With `enabled = false`, Domovoi does not start the operation service and does not investigate incidents automatically: alert cards still go out, without a report. Follow-up questions and chat keep working, and the Operations endpoints answer 503. Approval is per step: you approve or deny each Execution step on the web or from its card in chat.
 
-With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation; see [Investigations](#investigations). There is no separate triage queue any more. A new round of reasoning after a failed check starts another cycle of that investigation. No other kind of operation exists yet.
+With `[orchestration] enabled` and `[triage] enabled` both on, an incident is investigated by an operation; see [Investigations](#investigations). A new round of reasoning after a failed check starts another cycle of that investigation. Investigate is the only kind of operation.
 
 To keep automatic investigation off, set `enabled = false` and restart the hub. A hub that has `[triage] enabled = true` and `enabled = false` logs a warning at start.
 
@@ -49,11 +49,54 @@ You can cancel an operation, pause it, resume it and answer the question it asks
 
 ## Approval
 
-An operation can propose work, but it cannot run an execution on its own. Each execution waits for a person to approve it, in the same way as an action, and the approval expires after `approval_ttl` if nobody answers. Nothing in an operation, including the model, can approve an execution.
+An operation can propose work, but it cannot run an execution on its own. Each execution waits for a person to approve it, and the approval expires after `approval_ttl` if nobody answers. Nothing in an operation, including the model, can approve an execution. The one exception is a policy permit for restarting a service or blocking a network source, which the hub issues only inside hard limits; see [Policy](policy.md#enforcement).
+
+The **Approvals** page points at the operations that wait for you. A decision is made on the step itself, in the operation's detail page, in the Control room's approval card or from the card in chat.
+
+### What an approval covers
+
+Each proposed execution has a **plan hash**: a code shown on the step as `Plan a1b2c3d4`. It binds the capability and its version, the manifest and the SHA-256 of the entry script the agent will run, the host and its enrolled agent key, the incident's check and target, the exact arguments, and the execution id. It does not bind transitive dependencies, interpreters, sourced scripts, other files in the skill folder or the runtime environment, and it cannot prove the hub itself is honest: a compromised hub can compute any hash it likes, so the agent's own checks and the audit chain remain the runtime limits.
+
+The approval request carries the hash the step showed. If it no longer matches what is stored, the approval is refused and nothing changes, so a stale or substituted card cannot approve a different plan. At dispatch the hub recomputes the hash from one authenticated agent session, re-reads the host's enrolled key and the incident subject, and refuses the run on any difference: a replacement session, re-enrolment, a replaced entry script, a changed target or a changed argument all invalidate the approval.
+
+A Discord button has no room for the whole code, so it carries a short prefix. The button's single-use token is what authenticates the press; the prefix only catches a card that has gone stale. If a step's arguments are too long to show in chat, the card has no Approve or Deny button, only a link, because you must be able to read every argument before approving.
+
+### Safety rules
+
+- **Only people approve.** An approval comes from a signed-in web session or an allowed chat user. The model, alert text, log lines and other automation can never approve a step. The model's tools include nothing that can change one.
+- **One decision per step.** Approving, denying and letting the window close are applied one at a time, in the order they arrive. If you press Approve and Deny together, only the first applies and the other is refused with a message that the step already has an outcome. Expiry never overwrites a decision a person made.
+- **Destructive steps need a typed confirmation on the web.** A skill marked `risk = "destructive"`, or a step whose risk is unknown, can never be approved from a chat button.
+- **Chat buttons work once.** Each step gets its own random token, and only its hash is stored. The token stops working after it is used and once the step is denied or expired.
+- **The plan is checked again before it runs.** Just before running, Domovoi fetches the skill from the agent again. If the skill is gone, its risk or manifest changed, or the arguments no longer fit its parameters, the step is refused instead of run.
+- **Nothing retries on its own.** A refused or failed step stays that way. To try again, the investigation proposes a new step, and someone approves it.
+- **The loop guard limits repeat runs.** The same skill runs at most `loop_guard_per_hour` times (default 3) per host in any hour. A further approval is blocked, and the operation says so.
+- **An offline agent holds the step.** If the host's agent is not reachable, Domovoi waits for it up to `agent_wait_limit` before refusing the step; an agent this hub rejected as incompatible is refused at once.
+- **Runs are bounded.** The agent runs the skill directly, with no shell, as the skill's user and within the skill's timeout.
+- **Results are verified.** A skill with a `verify` section is checked again after its delay. A write skill that applies to the incident's check is checked after 30 seconds. The re-check is scheduled in the same commit that records the run, so a hub restart between the run and the re-check does not skip it. A re-check that cannot reach the host is retried with growing delays (30 seconds doubling up to one hour, five attempts in all) and is then recorded as verification failed, with the reason that it could not run.
+
+### After a restart
+
+Restarting the hub loses nothing a person already decided and invents nothing. When it starts it reads the store and carries on from the effects still pending, so an approval made a moment before the restart still runs. A step that was dispatched when the hub stopped stays dispatched; when that host's agent authenticates again, Domovoi asks the agent's journal what became of it. A recorded result is committed, a run still going stays running, a run the agent can prove never reached it becomes **not run**, and one the agent cannot account for becomes **outcome unknown**. Uncertainty is shown as uncertainty and is never turned into a success or a failure: check the host before running the work again. A result recovered from the journal is shown as succeeded or failed, but the check that raised the incident is not re-run for it.
+
+### Audit trail
+
+Every step of an execution adds an entry to the append-only [audit log](../guide/audit.md). Each names the operation and the step, and none contains a secret or a typed confirmation.
+
+| Entry | Records |
+| --- | --- |
+| `execution.proposed` | the execution waits for a person |
+| `execution.approved`, `execution.denied` | the person and how they decided: web or chat user |
+| `policy.permit_issued` | a policy permit authorized the execution |
+| `execution.expired` | the approval window closed |
+| `execution.refused`, `execution.unavailable`, `execution.blocked` | why the execution did not run: refused by a check, host or capability not available, stopped by the loop guard |
+| `execution.dispatched` | the plan hash that matched |
+| `execution.succeeded`, `execution.failed` | the outcome |
+| `execution.outcome_unknown`, `execution.not_run` | the run may have happened, or never did |
+| `execution.token_rotated` | the step's chat token was replaced; never the token |
 
 ## Investigations
 
-With `[orchestration] enabled = true` (the default) and `[triage] enabled = true` a new incident is investigated by an Investigate operation. It gives the same report as the old triage queue did: the same limits (runs per hour, the monthly budget, tool calls, seconds and output tokens per run), the same fallback between models, the same tools for the incident's host, and the same card on the incident. What changes is where the work lives:
+With `[orchestration] enabled = true` (the default) and `[triage] enabled = true` a new incident is investigated by an Investigate operation. It is limited by the runs per hour, the monthly budget, and the tool calls, seconds and output tokens per run set under `[triage]`. It falls back between models, uses the tools for the incident's host and posts its report as the card on the incident. Its properties:
 
 - The work survives a restart. A deferred or interrupted investigation continues from the store.
 - The model works with six tools and no others: it lists and describes the capabilities of the host, requests evidence (a read of the host), stages a plan of at most three steps, asks you a question, and finishes with its report. It cannot approve, run or change anything.
@@ -61,17 +104,17 @@ With `[orchestration] enabled = true` (the default) and `[triage] enabled = true
 - A step the model stages is checked before it is accepted: the capability must exist on the host, its arguments must pass, the host must be one the investigation covers and be reachable, and a step that repeats a failed run must say what changed. A refused step comes back to the model with the reason so it can fix or drop it; steps it never corrected are listed in the report under "Proposals not offered". They are checked once more when they are stored.
 - The result is an assessment, a plan and a notification step, and the card.
 - When the model needs something only you know, it can ask you a question. The investigation then waits for your answer, shown on the Operations page, and continues with it; if nobody answers within `question_timeout`, it continues and says that no answer arrived. It asks at most twice, and never while it has a plan staged.
-- Each action the model proposes, and that passes the checks, is an **Execution** step with a plan hash that a person approves on the Operations page. It never becomes a row on the Approvals page. A proposal that does not pass is listed in the report under "Proposals not offered".
-- An investigation closes itself when nothing is left to do. It stays open while a proposed action waits for a person, while a retry is pending, and while it is paused.
+- Each action the model proposes, and that passes the checks, is an **Execution** step with a plan hash that a person approves on the operation. A proposal that does not pass is listed in the report under "Proposals not offered".
+- An investigation closes itself when nothing is left to do. It stays open while a proposed step waits for a person, while a retry is pending, and while it is paused.
 - When the hourly limit is reached the run is skipped with a note and tried again once an hour slot frees; a failed run is tried again after an hour, up to three failed runs.
 
-A person approves or denies a step with the hash shown on it. A destructive skill, or one the host no longer offers, needs its name typed to approve. In chat, a step that proposes a read or write skill gets Approve and Deny buttons on the incident card, named after the skill and the host, exactly like an action. A press approves with the same human authorization as the web, a single-use token and the first six characters of the plan hash. The token is stored only as a hash on the step, replaced when the card is sent again, and spent or cleared as soon as the step is decided. The plan prefix is a staleness check, not a boundary against a compromised hub: the hub still recomputes the full plan hash before dispatch and refuses any difference. A destructive step, a step whose risk is unknown (proposed before risk was recorded), a step with arguments too long for the card, and any step beyond the card's third get a link to the Operations page instead, and the report then says where to approve. The card is rebuilt when a step is approved, denied or expires, so the buttons disappear. A later card refresh that carries no new token also shows the link until the card is sent again.
+A person approves or denies a step with the hash shown on it. A destructive skill, or one the host no longer offers, needs its name typed to approve. In chat, a step that proposes a read or write skill gets Approve and Deny buttons on the incident card, named after the skill and the host. A press approves with the same human authorization as the web, a single-use token and the first six characters of the plan hash. The token is stored only as a hash on the step, replaced when the card is sent again, and spent or cleared as soon as the step is decided. The plan prefix is a staleness check, not a boundary against a compromised hub: the hub still recomputes the full plan hash before dispatch and refuses any difference. A destructive step, a step whose risk is unknown, a step with arguments too long for the card, and any step beyond the card's third get a link to the Operations page instead, and the report then says where to approve. The card is rebuilt when a step is approved, denied or expires, so the buttons disappear. A later card refresh that carries no new token also shows the link until the card is sent again.
 
 An investigation of an incident that already has one open is refused; re-running triage on the incident page starts an investigation and waits for its first outcome, and says so if it is still running. With orchestration off, re-running triage answers that investigations are not enabled.
 
 ## The Operations page
 
-The Operations page lists your operations. Each row shows the operation's status. Actions from before operations existed are listed too, with a **Legacy** label. A Legacy action has no steps of its own; open its incident page to see what happened and to act on it there.
+The Operations page lists your operations. Each row shows the operation's status.
 
 Open an operation to see its detail page. It has a header with the status, then one banner at a time, the most urgent first:
 
@@ -86,7 +129,7 @@ The controls are:
 - **Raise a spent limit** lets the operation go on after one of its budgets ran out.
 - **Answer a question** sends your reply to the operation. The reply is shown to the model as information, never as an instruction.
 
-A step that needs approval shows its plan code, for example `Plan a1b2c3d4`. Check what the action will do, then approve or deny it. Approval is the only way an action runs. A destructive action, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
+A step that needs approval shows its plan code, for example `Plan a1b2c3d4`. Check what the step will do, then approve or deny it. Approval is the only way a step runs, apart from a policy permit. A destructive step, or one whose risk is unknown, also asks you to type the skill's name exactly as shown before the Approve button works.
 
 When an operation ends, Domovoi writes a summary of it. See [Experience](experience.md).
 

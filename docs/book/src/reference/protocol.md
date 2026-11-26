@@ -28,7 +28,7 @@ The envelope's `v` is the sender's protocol major. A frame whose `v` is not this
 
 The hub states the rule only once the agent's signature has verified, so a client that does not hold the agent's key cannot leave anything on the Hosts page. It answers `incompatible`. An agent from this release treats that as an idle state rather than a final one: it stays up without reconnecting, logs hourly, and `domovoi agent status` shows what happened until the agent is upgraded and restarted. Agents older than this release exit and are restarted by systemd until they are upgraded.
 
-There are no release-number floors. The wire variant `agent_too_old` is still decodable so frames from older hubs keep working, but the hub no longer sends it.
+There are no release-number floors. The wire variant `agent_too_old` can be decoded but the hub never sends it.
 
 ## Limits
 
@@ -89,7 +89,7 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `digest_facts` | agent → hub | Facts for the daily digest. |
 | `run_tool` | hub → agent | Run one read tool with typed, bounded arguments before a deadline. |
 | `tool_result` | agent → hub | The tool's redacted output, or why it failed. |
-| `run_skill` | hub → agent | Run an approved action's skill: action id, skill, args, plan hash, deadline. |
+| `run_skill` | hub → agent | Run an approved step's skill: execution id, skill, args, plan hash, deadline. |
 | `skill_result` | agent → hub | Exit status, redacted and capped output, duration and argv hash, or why it did not run. |
 | `run_check` | hub → agent | Re-run one check now. |
 | `check_result` | agent → hub | One fresh observation per target. |

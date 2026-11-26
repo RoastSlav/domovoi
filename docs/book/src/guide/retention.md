@@ -10,11 +10,9 @@ Domovoi keeps raw data for a limited time and keeps the records that explain wha
 | `notifications_days` | 30 days | the notification state of a resolved incident | held alerts and the state of open incidents |
 | `triage_cache_days` | 90 days | cached triage reports | |
 | `resolved_advisories_days` | 30 days | advisories, counted from resolving | open advisories |
-| `operation_journal_days` | 180 days | not yet: applies once operations exist | |
-| `execution_outputs_days` | 30 days | not yet: applies once execution outputs are stored apart from the audit log | |
 | `retracted_facts_days` | 30 days | the content of a retracted fact or relation (its tombstone stays) | |
 
-Operations and their resolution summaries are kept, and so is the audit log: neither has a day count here. Incidents, metric samples (formerly digest facts) and `llm_usage` are kept as well. The 4 KiB output excerpt recorded on an action's audit event belongs to the audit log and is kept with it.
+Operations and their resolution summaries are kept, and so is the audit log: neither has a day count here. Incidents, metric samples and `llm_usage` are kept as well. The 4 KiB output excerpt recorded on an execution's audit event belongs to the audit log and is kept with it.
 
 Knowledge facts have no day count except the retracted ones. Kept: the tombstone of a retracted fact or relation (id, subject, predicate, source, status, actor and timestamps), live facts and superseded facts. A retracted fact leaves search and what the model sees at the moment it is retracted; `retracted_facts_days` only decides when its value is cleared. See [Knowledge](../concepts/knowledge.md).
 

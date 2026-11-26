@@ -57,7 +57,7 @@ The helper and the skill runner start on demand when the agent connects to their
 
 ### Already installed
 
-An agent installed before this layout existed keeps running as root. A plain run of the installer replaces the binary and nothing else; it prints "privilege boundary not in effect" and the command below. Nothing about the old agent's behaviour changes until you move it.
+An agent that already runs as root keeps running as root. A plain run of the installer replaces the binary and nothing else; it prints "privilege boundary not in effect" and the command below. Nothing about the agent's behaviour changes until you move it.
 
 ```sh
 sudo sh install.sh --role agent --migrate-identity
@@ -65,7 +65,7 @@ sudo sh install.sh --role agent --migrate-identity
 
 The migration is never done by a routine rerun, because it takes root access away from checks you may rely on. It needs a terminal, shows the full plan first (accounts to create, every path whose owner or mode will change, the new unit, and what stops working) and asks you to type `migrate`. There is no `--yes`. It then saves the old unit and the old owners and modes under `/etc/domovoi/identity-migration/`, stops the agent, applies the layout, starts the agent and checks that it runs as `domovoi-agent`.
 
-What changes: Docker, SMART, the kernel-log fallback and the owning process names of listening ports are read through the helper's read groups and keep working. The check `security.fail2ban` reads a root-only socket and reports an error until a later release. Skills run as `domovoi-skill` through the skill runner, so a skill that names a `run_as` user has no runner until the skill runner is installed, or until you edit its manifest. The journal needs only the `systemd-journal` group, which the agent keeps. If the migration fails midway it rolls itself back. To roll back later:
+What changes: Docker, SMART, the kernel-log fallback and the owning process names of listening ports are read through the helper's read groups and keep working. The check `security.fail2ban` reads a root-only socket and reports an error. Skills run as `domovoi-skill` through the skill runner, so a skill that names a `run_as` user has no runner until the skill runner is installed, or until you edit its manifest. The journal needs only the `systemd-journal` group, which the agent keeps. If the migration fails midway it rolls itself back. To roll back later:
 
 ```sh
 sudo sh install.sh --role agent --rollback-identity
@@ -160,7 +160,7 @@ The skill runner runs skills as `domovoi-skill`, in a sandbox that hides the age
 
 ## One machine
 
-To watch the machine the hub runs on, install both roles on it and enroll the agent like any other, with the hub at `wss://127.0.0.1:7421`. The two services stay separate. Because the hub and the agent then share `/etc/domovoi`, the agent stays on the old layout, runs as root and is labelled "privilege boundary not in effect".
+To watch the machine the hub runs on, install both roles on it and enroll the agent like any other, with the hub at `wss://127.0.0.1:7421`. The two services stay separate. Because the hub and the agent then share `/etc/domovoi`, the agent runs as root and is labelled "privilege boundary not in effect".
 
 The hub can instead run an agent for its own machine in the same process, with the `--with-local-agent` flag. [`deploy/systemd/single-box.conf`](https://github.com/RoastSlav/domovoi/blob/main/deploy/systemd/single-box.conf) is a drop-in that does this. The local agent then runs inside the hub's sandbox as the `domovoi` user, so SMART, journal checks and skills that switch users report errors, and the boundary is not in effect. It needs an agent config file, which the drop-in describes. Prefer two services unless you need a single process.
 

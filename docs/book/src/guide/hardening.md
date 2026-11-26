@@ -28,7 +28,7 @@ A wrong password shares the login rate limit, so repeated attempts lock the addr
 
 ## Reading metrics
 
-`GET /metrics` used to be open to anyone who could reach the web port. It now needs a web session or a bearer token from `[metrics] token`. A Prometheus scraper needs the token; see the [CLI reference](../reference/cli.md#metrics).
+`GET /metrics` needs a web session or a bearer token from `[metrics] token`; it is never open to anyone who can reach the web port. A Prometheus scraper needs the token; see the [CLI reference](../reference/cli.md#metrics).
 
 A minimal Caddy site:
 

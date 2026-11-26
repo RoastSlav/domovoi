@@ -1,6 +1,6 @@
 # Discord
 
-Domovoi posts each incident as a card in one Discord channel and opens a thread under it. From the card you can acknowledge, mute, read the details and approve or deny proposed actions. In the thread you can ask the triage agent follow-up questions.
+Domovoi posts each incident as a card in one Discord channel and opens a thread under it. From the card you can acknowledge, mute, read the details and approve or deny proposed steps. In the thread you can ask the triage agent follow-up questions.
 
 Only the Discord users you list can do anything. Everyone else who presses a button gets "Not allowed", and their messages in threads are ignored.
 
@@ -68,8 +68,8 @@ To create the webhook, open the channel's **Edit Channel → Integrations → We
 | **Ack** | Acknowledges the incident, so reminders stop |
 | **Mute 1h** | Mutes it for an hour |
 | **Details** | Posts the triage report in the thread |
-| **Approve** / **Deny** | Approves or denies a proposed read or write action. Each Approve button names the skill and host and works once, expires with the action, and carries a short prefix of the plan hash so a stale card cannot approve a different plan. |
-| **Approve in web UI** | Opens the incident in the web UI. Destructive actions can only be approved there, by typing the skill's name. |
+| **Approve** / **Deny** | Approves or denies a proposed read or write step. Each Approve button names the skill and host and works once, expires with the step, and carries a short prefix of the plan hash so a stale card cannot approve a different plan. |
+| **Approve in web UI** | Opens the incident in the web UI. Destructive steps can only be approved there, by typing the skill's name. |
 
 Every press and command is recorded in the audit log with your Discord user ID. Chat actions run as the hub's admin account, so the web UI must be set up first.
 

@@ -2,7 +2,7 @@
 
 Domovoi is one binary with two roles.
 
-The **hub** holds everything that is shared: the database of hosts, incidents and actions, the web UI and API, chat, triage, approvals, the digest, and network probes. You run one.
+The **hub** holds everything that is shared: the database of hosts, incidents and operations, the web UI and API, chat, triage, approvals, the digest, and network probes. You run one.
 
 An **agent** runs on each machine you want to watch. It runs the built-in checks on its own schedule, relays local webhooks, answers the read-only questions triage asks, and runs the skills installed on it after a person approves them. It keeps no state the hub needs, so it can be reinstalled at any time.
 

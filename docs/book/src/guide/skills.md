@@ -133,11 +133,11 @@ Because of this, three things differ from a root agent:
 - `HOME` points to a directory that does not exist. Do not rely on `~`.
 - `run_as` other than `domovoi-skill` stops working. The runner refuses it with `run_as_unsupported`, and `domovoi agent selftest` lists the skill. Remove the `run_as` line, or move the privileged part to the helper when it supports it.
 
-A container agent has no skill runner. Skills are not run there, and the hub refuses them with `agent_in_container` ([container agent](../install/container-agent.md#what-a-container-agent-can-and-cannot-do)). The one exception is the legacy root behaviour below, which does not apply to the container image.
+A container agent has no skill runner. Skills are not run there, and the hub refuses them with `agent_in_container` ([container agent](../install/container-agent.md#what-a-container-agent-can-and-cannot-do)).
 
-Skills in an agent that still runs as root keep the old behaviour, labelled "privilege boundary not in effect", including `run_as`.
+An agent that runs as root, where the boundary is not in effect, runs skills itself instead of through the runner, and `run_as` works there. The host is labelled "privilege boundary not in effect". This does not apply to the container image.
 
-The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a migrated host they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
+The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a host with the three identities they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
 
 POSIX `sh` is fine for the script itself, as long as it starts with a shebang. Quote every argument (`"$1"`), and pass it after `--` where the tool supports that.
 

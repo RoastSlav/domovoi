@@ -48,9 +48,11 @@ curl -b cookies.txt -X POST https://domovoi.example.net/api/v1/incidents/$ID/ack
   -H "X-CSRF-Token: $csrf"
 ```
 
-## Approving actions
+## Approving steps
 
-`POST /api/v1/actions/{id}/approve` approves a proposed action as the logged-in user. It requires `{"plan_hash": "<64 hex characters>"}`: the plan hash shown on the card, also returned as `plan_hash` by the action endpoints. Without a valid hash the request gets a 400; with a hash that differs from the stored one it gets a 409, and the action stays proposed. Destructive skills also need `{"confirm_text": "<skill name>"}` with the skill's name typed exactly. Chat buttons can never approve them.
+`POST /api/v1/operations/{id}/steps/{step}/approve` approves an Execution step as the logged-in user. It requires `{"plan_hash": "<64 hex characters>"}`: the plan hash shown on the step. Without a valid hash the request gets a 400; with a hash that differs from the stored one it gets a 409, and the step stays proposed. A destructive skill, or one whose risk is not known, also needs `{"confirm_text": "<skill name>"}` with the skill's name typed exactly. A containment step also needs `password`, and `unverified_acknowledged: true` when the helper's coverage could not be verified. Chat buttons can never approve a destructive step. `POST .../deny` denies a step and takes no body.
+
+`POST /api/v1/operations/{id}/steps/{step}/resolve-unknown` records that you checked the host after a step with an unknown outcome (`{"note": "...", "password": "..."}`, a note of 1 to 280 characters). `POST .../containment/release` releases a block early (`{"confirm_source": "...", "password": "..."}`).
 
 ## Operation controls
 
@@ -112,11 +114,9 @@ Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `curso
 `GET /api/v1/overview` returns the counts the web UI shows in its navigation and on the Control room. Pass `host=<name>` to count for one host; without it every host is counted. The fields are:
 
 - `incidents_action_needed` and `incidents_open`, with `incident_groups` (`needs_action`, `monitor`, `pending`, `expected` and `handled`);
-- `approvals_waiting`: classic actions waiting for a decision;
 - `operations_running`, `operations_waiting_approval`, `operations_waiting_user` and `operations_paused`;
-- `actions_outcome_unknown`: classic actions whose result is unknown;
 - `hosts_offline` and `hosts_total`;
-- `attention_total`: `incident_groups.needs_action` + `approvals_waiting` + `operations_waiting_approval` + `operations_waiting_user` + `operations_paused` + `actions_outcome_unknown` + `hosts_offline`;
+- `attention_total`: `incident_groups.needs_action` + `operations_waiting_approval` + `operations_waiting_user` + `operations_paused` + `hosts_offline`;
 - `as_of_seq`: the journal position the counts were read at.
 
 See [Control room, attention and search](../guide/control-room.md) for how the pages use them.
@@ -151,7 +151,7 @@ curl -b cookies.txt -X POST -H "X-CSRF-Token: $csrf" -H 'Content-Type: applicati
 
 ## Conversations
 
-Operator conversations are read-only questions about the hosts. See [Operator](../concepts/operator.md). Every route needs a logged-in session, and every `POST`, `PUT` and `DELETE` also needs the CSRF header. `POST /api/v1/chat` is removed; use these routes instead.
+Operator conversations are read-only questions about the hosts. See [Operator](../concepts/operator.md). Every route needs a logged-in session, and every `POST`, `PUT` and `DELETE` also needs the CSRF header. Questions to the Operator go through these routes.
 
 - `GET /api/v1/conversations` lists conversations, newest first, as `{"items": […], "next_cursor": "…", "as_of_seq": 0}`. Filters: `host` (a host name), `operation` (an operation id), `cursor` and `limit`. Each item has `id`, `title` (the first question, empty before one is asked), `scope` (`{"kind": "global"}` or `{"kind": "host", "host_id", "host_name"}`), `operation_id`, `message_count`, `created_at`, `updated_at` and `version`.
 - `POST /api/v1/conversations` starts one and answers `201` with the conversation. The body is `{"scope": {"kind": "global"}}` or `{"scope": {"kind": "host", "host": "nas"}}`, with an optional `operation_id`. `scope` is required: there is no implicit "all hosts". `400` when it is missing or malformed, `404` for an unknown host or operation.
@@ -324,7 +324,7 @@ Frames:
   - `live.end`: `{"conversation", "turn", "status"}`, when the answer settles: `complete`, `failed`, `cancelled` or `discarded`.
 - `: keepalive`, a comment sent after 15 seconds of silence.
 
-Incident lists, an incident, action lists and the overview each return `as_of_seq`, the journal position they were read at. Apply only events with a greater `seq`.
+Incident lists, an incident and the overview each return `as_of_seq`, the journal position they were read at. Apply only events with a greater `seq`.
 
 ## Logs
 
@@ -333,19 +333,234 @@ Incident lists, an incident, action lists and the overview each return `as_of_se
 ## Health and metrics
 
 - `GET /healthz` answers `ok` and needs no login: the process is serving requests.
-- `GET /readyz` answers whether the hub can do its job: the store takes a write, every migration is applied, and the incident manager and the action service are running. It needs no login, and reveals nothing but check names.
+- `GET /readyz` answers whether the hub can do its job: the store takes a write, every migration is applied, and the incident manager is running. It needs no login, and reveals nothing but check names.
 
   ```json
   {"ready": true, "failing": []}
   ```
 
-  When something is wrong it answers `503` and names only the checks that failed, in a fixed order: `store_writable`, `migrations`, `incident_manager`, `action_service`. Every check runs even after an earlier one fails.
+  When something is wrong it answers `503` and names only the checks that failed, in a fixed order: `store_writable`, `migrations`, `incident_manager`. Every check runs even after an earlier one fails.
 
   ```json
-  {"ready": false, "failing": ["store_writable", "action_service"]}
+  {"ready": false, "failing": ["store_writable", "incident_manager"]}
   ```
 
   Use `/readyz` to gate traffic and `/healthz` to decide whether to restart the process. Details of a failure go to the hub's log, never to the response.
 - `GET /metrics` serves Prometheus text to a logged-in session, or to a request carrying `Authorization: Bearer <token>` when `[metrics] token` is set. Without either it answers `401` with no metrics text. See the [CLI reference](cli.md#metrics) for a scrape configuration.
 - Bodies are limited to 1 MiB, and requests other than the event stream to 120 seconds. The retry-triage endpoint runs a full triage inside its response, so a local model needs the request to outlive the per-run triage budget (default 90 seconds).
 - Every response carries a strict `Content-Security-Policy` and the other security headers. The policy allows scripts from the hub itself plus the one inline theme script by its SHA-256 hash, computed from the built page.
+
+## Route index
+
+Every route in the OpenAPI document, by area. The sections above describe the routes whose behaviour needs more than a sentence.
+
+### Audit routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/audit` | Audit entries, newest first, with their hash. |
+| GET | `/api/v1/audit/verification` | Checks the audit log's hash chain. |
+
+### Auth routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| POST | `/api/v1/auth/login` | Logs in and sets the session cookie. Five failures a minute from one address lock it out for a while. |
+| POST | `/api/v1/auth/logout` | Ends the session and clears the cookie. |
+| POST | `/api/v1/auth/setup` | Creates the admin account with the one-time token from the setup link, and logs in. Only works before the first user exists. |
+| GET | `/api/v1/session` | The current session and its CSRF token. |
+
+### Containment routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/hosts/{name}/containment` | What a host's blocks look like. Display only, and answered when containment is not available. |
+| POST | `/api/v1/hosts/{name}/containment/refresh` | Asks the host's helper for its blocks, gate and drills. Owner-initiated only: nothing polls. |
+| POST | `/api/v1/operations/{id}/steps/{step}/containment/release` | Releases a block early: asks for the password again and the source typed out, then removes the block under the plan hash of its approval. |
+
+### Experience routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/experience/search` | Searches finished operations. One host by default; every host only when asked. |
+| GET | `/api/v1/incidents/{id}/similar-operations` | Past operations that fixed something like an incident, on its host, best first. |
+| GET | `/api/v1/operations/{id}/similar` | Past operations that resemble an operation, on its host, best first. |
+| GET | `/api/v1/operations/{id}/summary` | The summary of one operation: each field's current revision with its source, and the whole history. |
+| POST | `/api/v1/operations/{id}/summary/{field}` | Writes or confirms the problem, cause or fix of a finished operation's summary. |
+
+### Helper routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/hosts/{name}/helper` | What the hub knows about host `name`'s helper. |
+| DELETE | `/api/v1/hosts/{name}/helper/key` | Removes the pin of host `name`'s helper key. Containment is blocked until it is pinned again. Asks for the password again. |
+| PUT | `/api/v1/hosts/{name}/helper/key` | Pins the key the hub holds from host `name`'s helper. Asks for the password again and for the key's full fingerprint, typed from `domovoi helper fingerprint` on the host. |
+| POST | `/api/v1/hosts/{name}/helper/recheck` | Asks host `name`'s helper for a fresh attestation now. |
+
+### Hosts routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/hosts` | Every host with its agent's presence, sorted by name. |
+| GET | `/api/v1/hosts/{name}` | Host `name` with its agent and the latest value of each digest fact from the last day. |
+| GET | `/api/v1/hosts/{name}/capabilities` | The capability inventory of host `name`. |
+| GET | `/api/v1/hosts/{name}/ceiling` | The unattended limits host `name` reported. Read only. |
+| GET | `/api/v1/hosts/{name}/checks` | A host's checks: what its agent reports and what the hub overrides. |
+| PUT | `/api/v1/hosts/{name}/checks` | Replaces a host's check overrides and sends them to its agent; no restart. |
+| GET | `/api/v1/hosts/{name}/docker` | A host's container runtime: what its agent found and the hub's choice. |
+| PUT | `/api/v1/hosts/{name}/docker` | Switches a host's container runtime on or off from the hub, or leaves it to the agent; no restart. Refused when the agent's config fixes the setting or no engine was found. |
+| POST | `/api/v1/hosts/{name}/enrollment` | A one-time enrollment invite for host `name`, creating the host if it is new. The token is shown only in this response. |
+| GET | `/api/v1/hosts/{name}/logs` | The recent log lines host `name`'s agent keeps, scrubbed again here so the page is safe even if the agent was not. An agent too old to send them is refused with a message telling the person to update it. |
+| GET | `/api/v1/hosts/{name}/profile` | What `host`'s machine looks like while it behaves normally; 404 before the hub has collected one. |
+| POST | `/api/v1/hosts/{name}/profile` | Collects the profile of `host` again now, and answers with it. 409 when its agent is not connected: there is nobody to ask. |
+| POST | `/api/v1/hosts/{name}/revoke` | Revokes the agent of host `name` and disconnects it. |
+| GET | `/api/v1/hosts/{name}/skills` | The skills host `name`'s agent reported. |
+| PUT | `/api/v1/hosts/{name}/skills/{skill}` | Turns one of a host's skills on or off. The switch is saved in the settings table and takes effect immediately: a disabled skill stays on the host, but the hub never runs it and never offers it to triage. |
+
+### Incidents routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/ack-rules` | Every rule, expired ones included. Rules that never expire come last. |
+| POST | `/api/v1/ack-rules` | Creates a rule. |
+| DELETE | `/api/v1/ack-rules/{id}` | Deletes a rule. |
+| GET | `/api/v1/incidents` | Incidents, newest first, with optional filters. |
+| GET | `/api/v1/incidents/{id}` | Everything about one incident: report, card, timeline and actions. |
+| POST | `/api/v1/incidents/{id}/ack` | Acknowledges an incident. |
+| POST | `/api/v1/incidents/{id}/ask` | Asks the triage model a follow-up question about an incident. It uses read-only tools and never proposes actions. |
+| POST | `/api/v1/incidents/{id}/dismiss` | Dismisses an incident as a known condition: closes it now with the verdict `EXPECTED`, and when `ignore_for_minutes` is given, creates the rule that keeps the check quiet (0 means always). The rule is stored before the incident closes, so a check firing in the moment between the two is already silenced, and a dismiss that fails afterwards leaves a rule that a human can see and delete on the Known conditions page. The rule matches the incident's host, check and target; `note` is the reason, so a human can read later what it covers. A target with `*` in it cannot be matched exactly by a rule pattern, so dismissing such an incident with a period is refused. |
+| GET | `/api/v1/incidents/{id}/followups` | The questions and answers the model still remembers for an incident, oldest first. Answers recorded before the last clear are not in the list. An id that parses but is not a stored incident gets 404, so a cleared conversation is never read as a mistyped one. |
+| POST | `/api/v1/incidents/{id}/followups/clear` | Forgets the conversation: the next question will not be shown the earlier ones. Works whether triage is on or off, and on a resolved incident too; it writes one timeline line and publishes nothing. |
+| POST | `/api/v1/incidents/{id}/mute` | Mutes an incident for a while. |
+| POST | `/api/v1/incidents/{id}/triage` | Investigates an incident again as an operation, with the same caps, and reports how it went. A report already cached for unchanged evidence is reused unless `fresh` is true. |
+| POST | `/api/v1/incidents/{id}/unmute` | Lifts a mute. |
+
+### Knowledge routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/knowledge/entities` | Lists entities. |
+| POST | `/api/v1/knowledge/entities` | Creates an entity. |
+| DELETE | `/api/v1/knowledge/entities/{id}` | Deletes an entity nothing refers to. |
+| PUT | `/api/v1/knowledge/entities/{id}` | Renames an entity. |
+| GET | `/api/v1/knowledge/facts` | Lists facts, or searches them when `q` is given. |
+| POST | `/api/v1/knowledge/facts` | States a fact as the owner. A safety-critical predicate needs the password. |
+| GET | `/api/v1/knowledge/facts/{id}` | One fact. |
+| POST | `/api/v1/knowledge/facts/{id}/accept` | Makes a fact the owner's own. A safety-critical predicate needs the password. |
+| POST | `/api/v1/knowledge/facts/{id}/confirm` | Confirms a management path against the helper's verified coverage. Needs the password. |
+| POST | `/api/v1/knowledge/facts/{id}/retract` | Withdraws a fact. It only removes trust, so it needs no password. |
+| POST | `/api/v1/knowledge/facts/{id}/verify` | Says a fact still holds. A safety-critical predicate needs the password. |
+| GET | `/api/v1/knowledge/hosts/{name}/management-paths` | A host's management paths. |
+| GET | `/api/v1/knowledge/relations` | Lists relations. |
+| POST | `/api/v1/knowledge/relations` | States a relation as the owner. |
+| POST | `/api/v1/knowledge/relations/{id}/retract` | Withdraws a relation. |
+
+### Me routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/me/preferences` | The signed-in person's display preferences. |
+| PUT | `/api/v1/me/preferences` | Saves the signed-in person's display preferences. |
+
+### Notes routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/notes` | Notes about one host, or global notes when no host is given. |
+| POST | `/api/v1/notes` | Creates a note. |
+| POST | `/api/v1/notes/import` | Imports Markdown files as notes. Each note's title is its first `# ` heading or the file name. Files that are not `.md`, too large, not UTF-8, empty, or titled like an existing note in the same scope are skipped, so importing a folder twice adds nothing. |
+| GET | `/api/v1/notes/search` | Full-text search over notes. |
+| DELETE | `/api/v1/notes/{id}` | Deletes a note. |
+| GET | `/api/v1/notes/{id}` | One note. |
+| PUT | `/api/v1/notes/{id}` | Replaces a note. |
+
+### Operations routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/operations` | Operations, newest first. |
+| GET | `/api/v1/operations/{id}` | One operation with its trace and executions. |
+| POST | `/api/v1/operations/{id}/cancel` | Cancels an operation. Pending steps and effects are cancelled; a run already dispatched is not recalled and its result is still recorded. |
+| GET | `/api/v1/operations/{id}/history` | How one operation unfolded, for replaying its graph. |
+| POST | `/api/v1/operations/{id}/pause` | Pauses an operation until a person resumes it. |
+| POST | `/api/v1/operations/{id}/resume` | Resumes a paused operation, raising the named limits first. |
+| GET | `/api/v1/operations/{id}/steps/{step}` | One step with its stored intent and output. |
+| POST | `/api/v1/operations/{id}/steps/{step}/answer` | Answers the question an operation is waiting on. |
+| POST | `/api/v1/operations/{id}/steps/{step}/approve` | Approves an Execution step. The body names the v2 plan hash shown on the execution; a destructive skill, or one whose risk is not known, needs `confirm_text` equal to its name. |
+| POST | `/api/v1/operations/{id}/steps/{step}/deny` | Denies an Execution step. |
+| POST | `/api/v1/operations/{id}/steps/{step}/resolve-unknown` | Clears the unattended block of a step whose outcome is unknown. Needs the admin's password. |
+| GET | `/api/v1/operations/{id}/trace` | The timeline and graph of one operation. |
+
+### Operator routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/conversations` | Lists conversations, newest first. |
+| POST | `/api/v1/conversations` | Starts a conversation. The scope is required: one host or all hosts. |
+| DELETE | `/api/v1/conversations/{id}` | Deletes a conversation and its messages. Refused while an answer is being written. |
+| GET | `/api/v1/conversations/{id}` | A conversation with all its kept messages. |
+| POST | `/api/v1/conversations/{id}/messages` | Asks a question. The question and a pending answer are committed together and the call answers at once; the answer is written in the background and arrives as a journal event, preceded by `live.*` events on the event stream. Sending the same `turn` again returns the stored pair and asks the model nothing. |
+| POST | `/api/v1/conversations/{id}/messages/{message}/retry` | Asks the last failed or stopped question again, under a new turn. |
+| PUT | `/api/v1/conversations/{id}/operation` | Attaches an operation to a conversation, or detaches it with `null`. The Operator only reads a short summary of it. |
+| POST | `/api/v1/conversations/{id}/turns/{turn}/cancel` | Stops the answer of a turn. A turn that already settled is left as it is. |
+
+### Packages routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/hosts/{name}/packages` | The packages the hub last saw installed on host `name`. |
+| POST | `/api/v1/hosts/{name}/packages/refresh` | Asks host `name`'s agent which packages it has and replaces what the hub holds with the answer. Needs the agent connected. |
+| GET | `/api/v1/packages` | Every imported package. |
+| POST | `/api/v1/packages/import` | Imports a signed package: the archive and its detached signature file as one multipart form with the fields `archive` and `signature`. The hub checks the signature file, the archive's digest and the signing key, then stores the archive under its digest. It never opens the archive. No password is asked for: importing installs nothing. |
+| GET | `/api/v1/packages/jobs` | Install jobs, newest first. |
+| POST | `/api/v1/packages/jobs` | Creates an install or uninstall job with one target per host. Asks for the password again and for the package name typed out, and refuses a plan that changed since the owner looked at it. A job is approved here and nowhere else. |
+| POST | `/api/v1/packages/jobs/plan` | What a job would do on each host. Reads only; nothing is created. |
+| GET | `/api/v1/packages/jobs/{id}` | One job with every attempt on every host. |
+| POST | `/api/v1/packages/jobs/{id}/targets/{host_id}/cancel` | Cancels a host's target that has not started. Once it has started it cannot be cancelled. |
+| POST | `/api/v1/packages/jobs/{id}/targets/{host_id}/retry` | Runs one host's target again as a new attempt, after a failure, a refusal or an unknown outcome. Asks for the password and the typed package name like a new job. |
+| GET | `/api/v1/packages/status` | What the hub holds, how it is limited and which keys it trusts. |
+| DELETE | `/api/v1/packages/{name}/{version}` | Removes an imported package from the hub. Copies already installed on hosts stay. |
+| GET | `/api/v1/packages/{name}/{version}` | One imported package with its signature file, the hosts known to have it and whether its archive file is in the store. |
+
+### Policy routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/policy` | The policy at a glance: the active version, the draft and the shadow recorder. |
+| GET | `/api/v1/policy/autonomy` | The pause switch and the suspended rules. |
+| POST | `/api/v1/policy/autonomy/pause` | Pauses autonomy: no new permit and no dispatch of one already issued. |
+| POST | `/api/v1/policy/autonomy/resume` | Resumes autonomy. Needs the admin's password. |
+| DELETE | `/api/v1/policy/draft` | Discards the draft. It changes nothing live, so it needs no password. |
+| GET | `/api/v1/policy/draft` | The draft with its rules. |
+| PUT | `/api/v1/policy/draft` | Creates the draft or replaces it. Changing a locked prohibition needs the password and the preview hash of exactly these rules. |
+| POST | `/api/v1/policy/draft/publish` | Publishes the draft as the next version. Always needs the password; the acknowledged keys must be exactly the blocking findings, and the preview hash that of the draft's rules. |
+| POST | `/api/v1/policy/preview` | What a candidate rule set would do: validation, the publication review, locked changes and a bounded simulation over recent recorded decisions. It writes nothing. |
+| POST | `/api/v1/policy/rules/{rule}/reset` | Resets one rule's circuit breaker. Needs the admin's password. |
+| GET | `/api/v1/policy/shadow` | Recorded shadow decisions, newest first. |
+| GET | `/api/v1/policy/shadow/{execution_id}` | One recorded decision with its inputs, gaps and both decisions. |
+| POST | `/api/v1/policy/simulate` | Replays or re-evaluates recorded Execution steps under a draft, a version or inline rules. It never writes. |
+| GET | `/api/v1/policy/versions` | Published versions, newest first. |
+| GET | `/api/v1/policy/versions/{number}` | One published version with its rules and acknowledgements. |
+
+### System routes
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| GET | `/api/v1/advisories` | Open advisories, newest first. |
+| GET | `/api/v1/digest/preview` | Today's digest as it would be sent now. |
+| POST | `/api/v1/digest/send` | Sends today's digest now. |
+| GET | `/api/v1/events` | Committed journal rows as server-sent events. |
+| GET | `/api/v1/overview` | Counts for the navigation: incidents, approvals and offline hosts. |
+| GET | `/api/v1/settings` | The effective configuration, secrets hidden. |
+| PATCH | `/api/v1/settings` | Saves a change and restarts the hub with it. |
+| POST | `/api/v1/settings/models` | Lists models available to the candidate provider of the requested slot. |
+| GET | `/api/v1/settings/schema` | The JSON schema of `hub.toml`, for field help and defaults. |
+| POST | `/api/v1/settings/test/discord` | Posts "Domovoi test message" with candidate Discord settings. |
+| POST | `/api/v1/settings/test/heartbeat` | One GET of the candidate heartbeat URL. |
+| POST | `/api/v1/settings/test/llm` | One minimal call to the candidate model provider of the requested slot. |
+| GET | `/api/v1/system/logs` | The hub's recent log lines, oldest first, with secrets removed. |
+| GET | `/api/v1/system/update` | The last release check, if the hub has made one. |
+| POST | `/api/v1/system/update/check` | Checks for a release now, at most once a minute. |
+| GET | `/healthz` | Liveness: `ok` while the hub serves requests. |
+| GET | `/metrics` | Prometheus metrics: readable by a logged-in session, or by a scraper holding the configured bearer token. Without either, 401. |
+| GET | `/readyz` | Readiness: 200 when the hub can do its job, 503 naming what it cannot. |

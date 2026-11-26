@@ -107,7 +107,6 @@ or stale paths. It only reports what the hub knows. It never says an action is a
 reminds you that monitoring and actions you approve yourself are not affected. This version never
 shows a path as covered.
 
-## Upgrading from host profile notes
+## Host profiles and facts
 
-Host profile notes are replaced by facts. When the knowledge store first runs, each host's profile note is kept and labelled `superseded`. Its machine description is copied into a `discovered` `host_platform` fact, whose evidence is `note:<id>` pointing at the old note.
-</content>
+A host's profile is a generated note (see [Hub and agents](hub-and-agent.md)). Its machine description (host name, operating system, kernel, architecture, CPU count and memory) is also recorded as a `discovered` `host_platform` fact whose evidence is `note:<id>`, and the note is labelled `superseded-by-facts`. Containers, ports and skills stay in the note, because they are inventory rather than knowledge.

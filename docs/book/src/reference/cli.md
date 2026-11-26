@@ -118,6 +118,10 @@ These commands change or read the attestation key. They are run by hand as root 
 
 `sudo domovoi helper fingerprint` computes the fingerprint from the private key file and prints it in groups of four with the key id.
 
+### `domovoi helper nft-selftest`, `containment-drill` and `nft-recreate`
+
+All three need root. `nft-selftest` checks, in throwaway network namespaces, that replacing a firewall element never lets a packet through, and stores the result for this kernel, `nft` version and layout. `--if-changed` exits at once when the stored result already matches, and `--interval-only` tests only the interval sets and keeps the stored plain-set verdict. `containment-drill` runs the containment drills in a throwaway namespace and records the result; unattended containment is dispatched only after they pass. `nft-recreate` deletes the helper's own firewall table when no block is live and every block set is empty, so the next request builds it again. The installer and a one-shot unit run the first two. See [Helper](helper.md) and [Blocking a network source](../guide/containment.md).
+
 ### `domovoi skill-runner serve`
 
 ```sh
@@ -125,6 +129,10 @@ domovoi skill-runner serve --skills-dir /etc/domovoi/skills --packages-dir /var/
 ```
 
 The skill runner's socket unit starts this, one process per connection, as `domovoi-skill`. It adopts the connection from standard input, serves one request, and exits. Both directories are absolute and are the ones the unit binds read-only; it reads no config file. It refuses to run when standard input is not a socket, so do not run it by hand. The installer writes the two paths into the unit from `agent.toml`.
+
+### `domovoi agent journal`
+
+`init` creates the agent's durable journal of runs for the first time and refuses if a journal file exists. `reset` archives the existing journal and starts a new epoch. `reset` refuses while the agent owns the journal, so stop the agent first. Each takes `--config` for the agent file.
 
 ## Enrolling agents
 
@@ -304,6 +312,15 @@ domovoi audit head --config /etc/domovoi/hub.toml
 Run it after a backup, or on a schedule, and keep the output off the host. Comparing it with a later run shows whether the newest audit rows were deleted, which the chain alone cannot detect.
 
 ## Other
+
+### `domovoi package import` and `domovoi package list`
+
+`package import <archive> <signature>` stores a signed package archive (`<name>-<version>.tar.zst`) and its detached `.sig.toml` signature in the hub's package store, and `package list` lists what is stored. Both open the hub's database directly, so they need the hub stopped, like the other commands under [Commands that need the hub stopped](#commands-that-need-the-hub-stopped). They take `--config` for the hub file. See [Packages](../guide/packages.md).
+
+### `domovoi upgrade`
+
+Replaces this binary with a release and prints the units to restart. `--version <tag>` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced and changes nothing. See [Upgrading and uninstalling](../install/upgrading.md).
+
 
 ### `domovoi version`
 

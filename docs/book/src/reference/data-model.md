@@ -1,6 +1,6 @@
 # Data model
 
-The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_dir`. Migrations are embedded in the binary and run at start-up. They are append-only: a released migration is never edited, only followed by a new one.
+The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_dir`. Migrations are embedded in the binary and run at start-up. The schema starts at one baseline, `0001_init.sql`. Migrations are append-only: a released migration is never edited, only followed by a new one.
 
 ## Conventions
 
@@ -8,7 +8,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 - Timestamps are `INTEGER` unix milliseconds, UTC.
 - Hashes are 32-byte `BLOB`s; fingerprints and plan hashes are lowercase hex `TEXT`.
 - Structured values (labels, evidence, arguments, reports) are `TEXT` JSON.
-- Enums are `TEXT`. Older columns carry a `CHECK` constraint; new enum-like columns are validated by the program so a new variant needs no migration.
+- Enums are `TEXT`. Some columns carry a `CHECK` constraint; enum-like columns that may gain variants are validated by the program so a new variant needs no migration.
 - Every table is `STRICT`, so SQLite rejects a value of the wrong type.
 
 ## Tables
@@ -27,9 +27,33 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `incident_signals` | Which signals belong to which incident. |
 | `incidents` | Incident state as JSON, with indexed fingerprint, host, status, severity and times, and a `version` column that every writer names and the store increments. At most one active incident per fingerprint. |
 | `incidents_fts` | Full-text index of incident titles, kept in step by triggers. |
-| `incident_events` | Each incident's timeline (status changes, triage reports, actions), in the order it happened. Each new entry is also recorded in `journal` in the same transaction, until the old table is retired. |
-| `actions` | Proposed and approved actions: skill, arguments, plan hash, status, proposer, approval and the chat button token hash. |
-| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Rows written since the hash chain was introduced also carry `prev_hash` and `hash`. An action transition is recorded in the same transaction as the change. |
+| `incident_events` | Each incident's timeline (status changes, triage reports, operations), in the order it happened. Each new entry is also recorded in `journal` in the same transaction. |
+| `operations` | One row per operation: kind, goal, status (a cache of the status derived from its steps), pause reason, cycle counter, budgets and the subjects it is pinned to. See [Operations](../concepts/operations.md). |
+| `operation_incidents` | Which incidents an operation is linked to. |
+| `steps` | The immutable steps of an operation: kind, phase, cycle, ordinal, intent and outcome. A trigger refuses any update to a step's identity columns. |
+| `step_edges` | Links from a later step to an earlier step of the same operation. A trigger refuses an edge that points forward. |
+| `executions` | One row per Execution step: host, capability contract, plan hash, risk, approval, the hash of the chat button token and the dispatch facts. |
+| `execution_permits` | The policy permit that authorized an execution: decision, policy version, ceiling hash, plan hash and expiry. |
+| `execution_permit_rules` | The rules that applied to each permit. |
+| `unknown_resolutions` | How a person settled an execution whose outcome was unknown, with who and when. |
+| `journal_floor` | One row recording the sequence number through which the journal was pruned. |
+| `llm_admission` | The model runs admitted in the last hour, for the hourly cap. |
+| `policy_versions` | The draft and every published policy version: status, number, rule counts and the hash of its rules. A published version never changes. |
+| `policy_rules` | The rules of each version. Triggers freeze them once the version is published. |
+| `policy_acknowledgements` | The conflicts acknowledged when a version was published. |
+| `policy_shadow_decisions` | One recorded decision per Execution step in shadow mode, with the enforced and the shadow answer. Written once. |
+| `policy_shadow_state` | The progress and the last error of the shadow recording sweep. |
+| `autonomy_state` | One row: whether policy permits are paused, and who changed it and when. |
+| `rule_circuit_resets` | When and by whom a suspended rule's circuit breaker was reset. |
+| `package_artifacts` | The package archives the hub stores, by SHA-256 digest, with their signature text. The archive files themselves are not in the database or in backups. |
+| `install_jobs` | One row per package install or uninstall request. |
+| `install_job_targets` | One row per host of a job: attempt, plan hash, approval, status and transfer facts. A partial unique index allows one unfinished target per host. |
+| `host_packages` | The packages each host last reported. |
+| `helper_keys` | The helper key the owner pinned for each host. |
+| `helper_attestation` | The latest attestation outcome per host, and the verified report while that outcome is verified. |
+| `helper_high_water` | The highest accepted attestation generation and hashes per host and key. |
+| `containment_blocks` | Network-source blocks: host, operation and step, canonical source, lifetime, plan hash, safety assurance, phase and deadline. See [Blocking a network source](../guide/containment.md). |
+| `audit_log` | Who did what, when: approvals, dispatches, results, logins. Append-only: triggers reject every update, delete and replace. Every row carries `prev_hash` and `hash`. An audit row is written in the same transaction as the change it records. |
 | `ack_rules` | Standing acknowledgements: check, optional host and target pattern, evidence predicates, note, expiry, and who created the rule and when. |
 | `maintenance_windows` | Planned windows per host when incidents are held back. |
 | `baselines` | What each host is expected to run: containers, units and listening ports, with criticality and when they were last seen. |
@@ -39,8 +63,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `messages` | The messages of an Operator conversation, in order: role, status (`pending`, `complete`, `failed` or `cancelled`), turn, text, failure, the read tools used, and the times. Each conversation has at most one pending answer. Message text lives only here, so retention can delete it. |
 | `triage_cache` | Triage reports keyed by incident fingerprint and a digest of the evidence, so the same evidence is not triaged twice. |
 | `llm_usage` | Tokens and cost per LLM call, for the monthly budget. |
-| `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). Formerly `digest_facts`. |
-| `digest_facts` | A view over `metric_samples`, kept for one release for older readers and writers. Inserts go to `metric_samples` through a trigger. |
+| `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). |
 | `facts` | Knowledge facts: a subject, a predicate from a closed list, a value, a source, a status and the times that drive freshness. A retracted fact keeps only its tombstone once its value is cleared. See [Knowledge](../concepts/knowledge.md). |
 | `facts_fts` | Full-text index of live facts, kept in step by triggers. |
 | `relations` | Typed links between two subjects, such as one host depending on another. Retracted relations are cleared like retracted facts. |
@@ -58,7 +81,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 
 ### The effects table
 
-`effects` is the work outbox: work that must happen later, such as the re-check after an action, is stored here in the same commit as the change that asked for it. A row has `kind`, `aggregate_type`, `aggregate_id`, `payload`, `status`, `not_before`, `attempt`, `max_attempts`, `dedup_key`, `claim_token`, `claim_generation`, `lease_until`, `runner_id`, `last_error`, `created_at` and `completed_at`.
+`effects` is the work outbox: work that must happen later, such as the re-check after an execution, is stored here in the same commit as the change that asked for it. A row has `kind`, `aggregate_type`, `aggregate_id`, `payload`, `status`, `not_before`, `attempt`, `max_attempts`, `dedup_key`, `claim_token`, `claim_generation`, `lease_until`, `runner_id`, `last_error`, `created_at` and `completed_at`.
 
 A row is `pending` until it is due, `claimed` while a runner holds it under its lease, and then `done`. It becomes `dead` after its last attempt, which raises an advisory, or `cancelled` when the work no longer applies.
 
@@ -90,7 +113,7 @@ Every period is a setting in `[retention]`; the [Retention guide](../guide/reten
 | Raw execution outputs (not built yet) | `execution_outputs_days` | 30 days |
 | Retracted fact content | `retracted_facts_days` | 30 days |
 
-Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples (formerly digest facts) are kept. Resolution summaries hold no raw output and stay with their operation; deleting data does not remove it from backups until they rotate.
+Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples are kept. Resolution summaries hold no raw output and stay with their operation; deleting data does not remove it from backups until they rotate.
 
 ## Backups
 
@@ -113,6 +136,4 @@ At start-up the hub runs `PRAGMA quick_check`. If the database reports a problem
 
 `schema_compat` records the lowest Domovoi version that can read the schema. A binary older than that refuses to open the database, before it takes a backup or touches the file, and says which version is needed. The only way back is to restore an older backup.
 
-A binary that knows fewer migrations than the database ignores the ones it does not know, so upgrading can be rolled back to the previous release when that release already has this rule. A rollback to an older release that does not is a forward-fix or restore situation.
-
-The `digest_facts` view and its insert trigger are kept for one release only. A later release removes them and raises the lowest version that can read the schema, so readers older than that release refuse the database.
+A binary that knows fewer migrations than the database ignores the ones it does not know, so a release can be rolled back to the previous one when that release already has this rule. Otherwise the way back is to restore a backup.

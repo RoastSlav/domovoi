@@ -24,7 +24,7 @@ sudo systemctl restart domovoi-hub
 sudo sh install.sh --role agent --migrate-identity
 ```
 
-See [Binary and systemd](binary.md#already-installed) for what it changes and how to roll it back. After it, Docker, SMART, the kernel-log fallback and listening-port process names keep working through the helper; `security.fail2ban` reports an error until a later release.
+See [Binary and systemd](binary.md#already-installed) for what it changes and how to roll it back. After it, Docker, SMART, the kernel-log fallback and listening-port process names keep working through the helper; `security.fail2ban` reports an error.
 
 **A host that was already migrated.** The installer keeps a helper unit that differs from this release's and saves the new text under `<prefix>/share/domovoi/domovoi-helper@.service`. Replace the unit with it and run `sudo systemctl daemon-reload` (then `domovoi agent selftest`, which reports the old unit as `unit_modified` until you do): the new unit gives the helper the device access and capabilities that SMART, kernel-log and listening-socket reads need. Docker reads work without it. Until you replace it, those three answer `command_failed`. An agent already on the new layout is checked on every rerun: the installer reports any path with a wrong mode or owner and changes nothing.
 
@@ -55,19 +55,9 @@ An agent from this release that the hub rejects as incompatible does not exit an
 
 **Expected incompatible** means the hub was upgraded and an agent has not reconnected since. It will show as incompatible if it still speaks the old protocol, and as compatible once it reconnects. See [the agent protocol](../reference/protocol.md).
 
-Before a new release changes the database, the hub copies `hub.db` into `backups/` as `pre-migrate-<time>.db`. Only the three newest of those copies are kept (`backup.keep_pre_migrate`), so an upgrade can no longer push out a pre-migration copy you still wanted. `secret.key` and the agent certificate in `tls/` carry over unchanged, so saved secrets keep working and agents stay enrolled.
+Before a release changes the database, the hub copies `hub.db` into `backups/` as `pre-migrate-<time>.db`. Only the three newest of those copies are kept (`backup.keep_pre_migrate`), and they are kept apart from the nightly copies, so a nightly run never pushes one out. A hub refuses to open a database that a newer release has written, and says which release it needs; install that release or restore an older backup. `secret.key` and the agent certificate in `tls/` carry over unchanged, so saved secrets keep working and agents stay enrolled.
 
 To go back a version, stop the hub, restore the backup taken before the upgrade (see [Backups](../reference/backup.md)), and install the older release with `--version`.
-
-## Open legacy actions are closed at upgrade
-
-Releases before the operations model proposed "actions" that waited for approval. The executor that ran them is gone, so the first start of a release without it closes every action that is still open, once, and records each change in the audit log:
-
-- a proposal still waiting becomes **Expired**, and an approval not yet sent becomes **Never ran**, both with the reason "legacy action expired at upgrade";
-- a run that was already sent to a host becomes **Result unknown** ("legacy executor removed before this run was reconciled"), never failed and never run again; the agent's own journal still holds what happened;
-- a pending re-check of a finished action is dropped.
-
-Nothing is deleted. All these actions stay in the list, read-only and labelled Legacy. Closing them cannot be undone, so take a backup (see [Backups](../reference/backup.md)) before you upgrade.
 
 ## Release notices
 

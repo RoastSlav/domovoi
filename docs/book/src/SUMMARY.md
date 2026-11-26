@@ -17,7 +17,6 @@
 - [Hub and agents](concepts/hub-and-agent.md)
 - [Signals and incidents](concepts/incidents.md)
 - [Verdicts, cards and threads](concepts/cards.md)
-- [Actions and approvals](concepts/actions.md)
 - [Operations](concepts/operations.md)
 - [Operator](concepts/operator.md)
 - [Capabilities](concepts/capabilities.md)
