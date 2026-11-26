@@ -23,7 +23,7 @@ Shadow mode is the way to see what a policy would do before it does anything. Wh
 
 Nothing is enforced in shadow mode. The step runs or waits exactly as it would without it, and a sweep writes the rows a few seconds after the step is created. A failed sweep never blocks an operation; the rows just arrive later.
 
-A row is **degraded** when some input the decision needs could not be read. The hub then uses the value that denies or narrows, and lists the gap in the row. A degraded row can therefore be stricter than the real answer would be, so read it as "at least this strict", not as a verdict. The inputs that are not available yet are listed under [What is not yet available](#what-is-not-available).
+A row is **degraded** when some input the decision needs could not be read. The hub then uses the value that denies or narrows, and lists the gap in the row. A degraded row can therefore be stricter than the real answer would be, so read it as "at least this strict", not as a verdict. The inputs that are not available yet are listed under [What is not available](#what-is-not-available).
 
 ## Versions and publication
 

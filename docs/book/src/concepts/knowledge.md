@@ -88,24 +88,13 @@ for safety decisions. A wrong password changes nothing, and too many wrong tries
 
 A management path records how a host is reached for management. Because a wrong path can lock you out, it counts only when it is current and confirmed by the owner.
 
-A confirmation needs a verified, fresh helper attestation that shows the path covered. That attestation is not built yet. Until it ships, every confirmation fails with:
-
-> the helper's coverage cannot be verified yet
-
-Monitoring and work you approve by hand are not affected by this.
+A confirmation needs a verified, fresh helper attestation that shows the path covered. If the hub cannot verify that, the confirmation is refused with the reason, such as "the helper's key is not pinned", "the helper has not sent an attestation", "the helper's attestation is too old" or "the helper's attestation does not cover this path". Pin the helper's key and check the attestation first: see [Helper key and attestation](../guide/helper.md). Monitoring and work you approve by hand are not affected.
 
 ### The Management paths page
 
-**Management paths** (under Knowledge) shows one host at a time: each path with its state, source,
-freshness and who confirmed it. The page says plainly that the helper's check is not available yet,
-so **Confirm** is disabled with that reason and nothing is sent. You can still add a path, accept
-one Domovoi found and retract a wrong one. Adding and accepting ask for your password.
+**Management paths** (under Knowledge) shows one host at a time: each path with its state, source, freshness and who confirmed it. You can add a path, accept one Domovoi found, confirm one (or confirm it again when it is stale) and retract a wrong one. Adding, accepting and confirming ask for your password.
 
-A line at the top says whether unattended containment is blocked on the host and why: coverage
-cannot be verified, no paths, paths Domovoi found that you have not accepted, paths not confirmed,
-or stale paths. It only reports what the hub knows. It never says an action is allowed, and it
-reminds you that monitoring and actions you approve yourself are not affected. This version never
-shows a path as covered.
+A line at the top says whether unattended containment is blocked on the host and why: no paths, paths Domovoi found that you have not accepted, paths not confirmed, or stale paths. It only reports what the hub knows. It never says an action is allowed, and it reminds you that monitoring and actions you approve yourself are not affected.
 
 ## Host profiles and facts
 
