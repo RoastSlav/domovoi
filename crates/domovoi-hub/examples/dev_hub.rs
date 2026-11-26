@@ -176,6 +176,8 @@ fn config() -> Result<HubConfig> {
         "DISCORD_WEBHOOK_URL",
         "DOMOVOI_ALERTS_TOKEN",
         "DOMOVOI_HEARTBEAT_URL",
+        "DOMOVOI_METRICS_TOKEN",
+        "OLLAMA_API_KEY",
     ]
     .into_iter()
     .fold(MapEnv::new(), |env, name| {

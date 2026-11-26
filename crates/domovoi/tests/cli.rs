@@ -19,7 +19,7 @@ mod tests {
     }
 
     /// The variables the example configurations refer to.
-    const EXAMPLE_ENV: [(&str, &str); 6] = [
+    const EXAMPLE_ENV: [(&str, &str); 8] = [
         ("ANTHROPIC_API_KEY", "sk-ant-test"),
         ("DISCORD_BOT_TOKEN", "bot-token"),
         (
@@ -29,6 +29,8 @@ mod tests {
         ("DOMOVOI_ALERTS_TOKEN", "alerts-token"),
         ("DOMOVOI_HEARTBEAT_URL", "https://hc.example.net/ping/abc"),
         ("DOMOVOI_LOCAL_WEBHOOK_TOKEN", "local-token"),
+        ("DOMOVOI_METRICS_TOKEN", "metrics-token"),
+        ("OLLAMA_API_KEY", "ollama-key"),
     ];
 
     #[test]

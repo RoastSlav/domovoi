@@ -537,7 +537,7 @@ mod api {
         assert_eq!(reply.body["discord"]["bot_token"], "[set]");
         assert_eq!(reply.body["webhooks"][0]["secret"], "[set]");
         assert_eq!(reply.body["heartbeat"]["url"], "[set]");
-        assert_eq!(reply.body["llm_secondary"]["api_key"], "[unset]");
+        assert_eq!(reply.body["llm_secondary"]["api_key"], "[set]");
 
         // The write path: a save with a secret, an invalid save carrying one, and a
         // connection test that uses one never echo it.

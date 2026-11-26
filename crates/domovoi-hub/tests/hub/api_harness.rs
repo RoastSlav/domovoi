@@ -50,7 +50,7 @@ use tower::ServiceExt;
 pub const ORIGIN: &str = "https://domovoi.example.net";
 
 /// Secret values the example config reads; none may ever appear in a response.
-pub const SECRETS: [(&str, &str); 5] = [
+pub const SECRETS: [(&str, &str); 7] = [
     ("ANTHROPIC_API_KEY", "sk-ant-test-0123456789abcdef"),
     ("DISCORD_BOT_TOKEN", "discord-bot-token-not-for-eyes"),
     (
@@ -62,6 +62,8 @@ pub const SECRETS: [(&str, &str); 5] = [
         "DOMOVOI_HEARTBEAT_URL",
         "https://hc.example/ping/heartbeat-secret",
     ),
+    ("DOMOVOI_METRICS_TOKEN", "metrics-token-not-for-eyes"),
+    ("OLLAMA_API_KEY", "ollama-key-not-for-eyes"),
 ];
 
 /// The admin's credentials.
