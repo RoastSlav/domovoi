@@ -70,7 +70,6 @@ tower-http = "0.7.1"
 utoipa = { version = "6.0.0", features = ["axum_extras", "uuid", "jiff_0_2"] }
 utoipa-axum = "0.3.0"
 rust-embed = { version = "8.13.0", features = ["mime-guess"] }
-mime_guess = "2.0.5"
 argon2 = "0.6.0"
 rand = "0.10.3"
 hmac = "0.13.0"
