@@ -4,7 +4,7 @@ expression: legacy
 ---
 Seen {
     shape: Object {
-        "failed": String("scripted failed: unavailable: the run deadline passed before the model was asked; raise [triage] per_run.seconds"),
+        "failed": String("scripted failed: unavailable: the run deadline passed before the model was asked; raise 'Seconds per run' under Settings, Models and triage (triage.per_run.seconds)"),
     },
     model_requests: 0,
     tools: None,

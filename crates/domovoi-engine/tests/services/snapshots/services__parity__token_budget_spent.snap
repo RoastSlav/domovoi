@@ -5,7 +5,7 @@ expression: legacy
 (
     Seen {
         shape: Object {
-            "failed": String("scripted failed: unavailable: the run spent its whole output token budget before the model finished; raise [triage] per_run.total_tokens"),
+            "failed": String("scripted failed: unavailable: the run spent its whole output token budget before the model finished; raise 'Total tokens per run' under Settings, Models and triage (triage.per_run.total_tokens)"),
         },
         model_requests: 2,
         tools: None,

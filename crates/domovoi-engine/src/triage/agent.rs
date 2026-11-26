@@ -211,7 +211,7 @@ impl RunBudget {
         self.grant(wanted).ok_or_else(|| {
             LlmError::Unavailable(
                 "the run spent its whole output token budget before the model finished; \
-                 raise [triage] per_run.total_tokens"
+                 raise 'Total tokens per run' under Settings, Models and triage (triage.per_run.total_tokens)"
                     .to_owned(),
             )
         })
@@ -249,7 +249,7 @@ pub(crate) fn text_of(parts: &[Part]) -> String {
 /// The failure a run ends with when its time is gone.
 pub(crate) fn deadline_error() -> LlmError {
     LlmError::Unavailable(
-        "the run deadline passed before the model finished; raise [triage] per_run.seconds"
+        "the run deadline passed before the model finished; raise 'Seconds per run' under Settings, Models and triage (triage.per_run.seconds)"
             .to_owned(),
     )
 }

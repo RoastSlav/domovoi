@@ -39,7 +39,7 @@ pub(crate) async fn complete(
     let left = deadline.duration_since(shared.deps.clock.now());
     if left <= SignedDuration::ZERO {
         return Err(LlmError::Unavailable(
-            "the run deadline passed before the model was asked; raise [triage] per_run.seconds"
+            "the run deadline passed before the model was asked; raise 'Seconds per run' under Settings, Models and triage (triage.per_run.seconds)"
                 .to_owned(),
         ));
     }
@@ -54,7 +54,7 @@ pub(crate) async fn complete(
         Ok(result) => result,
         Err(_) => Err(LlmError::Unavailable(
             "the run deadline passed while the model was answering; \
-             raise [triage] per_run.seconds"
+             raise 'Seconds per run' under Settings, Models and triage (triage.per_run.seconds)"
                 .to_owned(),
         )),
     };
