@@ -71,18 +71,27 @@ fn run_facts(inspect: &dyn HostInspect) -> Option<RunFacts> {
     })
 }
 
+/// The first regular file under `dir` in path order, or none when the tree holds no file or
+/// cannot be walked.
+fn first_file(inspect: &dyn HostInspect, dir: &Path) -> Option<PathBuf> {
+    inspect
+        .walk_tree(dir)
+        .ok()?
+        .into_iter()
+        .find(|entry| entry.facts.kind == Some(PathKind::File))
+        .map(|entry| entry.path)
+}
+
 fn write_probes(inspect: &dyn HostInspect, dirs: &[&PathBuf]) -> Vec<AccessRecord> {
     let mut out = Vec::new();
     for dir in dirs {
         for how in [Probe::Create, Probe::Rename, Probe::Unlink] {
             out.push(record(inspect, dir, how));
         }
-        if let Some(name) = inspect
-            .list_dir(dir)
-            .ok()
-            .and_then(|names| names.into_iter().next())
-        {
-            out.push(record(inspect, &dir.join(name), Probe::Append));
+        // Append to a regular file: a directory, such as a starter skill's own folder, answers
+        // EISDIR whatever the mount allows, which says nothing about writability.
+        if let Some(file) = first_file(inspect, dir) {
+            out.push(record(inspect, &file, Probe::Append));
         }
     }
     out

@@ -279,6 +279,15 @@ fn isolation_report_accepts_eacces_for_append_to_unowned_file_but_not_success() 
         Access::NotFound,
     ));
     assert_eq!(points(&other), [4]);
+    // An answer the probe could not classify (such as EISDIR on a directory) stays a fault;
+    // the probe must pick a regular file instead.
+    let mut unclassified = good_report();
+    unclassified.writes.push(rec(
+        "/etc/domovoi/skills/disk_usage_top",
+        Probe::Append,
+        Access::Other,
+    ));
+    assert_eq!(points(&unclassified), [4]);
 }
 
 #[test]

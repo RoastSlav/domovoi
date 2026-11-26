@@ -1,8 +1,8 @@
 //! The isolation probe: the eight points collected through the inspection port.
 
-use domovoi_core::identity::HostDirs;
+use domovoi_core::identity::{HostDirs, PathFacts, PathKind};
 use domovoi_core::isolation::evaluate_isolation;
-use domovoi_core::ports::Access;
+use domovoi_core::ports::{Access, Probe, TreeEntry};
 use domovoi_helper::probe::{ProbeArgs, collect};
 use domovoi_testkit::FakeHostInspect;
 
@@ -61,4 +61,47 @@ fn probe_collect_reports_a_failed_mask_as_a_fault() {
     );
     let faults = evaluate_isolation(&report);
     assert!(faults.iter().any(|f| f.point == 2), "{faults:?}");
+}
+
+fn facts(kind: PathKind) -> PathFacts {
+    PathFacts {
+        kind: Some(kind),
+        symlink: false,
+        mode: 0o755,
+        uid: 0,
+        gid: 0,
+    }
+}
+
+#[test]
+fn append_probe_targets_a_regular_file_not_a_skill_directory() {
+    let dirs = HostDirs::default();
+    let skill_dir = dirs.skills_dir.join("disk_usage_top");
+    let manifest = skill_dir.join("skill.toml");
+    let host = masked_host().tree(
+        &dirs.skills_dir,
+        vec![
+            TreeEntry {
+                path: skill_dir.clone(),
+                facts: facts(PathKind::Dir),
+            },
+            TreeEntry {
+                path: manifest.clone(),
+                facts: facts(PathKind::File),
+            },
+        ],
+    );
+    let report = collect(
+        &host,
+        &ProbeArgs {
+            helper_pid: HELPER_PID,
+        },
+    );
+    let appends: Vec<_> = report
+        .writes
+        .iter()
+        .filter(|r| r.how == Probe::Append)
+        .map(|r| r.path.clone())
+        .collect();
+    assert_eq!(appends, vec![manifest], "never the directory {skill_dir:?}");
 }
