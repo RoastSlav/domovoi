@@ -91,9 +91,19 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `tool_result` | agent → hub | The tool's redacted output, or why it failed. |
 | `run_skill` | hub → agent | Run an approved step's skill: execution id, skill, args, plan hash, deadline. |
 | `skill_result` | agent → hub | Exit status, redacted and capped output, duration and argv hash, or why it did not run. |
+| `run_capability` | hub → agent | Run one capability contract on the host (a helper-backed read or write, a package install, a restart, a block): contract, version, typed arguments, execution id, plan hash, authorization and deadline. |
+| `capability_result` | agent → hub | The capability's typed outcome, or why it failed. |
+| `refused` | agent → hub | The agent declined a request before running it: a stable `code`, a short `detail`, and `retry_after` or `scope` for a rate limit. A refusal ends that execution and never ends the session. |
 | `run_check` | hub → agent | Re-run one check now. |
 | `check_result` | agent → hub | One fresh observation per target. |
 | `config_update` | hub → agent | New hub-managed settings, replacing the previous ones. |
+| `agent_status` | agent → hub | What changed on the host since `hello`: the helper's status and public key, the skill runner's status, whether the agent runs as root or in a container, and the hash of its unattended ceiling. The hub answers nothing and keeps the values for the session. |
+| `get_logs` | hub → agent | Ask for the agent's own recent log lines: at most `lines` of them, from `min_level` up, after `offset` lines already received, before a deadline. |
+| `logs` | agent → hub | One chunk of those lines, oldest first. The hub asks again with a larger `offset` until it has the window. |
+| `get_catalog` | hub → agent | Ask for one page (`page`, `page_size` of at most 100) of the agent's capability catalogue. |
+| `catalog_page` | agent → hub | The contracts on that page, each with its id and version, and `next_page` when there are more. |
+| `action_status` | hub → agent | Ask the agent's journal what happened to up to 64 executions, naming the journal epoch the hub believes it is asking about. |
+| `action_status_answers` | agent → hub | The journal's actual epoch and one answer per requested execution, in request order. |
 | `attest_safety` | hub → agent | A challenge: 32 random bytes the helper must sign into a safety report. |
 | `safety_attestation` | agent → hub | The helper's public key, the report bytes and the signature, relayed unchanged. |
 | `transfer_begin` | hub → agent | Start a file transfer for a package archive or signature. |
@@ -113,9 +123,9 @@ On a host with a helper, the hub can ask for a signed report of what the helper 
 "` followed by the report bytes, then parses those same bytes strictly (a report that does not re-render to the identical text is refused) and checks the nonce, the hashes and the generation. Only then is the report accepted. See [How a safety report is trusted](../security.md#helper-attestation).
 4. **Error reply.** When the helper cannot sign, the agent answers with an `error` whose `code` is the helper's own token: `uninitialized`, `key_missing`, `key_corrupt`, `helper_state_permissions` or `lock_unavailable`. A helper that is absent, unreachable or not serving the operation is `helper_unavailable`. These are unsigned hints. The hub records and shows them but gives them no weight: the host stays unverified (`attestation_missing`).
 
-`hello.in_container` and `agent_status.in_container` (wire 1.2, additive) say whether the agent runs in a container. An older agent omits them, which reads as `false`.
+`hello.in_container` and `agent_status.in_container` (wire 1.2) say whether the agent runs in a container. A frame that omits them reads as `false`.
 
-`hello.helper_identity` and `agent_status.helper_identity` are now filled in: `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.
+`hello.helper_identity` and `agent_status.helper_identity` carry `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.
 
 `run_capability` carries `expected_safety`, a closed tagged value the helper compares against what it computes:
 
@@ -126,7 +136,7 @@ The form is strict. A missing tag, an unknown tag, an unknown reason, an extra o
 
 ## Containment
 
-`firewall.block_source` (version 1) and `firewall.list_blocks` (version 1) travel as ordinary `run_capability` requests. Wire 1.2 is unchanged: no frame and no field was added, and the replies are the existing `capability_result`, `refused` and `error` messages and the `action_status` answers.
+`firewall.block_source` (version 1) and `firewall.list_blocks` (version 1) travel as ordinary `run_capability` requests. They use no frame or field of their own; the replies are the existing `capability_result`, `refused` and `error` messages and the `action_status` answers.
 
 A block is three executions, one per phase, each with its own execution id and its own entry in the agent's journal. The `args` hold exactly six keys, all strings:
 
