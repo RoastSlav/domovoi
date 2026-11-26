@@ -799,6 +799,150 @@ rm -f "$cdata/hub.db"
 schema_run 0.0.10 v0.1.0 1 0 >"$work/schema.out"
 check "a machine with no hub database is not refused" sh -c "! grep -q '|schema|' '$work/schema.out'"
 
+# --uninstall: the flags, the plan, the refusals. Nothing here changes the machine: the plan is a
+# dry run, and the arguments that are refused are refused before anything is looked at.
+run --help
+for word in "--uninstall" "--purge" "--keep-on-failure"; do
+    check "usage lists $word" grep -qF -- "$word" "$work/out"
+done
+expect_rc "--purge without --uninstall exits 2" 2 --role agent --no-service --prefix "$p" --purge
+check "--purge without --uninstall says what it goes with" grep -q -- "--purge goes with --uninstall" "$work/err"
+for conflict in "--role hub" "--role agent" "--migrate-identity" "--rollback-identity" "--version v9.9.0" \
+    "--no-service" "--no-start" "--keep-on-failure" "--public-url https://domovoi.example" \
+    "--bind lan" "--hub wss://hub.lan:7421" "--name nas" "--accept-data-reset" "--force-downgrade"; do
+    # shellcheck disable=SC2086 # the words of $conflict are separate arguments on purpose
+    expect_rc "--uninstall refuses $conflict" 2 --uninstall --dry-run --prefix "$p" $conflict
+    check "--uninstall names the flag it cannot be combined with ($conflict)" \
+        grep -q -- "--uninstall cannot be combined with" "$work/err"
+done
+expect_rc "--uninstall with a relative --prefix exits 2" 2 --uninstall --dry-run --prefix rel/dir
+if [ "$(id -u)" -ne 0 ]; then
+    expect_rc "--uninstall without root exits 10" 10 --uninstall --prefix "$work/none"
+    check "--uninstall without root says to use sudo or --dry-run" grep -q "must run as root" "$work/err"
+fi
+# --purge needs --yes when there is no terminal to type the word on. setsid drops the controlling
+# terminal, so the answer does not depend on how this test was started.
+if command -v setsid >/dev/null 2>&1; then
+    rc=0
+    setsid -w sh "$installer" --uninstall --purge --prefix "$work/none" >"$work/out" 2>"$work/err" </dev/null || rc=$?
+    check "--purge without --yes and without a terminal exits 2" test "$rc" -eq 2
+    check "--purge without a terminal asks for --yes" grep -q -- "pass --yes" "$work/err"
+    rc=0
+    setsid -w sh "$installer" --uninstall --purge --yes --dry-run --prefix "$work/none" >"$work/out" 2>"$work/err" </dev/null || rc=$?
+    check "--purge --yes --dry-run is not stopped by the missing terminal" test "$rc" -ne 2
+    rc=0
+    setsid -w sh "$installer" --uninstall --purge --dry-run --prefix "$work/none" >"$work/out" 2>"$work/err" </dev/null || rc=$?
+    check "--purge --dry-run needs no confirmation either" test "$rc" -ne 2
+fi
+
+# The plan lists what exists and nothing else. The prefix part is fully under this test's control;
+# the system paths are whatever this machine has, so each is checked in both directions.
+up="$work/uprefix"
+expect_rc "an install to uninstall later succeeds" 0 --role agent --no-service --prefix "$up" --version v9.9.1
+sum_before="$(sha256sum "$up/bin/domovoi")"
+fixed_paths="/etc/domovoi /var/lib/domovoi /var/lib/domovoi-agent /var/lib/domovoi-packages /var/lib/domovoi-helper \
+/etc/systemd/system/domovoi-hub.service /etc/systemd/system/domovoi-agent.service \
+/etc/systemd/system/domovoi-helper.socket /etc/systemd/system/domovoi-helper@.service \
+/etc/systemd/system/domovoi-helper-selftest.service /etc/systemd/system/domovoi-skill-runner.socket \
+/etc/systemd/system/domovoi-skill-runner@.service"
+expect_rc "the uninstall dry run exits 0" 0 --uninstall --dry-run --prefix "$up"
+check "the dry run plans the binary" grep -q "remove   $up/bin/domovoi" "$work/out"
+check "the dry run plans the examples directory" grep -q "remove   $up/share/domovoi" "$work/out"
+check "the dry run says nothing was changed" grep -q "Dry run: nothing was changed" "$work/out"
+check "the dry run changed nothing" sh -c "test -x '$up/bin/domovoi' && test -d '$up/share/domovoi/examples'"
+check "the dry run left the binary as it was" test "$(sha256sum "$up/bin/domovoi")" = "$sum_before"
+for path in $fixed_paths; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        check "the plan names $path, which exists" grep -qF -- "$path" "$work/out"
+    else
+        check "the plan does not name $path, which is absent" sh -c "! grep -qF -- '$path' '$work/out'"
+    fi
+done
+for acct in domovoi domovoi-agent domovoi-skill; do
+    if id "$acct" >/dev/null 2>&1; then
+        check "the plan keeps the account $acct, which exists" grep -q "keep     account $acct" "$work/out"
+    else
+        check "the plan does not name the account $acct, which is absent" sh -c "! grep -q 'account $acct' '$work/out'"
+    fi
+done
+check "the plan names nothing it would delete without --purge" sh -c "! grep -q '^  delete ' '$work/out'"
+expect_rc "the uninstall dry run with --purge exits 0" 0 --uninstall --purge --dry-run --prefix "$up"
+for path in $fixed_paths; do
+    if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+        check "the purge plan does not name $path, which is absent" sh -c "! grep -qF -- '$path' '$work/out'"
+    fi
+done
+check "the purge dry run changed nothing" test "$(sha256sum "$up/bin/domovoi")" = "$sum_before"
+
+# --json: JSON lines only, one result that says it is an uninstall, nothing removed yet.
+expect_rc "the json uninstall dry run exits 0" 0 --uninstall --dry-run --json --prefix "$up"
+check "the json uninstall dry run is only JSON lines" check_json "$work/out"
+check "the json result says mode uninstall" test "$(result_field "$work/out" 'r["mode"]')" = "uninstall"
+check "the json result says ok and exit 0" test "$(result_field "$work/out" '(r["ok"], r["exit_code"])')" = "(True, 0)"
+check "the json result says no purge" test "$(result_field "$work/out" 'r["purge"]')" = "False"
+check "the json result says nothing was rolled back" test "$(result_field "$work/out" 'r["rolled_back"]')" = "False"
+check "the json result has an empty removed list on a dry run" test "$(result_field "$work/out" 'r["removed"]')" = "[]"
+check "the json result carries the plan with the binary" test "$(result_field "$work/out" 'any("remove" in l and "'"$up"'/bin/domovoi" in l for l in r["plan"])')" = "True"
+check "the json result carries a kept list" test "$(result_field "$work/out" 'isinstance(r["kept"], list)')" = "True"
+expect_rc "the json purge dry run says purge" 0 --uninstall --purge --dry-run --json --prefix "$up"
+check "the json purge dry run is only JSON lines" check_json "$work/out"
+check "the json result says purge" test "$(result_field "$work/out" 'r["purge"]')" = "True"
+expect_rc "an install result says mode install" 0 --role agent --no-service --prefix "$up" --version v9.9.1 --json
+check "the json install result says mode install and no rollback" \
+    test "$(result_field "$work/out" '(r["mode"], r["rolled_back"], r["removed"])')" = "('install', False, [])"
+
+# A link is never followed: the plan stops before it changes anything.
+lp="$work/linkprefix"
+mkdir -p "$lp/bin" "$lp/share" "$lp/real/examples"
+echo precious >"$lp/real/examples/keep"
+ln -s "$lp/real" "$lp/share/domovoi"
+printf '#!/bin/sh\n' >"$lp/bin/domovoi"
+chmod 0755 "$lp/bin/domovoi"
+expect_rc "a share directory that is a symbolic link is refused" 10 --uninstall --dry-run --prefix "$lp"
+check "the link refusal names the link" grep -q "symbolic link" "$work/err"
+check "the link refusal says nothing was changed" grep -q "Nothing was changed" "$work/err"
+check "the link target is untouched" test "$(cat "$lp/real/examples/keep")" = "precious"
+rm -f "$lp/share/domovoi" "$lp/bin/domovoi"
+ln -s "$lp/real/examples/keep" "$lp/bin/domovoi"
+expect_rc "a binary that is a symbolic link is refused" 10 --uninstall --dry-run --prefix "$lp"
+check "the link refusal names the binary" grep -q "$lp/bin/domovoi" "$work/err"
+
+# Nothing installed: exit 10 with a clear message (only where this machine has no Domovoi at all).
+if ! { [ -e /etc/domovoi ] || [ -e /var/lib/domovoi ] || [ -e /var/lib/domovoi-agent ] ||
+    [ -e /etc/systemd/system/domovoi-hub.service ] || [ -e /etc/systemd/system/domovoi-agent.service ] ||
+    [ -e /usr/local/bin/domovoi ] || [ -e /usr/local/share/domovoi ]; }; then
+    expect_rc "an uninstall with nothing installed exits 10" 10 --uninstall --dry-run --prefix "$work/empty-prefix"
+    check "the nothing-to-uninstall message says so" grep -q "nothing to uninstall" "$work/err"
+    expect_rc "a json uninstall with nothing installed exits 10" 10 --uninstall --dry-run --json --prefix "$work/empty-prefix"
+    check "the json failure is a result with ok false" test "$(result_field "$work/out" '(r["ok"], r["exit_code"], r["mode"])')" = "(False, 10, 'uninstall')"
+fi
+
+# A failed fresh install is undone: here the examples step fails because the share path is a file.
+# Everything the run made is removed, and the file that was there is not.
+rp="$work/rollprefix"
+mkdir -p "$rp"
+echo "not a directory" >"$rp/share"
+expect_rc "a fresh install that fails while installing exits 30" 30 --role agent --no-service --prefix "$rp" --version v9.9.1
+check "the failed install is rolled back" grep -q "^Rolled back:" "$work/out"
+check "the rollback lists the binary" grep -q "  $rp/bin/domovoi" "$work/out"
+check "the rollback removes the binary" test ! -e "$rp/bin/domovoi"
+check "the rollback removes the bin directory it made" test ! -e "$rp/bin"
+check "the rollback leaves the file that was there" test "$(cat "$rp/share")" = "not a directory"
+check "the rollback says how to try again" grep -q "run install.sh again" "$work/out"
+check "the rollback names --keep-on-failure" grep -q -- "--keep-on-failure" "$work/out"
+expect_rc "the same failure with --json exits 30" 30 --role agent --no-service --prefix "$rp" --version v9.9.1 --json
+check "the json failure is only JSON lines" check_json "$work/out"
+check "the json result says it was rolled back" test "$(result_field "$work/out" '(r["ok"], r["exit_code"], r["rolled_back"])')" = "(False, 30, True)"
+check "the json result lists what was removed" test "$(result_field "$work/out" '"'"$rp"'/bin/domovoi" in r["removed"]')" = "True"
+expect_rc "--keep-on-failure keeps a failed fresh install" 30 --role agent --no-service --prefix "$rp" --version v9.9.1 --keep-on-failure
+check "--keep-on-failure leaves the binary" test -x "$rp/bin/domovoi"
+check "--keep-on-failure says it left things in place" grep -q "Left in place (--keep-on-failure)" "$work/out"
+check "--keep-on-failure does not say rolled back" sh -c "! grep -q '^Rolled back:' '$work/out'"
+# With the binary there, the next run is an upgrade, and an upgrade is never undone.
+expect_rc "a failing upgrade exits 30" 30 --role agent --no-service --prefix "$rp" --version v9.9.1
+check "a failing upgrade is not rolled back" sh -c "! grep -q 'Rolled back' '$work/out'"
+check "a failing upgrade keeps the binary" test -x "$rp/bin/domovoi"
+
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"

@@ -729,12 +729,14 @@ manifest_add() { # KIND VALUE
 }
 
 # Starts recording, only for a run that can be undone as a whole: not a migration, not an
-# upgrade (a binary is there already), and not where a hub or an agent unit is installed. For
+# upgrade (a binary is there already), and, for a service install, not where a hub or an agent unit is installed. For
 # an agent that also needs a fresh layout, so one that shares the machine with a hub is not.
 arm_rollback() {
     [ "$migrate" -eq 0 ] || return 0
     [ "$state" = "fresh" ] || return 0
-    [ ! -e /etc/systemd/system/domovoi-hub.service ] && [ ! -e "$agent_unit_path" ] || return 0
+    if [ "$service" -eq 1 ]; then
+        [ ! -e /etc/systemd/system/domovoi-hub.service ] && [ ! -e "$agent_unit_path" ] || return 0
+    fi
     if [ "$role" = "agent" ] && [ "$service" -eq 1 ]; then
         classify_host
         case "$layout" in
