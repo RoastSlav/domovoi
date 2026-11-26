@@ -4,7 +4,10 @@
 //! one whose risk is not known) needs its name typed exactly (INV-6).
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::http::HeaderMap;
 use domovoi_core::ports::OperationFilter;
 use domovoi_core::{
     OperationId, OperationKind, OperationSnapshot, OperationStatus, PlanBinding, PlanHash,
@@ -19,7 +22,8 @@ use super::error::{ApiError, ErrorBody};
 use super::operation_errors::command_error;
 use super::snapshot::snapshot_seq;
 use super::{ApiState, Authed, host_named, page};
-use crate::services::risk_of_skill;
+use crate::auth::proxy;
+use crate::services::{ContainmentApproveInput, StepUp, risk_of_skill};
 
 /// The 503 every operation endpoint but the list answers while orchestration is off.
 pub(super) fn off() -> ApiError {
@@ -234,7 +238,26 @@ pub(super) async fn step(
     let (id, step): (OperationId, StepId) = (parse(&id)?, parse(&step)?);
     let snapshot = snapshot(&state, id).await?;
     let record = snapshot.step(step).ok_or(ApiError::NotFound)?;
-    Ok(Json(StepDetailDto::from(record)))
+    let mut dto = StepDetailDto::from(record);
+    let is_block = snapshot
+        .execution_of(step)
+        .is_some_and(|stored| stored.value.contract.as_str() == "firewall.block_source");
+    if is_block {
+        let view = state
+            .services()
+            .containment
+            .step_view(id, step)
+            .await
+            .map_err(super::containment::containment_error)?;
+        dto.containment = match (&view.block, &view.preview) {
+            (Some(block), _) => Some(super::dto_containment::ContainmentStepDto::of_block(block)),
+            (None, Some(preview)) => Some(super::dto_containment::ContainmentStepDto::of_preview(
+                preview,
+            )),
+            (None, None) => None,
+        };
+    }
+    Ok(Json(dto))
 }
 
 /// Approves an Execution step. The body names the v2 plan hash shown on the execution; a
@@ -258,6 +281,8 @@ pub(super) async fn step(
 )]
 pub(super) async fn approve_step(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     auth: Authed,
     Path((id, step)): Path<(String, String)>,
     Json(req): Json<ApproveStepRequest>,
@@ -277,6 +302,34 @@ pub(super) async fn approve_step(
                 "plan_hash is required: 64 hex characters, as shown on the execution".to_owned(),
             )
         })?;
+    let is_block = loaded
+        .execution_of(step)
+        .is_some_and(|stored| stored.value.contract.as_str() == "firewall.block_source");
+    if is_block {
+        // A block is approved with the password and the source typed out, on the web only.
+        let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+        state
+            .services()
+            .containment
+            .approve(
+                &auth.caller(),
+                id,
+                step,
+                ContainmentApproveInput {
+                    plan_hash,
+                    typed_source: req.confirm_text.as_deref(),
+                    acknowledged: req.unverified_acknowledged.unwrap_or(false),
+                },
+                StepUp {
+                    ip,
+                    password: req.password.as_deref(),
+                },
+            )
+            .await
+            .map_err(super::containment::containment_error)?;
+        let refreshed = snapshot(&state, id).await?;
+        return Ok(Json(execution(&state, &refreshed, step)?));
+    }
     state
         .services()
         .operations

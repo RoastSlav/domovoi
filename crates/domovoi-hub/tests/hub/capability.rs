@@ -1342,7 +1342,8 @@ fn helper_words(state: HelperState, ops: &[&str]) -> HostWords {
 
 #[tokio::test]
 async fn registry_requires_the_nft_ops_in_the_helper_status() {
-    let fixture = Fixture::new(domovoi_core::capability::containment::containment_contracts()).await;
+    let fixture =
+        Fixture::new(domovoi_core::capability::containment::containment_contracts()).await;
     let words = |ops: &[&str]| HostWords {
         helper: HelperState::Ready,
         helper_ops: ops.iter().map(|op| (*op).to_owned()).collect(),

@@ -397,3 +397,28 @@ pub fn contain_caps(link: Arc<dyn AgentLink>) -> ContainCaps {
         relay: Arc::new(ContainRelayOf { link }),
     }
 }
+
+/// The capability registry is the one place the compiled contracts, the agent's catalogue, hub
+/// enablement, the skill floors and the ceiling meet (RW-10). The engine gets it beside the narrow
+/// capabilities, never the link itself (ADR 0023).
+pub(super) async fn registry(
+    link: &Arc<dyn AgentLink>,
+    store: &Arc<domovoi_store::Store>,
+    clock: &Arc<dyn domovoi_core::ports::Clock>,
+) -> Result<Arc<crate::capability::HubRegistry>, super::RuntimeError> {
+    Ok(Arc::new(
+        crate::capability::HubRegistry::new(crate::capability::RegistryDeps {
+            contracts: Arc::new(
+                domovoi_core::capability::ContractIndex::new(
+                    domovoi_core::capability::known_contracts(),
+                )
+                .map_err(crate::capability::RegistryError::Index)?,
+            ),
+            agent: Arc::new(LinkCapabilities::new(link.clone())),
+            hosts: store.clone(),
+            store: store.clone(),
+            clock: clock.clone(),
+        })
+        .await?,
+    ))
+}

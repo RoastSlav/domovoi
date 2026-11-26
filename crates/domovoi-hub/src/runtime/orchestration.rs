@@ -40,6 +40,8 @@ pub(super) struct OperationBuild<'a> {
     pub(super) triage: Option<&'a TriageHandle>,
     /// How a unit is resolved through the host's helper.
     pub(super) units: domovoi_core::ports::UnitCaps,
+    /// The containment driver the operation service dispatches blocks through.
+    pub(super) containment: Arc<domovoi_engine::containment::ContainmentDriver>,
 }
 
 /// Starts the operation service when the flag is on; with it off nothing is built or
@@ -57,6 +59,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
         bus,
         triage,
         units,
+        containment,
     } = input;
     if !config.orchestration.enabled {
         if config.triage.enabled {
@@ -133,7 +136,7 @@ pub(super) fn build(input: OperationBuild<'_>) -> Option<(OperationHandle, JoinH
             },
         }),
         autonomy: Some(autonomy),
-        contain: None,
+        contain: Some(containment),
     };
     Some(OperationService::spawn(deps, settings::operations(config)))
 }

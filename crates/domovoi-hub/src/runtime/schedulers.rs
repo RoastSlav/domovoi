@@ -372,6 +372,10 @@ fn spawn_daily(
                     if let Err(err) = runtime.store.purge_install_jobs(now, keep).await {
                         tracing::warn!(%err, "install job retention purge failed");
                     }
+                    // Finished blocks follow the install jobs' retention; audit rows never go.
+                    if let Err(err) = runtime.store.purge_containment_blocks(now, keep).await {
+                        tracing::warn!(%err, "containment block retention purge failed");
+                    }
                 }
                 DailyJob::Backup => {
                     let dir = runtime

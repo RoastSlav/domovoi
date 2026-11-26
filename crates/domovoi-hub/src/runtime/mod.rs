@@ -2,6 +2,7 @@
 
 pub(crate) mod adapters;
 pub mod caps;
+mod contain;
 mod conversations_build;
 mod delivery;
 mod dispatcher;
@@ -27,7 +28,6 @@ pub mod updates;
 use std::sync::Arc;
 
 use domovoi_config::{Secrets, hub::HubConfig};
-use domovoi_core::capability::{ContractIndex, known_contracts};
 use domovoi_core::ports::{
     AgentLink, ChatGateway, Clock, InteractionSink, LogSource, ProcessExecutor,
 };
@@ -40,8 +40,7 @@ use tokio::{sync::broadcast, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::agent_server::{AgentServer, AgentServerDeps, RealNetProbes, ServerSettings};
-use crate::capability::{HubRegistry, RegistryDeps, RegistryError};
-use caps::{LinkCapabilities, action_caps, evidence_caps, observer_of};
+use caps::{action_caps, evidence_caps, observer_of};
 
 use crate::api::{ApiDeps, ApiState, MetricsRender};
 use crate::auth::{AuthState, WebIdentity};
@@ -196,26 +195,21 @@ impl HubRuntime {
         let link: Arc<dyn AgentLink> = server.link();
         let helper_hub = helper::hub(&store, caps::helper_relay(link.clone()), &clock);
         let knowledge = knowledge::build(&store, &clock, helper_hub.clone());
-        // The capability registry is the one place the compiled contracts, the agent's
-        // catalogue, hub enablement, the skill floors and the ceiling meet (RW-10). The
-        // engine gets it beside the narrow capabilities, never the link itself (ADR 0023).
-        let registry = Arc::new(
-            HubRegistry::new(RegistryDeps {
-                contracts: Arc::new(
-                    ContractIndex::new(known_contracts()).map_err(RegistryError::Index)?,
-                ),
-                agent: Arc::new(LinkCapabilities::new(link.clone())),
-                hosts: store.clone(),
-                store: store.clone(),
-                clock: clock.clone(),
-            })
-            .await?,
-        );
+        let registry = caps::registry(&link, &store, &clock).await?;
         // Built once, from the one link; each handle gets only its capabilities (ADR 0023).
         let evidence = Evidence::new(evidence_caps(link.clone()), clock.clone(), registry.clone());
         let catalog = HostCatalog::new(observer_of(link.clone()));
         let package_caps = caps::package_caps(link.clone());
         let unit_caps = caps::unit_caps(link.clone());
+        let containment = contain::build(contain::ContainBuild {
+            store: &store,
+            caps: caps::contain_caps(link.clone()),
+            trust: helper_hub.clone(),
+            knowledge: knowledge.clone(),
+            evidence: &evidence,
+            units: unit_caps.clone(),
+            clock: &clock,
+        });
         let caps_bundle = action_caps(link);
         let triage = triage_build::build(triage_build::TriageBuild {
             config: &config,
@@ -246,6 +240,7 @@ impl HubRuntime {
                 shutdown: &worker_shutdown,
                 bus: &bus,
                 units: unit_caps.clone(),
+                containment: containment.clone(),
             }) {
                 Some((handle, task)) => (Some(handle), Some(task)),
                 None => (None, None),
@@ -264,6 +259,7 @@ impl HubRuntime {
         .await?;
         server.set_reconciler(packages::reconciler(
             operations.as_ref(),
+            containment.clone(),
             &packages.handle,
             helper::on_hello(&helper_hub),
         ));
@@ -350,6 +346,7 @@ impl HubRuntime {
             conversations,
             settings: store.clone(),
             helper_trust: helper::service(&helper_hub, &store, &auth, &clock),
+            containment: contain::services(&containment, &store, &auth, &clock),
             packages: crate::services::PackageCommands::new(crate::services::PackageDeps {
                 handle: packages.handle.clone(),
                 importer: packages.importer.clone(),

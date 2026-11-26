@@ -15,6 +15,7 @@
 mod autonomy;
 mod briefing;
 mod caller;
+mod containment;
 mod conversations;
 mod helper_trust;
 mod hosts;
@@ -42,6 +43,11 @@ use domovoi_engine::triage::TriageHandle;
 pub use autonomy::{AutonomyDeps, AutonomyView, SuspendedRule};
 pub use briefing::{Briefing, BriefingError, BriefingHost, BriefingService};
 pub use caller::{Caller, Surface};
+pub use containment::{
+    ApproveInput as ContainmentApproveInput, ContainmentCommandError, ContainmentCommands,
+    ContainmentDeps, HostView as ContainmentHostView, Preview as ContainmentPreview,
+    StepView as ContainmentStepView,
+};
 pub use conversations::ConversationCommands;
 pub use helper_trust::{HelperError, HelperTrust, HelperTrustDeps, HelperView};
 pub use hosts::{HostService, HostStatus, OPEN_COUNT_CAP};
@@ -96,6 +102,8 @@ pub struct Services {
     pub preferences: PreferenceService,
     /// Signed packages: import, install jobs and what hosts report.
     pub packages: PackageCommands,
+    /// Containment blocks: status, refresh, approval and early release.
+    pub containment: ContainmentCommands,
     /// The helper's key pin and attestation: view, re-check, pin and unpin.
     pub helper_trust: HelperTrust,
 }
@@ -138,6 +146,8 @@ pub struct ServicesDeps {
     pub settings: Arc<dyn SettingsRepo>,
     /// The package use cases.
     pub packages: PackageCommands,
+    /// The containment use cases.
+    pub containment: ContainmentDeps,
     /// The helper trust use cases.
     pub helper_trust: HelperTrust,
 }
@@ -147,19 +157,20 @@ impl Services {
     #[must_use]
     pub fn new(deps: ServicesDeps) -> Self {
         let preferences = PreferenceService::new(deps.settings.clone(), deps.clock.clone());
+        let operations = OperationCommands {
+            handle: deps.operations.clone(),
+            repo: deps.operation_repo,
+            agents: deps.agents.clone(),
+            redactor: deps.redactor,
+            clock: deps.clock.clone(),
+        };
         Self {
             incidents: IncidentService {
                 manager: deps.manager,
                 triage: deps.triage,
                 operations: deps.operations.clone(),
             },
-            operations: OperationCommands {
-                handle: deps.operations,
-                repo: deps.operation_repo,
-                agents: deps.agents.clone(),
-                redactor: deps.redactor,
-                clock: deps.clock.clone(),
-            },
+            operations: operations.clone(),
             hosts: HostService {
                 incidents: deps.incidents.clone(),
                 hosts: deps.hosts.clone(),
@@ -179,6 +190,7 @@ impl Services {
             conversations: deps.conversations,
             preferences,
             packages: deps.packages,
+            containment: ContainmentCommands::new(deps.containment, operations.clone()),
             helper_trust: deps.helper_trust,
         }
     }

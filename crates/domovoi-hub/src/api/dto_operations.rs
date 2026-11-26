@@ -286,6 +286,9 @@ pub struct StepDetailDto {
     pub intent: serde_json::Value,
     /// When it was created.
     pub created_at: String,
+    /// A containment step only: its phase, source, TTL and how the helper's safety stood.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub containment: Option<super::dto_containment::ContainmentStepDto>,
 }
 
 impl From<&StepRecord> for StepDetailDto {
@@ -306,6 +309,7 @@ impl From<&StepRecord> for StepDetailDto {
             output: r.progress.output.clone(),
             intent: serde_json::to_value(&r.step.intent).unwrap_or_default(),
             created_at: r.step.created_at.to_string(),
+            containment: None,
         }
     }
 }
@@ -338,6 +342,13 @@ pub struct ApproveStepRequest {
     pub plan_hash: Option<String>,
     /// Required when the execution says `confirm_required`: the skill's name typed exactly.
     pub confirm_text: Option<String>,
+    /// A containment step only: the signed-in person's password, asked again.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// A containment step only: set when the person acknowledges that the helper's coverage
+    /// could not be verified. Without it that step is refused with `unverified_not_acknowledged`.
+    #[serde(default)]
+    pub unverified_acknowledged: Option<bool>,
 }
 
 /// Cancelling an operation.

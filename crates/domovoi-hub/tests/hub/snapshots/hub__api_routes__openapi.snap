@@ -375,12 +375,26 @@ expression: spec
               "null"
             ]
           },
+          "password": {
+            "description": "A containment step only: the signed-in person's password, asked again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "plan_hash": {
             "description": "Required. The v2 plan hash shown on the execution, 64 hex characters.",
             "maxLength": 64,
             "minLength": 64,
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
+          },
+          "unverified_acknowledged": {
+            "description": "A containment step only: set when the person acknowledges that the helper's coverage\ncould not be verified. Without it that step is refused with `unverified_not_acknowledged`.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -720,6 +734,121 @@ expression: spec
         "required": [
           "paused",
           "suspended_rules"
+        ],
+        "type": "object"
+      },
+      "BlockDto": {
+        "description": "One block the hub recorded.",
+        "properties": {
+          "applied_at": {
+            "description": "When the helper applied the block.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assurance": {
+            "description": "`verified` or `unverified`.",
+            "type": "string"
+          },
+          "authorization": {
+            "description": "`human` or `policy`.",
+            "type": "string"
+          },
+          "block_id": {
+            "description": "The block's id: the execution id of its apply.",
+            "type": "string"
+          },
+          "bridge_gap": {
+            "description": "Whether a bridged interface leaves a gap.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "created_at": {
+            "description": "When the block was created.",
+            "type": "string"
+          },
+          "deadline": {
+            "description": "When a confirmed block ends.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "existing_flows": {
+            "description": "`cut`, `n/a` or `may_persist`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_token": {
+            "description": "The token of a refusal or failure.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host_id": {
+            "description": "The host.",
+            "type": "string"
+          },
+          "operation_id": {
+            "description": "The operation the block belongs to.",
+            "type": "string"
+          },
+          "phase": {
+            "description": "`applying`, `applied`, `confirming`, `confirmed`, `rolling_back`, `rolled_back`,\n`expired`, `lost`, `not_run`, `failed` or `outcome_unknown`.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why coverage could not be verified, on the unverified path.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "The canonical network.",
+            "type": "string"
+          },
+          "step_id": {
+            "description": "The step the block belongs to.",
+            "type": "string"
+          },
+          "ttl_s": {
+            "description": "The TTL the block has once confirmed, in seconds.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unprotected_paths": {
+            "description": "The paths the verified report did not cover, on the unverified path.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "When the block last changed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id",
+          "host_id",
+          "operation_id",
+          "step_id",
+          "source",
+          "ttl_s",
+          "phase",
+          "authorization",
+          "assurance",
+          "unprotected_paths",
+          "created_at",
+          "updated_at"
         ],
         "type": "object"
       },
@@ -1463,6 +1592,130 @@ expression: spec
           }
         ]
       },
+      "ContainmentStatusDto": {
+        "description": "What a host's containment looks like: display only, and available when containment is not.",
+        "properties": {
+          "available": {
+            "description": "Whether the registry offers containment on this host right now.",
+            "type": "boolean"
+          },
+          "blocks": {
+            "description": "The blocks the hub recorded, newest first.",
+            "items": {
+              "$ref": "#/components/schemas/BlockDto"
+            },
+            "type": "array"
+          },
+          "bridge_gap": {
+            "description": "Whether a bridged interface leaves a gap.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "drills": {
+            "$ref": "#/components/schemas/DrillsDto",
+            "description": "The drills."
+          },
+          "existing_flows": {
+            "description": "`cut`, `n/a` or `may_persist`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gate": {
+            "$ref": "#/components/schemas/GateDto",
+            "description": "The leak self-test gate."
+          },
+          "lost_blocks": {
+            "description": "Blocks the helper lost with its table, when it said.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "description": "When the helper was last asked (a refresh by the owner); absent before one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "gate",
+          "drills",
+          "blocks"
+        ],
+        "type": "object"
+      },
+      "ContainmentStepDto": {
+        "description": "How a containment step stands, on the step detail.",
+        "properties": {
+          "assurance": {
+            "description": "`verified` or `unverified`.",
+            "type": "string"
+          },
+          "bridge_gap": {
+            "description": "Whether a bridged interface leaves a gap.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "existing_flows": {
+            "description": "`cut`, `n/a` or `may_persist`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "description": "When a confirmed block ends.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "description": "A block phase, or `proposed` before the step was dispatched.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why coverage could not be verified, on the unverified path.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "The canonical source.",
+            "type": "string"
+          },
+          "ttl_s": {
+            "description": "The TTL in seconds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "unprotected_paths": {
+            "description": "The paths the verified report does not cover, on the unverified path.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "phase",
+          "source",
+          "ttl_s",
+          "assurance",
+          "unprotected_paths"
+        ],
+        "type": "object"
+      },
       "ConversationDetailDto": {
         "allOf": [
           {
@@ -1898,6 +2151,19 @@ expression: spec
           "rule_count",
           "locked_count",
           "shadow_count"
+        ],
+        "type": "object"
+      },
+      "DrillsDto": {
+        "description": "The drills the helper reported at the last refresh.",
+        "properties": {
+          "state": {
+            "description": "`passed`, `failed`, `not_run` or `unknown` before a refresh.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
         ],
         "type": "object"
       },
@@ -2439,6 +2705,33 @@ expression: spec
         },
         "required": [
           "turns"
+        ],
+        "type": "object"
+      },
+      "GateDto": {
+        "description": "The leak self-test gate the helper reported at the last refresh.",
+        "properties": {
+          "layout": {
+            "description": "The layout the sets use: `hosts` or `hosts_and_prefixes`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "Why, when the helper said.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "description": "`open`, `blocked_leak`, `blocked_untested` or `unknown` before a refresh.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
         ],
         "type": "object"
       },
@@ -6028,6 +6321,26 @@ expression: spec
         ],
         "type": "object"
       },
+      "ReleaseRequest": {
+        "description": "Releasing a block early: asks for the password again and the source typed out.",
+        "properties": {
+          "confirm_source": {
+            "description": "The block's canonical source, typed exactly.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "description": "The signed-in person's password.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "ReplayedDto": {
         "description": "One re-run decision next to the recorded one.",
         "properties": {
@@ -7427,6 +7740,17 @@ expression: spec
       "StepDetailDto": {
         "description": "One step with its stored intent and bounded output.",
         "properties": {
+          "containment": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ContainmentStepDto",
+                "description": "A containment step only: its phase, source, TTL and how the helper's safety stood."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "description": "When it was created.",
             "type": "string"
@@ -10242,6 +10566,130 @@ expression: spec
         "summary": "Replaces a host's check overrides and sends them to its agent; no restart.",
         "tags": [
           "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/containment": {
+      "get": {
+        "operationId": "get_host_containment",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainmentStatusDto"
+                }
+              }
+            },
+            "description": "The host's blocks and what the helper last said"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          }
+        },
+        "summary": "What a host's blocks look like. Display only, and answered when containment is not available.",
+        "tags": [
+          "containment"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/containment/refresh": {
+      "post": {
+        "operationId": "refresh_host_containment",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainmentStatusDto"
+                }
+              }
+            },
+            "description": "What the helper said"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Chat cannot refresh"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The agent is not connected, or the helper refused"
+          }
+        },
+        "summary": "Asks the host's helper for its blocks, gate and drills. Owner-initiated only: nothing polls.",
+        "tags": [
+          "containment"
         ]
       }
     },
@@ -14360,6 +14808,107 @@ expression: spec
         ]
       }
     },
+    "/api/v1/operations/{id}/steps/{step}/containment/release": {
+      "post": {
+        "operationId": "release_containment_block",
+        "parameters": [
+          {
+            "description": "Operation id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Execution step id",
+            "in": "path",
+            "name": "step",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockDto"
+                }
+              }
+            },
+            "description": "Released"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The password is missing or wrong, or the typed source is not the block's"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such operation, step or block"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The block cannot be released now, or the agent is not connected"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Releases a block early: asks for the password again and the source typed out, then removes\nthe block under the plan hash of its approval.",
+        "tags": [
+          "containment"
+        ]
+      }
+    },
     "/api/v1/operations/{id}/steps/{step}/deny": {
       "post": {
         "operationId": "deny_operation_step",
@@ -17265,6 +17814,10 @@ expression: spec
     {
       "description": "Signed packages: import, install jobs and what hosts report",
       "name": "packages"
+    },
+    {
+      "description": "Timed blocks of one external source: status, refresh, approval and early release",
+      "name": "containment"
     },
     {
       "description": "A host's privileged helper: its key, the owner's pin and the verified attestation",

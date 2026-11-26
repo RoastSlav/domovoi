@@ -89,6 +89,8 @@ fn source_files(
 /// link operation exactly once.
 const CAPS: &str = "fn f() {\n    self.link\n        .run_tool(a, b, c);\n    self.link\n        .start_skill(a, b, c, d, e);\n    self.link\n        .skill_result(a, b, c);\n    self.link\n        .run_check(a, b, c, d);\n    self.link\n        .send_transfer(a, b, c, d);\n    self.link\n        .start_capability(a, b, c, d, e);\n    self.link\n        .capability_result(a, b, c);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .start_unit_call(a, b, c, d, e);\n    self.link\n        .unit_call_result(a, b, c);\n    self.link\n        .unit_call_result(a, b, c);
     self.link
+        .start_contain(a, b, c, d, e);\n    self.link
+        .contain_result(a, b, c);\n    self.link
         .attest_safety(a, b, c);\n}\n";
 
 /// The smallest tree that satisfies the hub's boundary cards, including the two sites that

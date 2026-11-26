@@ -113,6 +113,7 @@ pub(super) async fn build(input: PackageBuild<'_>) -> Result<Packages, RuntimeEr
 /// when it runs, then the install service. Set once, because the server keeps only the first.
 pub(super) fn reconciler(
     operations: Option<&OperationHandle>,
+    containment: Arc<dyn HostReconciler>,
     packages: &PackageHandle,
     helper: Arc<dyn HostReconciler>,
 ) -> Arc<CompositeReconciler> {
@@ -120,6 +121,8 @@ pub(super) fn reconciler(
     if let Some(operations) = operations {
         parts.push(Arc::new(operations.clone()));
     }
+    // After the operations, so a step settles from a block that was already reconciled.
+    parts.push(containment);
     parts.push(Arc::new(packages.clone()));
     // Last: asking a helper can take a while and must not delay settling executions.
     parts.push(helper);

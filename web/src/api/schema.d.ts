@@ -441,6 +441,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/containment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What a host's blocks look like. Display only, and answered when containment is not available. */
+        get: operations["get_host_containment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hosts/{name}/containment/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Asks the host's helper for its blocks, gate and drills. Owner-initiated only: nothing polls. */
+        post: operations["refresh_host_containment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/docker": {
         parameters: {
             query?: never;
@@ -1348,6 +1382,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/operations/{id}/steps/{step}/containment/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Releases a block early: asks for the password again and the source typed out, then removes
+         *     the block under the plan hash of its approval.
+         */
+        post: operations["release_containment_block"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/operations/{id}/steps/{step}/deny": {
         parameters: {
             query?: never;
@@ -2235,8 +2289,15 @@ export interface components {
         ApproveStepRequest: {
             /** @description Required when the execution says `confirm_required`: the skill's name typed exactly. */
             confirm_text?: string | null;
+            /** @description A containment step only: the signed-in person's password, asked again. */
+            password?: string | null;
             /** @description Required. The v2 plan hash shown on the execution, 64 hex characters. */
             plan_hash: string;
+            /**
+             * @description A containment step only: set when the person acknowledges that the helper's coverage
+             *     could not be verified. Without it that step is refused with `unverified_not_acknowledged`.
+             */
+            unverified_acknowledged?: boolean | null;
         };
         /** @description A follow-up question. */
         AskRequest: {
@@ -2361,6 +2422,51 @@ export interface components {
             reason?: string | null;
             /** @description Rules whose breaker is open. */
             suspended_rules: components["schemas"]["SuspendedRuleDto"][];
+        };
+        /** @description One block the hub recorded. */
+        BlockDto: {
+            /** @description When the helper applied the block. */
+            applied_at?: string | null;
+            /** @description `verified` or `unverified`. */
+            assurance: string;
+            /** @description `human` or `policy`. */
+            authorization: string;
+            /** @description The block's id: the execution id of its apply. */
+            block_id: string;
+            /** @description Whether a bridged interface leaves a gap. */
+            bridge_gap?: boolean | null;
+            /** @description When the block was created. */
+            created_at: string;
+            /** @description When a confirmed block ends. */
+            deadline?: string | null;
+            /** @description `cut`, `n/a` or `may_persist`. */
+            existing_flows?: string | null;
+            /** @description The token of a refusal or failure. */
+            failure_token?: string | null;
+            /** @description The host. */
+            host_id: string;
+            /** @description The operation the block belongs to. */
+            operation_id: string;
+            /**
+             * @description `applying`, `applied`, `confirming`, `confirmed`, `rolling_back`, `rolled_back`,
+             *     `expired`, `lost`, `not_run`, `failed` or `outcome_unknown`.
+             */
+            phase: string;
+            /** @description Why coverage could not be verified, on the unverified path. */
+            reason?: string | null;
+            /** @description The canonical network. */
+            source: string;
+            /** @description The step the block belongs to. */
+            step_id: string;
+            /**
+             * Format: int32
+             * @description The TTL the block has once confirmed, in seconds.
+             */
+            ttl_s: number;
+            /** @description The paths the verified report did not cover, on the unverified path. */
+            unprotected_paths: string[];
+            /** @description When the block last changed. */
+            updated_at: string;
         };
         /** @description One limit to raise when resuming. */
         BudgetExtensionDto: {
@@ -2674,6 +2780,49 @@ export interface components {
              */
             max_ttl_secs: number;
         };
+        /** @description What a host's containment looks like: display only, and available when containment is not. */
+        ContainmentStatusDto: {
+            /** @description Whether the registry offers containment on this host right now. */
+            available: boolean;
+            /** @description The blocks the hub recorded, newest first. */
+            blocks: components["schemas"]["BlockDto"][];
+            /** @description Whether a bridged interface leaves a gap. */
+            bridge_gap?: boolean | null;
+            /** @description The drills. */
+            drills: components["schemas"]["DrillsDto"];
+            /** @description `cut`, `n/a` or `may_persist`. */
+            existing_flows?: string | null;
+            /** @description The leak self-test gate. */
+            gate: components["schemas"]["GateDto"];
+            /** @description Blocks the helper lost with its table, when it said. */
+            lost_blocks?: string | null;
+            /** @description When the helper was last asked (a refresh by the owner); absent before one. */
+            observed_at?: string | null;
+        };
+        /** @description How a containment step stands, on the step detail. */
+        ContainmentStepDto: {
+            /** @description `verified` or `unverified`. */
+            assurance: string;
+            /** @description Whether a bridged interface leaves a gap. */
+            bridge_gap?: boolean | null;
+            /** @description `cut`, `n/a` or `may_persist`. */
+            existing_flows?: string | null;
+            /** @description When a confirmed block ends. */
+            expires_at?: string | null;
+            /** @description A block phase, or `proposed` before the step was dispatched. */
+            phase: string;
+            /** @description Why coverage could not be verified, on the unverified path. */
+            reason?: string | null;
+            /** @description The canonical source. */
+            source: string;
+            /**
+             * Format: int64
+             * @description The TTL in seconds.
+             */
+            ttl_s: number;
+            /** @description The paths the verified report does not cover, on the unverified path. */
+            unprotected_paths: string[];
+        };
         /** @description A conversation with its messages. */
         ConversationDetailDto: components["schemas"]["ConversationSummaryDto"] & {
             /**
@@ -2851,6 +3000,11 @@ export interface components {
             updated_at: string;
             /** @description Who saved it. */
             updated_by: string;
+        };
+        /** @description The drills the helper reported at the last refresh. */
+        DrillsDto: {
+            /** @description `passed`, `failed`, `not_run` or `unknown` before a refresh. */
+            state: string;
         };
         /** @description What to write into a narrative field. */
         EditSummaryFieldRequest: {
@@ -3072,6 +3226,15 @@ export interface components {
         FollowUpsDto: {
             /** @description The remembered questions and answers; empty when there are none or after a clear. */
             turns: components["schemas"]["TurnDto"][];
+        };
+        /** @description The leak self-test gate the helper reported at the last refresh. */
+        GateDto: {
+            /** @description The layout the sets use: `hosts` or `hosts_and_prefixes`. */
+            layout?: string | null;
+            /** @description Why, when the helper said. */
+            reason?: string | null;
+            /** @description `open`, `blocked_leak`, `blocked_untested` or `unknown` before a refresh. */
+            state: string;
         };
         /** @description The newest stored entry's position. */
         HeadDto: {
@@ -4476,6 +4639,13 @@ export interface components {
              */
             expected_version: number;
         };
+        /** @description Releasing a block early: asks for the password again and the source typed out. */
+        ReleaseRequest: {
+            /** @description The block's canonical source, typed exactly. */
+            confirm_source?: string | null;
+            /** @description The signed-in person's password. */
+            password?: string | null;
+        };
         /** @description One re-run decision next to the recorded one. */
         ReplayedDto: {
             /** @description What the row recorded, when it could be read: a decision, or `{ "error": "<code>" }`. */
@@ -5015,6 +5185,7 @@ export interface components {
         };
         /** @description One step with its stored intent and bounded output. */
         StepDetailDto: {
+            containment?: components["schemas"]["ContainmentStepDto"] | null;
             /** @description When it was created. */
             created_at: string;
             /**
@@ -6756,6 +6927,106 @@ export interface operations {
             };
             /** @description No such host */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_host_containment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The host's blocks and what the helper last said */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainmentStatusDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    refresh_host_containment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the helper said */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainmentStatusDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Chat cannot refresh */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The agent is not connected, or the helper refused */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -9885,6 +10156,80 @@ export interface operations {
             };
             /** @description Orchestration is not enabled, or the service is restarting */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    release_containment_block: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Operation id */
+                id: string;
+                /** @description Execution step id */
+                step: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Released */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockDto"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The password is missing or wrong, or the typed source is not the block's */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such operation, step or block */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The block cannot be released now, or the agent is not connected */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
