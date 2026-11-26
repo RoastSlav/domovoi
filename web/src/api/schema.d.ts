@@ -5159,6 +5159,11 @@ export interface components {
             /** @description The same shape as a save; a secret left as `{ "keep": true }` uses the stored one. */
             changes?: Record<string, never>;
             /**
+             * @description The admin's password. Required when the candidate changes a CLI model provider
+             *     (`llm.*.cli`), because testing runs that program; saving it asks for the same.
+             */
+            password?: string | null;
+            /**
              * @description Which provider to test or list models for: `"primary"` (the default) or
              *     `"secondary"`. Other tests ignore it.
              */
@@ -11903,6 +11908,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description A CLI candidate needs the password */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description More than 10 tests a minute */
             429: {
                 headers: {
@@ -11992,6 +12006,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description A CLI candidate needs the password */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description More than 10 tests a minute */
             429: {
                 headers: {
@@ -12043,6 +12066,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            /** @description A CLI candidate needs the password */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description More than 10 tests a minute */
             429: {
                 headers: {
@@ -12087,6 +12119,15 @@ export interface operations {
             };
             /** @description Not logged in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A CLI candidate needs the password */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

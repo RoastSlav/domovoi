@@ -4,7 +4,7 @@
 //! carry `{ keep }`, `{ set }` or `{ clear }`, and no response contains a secret value.
 
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, State};
@@ -57,6 +57,10 @@ pub struct TestRequest {
     /// `"secondary"`. Other tests ignore it.
     #[serde(default)]
     pub slot: Option<String>,
+    /// The admin's password. Required when the candidate changes a CLI model provider
+    /// (`llm.*.cli`), because testing runs that program; saving it asks for the same.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// The result of a connection test.
@@ -205,12 +209,17 @@ pub(super) async fn schema(_auth: Authed) -> Json<Value> {
 async fn run_test(
     state: &ApiState,
     current: &crate::auth::Current,
+    ip: IpAddr,
     target: Target,
     req: &TestRequest,
 ) -> Result<Json<TestResultDto>, ApiError> {
     let settings = service(state)?;
     settings
         .admit_test(current.session_hash)
+        .map_err(api_error)?;
+    settings
+        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .await
         .map_err(api_error)?;
     let result = settings
         .test(target, &req.changes)
@@ -231,15 +240,19 @@ async fn run_test(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_discord(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
-    run_test(&state, &current, Target::Discord, &req).await
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    run_test(&state, &current, ip, Target::Discord, &req).await
 }
 
 /// One minimal call to the candidate model provider of the requested slot.
@@ -250,18 +263,22 @@ pub(super) async fn test_discord(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_llm(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
     let target = Target::Llm {
         secondary: req.slot.as_deref() == Some("secondary"),
     };
-    run_test(&state, &current, target, &req).await
+    run_test(&state, &current, ip, target, &req).await
 }
 
 /// Lists models available to the candidate provider of the requested slot.
@@ -272,18 +289,26 @@ pub(super) async fn test_llm(
         (status = 200, description = "Available models", body = ModelsDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
         (status = 503, description = "Provider unavailable", body = ErrorBody),
     )
 )]
 pub(super) async fn list_models(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<ModelsDto>, ApiError> {
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
     let settings = service(&state)?;
     settings
         .admit_test(current.session_hash)
+        .map_err(api_error)?;
+    settings
+        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .await
         .map_err(api_error)?;
     let secondary = req.slot.as_deref() == Some("secondary");
     let models = settings
@@ -301,15 +326,19 @@ pub(super) async fn list_models(
         (status = 200, description = "Tried", body = TestResultDto),
         (status = 400, description = "Invalid candidate", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A CLI candidate needs the password", body = ErrorBody),
         (status = 429, description = "More than 10 tests a minute", body = ErrorBody),
     )
 )]
 pub(super) async fn test_heartbeat(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(req): Json<TestRequest>,
 ) -> Result<Json<TestResultDto>, ApiError> {
-    run_test(&state, &current, Target::Heartbeat, &req).await
+    let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+    run_test(&state, &current, ip, Target::Heartbeat, &req).await
 }
 
 fn dto(item: &CheckOverride) -> CheckSettingsDto {

@@ -155,6 +155,28 @@ test("fallback_model_section_tests_the_secondary_slot", async () => {
   ).toBeVisible();
 });
 
+test("testing_a_cli_model_asks_for_the_password_and_sends_it", async () => {
+  const user = userEvent.setup();
+  route("POST /api/v1/settings/test/llm", (init) => {
+    const body = init.body as { password?: string };
+    return body.password === "right password!"
+      ? { ok: true, message: "answered", latency_ms: 5 }
+      : failure(403, "forbidden", "enter your password to make this change");
+  });
+  renderSection("models");
+  await user.click(await screen.findByRole("button", { name: "Test the model" }));
+  const dialog = await screen.findByRole("dialog", { name: "Confirm with your password" });
+  await user.type(within(dialog).getByLabelText("Password"), "wrong");
+  await user.click(within(dialog).getByRole("button", { name: "Run the test" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("That password is not right.");
+  await user.clear(within(dialog).getByLabelText("Password"));
+  await user.type(within(dialog).getByLabelText("Password"), "right password!");
+  await user.click(within(dialog).getByRole("button", { name: "Run the test" }));
+  expect(await screen.findByText("The model answered")).toBeVisible();
+  const last = calls.filter((c) => c.route === "POST /api/v1/settings/test/llm").pop();
+  expect(last?.init.body).toMatchObject({ password: "right password!" });
+});
+
 test("a_working_connection_test_says_what_it_checked", async () => {
   const user = userEvent.setup();
   route("POST /api/v1/settings/test/discord", () => ({

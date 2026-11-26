@@ -78,7 +78,7 @@ export function useWizard(editable: Editable) {
     const current = changes(skipped, step);
     // A Discord test also needs the public URL, which the hub step holds.
     const isDiscord = STEPS[step]?.test === "discord";
-    tester.mutate(isDiscord ? { ...changes(skipped, 0), ...current } : current);
+    tester.mutate({ changes: isDiscord ? { ...changes(skipped, 0), ...current } : current });
   };
 
   const save = async (toSave: Changes, password?: string) => {

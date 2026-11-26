@@ -417,6 +417,62 @@ async fn model_discovery_uses_candidate_settings_before_a_model_is_chosen() {
 }
 
 #[tokio::test]
+async fn testing_a_cli_candidate_needs_the_password_because_it_runs_the_program() {
+    let a = api().await;
+    let login = a.admin().await;
+    let candidate = |password: Option<&str>| {
+        let mut body = json!({ "slot": "primary", "changes": { "llm": { "primary": {
+            "kind": "cli",
+            "model": "x",
+            "cli": { "preset": "claude", "command": "/nonexistent/domovoi-qa-cli" }
+        }}}});
+        if let Some(password) = password {
+            body["password"] = json!(password);
+        }
+        body
+    };
+
+    for path in ["/api/v1/settings/test/llm", "/api/v1/settings/models"] {
+        let missing = a.post(path, &login, candidate(None)).await;
+        assert_eq!(
+            missing.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {}",
+            missing.text
+        );
+        let wrong = a
+            .post(path, &login, candidate(Some("not the password")))
+            .await;
+        assert_eq!(
+            wrong.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {}",
+            wrong.text
+        );
+    }
+
+    // With the password the program is tried (and fails: it does not exist).
+    let tried = a
+        .post(
+            "/api/v1/settings/test/llm",
+            &login,
+            candidate(Some(PASSWORD)),
+        )
+        .await;
+    assert_eq!(tried.status, StatusCode::OK, "{}", tried.text);
+    assert_eq!(tried.body["ok"], false, "{}", tried.text);
+
+    // An API provider needs no password to be tested.
+    let api_provider = json!({ "changes": { "llm": { "primary": {
+        "kind": "openai_compatible", "base_url": "http://127.0.0.1:9/v1", "model": "m"
+    }}}});
+    let reply = a
+        .post("/api/v1/settings/test/llm", &login, api_provider)
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+}
+
+#[tokio::test]
 async fn testing_the_secondary_slot_without_a_secondary_says_no_fallback_is_set_up() {
     let a = api().await;
     let login = a.admin().await;

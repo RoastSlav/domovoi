@@ -203,6 +203,50 @@ impl SettingsService {
         })
     }
 
+    /// Checks the admin's password for a step-up change.
+    async fn confirm_step_up(
+        &self,
+        user: &User,
+        ip: IpAddr,
+        password: Option<&str>,
+    ) -> Result<(), SettingsError> {
+        let password = password.ok_or(SettingsError::PasswordRequired)?;
+        self.deps()
+            .auth
+            .confirm_password(ip, user.id, password)
+            .await
+            .map_err(|err| match err {
+                AuthError::LockedOut { retry_after_secs } => {
+                    SettingsError::TooMany(retry_after_secs)
+                }
+                _ => SettingsError::BadPassword,
+            })
+    }
+
+    /// Asks for the password when a connection test would run a different CLI program than
+    /// the one saved. Testing runs the candidate `llm.*.cli` command, so it needs the same
+    /// step-up as saving it; a candidate that changes nothing under `llm.*.cli` (the stored
+    /// program, or an API provider) needs none.
+    pub async fn require_cli_step_up(
+        &self,
+        user: &User,
+        ip: IpAddr,
+        patch: &Map<String, Value>,
+        password: Option<&str>,
+    ) -> Result<(), SettingsError> {
+        let stored = self.stored().await?;
+        let patched = patch::apply(&stored.doc.document, patch)
+            .map_err(|e| SettingsError::Invalid(vec![ConfigIssue::error(e.path, e.message)]))?;
+        let runs_a_program = patched.changes.iter().any(|change| {
+            let path = change.path();
+            path.starts_with("llm.") && super::step_up::path_needs_step_up(path)
+        });
+        if runs_a_program {
+            self.confirm_step_up(user, ip, password).await?;
+        }
+        Ok(())
+    }
+
     /// Saves `patch` on top of revision `base_revision` and applies it (see the module
     /// documentation of `settings` for the steps). `password` is needed when the change
     /// widens trust.
@@ -240,16 +284,7 @@ impl SettingsService {
             });
         }
         if patched.changes.iter().any(is_sensitive) {
-            let password = password.ok_or(SettingsError::PasswordRequired)?;
-            deps.auth
-                .confirm_password(ip, user.id, password)
-                .await
-                .map_err(|err| match err {
-                    AuthError::LockedOut { retry_after_secs } => {
-                        SettingsError::TooMany(retry_after_secs)
-                    }
-                    _ => SettingsError::BadPassword,
-                })?;
+            self.confirm_step_up(user, ip, password).await?;
         }
         let current_table = stored.doc.table().map_err(SettingsError::Unavailable)?;
         let provenance = match load_hub_layered(
