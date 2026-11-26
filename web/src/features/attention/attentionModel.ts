@@ -1,5 +1,6 @@
 import type { Action, Host, IncidentSummary, OperationSummary } from "../../api/types";
 import { attentionWhy } from "../../design/attentionText";
+import { containmentItems, type ContainmentAttentionInput } from "../containment/containmentItems";
 import type { StatusMeta } from "../../design/status";
 import {
   actionStatusMeta,
@@ -12,9 +13,9 @@ import {
 
 /** What an attention item is about. */
 export type AttentionKind =
-  "result_unknown" | "approval" | "question" | "paused" | "incident" | "host";
+  "result_unknown" | "approval" | "question" | "paused" | "incident" | "host" | "containment";
 /** Which list the item came from. */
-export type AttentionSource = "operation" | "action" | "incident" | "host";
+export type AttentionSource = "operation" | "action" | "incident" | "host" | "containment";
 /** The urgency tier: 0 act now, 1 waiting for you, 2 worth a look. */
 export type Tier = 0 | 1 | 2;
 
@@ -54,6 +55,8 @@ export interface AttentionInputs {
   waitingUser: readonly OperationSummary[];
   paused: readonly OperationSummary[];
   hosts: readonly Host[];
+  /** Each host's blocks: lost ones and a gate that refuses to block. */
+  containment?: readonly ContainmentAttentionInput[];
   /** Host id to name. */
   hostNames: ReadonlyMap<string, string>;
 }
@@ -164,6 +167,7 @@ function byApprovalOrder(a: AttentionItem, b: AttentionItem): number {
 export function attentionItems(inputs: AttentionInputs): AttentionItem[] {
   const items: AttentionItem[] = [
     ...operationItems(inputs.paused, pausedItem),
+    ...containmentItems(inputs.containment ?? []),
     ...inputs.unknownActions.map((action) =>
       item(1, {
         key: `action:${action.id}`,

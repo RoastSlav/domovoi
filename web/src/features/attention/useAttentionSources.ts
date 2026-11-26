@@ -3,6 +3,8 @@ import { useHosts } from "../../api/hooks/hosts";
 import { useIncidents } from "../../api/hooks/incidents";
 import { useOperations } from "../../api/hooks/operations";
 import type { Action, Host, IncidentSummary, OperationSummary } from "../../api/types";
+import { useContainmentSources } from "../containment/useContainmentSources";
+import type { ContainmentAttentionInput } from "../containment/containmentItems";
 import { attentionItems, type AttentionInputs, type AttentionItem } from "./attentionModel";
 
 /** The lists the attention items come from, named as a person would say them. */
@@ -13,7 +15,8 @@ export type SourceName =
   | "operations waiting for approval"
   | "operations waiting for an answer"
   | "paused operations"
-  | "hosts";
+  | "hosts"
+  | "blocks";
 
 /** A source whose latest answer is an error and that has nothing to show. */
 export interface SourceFailure {
@@ -56,6 +59,8 @@ export interface SourcesParts {
   waitingUser: SourcePart<OperationSummary>;
   paused: SourcePart<OperationSummary>;
   hosts: SourcePart<Host>;
+  /** Optional so a caller with no containment source still builds. */
+  containment?: SourcePart<ContainmentAttentionInput>;
   hostNames: ReadonlyMap<string, string>;
 }
 
@@ -69,6 +74,7 @@ export function summarizeSources(parts: SourcesParts): AttentionState {
     parts.waitingUser,
     parts.paused,
     parts.hosts,
+    ...(parts.containment ? [parts.containment] : []),
   ];
   const inputs: AttentionInputs = {
     incidents: parts.incidents.rows ?? [],
@@ -78,6 +84,7 @@ export function summarizeSources(parts: SourcesParts): AttentionState {
     waitingUser: parts.waitingUser.rows ?? [],
     paused: parts.paused.rows ?? [],
     hosts: parts.hosts.rows ?? [],
+    containment: parts.containment?.rows ?? [],
     hostNames: parts.hostNames,
   };
   return {
@@ -129,6 +136,9 @@ export function useAttentionSources(host: string | undefined): AttentionState {
   const paused = useOperations({ status: "paused", host });
   const hosts = useHosts();
   const names = new Map((hosts.data ?? []).map((one) => [one.id, one.name]));
+  const blocks = useContainmentSources(
+    hosts.data?.filter((one) => host === undefined || one.name === host),
+  );
   return summarizeSources({
     incidents: part("incidents", incidents, incidents.data?.pages[0]?.items, incidents.hasNextPage),
     proposed: part("approvals", proposed, proposed.data?.items),
@@ -151,6 +161,15 @@ export function useAttentionSources(host: string | undefined): AttentionState {
       hosts,
       hosts.data?.filter((one) => host === undefined || one.name === host),
     ),
+    containment: {
+      name: "blocks",
+      rows: blocks.rows,
+      isError: blocks.isError,
+      error: blocks.error,
+      isPending: blocks.isPending,
+      hasMore: false,
+      retry: blocks.retry,
+    },
     hostNames: names,
   });
 }

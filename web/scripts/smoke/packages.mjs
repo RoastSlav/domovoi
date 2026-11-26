@@ -125,6 +125,16 @@ export function packageRoute(state, method, pathname, body) {
     const ok = (payload, status = 200) => ({ status, payload });
     const key = `${method} ${pathname}`;
     const jobPath = `/api/v1/packages/jobs/${JOB_ID}`;
+    const containment = /^\/api\/v1\/hosts\/([^/]+)\/containment(\/refresh)?$/.exec(pathname);
+    if (containment && (method === "GET" || (method === "POST" && containment[2]))) {
+        // Nothing asked yet and no helper write group offered: the status says so.
+        return ok({
+            available: false,
+            gate: { state: "unknown" },
+            drills: { state: "unknown" },
+            blocks: [],
+        });
+    }
     const other = /^\/api\/v1\/hosts\/([^/]+)\/helper$/.exec(pathname);
     if (method === "GET" && other && other[1] !== "nas") {
         // A host with no helper: its card renders the absent state.

@@ -4,6 +4,7 @@ import type { Execution } from "../../api/types";
 import { RightSlotSurface } from "../../app/rightSlot";
 import { InlineMessage, Visible } from "../../components";
 import { stepKindMeta } from "../../design/tone";
+import { ContainmentStepCard } from "../containment/ContainmentStepCard";
 import { useReplayStatus } from "./replay/ReplayContext";
 import { inspectorNote } from "./replay/replayText";
 import { INSPECTOR_ID } from "./useStepSelection";
@@ -62,6 +63,7 @@ export function StepInspector({
           </p>
           <StepFacts step={step} />
           <StepReasonLoader operationId={operationId} stepId={step.id} outcome={step.outcome} />
+          <StepContainment operationId={operationId} stepId={step.id} />
           {step.kind === "execution" && (
             <StepAction
               operationId={operationId}
@@ -89,4 +91,12 @@ function StepReasonLoader({
 }) {
   const detail = useOperationStep(operationId, stepId);
   return <StepReason reason={detail.data?.reason ?? null} outcome={outcome} />;
+}
+
+function StepContainment({ operationId, stepId }: { operationId: string; stepId: string }) {
+  const detail = useOperationStep(operationId, stepId);
+  const containment = detail.data?.containment;
+  return containment ? (
+    <ContainmentStepCard operationId={operationId} step={containment} stepId={stepId} />
+  ) : null;
 }

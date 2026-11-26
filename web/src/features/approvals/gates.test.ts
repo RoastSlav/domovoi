@@ -16,7 +16,11 @@ const REMOVED = [
 ];
 
 const ALLOWED: Record<string, string[]> = {
-  "useApproveStep(": ["operationControls.ts", "StepApproveControl.tsx"],
+  "useApproveStep(": [
+    "operationControls.ts",
+    "StepApproveControl.tsx",
+    "UnverifiedApproveControl.tsx",
+  ],
 };
 
 describe("approval gates", () => {

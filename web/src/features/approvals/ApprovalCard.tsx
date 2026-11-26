@@ -15,6 +15,8 @@ import {
 } from "../../components";
 import type { Tone } from "../../design/status";
 import { riskMeta } from "../../design/tone";
+import { ContainmentApproveControl } from "../containment/ContainmentApproveControl";
+import { CONTAINMENT_CONTRACT } from "../containment/phases";
 import { ActionArgs } from "./ActionArgs";
 import { Expiry, suggestedBy } from "./approvalBits";
 import { planFromAction, planFromExecution, type ApprovalPlan } from "./approvalPlan";
@@ -214,7 +216,14 @@ export function ApprovalCard({
           </Cluster>
 
           <StateNote plan={plan} />
-          {decide && source.kind === "step" && (
+          {decide && source.kind === "step" && plan.contract === CONTAINMENT_CONTRACT && (
+            <ContainmentApproveControl
+              plan={plan}
+              operationId={source.operationId}
+              emphasis={emphasis}
+            />
+          )}
+          {decide && source.kind === "step" && plan.contract !== CONTAINMENT_CONTRACT && (
             <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
           )}
         </Stack>
