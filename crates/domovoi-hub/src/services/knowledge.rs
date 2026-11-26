@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use domovoi_core::id::{EntityId, FactRecordId, HostId, RelationId};
-use domovoi_core::knowledge::{Entity, Fact, Predicate, Relation};
+use domovoi_core::knowledge::{Entity, Fact, Relation};
 use domovoi_core::ports::{
     FactFilter, FactHit, KnowledgeRead, Page, Paged, RelationFilter, StoreError, Versioned,
 };
@@ -315,11 +315,5 @@ impl KnowledgeCommands {
             .service
             .delete_entity(id, expected, caller.user())
             .await?)
-    }
-
-    /// Whether `predicate` needs the password to change.
-    #[must_use]
-    pub fn needs_password(predicate: Predicate) -> bool {
-        predicate.is_safety_critical()
     }
 }
