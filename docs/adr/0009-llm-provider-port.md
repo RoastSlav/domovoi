@@ -17,7 +17,7 @@ Users bring very different models: hosted APIs, local OpenAI-compatible servers,
 ## Consequences
 
 - Provider-specific quirks stay in adapters, tested with `wiremock` and recorded fixtures.
-- The CLI provider cannot offer tool calling the same way; the engine runs it in single-shot mode with the context bundle inlined and no tools.
+- The CLI provider cannot offer tool calling the same way; the provider offers no tools and answers with text only.
 
 ## Alternatives considered
 

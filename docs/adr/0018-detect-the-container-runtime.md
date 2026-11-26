@@ -5,11 +5,11 @@
 
 ## Context
 
-The agent reads containers through the Docker Engine API for four checks and four read tools. Until now that was off unless `agent.toml` said `[docker] enabled = true`, and the only socket it knew was `/var/run/docker.sock`. Someone who installed the agent on a host with Docker saw "Docker is not enabled on this host" from the triage tools, and had to find the setting in a file on that host.
+The agent reads containers through the Docker Engine API for four checks and four read tools. If that were off unless `agent.toml` said `[docker] enabled = true`, and the only socket it knew were `/var/run/docker.sock`, someone who installed the agent on a host with Docker would see "Docker is not enabled on this host" from the triage tools and would have to find the setting in a file on that host.
 
-Access to a container engine's socket is root on the host (`guide/hardening.md`). That is why the integration was opt-in. But the agent only ever reads: it lists containers, reads events, inspects and reads logs, and removes environment values from inspect output. Podman and rootless Docker answer the same API on other sockets, so a host running them was never covered.
+Access to a container engine's socket is root on the host (`guide/hardening.md`). But the agent only reads: it lists containers, reads events, inspects and reads logs, and removes environment values from inspect output. Podman and rootless Docker answer the same API on other sockets, so detection has to cover them.
 
-ADR 0017 already moves check enablement to the web UI and says `agent.toml` keeps only what the agent needs to reach the hub and read the host.
+[0017](0017-settings-managed-from-the-web-ui.md) moves check enablement to the web UI and keeps in `agent.toml` only what the agent needs to reach the hub and read the host.
 
 ## Decision
 
@@ -29,7 +29,7 @@ ADR 0017 already moves check enablement to the web UI and says `agent.toml` keep
 
 ### Protocol
 
-Two optional fields, so the protocol stays at 1.0 and old agents and hubs keep working:
+Two optional fields:
 
 - `hello.docker`: what the agent found (`engine`, `endpoint`, `available`, `locked`, `enabled`, `problem`).
 - `welcome.config.docker` and `config_update.config.docker`: the hub's choice, absent when the agent decides.
@@ -41,8 +41,8 @@ Two optional fields, so the protocol stays at 1.0 and old agents and hubs keep w
 ## Consequences
 
 - A host with Docker or Podman gets container checks and tools without editing a file. Hosts without an engine log one line and carry on.
-- Enabling by default widens what a new install reads on the host. It is read-only, the output is redacted, and `enabled = false` turns it off for good. Release notes must say so.
-- The agent's user needs access to the socket. The docs say how for Docker and Podman.
+- Enabling by default widens what a new install reads on the host. It is read-only, the output is redacted, and `enabled = false` turns it off for good.
+- Without the privilege boundary the agent's user needs access to the socket. The docs say how for Docker and Podman. Under the boundary the agent holds no engine socket: Docker is read through the helper's `docker.read` group ([0036](0036-helper-read-operations.md)) and the detection result comes from the helper's probe. An owner-set `tcp://` endpoint stays direct.
 - Containers still never get the socket itself: the container agent keeps reading through the read-only socket proxy and sets `endpoint`.
 - The hub's choice is not a secret and not an executable change. No LLM tool, chat command, webhook or agent message can write it (INV-3 and the settings gates are unchanged).
 
@@ -51,7 +51,3 @@ Two optional fields, so the protocol stays at 1.0 and old agents and hubs keep w
 - Keep it off by default with a better error message: still a file edit on the host before anything works.
 - Let the hub also set the endpoint: it would let the web UI point the agent at any socket on the host.
 - Re-detect while running: simpler to reason about when the agent decides once per start; an engine that appears later needs one restart.
-
-## Revision (2026-11-25)
-
-Under the privilege boundary of [0030](0030-three-identities.md) the agent does not hold the engine socket. Docker is read through the helper's `docker.read` group ([0036](0036-helper-read-operations.md)), and the detection result (engine and endpoint) comes from the helper's probe. "The agent's user needs access to the socket" applies only where the boundary is not in effect, or to an owner-set `tcp://` endpoint. Status unchanged.

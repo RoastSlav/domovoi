@@ -1,6 +1,6 @@
 # NNNN. Title in the imperative
 
-- Status: Proposed | Accepted | Superseded by NNNN
+- Status: Accepted
 - Date: YYYY-MM-DD
 
 ## Context

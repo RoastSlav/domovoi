@@ -1,36 +1,33 @@
-# 0021. Plan hash v2 and the authorization wrapper
+# 0021. Plan hash and the authorization wrapper
 
 - Status: Accepted
 - Date: 2026-11-16
 
 ## Context
 
-The v1 plan hash binds the skill name, the manifest hash, the host and the canonical arguments. It does not bind the entry executable the agent will run, the capability contract and version, or the enrolled agent key, so re-enrolment and a replaced entry file leave an approval standing. The approval value was also only `HumanApproval`; a later milestone needs a second case, a policy permit, without opening a construction path that a transport could use to approve a run.
+An approval must bind everything that decides what will run: the capability contract and version, the implementation the agent will execute, the target and the enrolled agent key, and the arguments. A hash that omits any of these leaves an approval standing after a re-enrolment or a replaced entry file.
 
-Two separate questions had to be answered together: which plan family binds an action, and which authorization cases may exist. Both need enforcement that the compiler cannot provide on its own: a constructor called by the wrong layer, or a second implementation of the v2 domain line, is invisible to type checking.
+The value that carries an authorization must have two cases, a human approval and a policy permit, without opening a construction path that a transport could use to approve a run. The compiler cannot enforce that on its own: a constructor called by the wrong layer, or a second implementation of a domain line, is invisible to type checking.
 
 ## Decision
 
-- `PlanHash` keeps one type and gains a v2 domain line (`plan:v2`). The family is chosen by the presence of `plan_hash_v2` on the stored row: `NULL` means the legacy v1 binding. `ActionRequest::plan_hash_for_approval` is the only selector.
-- v2 hashes exactly five inputs: the capability contract id and version, an `ImplHash` over the manifest hash and the required entry-script digest, a canonical target (host, enrolled key fingerprint, check and optional target), the canonical arguments and the execution id. The encoding is length-prefixed, and the domain line prevents a v1 and a v2 encoding from colliding.
-- `KeyFingerprint` is the SHA-256 of the host's enrolled ed25519 public key, computed by the hub from its own record. It is always present in a v2 target and never accepted from an agent, an incident or a client.
-- `Authorization` is a wrapper with private internals, not a public enum. The two cases are reachable only through `Authorization::human` and `Authorization::policy`; there is no `Default`, no `Deserialize` and no `From`/`Into`. A public variant would be a construction path the call-site scan cannot see, so the canonical sketch of an enum is deliberately not followed.
-- `PolicyPermit` has private fields and one constructor, `PolicyPermit::issue`, a data factory that evaluates nothing. It takes its arguments in `PolicyPermitParts` so the factory stays a single-argument function and clippy's argument-count lint does not need an exception. No operational issuer exists.
-- The enforcement is the existing line-based source scan, extended to every authorization constructor (`HumanApproval::new`, `HumanApproval::restore`, `PolicyPermit::issue`, `Authorization::human`, `Authorization::policy`), to the `plan:v2` literal and to a `pub enum Authorization` anywhere but its own module. It is textual: a macro, a re-export under another name or a generated call is not caught. No comment claims a compile-time seal.
-- No `clippy.toml` `disallowed-methods` entry is added for these constructors. A legitimate call site would need `#[allow(clippy::disallowed_methods)]`, and the architecture scan rejects that attribute outside `domovoi-runner`; the change would break the build or force a weakening of an existing rule. The text scan already runs in CI.
-- At M1 the writer keeps two separately named hashes: the approval-family hash (v2 for new actions) used by the approve request, the DTO and the dispatch guard; and the always-v1 `runskill_plan_hash` sent in the existing `RunSkill` request, where the agent still recomputes v1. Sending v2 there would make every run fail on the agent.
+- `PlanHash::compute` hashes exactly five inputs under the domain line `plan:v2`: the capability contract id and version, an `ImplHash` over the manifest hash and the entry script's SHA-256, a canonical target (host, enrolled key fingerprint, check and optional target), the canonical arguments and the execution id. The encoding is length-prefixed.
+- Each other kind of plan has a domain line of its own so one approval can never stand in for another: `plan:package-v1` and `plan:package-job-v1` ([0029](0029-package-relay-boundary.md)), `plan:capability-v1` ([0037](0037-permit-issuer-and-unit-restart.md)) and `plan:containment-v1` ([0038](0038-containment-boundary.md)). Each literal is written in one file.
+- `PlanHash::agent_check` (`plan:v1`: skill name, manifest hash, host and canonical arguments) is the hash the hub sends in `run_skill` and the agent recomputes from its own manifest. It is a local integrity check and never an approval binding.
+- `KeyFingerprint` is the SHA-256 of the host's enrolled ed25519 public key, computed by the hub from its own record. It is part of every target and is never accepted from an agent, an incident or a client.
+- `Authorization` is a wrapper with private internals, not a public enum. Its two cases are reachable only through `Authorization::human` and `Authorization::policy`; it has no `Default`, no `Deserialize` and no `From` or `Into`. A public variant would be a construction path the call-site scan cannot see.
+- `PolicyPermit` has private fields and two constructors: `PolicyPermit::issue`, called only by the hub's permit issuer, and `PolicyPermit::restore`, called only by the store. Both take `PolicyPermitParts`.
+- Enforcement is the line-based source scan of `cargo xtask arch-check` (`INV-1`), over every authorization constructor (`HumanApproval::new`, `HumanApproval::restore`, `PolicyPermit::issue`, `PolicyPermit::restore`, `Authorization::human`, `Authorization::policy`), over each plan domain line and over a `pub enum Authorization` anywhere but its own module. It is textual: a macro, a re-export under another name or generated code is not caught, and no comment claims a compile-time seal.
+- There is no `clippy.toml` `disallowed-methods` entry for these constructors. A legitimate call site would need an `#[allow]`, which `arch-check` rejects outside `domovoi-runner`.
 
 ## Consequences
 
-- A re-enrolment, a replaced entry executable, a changed contract, a changed target, a changed argument or a changed execution identity invalidates an approval at dispatch, as a rejection rather than an error.
-- Legacy actions keep v1 for their whole life and are labelled `v1 binding` in the API and the UI; nothing migrates them.
-- The policy case is refused by the writer with a named error. No permit columns exist until an issuer does.
-- The scan's ownership table is now fixed before the policy layer exists: the policy prefixes name a module that M1 does not yet create.
-- A host without a live enrolled agent cannot produce a v2 plan at proposal time and is rejected at dispatch.
+- A re-enrolment, a replaced entry executable, a changed contract, target, argument or execution identity invalidates an approval at dispatch, as a rejection rather than an error.
+- A host without a live enrolled agent cannot produce a `plan:v2` hash at proposal time.
+- The scan's ownership table names the modules that may build each value, so adding a second constructor call is a visible edit to `rules.rs`, which needs an ADR.
 
 ## Alternatives considered
 
-- A public `Authorization` enum: simpler to match, but a transport could construct a variant directly and the scan could not see it. Rejected.
-- Serializing the authorization case as an enum in the wire or the database: the wire is frozen and the database only needs the discriminator. Rejected.
-- Extending v1 in place: changes the meaning of every stored v1 hash and makes old approvals ambiguous. Rejected.
-- A clippy `disallowed-methods` entry: conflicts with the existing attribute rule as described above. Rejected.
+- A public `Authorization` enum: simpler to match, but a transport could construct a variant directly and the scan could not see it.
+- Serialising the authorization case as an enum on the wire or in the database: the wire needs only a discriminator.
+- A clippy `disallowed-methods` entry: conflicts with the rule that forbids `#[allow]` outside the runner.

@@ -12,7 +12,7 @@ Domovoi reads attacker-influenced text (log lines, container names, alert payloa
 - Only `domovoi-runner` may construct `std::process::Command` or `tokio::process::Command`. `clippy.toml` disallows the constructors; the runner module that needs them carries a scoped `#[allow]`, and `xtask arch-check` fails if that allow appears anywhere else.
 - Commands are argv vectors. Parameters are validated against the manifest's `ParamSpec` and passed as separate argv elements and `DOMOVOI_PARAM_*` variables.
 - No code invokes `sh -c`, `bash -c` or `/bin/sh`; `xtask arch-check` scans for these patterns.
-- Other crates that need a process (command-backed checks, the LLM CLI provider) receive a `ProcessExecutor` port, implemented by the runner and injected by a composition root.
+- Other crates that need a process (command-backed checks, the LLM CLI provider, the root helper) receive a `ProcessExecutor` port, implemented by the runner and injected by a composition root.
 
 ## Consequences
 
