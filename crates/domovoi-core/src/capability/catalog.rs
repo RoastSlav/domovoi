@@ -1,7 +1,7 @@
 //! What a host's agent actually implements, as the hub read it from `get_catalog` pages.
 //!
 //! The catalogue is the agent's implementation list: contract ids and versions only. It never
-//! describes a contract, and the hub never builds one from it (RW-07): a contract exists because
+//! describes a contract, and the hub never builds one from it: a contract exists because
 //! `domovoi-core` compiled it in. A snapshot says how completely the hub has read that list, and
 //! an unread or half-read list proves nothing about what is missing.
 

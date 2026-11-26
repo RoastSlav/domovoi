@@ -4,7 +4,7 @@
 //! hub that answers it, so this query API is a port: the hub's registry implements it, and
 //! the testkit's fake does too. Nothing here evaluates policy, approves anything or
 //! dispatches a run: "available" is not "approved", and the registry can never become a
-//! second authorization decision (RW-10).
+//! second authorization decision.
 
 use async_trait::async_trait;
 

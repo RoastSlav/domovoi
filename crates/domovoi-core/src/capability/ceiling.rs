@@ -1,4 +1,4 @@
-//! The hub-side view of a host's unattended ceiling (04 §8.3, D-18).
+//! The hub-side view of a host's unattended ceiling (exact contract ids only).
 //!
 //! These are data types only: an agent summarises its `agent.toml [unattended]` section into
 //! a [`CeilingSummary`], and the policy evaluator reads it. Nothing here parses a config file

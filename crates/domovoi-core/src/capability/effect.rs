@@ -106,7 +106,7 @@ pub enum Idempotency {
     NotIdempotent,
 }
 
-/// Where a capability executes (RW-39).
+/// Where a capability executes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionPath {

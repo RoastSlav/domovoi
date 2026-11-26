@@ -17,8 +17,7 @@ use super::approval::PlanHash;
 
 /// The capability contract a plan names: an id and a version.
 ///
-/// At M1 the skill adapter supplies the skill name as the id and version `1`. A later
-/// milestone replaces the producer, not this type or its position in the hash.
+/// The skill adapter supplies the skill name as the id and version `1`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanContract {
     id: String,
@@ -44,7 +43,7 @@ impl PlanContract {
         })
     }
 
-    /// The M1 adapter: the skill name is the contract id and the version is supplied.
+    /// The skill adapter: the skill name is the contract id and the version is supplied.
     pub fn skill(skill: &SkillName, version: u32) -> Result<Self, PlanError> {
         Self::new(skill.as_str(), version)
     }

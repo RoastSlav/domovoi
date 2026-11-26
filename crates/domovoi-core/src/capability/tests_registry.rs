@@ -296,7 +296,7 @@ fn target_query_host_identity_shape() {
     assert_eq!(
         text.len(),
         106,
-        "the host identity is not the length RW-34 computes"
+        "the host identity does not have the expected length"
     );
     let container = ContainerId::parse(FULL_ID).unwrap();
     let bound = canonical_container_identity(host, &key, &container).unwrap();
@@ -304,7 +304,7 @@ fn target_query_host_identity_shape() {
     assert_eq!(
         container_text.len(),
         176,
-        "the container identity is not the length RW-34 computes"
+        "the container identity does not have the expected length"
     );
     assert!(
         container_text.len() <= 310,
