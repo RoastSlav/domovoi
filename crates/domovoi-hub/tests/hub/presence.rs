@@ -92,6 +92,11 @@ async fn hub_network_down_raises_hub_network_degraded_and_no_host_down() {
     let signals = hub.signals();
     assert_eq!(signals.len(), 1, "{signals:?}");
     assert_eq!(signals[0].check().as_str(), "hub.network_degraded");
+    assert_eq!(
+        signals[0].class(),
+        domovoi_core::SignalClass::Immediate,
+        "raised once, so it must not wait for a second signal"
+    );
     assert_eq!(signals[0].host(), hub.hub_host);
 
     // The network comes back: the hub resolves its own signal, then looks at the host. One

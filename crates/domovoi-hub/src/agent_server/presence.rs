@@ -92,7 +92,9 @@ pub(crate) async fn check(inner: &Inner) {
                         Severity::Warning,
                         summary,
                         now,
-                    );
+                    )
+                    // Raised once and never repeated, so it must not wait for a second signal.
+                    .with_class(SignalClass::Immediate);
                     submit(inner, signal).await
                 }
                 None => false,
