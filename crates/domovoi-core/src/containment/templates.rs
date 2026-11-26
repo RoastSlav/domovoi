@@ -14,8 +14,6 @@ pub const CHAIN_PRIORITY: i32 = -310;
 pub const STEP1_TTL_S: u32 = 30;
 /// The longest `max_elements`.
 pub const MAX_ELEMENTS_LIMIT: u32 = 10_000;
-/// The directories the helper looks in for `nft` and `conntrack`.
-pub const PROGRAM_DIRS: [&str; 4] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin"];
 /// The complete environment of every spawned `nft` and `conntrack`.
 pub const NFT_ENV: [(&str, &str); 1] = [("LC_ALL", "C")];
 

@@ -275,9 +275,3 @@ impl TargetResolver for TargetService {
         })
     }
 }
-
-/// The host a query reads, for the callers that hold only the query.
-#[must_use]
-pub fn query_host(query: &TargetQuery) -> HostId {
-    query.host()
-}
