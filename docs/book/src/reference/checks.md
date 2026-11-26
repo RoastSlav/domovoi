@@ -331,3 +331,4 @@ Slot rules:
 - **Devices:** `/dev/` followed by `[a-z0-9]`.
 - **Unit properties:** letters only.
 - **Journal cursors:** printable ASCII without spaces, at most 512 characters.
+- **Journal reads:** `since` is 1 to 1440 minutes and `lines` is 1 to 500.

@@ -98,6 +98,7 @@ Errors are JSON, with an HTTP status to match:
 | Status | `error` | Meaning |
 | --- | --- | --- |
 | 400 | `bad_request` | invalid input |
+| 400 | `invalid` | a settings change failed validation; the body has an `issues` list |
 | 401 | `setup_required` | no account exists yet; open the setup link |
 | 401 | `unauthorized` | not logged in |
 | 401 | `bad_credentials` | wrong username or password |
@@ -105,7 +106,13 @@ Errors are JSON, with an HTTP status to match:
 | 404 | `not_found` | no such object |
 | 409 | `conflict` | not possible in the current state |
 | 429 | `too_many_requests` | locked out; see `Retry-After` |
-| 503 | `unavailable` | a needed part, such as triage, is not configured |
+| 500 | `internal` | the hub failed; details go to its log |
+| 502 | `delivery_failed` | a message could not be delivered, such as a digest |
+| 503 | `unavailable` | a needed part is not configured |
+| 503 | `triage_off` | triage is not configured |
+| 503 | `budget_spent` | the model budget is used up |
+
+Some routes, such as the package and helper routes, answer with a more specific `error` code. Its HTTP status is always one of those above.
 
 Lists return `{"items": […], "next_cursor": "…"}`, newest first. Pass `cursor=<next_cursor>` for the next page; `limit` is 1 to 200 and defaults to 50.
 
@@ -191,7 +198,7 @@ The settings answer also includes a `retention` block: the nine periods, each wi
 - The password is needed when the change touches `discord.allowed_user_ids`, `web.trusted_proxies`, `webhooks` or any secret. Wrong passwords count against the login limit.
 - Answers:
   - `200 { revision, applied }`.
-  - `400` with an `issues` list of `{ path, message, severity }`.
+  - `400` with error `invalid` and an `issues` list of `{ path, message, severity }`.
   - `403` when the password is missing or wrong.
   - `409` for a stale revision, or a field set in `hub.toml` or the environment.
 
@@ -300,7 +307,7 @@ A confirmation needs a verified, fresh helper attestation that shows the path co
 
 `GET /api/v1/events` streams committed journal rows as server-sent events. It needs a session and serves at most 32 streams at once (`503` beyond that).
 
-- `topics`: comma-separated, at most 16. Default `incidents,approvals,operations`. Also `operation:<id>` and `conversations:<id>`. `hosts` is accepted and delivers nothing yet. An unknown topic is `400`.
+- `topics`: comma-separated, at most 16. Default `incidents,approvals,operations`. Also `operation:<id>` and `conversations:<id>`. `hosts` is accepted and delivers nothing. An unknown topic is `400`.
 - `after` or the `Last-Event-ID` header (which wins): resume after this journal position. Without either, the stream starts at the head.
 
 Frames:
@@ -347,7 +354,7 @@ Incident lists, an incident and the overview each return `as_of_seq`, the journa
 
   Use `/readyz` to gate traffic and `/healthz` to decide whether to restart the process. Details of a failure go to the hub's log, never to the response.
 - `GET /metrics` serves Prometheus text to a logged-in session, or to a request carrying `Authorization: Bearer <token>` when `[metrics] token` is set. Without either it answers `401` with no metrics text. See the [CLI reference](cli.md#metrics) for a scrape configuration.
-- Bodies are limited to 1 MiB, and requests other than the event stream to 120 seconds. The retry-triage endpoint runs a full triage inside its response, so a local model needs the request to outlive the per-run triage budget (default 90 seconds).
+- Bodies are limited to 1 MiB, except the package import, which allows `[packages] max_artifact_bytes` plus 64 KiB (at most 256 MiB plus 64 KiB). Requests other than the event stream time out after 120 seconds, with `408`. Two kinds get 15 minutes: the package import, and an incident's `ask` and `triage`, which run a full model conversation inside the response.
 - Every response carries a strict `Content-Security-Policy` and the other security headers. The policy allows scripts from the hub itself plus the one inline theme script by its SHA-256 hash, computed from the built page.
 
 ## Route index

@@ -205,7 +205,7 @@ domovoi check skills /etc/domovoi/skills
 
 ### `domovoi check run`
 
-Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed or because the agent runs in a container and the check needs journalctl, is reported as `unavailable`. A check that fails for another reason is reported as `error`. The command still exits 0, because the run itself completed.
+Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed or because the agent runs in a container and the check needs journalctl, is reported as `unavailable`. A check that fails for another reason is reported as `error`. The command still exits 0, because the run itself completed. An `--only` name that is not an enabled check exits 1.
 
 ```sh
 domovoi check run --config /etc/domovoi/agent.toml
@@ -214,7 +214,7 @@ domovoi check run --only disk.usage --json
 
 ### `domovoi notify test`
 
-Sends a test card to each enabled chat gateway and a test message to each notifier, with PASS or FAIL for each. It works next to a running hub.
+Sends a test card to each enabled chat gateway and a test message to each notifier, with PASS or FAIL for each. It works next to a running hub. When nothing is configured to notify, it says so and exits 1.
 
 ```sh
 domovoi notify test --config /etc/domovoi/hub.toml
@@ -317,10 +317,13 @@ Run it after a backup, or on a schedule, and keep the output off the host. Compa
 
 `package import <archive> <signature>` stores a signed package archive (`<name>-<version>.tar.zst`) and its detached `.sig.toml` signature in the hub's package store, and `package list` lists what is stored. Both open the hub's database directly, so they need the hub stopped, like the other commands under [Commands that need the hub stopped](#commands-that-need-the-hub-stopped). They take `--config` for the hub file. See [Packages](../guide/packages.md).
 
+### `domovoi openapi`
+
+Prints the hub's OpenAPI document to standard output. It is not listed in `--help`. See the [HTTP API](api.md).
+
 ### `domovoi upgrade`
 
 Replaces this binary with a release and prints the units to restart. `--version <tag>` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced and changes nothing. See [Upgrading and uninstalling](../install/upgrading.md).
-
 
 ### `domovoi version`
 
@@ -370,3 +373,10 @@ scrape_configs:
 | `domovoi_event_bus_lagged_total` | `consumer` | Times a consumer fell behind the event bus |
 | `domovoi_incident_flaps_total` | | Incidents that resolved and fired again quickly |
 | `domovoi_backup_last_success_timestamp_seconds` | | When the nightly backup last succeeded |
+| `domovoi_llm_calls_total` | `provider`, `model`, `outcome` | Model calls by result (`ok`, `rate_limited`, `auth`, `timeout`, `transport`, `invalid_response`, `unavailable`, `capability_rejected`) |
+| `domovoi_llm_prompt_bytes` | `provider` | Prompt size in bytes, as a histogram |
+| `domovoi_llm_prompt_trimmed_total` | | Prompts shortened to fit `triage.per_run.prompt_bytes` |
+| `domovoi_llm_admission_rejections_total` | `reason` | Model calls refused before they ran (`budget`, `unpriced`, `hourly`, `unverifiable`) |
+| `domovoi_incident_write_conflicts_total` | | Incident writes that lost a version race and were retried |
+| `domovoi_sse_resets_total` | `reason` | Event-stream `reset` frames sent (`pruned`, `ahead`, `lagged`) |
+| `domovoi_sse_live_dropped_total` | | Live answer frames dropped for a slow client |

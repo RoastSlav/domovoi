@@ -63,7 +63,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `messages` | The messages of an Operator conversation, in order: role, status (`pending`, `complete`, `failed` or `cancelled`), turn, text, failure, the read tools used, and the times. Each conversation has at most one pending answer. Message text lives only here, so retention can delete it. |
 | `triage_cache` | Triage reports keyed by incident fingerprint and a digest of the evidence, so the same evidence is not triaged twice. |
 | `llm_usage` | Tokens and cost per LLM call, for the monthly budget. |
-| `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). |
+| `metric_samples` | Numeric samples agents report for the daily digest (disk usage, temperatures, counts). The view `digest_facts` reads and inserts into it. |
 | `facts` | Knowledge facts: a subject, a predicate from a closed list, a value, a source, a status and the times that drive freshness. A retracted fact keeps only its tombstone once its value is cleared. See [Knowledge](../concepts/knowledge.md). |
 | `facts_fts` | Full-text index of live facts, kept in step by triggers. |
 | `relations` | Typed links between two subjects, such as one host depending on another. Retracted relations are cleared like retracted facts. |
@@ -74,7 +74,7 @@ The hub keeps its state in one SQLite database in WAL mode, under `[hub] data_di
 | `sessions` | Web sessions: hashes of the session and CSRF tokens, owner and expiry. |
 | `settings` | Hub settings changed from the UI, as JSON values. It also holds each account's display preferences under `preferences.<user id>`; a missing row means the default detail level. |
 | `notify_state` | Per incident: where its card and thread are on each chat platform, when it was last reminded about, folded repeats not yet mentioned, and an alert held for the end of quiet hours. |
-| `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. |
+| `journal` | The operational record: typed events in commit order, with a global sequence number, the aggregate they belong to and when they happened. An optional `legacy_event_seq` column points at the `incident_events` row an entry mirrors. |
 | `effects` | The work outbox: side effects that must happen later, such as a verification re-check, with their due time, attempts, claim and lease. See [The effects table](#the-effects-table). |
 | `schema_compat` | One row naming the lowest Domovoi version that can read this schema. |
 | `audit_anchor` | One row that starts the audit hash chain: the install id and the anchor hash that the first audit row's `prev_hash` points at. It is append-only too. |
@@ -109,8 +109,8 @@ Every period is a setting in `[retention]`; the [Retention guide](../guide/reten
 | Notification state of resolved incidents | `notifications_days` | 30 days |
 | Cached triage reports | `triage_cache_days` | 90 days |
 | Resolved advisories | `resolved_advisories_days` | 30 days after resolving |
-| Operation journal (not built yet) | `operation_journal_days` | 180 days |
-| Raw execution outputs (not built yet) | `execution_outputs_days` | 30 days |
+| Operation journal (accepted, not applied yet) | `operation_journal_days` | 180 days |
+| Raw execution outputs (accepted, not applied yet) | `execution_outputs_days` | 30 days |
 | Retracted fact content | `retracted_facts_days` | 30 days |
 
 Maintenance windows and sessions are removed when they end or expire. Incidents, operations and resolution summaries, the audit log and metric samples are kept. Resolution summaries hold no raw output and stay with their operation; deleting data does not remove it from backups until they rotate.
