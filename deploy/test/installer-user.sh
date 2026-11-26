@@ -477,6 +477,283 @@ check "the newest setup token is used on the public URL" test "$(cat "$work/hub.
 hubrun 'journalctl() { echo nothing; }; web_url=https://domovoi.example; find_setup_link; echo "[$setup_url]"'
 check "no setup link in the journal gives an empty result" test "$(cat "$work/hub.out")" = "[]"
 
+# --- Agent enrollment and --role both: flags, token handling, ordering -------------------------
+# The enrollment flags are checked before the preflight, so these run without root.
+fp="$(printf 'ab%.0s' $(seq 32))"
+fpc="$(printf 'AB:%.0s' $(seq 31))AB"
+tok="tok_SECRET0123456789abcd"
+tokf="$work/enroll.tok"
+printf '%s\n' "$tok" >"$tokf"
+chmod 0600 "$tokf"
+expect_trio() { # DESCRIPTION CODE ARGS...: the three enrollment flags are added
+    et_desc="$1"
+    et_code="$2"
+    shift 2
+    expect_rc "$et_desc" "$et_code" --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf" "$@"
+}
+if [ "$(id -u)" -ne 0 ]; then
+expect_trio "a full trio passes validation (then the preflight needs root)" 10 --role agent --name nas
+expect_rc "colons in the fingerprint are accepted" 10 --role agent --hub wss://hub.lan:7421 --fingerprint "$fpc" --token-file "$tokf"
+expect_rc "an IPv4 hub address is accepted" 10 --role agent --hub wss://10.0.0.5:7421 --fingerprint "$fp" --token-file "$tokf"
+expect_rc "a literal --token is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token "$tok"
+check "the --token refusal points to --token-file" grep -q -- "--token-file" "$work/err"
+check "the --token refusal points to DOMOVOI_ENROLL_TOKEN" grep -q "DOMOVOI_ENROLL_TOKEN" "$work/err"
+expect_rc "--token=VALUE is refused too" 2 --role agent --token="$tok"
+expect_rc "--token with --role both is refused" 2 --role both --token "$tok"
+check "the token is not in the output of a refused --token" sh -c "! grep -rq '$tok' '$work/out' '$work/err' '$DOMOVOI_INSTALL_LOG'"
+expect_rc "--hub alone is refused" 2 --role agent --hub wss://hub.lan:7421
+check "the partial set is explained" grep -q "all three or none" "$work/err"
+expect_rc "--fingerprint alone is refused" 2 --role agent --fingerprint "$fp"
+expect_rc "--token-file alone is refused" 2 --role agent --token-file "$tokf"
+expect_rc "hub and fingerprint without a token are refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp"
+expect_rc "hub and token without a fingerprint are refused" 2 --role agent --hub wss://hub.lan:7421 --token-file "$tokf"
+check "the token alone in the environment is refused" sh -c "DOMOVOI_ENROLL_TOKEN='$tok' sh '$installer' --role agent >/dev/null 2>'$work/err'; test \$? -eq 2"
+check "the token in the environment completes the set" sh -c "DOMOVOI_ENROLL_TOKEN='$tok' sh '$installer' --role agent --hub wss://hub.lan:7421 --fingerprint '$fp' >/dev/null 2>'$work/err'; test \$? -eq 10"
+check "a token in the file and in the environment is refused" sh -c "DOMOVOI_ENROLL_TOKEN='$tok' sh '$installer' --role agent --hub wss://hub.lan:7421 --fingerprint '$fp' --token-file '$tokf' >/dev/null 2>'$work/err'; test \$? -eq 2"
+expect_rc "an https hub address is refused" 2 --role agent --hub https://hub.lan:7421 --fingerprint "$fp" --token-file "$tokf"
+check "the address refusal shows a good one" grep -q "wss://hub.lan:7421" "$work/err"
+expect_rc "a hub address with a path is refused" 2 --role agent --hub wss://hub.lan:7421/agent --fingerprint "$fp" --token-file "$tokf"
+expect_rc "a hub address with a space is refused" 2 --role agent --hub "wss://hub.lan:7421 x" --fingerprint "$fp" --token-file "$tokf"
+expect_rc "a short fingerprint is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint abcd --token-file "$tokf"
+expect_rc "a fingerprint that is not hex is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$(printf 'zz%.0s' $(seq 32))" --token-file "$tokf"
+expect_rc "--name without the trio is refused" 2 --role agent --name nas
+expect_rc "--name goes with agent or both" 2 --role hub --name nas
+expect_trio "a name with capitals is refused" 2 --role agent --name NAS
+expect_trio "a name with an underscore is refused" 2 --role agent --name my_nas
+expect_trio "a name that starts with a dash is refused" 2 --role agent --name=-nas
+expect_trio "--no-start with the trio is refused" 2 --role agent --no-start
+expect_trio "--no-service with the trio is refused" 2 --role agent --no-service --prefix "$fresh"
+expect_trio "--migrate-identity with the trio is refused" 2 --role agent --migrate-identity
+expect_trio "the trio does not go with --role hub" 2 --role hub
+rc=0
+DOMOVOI_AGENT_TIMEOUT=soon sh "$installer" --role agent --dry-run >"$work/out" 2>"$work/err" || rc=$?
+check "a bad DOMOVOI_AGENT_TIMEOUT exits 2 and is named" sh -c "test $rc -eq 2 && grep -q DOMOVOI_AGENT_TIMEOUT '$work/err'"
+# The token file follows the rules of the admin password file.
+chmod 0644 "$tokf"
+expect_trio "a token file with mode 0644 is refused" 2 --role agent
+check "the token mode refusal says how to fix it" grep -q "chmod 600" "$work/err"
+chmod 0400 "$tokf"
+expect_trio "a token file with mode 0400 is accepted" 10 --role agent
+chmod 0600 "$tokf"
+ln -sf "$tokf" "$work/enroll.link"
+expect_rc "a link to a token file is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$work/enroll.link"
+expect_rc "a directory as token file is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$work"
+expect_rc "a missing token file is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$work/none"
+: >"$work/empty.tok"
+chmod 0600 "$work/empty.tok"
+expect_rc "an empty token file is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$work/empty.tok"
+printf 'not a token!\n' >"$work/odd.tok"
+chmod 0600 "$work/odd.tok"
+expect_rc "a token with odd characters is refused" 2 --role agent --hub wss://hub.lan:7421 --fingerprint "$fp" --token-file "$work/odd.tok"
+check "no refusal printed the token" sh -c "! grep -rq '$tok' '$work/out' '$work/err' '$DOMOVOI_INSTALL_LOG'"
+# --role both.
+expect_rc "--role both is a known role (then the preflight needs root)" 10 --role both --bind loopback
+expect_rc "--role both takes --name" 10 --role both --name nas
+expect_rc "--role both takes the hub flags" 10 --role both --public-url https://domovoi.example --agent-url wss://domovoi.example:7421
+expect_rc "--role both refuses --no-start" 2 --role both --no-start
+check "the --no-start refusal says why" grep -q "hub has to run" "$work/err"
+expect_rc "--role both refuses --hub" 2 --role both --hub wss://hub.lan:7421
+expect_rc "--role both refuses --fingerprint" 2 --role both --fingerprint "$fp"
+expect_rc "--role both refuses --token-file" 2 --role both --token-file "$tokf"
+expect_rc "--role both refuses a bad name" 2 --role both --name Bad_Name
+expect_rc "--role both takes an admin password file" 10 --role both --admin-password-file "$pwf"
+expect_rc "a role other than hub, agent or both is refused" 2 --role agents
+expect_rc "--accept-data-reset is refused for an agent" 2 --role agent --accept-data-reset
+expect_rc "--accept-data-reset is known for the hub" 10 --role hub --accept-data-reset
+expect_rc "--accept-data-reset is known for both" 10 --role both --accept-data-reset
+check "usage lists the enrollment flags and variables" sh -c "sh '$installer' --help | grep -q -- '--hub wss' && sh '$installer' --help | grep -q -- '--fingerprint' && sh '$installer' --help | grep -q -- '--token-file' && sh '$installer' --help | grep -q DOMOVOI_ENROLL_TOKEN && sh '$installer' --help | grep -q DOMOVOI_AGENT_TIMEOUT && sh '$installer' --help | grep -q -- '--accept-data-reset' && sh '$installer' --help | grep -q -- '--role hub|agent|both'"
+check "usage says a token is never taken from a flag" sh -c "sh '$installer' --help | grep -q -- '--token VALUE is refused'"
+expect_rc "a json install carries the new fields" 0 --role agent --no-service --prefix "$p" --version v9.9.1 --json
+check "the json result has an empty enrolled_host" test "$(result_field "$work/out" 'r["enrolled_host"]')" = ""
+check "the json result says the agent was not started" test "$(result_field "$work/out" 'r["agent_started"]')" = "False"
+fi
+
+# The enrollment functions, taken out of the script as written and run with stubs. sleep is a
+# no-op; the binary is a stub that records its arguments and the token it was given.
+efns="$work/enroll-functions.sh"
+: >"$efns"
+for fn in say log_line say_always err warn fail_with fail show_file show_file_err ns env_get \
+    local_web_url probe_ready redact_tokens wait_ready check_url read_secret_file default_host_name \
+    resolve_enroll_name resolve_enroll scrub_token agent_hint wait_agent_link enroll_and_start_agent \
+    both_make_token check_schema_reset ver_cmp; do
+    if grep -q "^$fn() {.*}\$" "$installer"; then
+        grep "^$fn() {.*}\$" "$installer" >>"$efns"
+    else
+        sed -n "/^$fn() {/,/^}/p" "$installer" >>"$efns"
+    fi
+done
+# record_next has a line that starts with a closing brace, so it is stubbed rather than extracted.
+printf '%s\n' 'record_next() { :; }' >>"$efns"
+check "the enrollment functions were extracted" test "$(grep -c '^[a-z_]*() {' "$efns")" -eq 28
+elog="$work/elog"
+mkdir -p "$elog" "$work/et" "$work/estub"
+fp_colon="$fpc"
+cat >"$work/estub/domovoi" <<STUB
+#!/bin/sh
+echo "\$*" >>"$elog/argv.log"
+case "\$*" in
+"agent enroll "*)
+    printf '%s' "\${DOMOVOI_ENROLL_TOKEN:-unset}" >"$elog/enroll.env"
+    if [ -e "$elog/enroll-fails" ]; then
+        echo "error: the token $tok was refused (--token $tok)" >&2
+        exit 1
+    fi
+    echo "Wrote /etc/domovoi/agent.toml."
+    echo "Enrolled as host 1 (agent 2). It echoes $tok by mistake."
+    ;;
+"agent status")
+    if [ -e "$elog/connected" ]; then
+        echo "connected since 2030-01-01T00:00:00Z."
+    elif [ -e "$elog/incompatible" ]; then
+        echo "incompatible: this agent speaks protocol 1.0, the hub speaks 2.0. Upgrade the agent, then restart it. (updated now)"
+    else
+        echo "reconnecting: connection refused (updated now)"
+    fi
+    ;;
+"hub token create "*)
+    if [ -e "$elog/hub-active" ]; then echo "Error: another hub holds the lock" >&2; exit 1; fi
+    if [ -e "$elog/token-fails" ]; then echo "Error: cannot open the database" >&2; exit 1; fi
+    if [ -e "$elog/token-odd" ]; then echo "something else entirely"; exit 0; fi
+    echo "Enrollment token for \$4, valid until 2030-01-01T00:15:00Z."
+    echo "Hub fingerprint: $fp_colon"
+    echo "Run this on \$4:"
+    echo
+    echo "  domovoi agent enroll --hub wss://127.0.0.1:7421/ --token $tok --fingerprint $fp_colon --name \$4"
+    ;;
+esac
+STUB
+chmod 0755 "$work/estub/domovoi"
+# shellcheck disable=SC2016 # the stubs are for the child shell
+estubs='systemctl() { echo "systemctl $*" >>"'"$elog"'/argv.log"; case "$1 $2" in "stop domovoi-hub") rm -f "'"$elog"'/hub-active" ;; "start domovoi-hub") touch "'"$elog"'/hub-active" ;; esac; }; journalctl() { echo "agent: dialing wss://hub.lan:7421"; echo "agent: enroll --token '"$tok"'"; }; run_as_domovoi() { "$@"; }; probe_ready() { return 0; }'
+erun() { # SCRIPT: runs it with the extracted functions and the stubs
+    rm -rf "$work/et"
+    mkdir -p "$work/et"
+    printf '%s\n' "$tok" >"$work/et/enroll.tok"
+    chmod 0600 "$work/et/enroll.tok"
+    sh -c "set -eu; . '$efns'; sleep() { :; }; $estubs; tmp='$work/et'; log_file='$work/e.log'; hub_env='$work/e.env'; quiet=0; json=0; bin='$work/estub/domovoi'; enroll_hub=wss://hub.lan:7421; enroll_fp='$fp'; enroll_name=nas; agent_timeout=3; enrolled_host=''; agent_started=0; hub_stopped=0; role=agent; $1" \
+        >"$work/e.out" 2>"$work/e.err"
+}
+no_token_anywhere() {
+    ! grep -rq "$tok" "$work/e.out" "$work/e.err" "$work/e.log" 2>/dev/null
+}
+
+# The host name default.
+for pair in "My_Host.Example:my-host-example" "NAS_01:nas-01" "--odd--:odd" "plain:plain" "a b:a-b"; do
+    raw="${pair%%:*}"
+    want="${pair##*:}"
+    check "default host name of '$raw' is '$want'" \
+        test "$(sh -c ". '$efns'; hostname() { echo '$raw'; }; default_host_name")" = "$want"
+done
+long="$(printf 'x%.0s' $(seq 70))-end"
+check "a long host name is cut to 63 characters" test "$(sh -c ". '$efns'; hostname() { echo '$long'; }; default_host_name" | wc -c)" -eq 64
+check "a host name of only symbols gives nothing" test -z "$(sh -c ". '$efns'; hostname() { echo '!!!'; }; default_host_name")"
+check "the default name is used and announced when --name is absent" \
+    sh -c ". '$efns'; hostname() { echo 'Media_Box'; }; log_file=''; quiet=0; enroll_name=''; resolve_enroll_name >/dev/null; test \"\$enroll_name\" = media-box"
+
+# Enrolling: the token reaches the command only through its environment.
+rm -f "$elog"/*
+check "enrolling and starting the agent succeeds when it connects" erun "touch '$elog/connected'; enroll_and_start_agent; test \"\$agent_started\" = 1 && test \"\$enrolled_host\" = nas"
+check "the enroll command gets the hub, fingerprint and name" grep -qx "agent enroll --hub wss://hub.lan:7421 --fingerprint $fp --name nas" "$elog/argv.log"
+check "the token reaches enroll through its environment" test "$(cat "$elog/enroll.env")" = "$tok"
+check "the token is in no argument list" sh -c "! grep -q '$tok' '$elog/argv.log'"
+check "the token is not in the output or the log" no_token_anywhere
+check "enroll came before the unit was enabled" sh -c "test \"\$(grep -n 'agent enroll' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'enable --now domovoi-agent' '$elog/argv.log' | cut -d: -f1)\""
+check "the status was asked after the unit was enabled" sh -c "test \"\$(grep -n 'enable --now domovoi-agent' '$elog/argv.log' | cut -d: -f1)\" -lt \"\$(grep -n 'agent status' '$elog/argv.log' | cut -d: -f1)\""
+check "a leaked token in the enroll output is hidden" grep -q "REDACTED" "$work/e.out"
+rm -f "$elog"/*
+touch "$elog/enroll-fails"
+e_rc=0
+erun "enroll_and_start_agent" || e_rc=$?
+check "a failed enroll exits 40" test "$e_rc" -eq 40
+check "a failed enroll does not enable the unit" sh -c "! grep -q 'enable --now domovoi-agent' '$elog/argv.log'"
+check "a failed enroll shows the message with the token hidden" grep -q "was refused (--token REDACTED" "$work/e.out"
+check "a failed enroll leaves the token out of everything" no_token_anywhere
+check "a failed enroll says what to do by hand" grep -q "To finish the agent by hand" "$work/e.out"
+# Waiting for the link.
+rm -f "$elog"/*
+e_rc=0
+erun "enroll_and_start_agent" || e_rc=$?
+check "an agent that never connects exits 40" test "$e_rc" -eq 40
+check "the timeout shows the last journal lines" grep -q "agent: dialing wss://hub.lan:7421" "$work/e.out"
+check "the timeout hides the token in the journal" grep -q "enroll --token REDACTED" "$work/e.out"
+check "the timeout keeps the token out of everything" no_token_anywhere
+check "the timeout names what to check" grep -q "agent status" "$work/e.out"
+check "the timeout says how long it waited" grep -q "within 3 s" "$work/e.err"
+check "the status was polled again and again" test "$(grep -c 'agent status' "$elog/argv.log")" -ge 3
+rm -f "$elog"/*
+touch "$elog/incompatible"
+e_rc=0
+erun "wait_agent_link" || e_rc=$?
+check "a refused protocol stops the wait at once with exit 40" test "$e_rc" -eq 40
+check "the refusal is shown" grep -q "speaks protocol 1.0" "$work/e.err"
+check "the refusal did not wait for the timeout" test "$(grep -c 'agent status' "$elog/argv.log")" -eq 1
+
+# --role both: stop the hub, make the token as the hub user, start it again.
+rm -f "$elog"/*
+touch "$elog/hub-active"
+check "a token is made with the hub stopped" erun "both_make_token; test \"\$enroll_fp\" = '$fpc'"
+check "the order is stop, token create, start" sh -c "grep -v '^agent' '$elog/argv.log' | tr '\n' '|' | grep -qx 'systemctl stop domovoi-hub|hub token create nas --ttl 15m|systemctl start domovoi-hub|'"
+check "the token is in the private file only" test "$(cat "$work/et/enroll.tok")" = "$tok"
+check "the token file is mode 0600" test "$(stat -c %a "$work/et/enroll.tok")" = 600
+check "the raw token output is gone" sh -c "! test -e '$work/et/token.out'"
+check "making the token printed and logged nothing secret" no_token_anywhere
+check "the hub was waited for after the second start" grep -q "The hub is ready" "$work/e.out"
+rm -f "$elog"/*
+touch "$elog/hub-active" "$elog/token-fails"
+e_rc=0
+erun "both_make_token" || e_rc=$?
+check "a failed token command exits 40" test "$e_rc" -eq 40
+check "a failed token command still starts the hub again" grep -qx "systemctl start domovoi-hub" "$elog/argv.log"
+check "a failed token command shows the hub's message" grep -q "cannot open the database" "$work/e.out"
+check "a failed token command says the hub is running" grep -q "the hub is running" "$work/e.err"
+check "a failed token command says what to do by hand" grep -q "To finish the agent by hand" "$work/e.out"
+rm -f "$elog"/*
+touch "$elog/hub-active" "$elog/token-odd"
+e_rc=0
+erun "both_make_token" || e_rc=$?
+check "an unreadable token output exits 40" test "$e_rc" -eq 40
+check "an unreadable token output still starts the hub again" grep -qx "systemctl start domovoi-hub" "$elog/argv.log"
+
+# The cross-boundary rule: a hub database from before 0.1.0 meets 0.1.0 or later.
+cdata="$work/cdata"
+mkdir -p "$cdata"
+: >"$cdata/hub.db"
+schema_run() { # INSTALLED TARGET HUB_PART ACCEPT
+    sh -c ". '$efns'; tmp='$work/et'; mkdir -p \"\$tmp\"; : >\"\$tmp/preflight\"; pf_add() { printf '%s|%s|%s\n' \"\$1\" \"\$2\" \"\$3\" >>\"\$tmp/preflight\"; }; hub_data_dir='$cdata'; installed_version='$1'; version='$2'; hub_part='$3'; accept_reset='$4'; reset_pending=0; check_schema_reset; echo \"pending=\$reset_pending\"; cat \"\$tmp/preflight\""
+}
+for case_ in "0.0.10:v0.1.0" "0.0.10:v0.1.1" "0.0.1:v1.0.0" "v0.0.10-rc.1:v0.1.0"; do
+    inst="${case_%%:*}"
+    targ="${case_##*:}"
+    schema_run "$inst" "$targ" 1 0 >"$work/schema.out"
+    check "$inst to $targ fails the preflight without the flag" grep -q '^fail|schema|' "$work/schema.out"
+    check "$inst to $targ does not set reset_pending without the flag" grep -qx 'pending=0' "$work/schema.out"
+done
+schema_run 0.0.10 v0.1.0 1 0 >"$work/schema.out"
+check "the refusal names the data directory" grep -q "$cdata" "$work/schema.out"
+check "the refusal names the flag" grep -q -- "--accept-data-reset" "$work/schema.out"
+check "the refusal says the schema is replaced" grep -q "replaces the whole database schema" "$work/schema.out"
+check "the refusal says the data is not changed" grep -q "changes none of the data" "$work/schema.out"
+check "the refusal says to move or delete the directory" grep -q "Move $cdata aside or delete it" "$work/schema.out"
+schema_run 0.0.10 v0.1.0 1 1 >"$work/schema.out"
+check "the flag turns the refusal into a warning" grep -q '^warn|schema|' "$work/schema.out"
+check "the flag leaves no failed row" sh -c "! grep -q '^fail' '$work/schema.out'"
+check "the flag sets reset_pending" grep -qx 'pending=1' "$work/schema.out"
+check "the warning says the data is left untouched and the hub refuses it" sh -c "grep -q 'left untouched' '$work/schema.out' && grep -q 'cannot open it' '$work/schema.out'"
+for case_ in "0.1.0:v0.1.1:1" "0.0.9:v0.0.10:1" "0.0.10:v0.1.0:0" "0.1.0-rc.1:v0.1.0:1"; do
+    inst="${case_%%:*}"
+    rest="${case_#*:}"
+    targ="${rest%%:*}"
+    part="${rest##*:}"
+    schema_run "$inst" "$targ" "$part" 0 >"$work/schema.out"
+    check "$inst to $targ (hub part $part) is allowed" sh -c "! grep -q '|schema|' '$work/schema.out' && grep -qx 'pending=0' '$work/schema.out'"
+done
+schema_run "" v0.1.0 1 0 >"$work/schema.out"
+check "no installed binary means no refusal" sh -c "! grep -q '|schema|' '$work/schema.out'"
+rm -f "$cdata/hub.db"
+schema_run 0.0.10 v0.1.0 1 0 >"$work/schema.out"
+check "a machine with no hub database is not refused" sh -c "! grep -q '|schema|' '$work/schema.out'"
+
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"
     exit 1
