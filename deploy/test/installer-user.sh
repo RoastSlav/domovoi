@@ -284,6 +284,199 @@ kill "$listen_pid" 2>/dev/null || true
 wait "$listen_pid" 2>/dev/null || true
 check "port_state sees a free port" test "$(sh -c ". '$fns'; port_state '$busy'")" = "1"
 
+# --- Hub settings: URLs, hub.env, admin password, start and readiness --------------------
+# Flag checks happen before the preflight, so they run without root.
+expect_rc "--public-url with --role agent is refused" 2 --role agent --public-url https://h.example
+expect_rc "--bind with --no-service is refused" 2 --role hub --no-service --prefix "$fresh" --bind lan
+expect_rc "an ftp public URL is refused" 2 --role hub --public-url ftp://h.example
+expect_rc "a public URL with a path is refused" 2 --role hub --public-url http://h.example/x
+expect_rc "a public URL with a space is refused" 2 --role hub --public-url "http://h.example x"
+expect_rc "an https agent URL is refused" 2 --role hub --agent-url https://h.example:7421
+expect_rc "a bind that is not an address is refused" 2 --role hub --bind nope
+expect_rc "a bind with a port out of range is refused" 2 --role hub --bind 10.0.0.5:99999
+check "a bad DOMOVOI_READY_TIMEOUT is refused with exit 2" sh -c "DOMOVOI_READY_TIMEOUT=x sh '$installer' --role hub --dry-run >/dev/null 2>'$work/err'; test \$? -eq 2 && grep -q READY_TIMEOUT '$work/err'"
+if [ "$(id -u)" -ne 0 ]; then
+    expect_rc "--no-start is a known flag" 10 --role hub --no-start --public-url https://h.example
+    expect_rc "a good public URL passes validation (then the preflight needs root)" 10 \
+        --role hub --public-url https://domovoi.example --agent-url wss://domovoi.example:7421 --bind 10.0.0.5:7420
+fi
+check "usage lists the new flags" sh -c "sh '$installer' --help | grep -q -- '--public-url' && sh '$installer' --help | grep -q -- '--admin-password-file' && sh '$installer' --help | grep -q DOMOVOI_READY_TIMEOUT && sh '$installer' --help | grep -q -- '--no-start'"
+
+# The admin password file: a regular file, mode 0600 or 0400, owned by the caller. The
+# password is never in the log or the output.
+secret="correct horse battery staple"
+pwf="$work/admin.pw"
+printf '%s\n' "$secret" >"$pwf"
+chmod 0644 "$pwf"
+expect_rc "a password file with mode 0644 is refused" 2 --role hub --admin-password-file "$pwf"
+check "the mode refusal says how to fix it" grep -q "chmod 600" "$work/err"
+ln -sf "$pwf" "$work/admin.link"
+chmod 0600 "$pwf"
+expect_rc "a link to a password file is refused" 2 --role hub --admin-password-file "$work/admin.link"
+expect_rc "a directory as password file is refused" 2 --role hub --admin-password-file "$work"
+expect_rc "a missing password file is refused" 2 --role hub --admin-password-file "$work/none"
+expect_rc "a file and stdin together are refused" 2 --role hub --admin-password-file "$pwf" --admin-password-stdin
+: >"$work/empty.pw"
+chmod 0600 "$work/empty.pw"
+expect_rc "an empty password file is refused" 2 --role hub --admin-password-file "$work/empty.pw"
+expect_rc "the admin password goes with --role hub" 2 --role agent --admin-password-file "$pwf"
+if [ "$(id -u)" -ne 0 ]; then
+    expect_rc "a 0600 password file passes validation (then the preflight needs root)" 10 --role hub --admin-password-file "$pwf"
+    chmod 0400 "$pwf"
+    expect_rc "a 0400 password file passes validation" 10 --role hub --admin-password-file "$pwf"
+    rc=0
+    printf '%s\n' "$secret" | sh "$installer" --role hub --admin-password-stdin >"$work/out" 2>"$work/err" || rc=$?
+    if [ "$rc" -eq 10 ]; then pass "a piped password passes validation"; else fail "a piped password passes validation (exit $rc)"; fi
+fi
+check "the password is not in the log" sh -c "! grep -q 'horse battery' '$DOMOVOI_INSTALL_LOG'"
+check "the password is not in the output" sh -c "! grep -rq 'horse battery' '$work/out' '$work/err'"
+chmod 0600 "$pwf"
+
+# The functions that write hub.env, create the admin and start the hub, taken out of the
+# script as written and run with stubs. sleep is a no-op, so nothing here waits.
+hfns="$work/hub-functions.sh"
+: >"$hfns"
+for fn in say log_line say_always err warn fail_with fail show_file_err env_get env_set detect_ip url_host \
+    check_url resolve_net prepare_admin_password write_hub_env create_admin local_web_url user_web_url \
+    probe_ready redact_tokens wait_ready start_hub journal_setup_token find_setup_link; do
+    if grep -q "^$fn() {.*}\$" "$installer"; then
+        grep "^$fn() {.*}\$" "$installer" >>"$hfns"
+    else
+        sed -n "/^$fn() {/,/^}/p" "$installer" >>"$hfns"
+    fi
+done
+check "the hub functions were extracted" test "$(grep -c '^[a-z_]*() {' "$hfns")" -eq 25
+hubrun() { # SCRIPT: runs it with the extracted functions, no-op sleep and chown, and a temp dir
+    mkdir -p "$work/ht"
+    sh -c "set -eu; . '$hfns'; sleep() { :; }; chown() { :; }; tmp='$work/ht'; log_file='$work/hub.log'; hub_env='$work/hub.env'; quiet=0; json=0; upgrade=0; hub_fresh_data=1; admin_created=0; started=0; setup_url=''; public_url=''; bind_opt=''; agent_url=''; $1" \
+        >"$work/hub.out" 2>"$work/hub.err"
+}
+net_run() { # PUBLIC BIND AGENT: resolve the flags and write hub.env
+    hubrun "public_url='$1'; bind_opt='$2'; agent_url='$3'; resolve_net; write_hub_env"
+}
+rm -f "$work/hub.env" "$work/hub.log"
+check "a fresh hub.env is written" net_run https://domovoi.example loopback wss://domovoi.example:7421
+check "hub.env has the bind" grep -qx 'DOMOVOI_WEB__BIND=127.0.0.1:7420' "$work/hub.env"
+check "hub.env has the public URL" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=https://domovoi.example' "$work/hub.env"
+check "hub.env has the agent URL" grep -qx 'DOMOVOI_AGENT_SERVER__PUBLIC_URL=wss://domovoi.example:7421' "$work/hub.env"
+check "hub.env is mode 0640" test "$(stat -c %a "$work/hub.env")" = 640
+cp "$work/hub.env" "$work/hub.env.first"
+net_run https://domovoi.example loopback wss://domovoi.example:7421
+check "a second run changes nothing" cmp -s "$work/hub.env" "$work/hub.env.first"
+net_run "" "" ""
+check "no flags leave hub.env alone" cmp -s "$work/hub.env" "$work/hub.env.first"
+printf '# mine\nDISCORD_TOKEN=abc\nDOMOVOI_WEB__BIND=1.2.3.4:1\nOTHER=1\nDOMOVOI_WEB__BIND=9.9.9.9:9\n' >"$work/hub.env"
+net_run "" loopback ""
+check "a flag replaces the old value and drops the duplicate" test "$(grep -c '^DOMOVOI_WEB__BIND=' "$work/hub.env")" -eq 1
+check "the new bind is in place" grep -qx 'DOMOVOI_WEB__BIND=127.0.0.1:7420' "$work/hub.env"
+check "other lines and comments are kept" sh -c "grep -qx '# mine' '$work/hub.env' && grep -qx 'DISCORD_TOKEN=abc' '$work/hub.env' && grep -qx 'OTHER=1' '$work/hub.env'"
+check "a key no flag names is not added" sh -c "! grep -q PUBLIC_URL '$work/hub.env'"
+printf 'DOMOVOI_WEB__PUBLIC_URL=http://keep.example:7420\n' >"$work/hub.env"
+ip_stub='ip() { echo "1.1.1.1 via 10.0.0.1 dev eth0 src 10.0.0.5 uid 0"; }'
+hubrun "$ip_stub; public_url=''; bind_opt=lan; agent_url=''; resolve_net; write_hub_env"
+check "--bind lan keeps an existing public URL" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=http://keep.example:7420' "$work/hub.env"
+check "--bind lan writes the bind" grep -qx 'DOMOVOI_WEB__BIND=0.0.0.0:7420' "$work/hub.env"
+check "--bind lan takes the agent host from the existing public URL" grep -qx 'DOMOVOI_AGENT_SERVER__PUBLIC_URL=wss://keep.example:7421' "$work/hub.env"
+rm -f "$work/hub.env"
+hubrun "$ip_stub; public_url=''; bind_opt=lan; agent_url=''; resolve_net; write_hub_env"
+check "--bind lan derives the public URL from the route address" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=http://10.0.0.5:7420' "$work/hub.env"
+check "--bind lan derives the agent URL from the same host" grep -qx 'DOMOVOI_AGENT_SERVER__PUBLIC_URL=wss://10.0.0.5:7421' "$work/hub.env"
+check "the derivation is announced" grep -q "Derived the web address http://10.0.0.5:7420" "$work/hub.out"
+check "plain http on a network address warns once" test "$(grep -c 'unencrypted' "$work/hub.err")" -eq 1
+rm -f "$work/hub.env"
+hubrun "ip() { return 1; }; hostname() { echo '127.0.0.1 172.16.0.9 '; }; public_url=''; bind_opt=lan; agent_url=''; resolve_net; write_hub_env"
+check "--bind lan falls back to hostname -I" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=http://172.16.0.9:7420' "$work/hub.env"
+rm -f "$work/hub.env"
+if hubrun "ip() { return 1; }; hostname() { :; }; public_url=''; bind_opt=lan; agent_url=''; resolve_net"; then
+    fail "--bind lan with no detectable address is refused"
+else
+    pass "--bind lan with no detectable address is refused"
+fi
+check "that refusal asks for --public-url" grep -q "pass --public-url" "$work/hub.err"
+check "--bind lan with --public-url needs no detection" hubrun "ip() { return 1; }; public_url=https://domovoi.example; bind_opt=lan; agent_url=''; resolve_net; test \"\$set_agent_url\" = wss://domovoi.example:7421"
+check "https and loopback addresses do not warn" sh -c "! grep -q unencrypted '$work/hub.err'"
+hubrun "public_url=http://127.0.0.1:7420; resolve_net"
+check "plain http on loopback does not warn" sh -c "! grep -q unencrypted '$work/hub.err'"
+
+# create_admin: the password goes to the command's stdin and never to its arguments.
+printf '%s\n' "$secret" >"$work/ht/admin.pw"
+admin_stub='run_as_domovoi() { cat >"'"$work"'/pw.seen"; printf "%s\n" "$*" >"'"$work"'/argv.seen"; }'
+rm -f "$work/pw.seen" "$work/argv.seen" "$work/hub.log"
+check "create_admin runs set-password on a fresh hub" hubrun "$admin_stub; bin=/x/domovoi; create_admin; test \"\$admin_created\" = 1"
+check "the password reaches the command through stdin" test "$(cat "$work/pw.seen")" = "$secret"
+check "the command is hub set-password --password-stdin" grep -qx '/x/domovoi hub set-password --password-stdin' "$work/argv.seen"
+check "the password is not in the arguments" sh -c "! grep -q 'horse' '$work/argv.seen'"
+check "the password is not in the log" sh -c "! grep -q 'horse' '$work/hub.log' '$work/hub.out' '$work/hub.err'"
+printf '%s\n' "$secret" >"$work/ht/admin.pw"
+rm -f "$work/pw.seen"
+check "create_admin skips an upgrade" hubrun "$admin_stub; bin=/x/domovoi; upgrade=1; create_admin; test \"\$admin_created\" = 0"
+check "the skipped upgrade says why" grep -q "never reset" "$work/hub.out"
+check "the skipped upgrade did not run the command" test ! -e "$work/pw.seen"
+check "create_admin skips a data directory that is not empty" hubrun "$admin_stub; bin=/x/domovoi; hub_fresh_data=0; create_admin; test \"\$admin_created\" = 0"
+check "the skipped run did not run the command" test ! -e "$work/pw.seen"
+if hubrun 'run_as_domovoi() { echo "Error: the password must be at least 12 characters"; return 1; }; bin=/x/domovoi; create_admin'; then
+    fail "a rejected password stops the install"
+else
+    pass "a rejected password stops the install"
+fi
+check "the hub's message is shown" grep -q "at least 12 characters" "$work/hub.err"
+check "the failure still says nothing about the password itself" sh -c "! grep -q 'horse' '$work/hub.log' '$work/hub.out' '$work/hub.err'"
+
+# Readiness: poll GET /readyz, print progress, and on a timeout show the journal and exit 40.
+check "the local URL is loopback by default" test "$(hubrun 'local_web_url' && cat "$work/hub.out")" = "http://127.0.0.1:7420"
+printf 'DOMOVOI_WEB__BIND=0.0.0.0:7431\n' >"$work/hub.env"
+hubrun 'local_web_url'
+check "a wildcard bind is probed on loopback" test "$(cat "$work/hub.out")" = "http://127.0.0.1:7431"
+printf 'DOMOVOI_WEB__BIND=[::]:7432\n' >"$work/hub.env"
+hubrun 'local_web_url'
+check "an IPv6 wildcard bind is probed on ::1" test "$(cat "$work/hub.out")" = "http://[::1]:7432"
+rm -f "$work/hub.env"
+ready_after() { # N: probe_ready fails N times, then succeeds
+    # shellcheck disable=SC2016 # the function body is for the child shell
+    printf 'probe_ready() { n=$(cat %s/n 2>/dev/null || echo 0); echo $((n + 1)) >%s/n; [ "$n" -ge %s ]; }' "$work" "$work" "$1"
+}
+rm -f "$work/n"
+check "wait_ready returns once the hub answers" hubrun "$(ready_after 7); DOMOVOI_READY_TIMEOUT=60; wait_ready http://127.0.0.1:7420"
+check "wait_ready prints a progress line" grep -q "still waiting for the hub" "$work/hub.out"
+check "wait_ready says the hub is ready" grep -q "The hub is ready" "$work/hub.out"
+rm -f "$work/n" "$work/hub.log"
+journal_stub='journalctl() { echo "hub: starting"; echo "  http://127.0.0.1:7420/setup?token=0123456789abcdef"; }'
+if hubrun "$journal_stub; probe_ready() { return 1; }; DOMOVOI_READY_TIMEOUT=3; wait_ready http://127.0.0.1:7420"; then
+    fail "a hub that never answers stops the install"
+else
+    pass "a hub that never answers stops the install"
+fi
+hub_rc=0
+hubrun "$journal_stub; probe_ready() { return 1; }; DOMOVOI_READY_TIMEOUT=3; wait_ready http://127.0.0.1:7420" || hub_rc=$?
+check "the readiness timeout exits 40" test "$hub_rc" -eq 40
+check "the timeout shows the journal" grep -q "hub: starting" "$work/hub.out" "$work/hub.err"
+check "the timeout hides the setup token on screen" sh -c "! grep -q 0123456789abcdef '$work/hub.out' '$work/hub.err'"
+check "the timeout keeps the setup token out of the log" sh -c "! grep -q 0123456789abcdef '$work/hub.log'"
+check "the timeout log holds the redacted line" grep -q "token=REDACTED" "$work/hub.log"
+
+# start_hub: enable --now on a fresh install, restart only a running hub on an upgrade.
+# shellcheck disable=SC2016 # the stub is for the child shell
+sysctl_stub='systemctl() { echo "$*" >>"'"$work"'/systemctl.log"; case "$1" in is-active) [ "${ACTIVE:-0}" = 1 ];; *) :;; esac; }; probe_ready() { return 0; }'
+: >"$work/systemctl.log"
+hubrun "$sysctl_stub; start_hub; test \"\$started\" = 1"
+check "a fresh install enables and starts the hub" grep -qx 'enable --now domovoi-hub' "$work/systemctl.log"
+: >"$work/systemctl.log"
+ACTIVE=1 hubrun "$sysctl_stub; upgrade=1; start_hub; test \"\$started\" = 1"
+check "an upgrade restarts a running hub" grep -qx 'restart domovoi-hub' "$work/systemctl.log"
+check "an upgrade does not enable the hub again" sh -c "! grep -q enable '$work/systemctl.log'"
+: >"$work/systemctl.log"
+ACTIVE=0 hubrun "$sysctl_stub; upgrade=1; start_hub; test \"\$started\" = 0"
+check "an upgrade leaves a stopped hub stopped" sh -c "! grep -qE 'restart|enable|start' '$work/systemctl.log'"
+check "the stopped hub is reported" grep -q "left stopped" "$work/hub.out"
+
+# The setup link: found in the journal, rebuilt on the address people open.
+journal_stub='journalctl() { echo "old"; echo "  http://127.0.0.1:7420/setup?token=aaaa1111"; echo "  http://127.0.0.1:7420/setup?token=bbbb2222"; }'
+hubrun "$journal_stub; web_url=https://domovoi.example; find_setup_link; echo \"\$setup_url\""
+check "the newest setup token is used on the public URL" test "$(cat "$work/hub.out")" = "https://domovoi.example/setup?token=bbbb2222"
+# shellcheck disable=SC2016
+hubrun 'journalctl() { echo nothing; }; web_url=https://domovoi.example; find_setup_link; echo "[$setup_url]"'
+check "no setup link in the journal gives an empty result" test "$(cat "$work/hub.out")" = "[]"
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures check(s) failed"
     exit 1

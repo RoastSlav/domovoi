@@ -393,6 +393,199 @@ fi
 check "bad checksum explained" grep -q "does not match" "$work/out"
 check "binary untouched after a bad checksum" test "$(sha256sum /usr/local/bin/domovoi)" = "$before"
 
+# The hub with systemd present: start, readiness, hub.env and the admin account. A fake
+# /run/systemd/system and stubs for systemctl, journalctl and the readiness probe stand in
+# for systemd; the downloads go through the real curl. The binary of this release is a stub
+# that records the password it receives on stdin.
+made_systemd_dir=0
+if [ ! -d /run/systemd/system ]; then
+    mkdir -p /run/systemd/system
+    made_systemd_dir=1
+fi
+stubs="$work/fakebin"
+out_dir="$work/stubout"
+mkdir -p "$stubs" "$out_dir"
+chmod 0777 "$out_dir"
+real_curl="$(command -v curl)"
+cat >"$stubs/systemctl" <<STUB
+#!/bin/sh
+echo "\$*" >>"$work/systemctl.log"
+case "\$*" in
+"is-active --quiet domovoi-hub") [ -e "$work/active" ] ;;
+"enable --now domovoi-hub") touch "$work/active" ;;
+*) exit 0 ;;
+esac
+STUB
+cat >"$stubs/journalctl" <<STUB
+#!/bin/sh
+cat "$work/journal.txt" 2>/dev/null || true
+STUB
+cat >"$stubs/curl" <<STUB
+#!/bin/sh
+case "\$*" in
+*/readyz*)
+    echo "\$*" >>"$work/readyz.log"
+    [ -e "$work/ready" ]
+    exit \$?
+    ;;
+esac
+exec "$real_curl" "\$@"
+STUB
+cat >"$stubs/ip" <<'STUB'
+#!/bin/sh
+echo "1.1.1.1 via 10.0.0.1 dev eth0 src 10.0.0.5 uid 0"
+STUB
+chmod 0755 "$stubs/systemctl" "$stubs/journalctl" "$stubs/curl" "$stubs/ip"
+
+release_recording() { # TAG: a release whose binary records `hub set-password`
+    tag="$1"
+    name="domovoi-$tag-$target"
+    dir="$work/srv/download/$tag"
+    mkdir -p "$dir" "$work/build/$name/examples"
+    cat >"$work/build/$name/domovoi" <<STUB
+#!/bin/sh
+case "\$*" in
+"version") echo "domovoi $tag (test build)" ;;
+"hub set-password --password-stdin")
+    IFS= read -r pw
+    if [ "\${#pw}" -lt 12 ]; then echo "Error: the password must be at least 12 characters" >&2; exit 1; fi
+    printf '%s\n' "\$pw" >"$out_dir/pw.seen"
+    id -un >"$out_dir/ran-as"
+    : >/var/lib/domovoi/hub.db
+    echo "Password set for admin."
+    ;;
+esac
+STUB
+    chmod 0755 "$work/build/$name/domovoi"
+    tar -C "$work/build" -czf "$dir/$name.tar.gz" "$name"
+    (cd "$dir" && sha256sum "$name.tar.gz" >"$name.tar.gz.sha256")
+}
+release_recording v9.9.2
+
+hub_reset() { # back to a hub that was never installed, with nothing running
+    rm -f /etc/systemd/system/domovoi-hub.service /etc/domovoi/hub.env "$work/active" \
+        "$out_dir/pw.seen" "$out_dir/ran-as" "$work/systemctl.log" "$work/readyz.log" \
+        "$work/journal.txt" "$work/install.log"
+    find /var/lib/domovoi -mindepth 1 -delete
+    touch "$work/ready"
+}
+hub_install() { # ARGS...: a hub install of v9.9.2 with the stubs on the path
+    PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --role hub --version v9.9.2 "$@" \
+        >"$work/out" 2>"$work/err"
+}
+hub_rc() { rc=0; hub_install "$@" || rc=$?; echo "$rc"; }
+json_field() { # FILE EXPRESSION on r
+    python3 -I -c '
+import json, sys
+r = [json.loads(l) for l in open(sys.argv[1]).read().splitlines()][-1]
+print(eval(sys.argv[2]))
+' "$1" "$2"
+}
+adminpw="$work/admin.pw"
+printf '%s\n' "a long enough pass phrase" >"$adminpw"
+chmod 0600 "$adminpw"
+
+hub_reset
+check "a fresh hub with a network and an admin installs" test "$(hub_rc --bind lan --admin-password-file "$adminpw")" = 0
+check "systemd: the hub was enabled and started" grep -qx 'enable --now domovoi-hub' "$work/systemctl.log"
+check "systemd: readiness was polled on loopback" grep -q 'http://127.0.0.1:7420/readyz' "$work/readyz.log"
+check "systemd: hub.env is 0640 root:domovoi" test "$(mode_of /etc/domovoi/hub.env) $(owner_of /etc/domovoi/hub.env)" = "640 root:domovoi"
+check "systemd: hub.env has the bind" grep -qx 'DOMOVOI_WEB__BIND=0.0.0.0:7420' /etc/domovoi/hub.env
+check "systemd: hub.env has the derived public URL" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=http://10.0.0.5:7420' /etc/domovoi/hub.env
+check "systemd: hub.env has the derived agent URL" grep -qx 'DOMOVOI_AGENT_SERVER__PUBLIC_URL=wss://10.0.0.5:7421' /etc/domovoi/hub.env
+check "systemd: the admin password reached set-password" test "$(cat "$out_dir/pw.seen")" = "a long enough pass phrase"
+check "systemd: set-password ran as the hub user" test "$(cat "$out_dir/ran-as")" = domovoi
+check "systemd: the summary gives the address to open" grep -q "Open: http://10.0.0.5:7420" "$work/out"
+check "systemd: no setup link with an admin" sh -c "! grep -q '/setup?token' '$work/out'"
+check "systemd: the summary names the status and log commands" sh -c "grep -q 'systemctl status domovoi-hub' '$work/out' && grep -q 'journalctl -u domovoi-hub -f' '$work/out'"
+check "systemd: the password is not in the output" sh -c "! grep -rq 'pass phrase' '$work/out' '$work/err' '$work/install.log'"
+check "systemd: the plain http warning was printed" grep -q unencrypted "$work/err"
+
+# The same install with --json.
+hub_reset
+PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --role hub --version v9.9.2 \
+    --public-url https://domovoi.example --bind loopback --admin-password-file "$adminpw" --json >"$work/json.out" 2>/dev/null
+check "systemd: the json result is valid" check_json "$work/json.out"
+check "systemd: the json result has the web URL" test "$(json_field "$work/json.out" 'r["urls"]["web"]')" = "https://domovoi.example"
+check "systemd: the json result says the admin was created" test "$(json_field "$work/json.out" 'r["admin_created"]')" = "True"
+check "systemd: the json result says the hub started" test "$(json_field "$work/json.out" 'r["started"]')" = "True"
+check "systemd: the json result has no setup URL with an admin" test "$(json_field "$work/json.out" '"setup" in r["urls"]')" = "False"
+
+# No admin: the setup link is read from the journal and put on the public address. It is a
+# secret: shown on the terminal and in the json result, never in the log file.
+hub_reset
+printf 'No account exists yet. Finish setup in the web UI within 24 hours:\n  http://127.0.0.1:7420/setup?token=feedface0123\n' >"$work/journal.txt"
+check "systemd: a hub without an admin installs" test "$(hub_rc --public-url https://domovoi.example --bind loopback)" = 0
+check "systemd: the setup link is printed on the public address" grep -qx '  https://domovoi.example/setup?token=feedface0123' "$work/out"
+check "systemd: the setup token is not in the log file" sh -c "! grep -q feedface0123 '$work/install.log'"
+check "systemd: the agent URL is listed as a step left to do" grep -q "Agent server URL" "$work/out"
+hub_reset
+printf '  http://127.0.0.1:7420/setup?token=feedface0123\n' >"$work/journal.txt"
+PATH="$stubs:$PATH" DOMOVOI_INSTALL_LOG="$work/install.log" sh "$installer" --role hub --version v9.9.2 \
+    --public-url https://domovoi.example --json >"$work/json.out" 2>/dev/null
+check "systemd: the json result carries the setup URL" test "$(json_field "$work/json.out" 'r["urls"]["setup"]')" = "https://domovoi.example/setup?token=feedface0123"
+check "systemd: the json result says no admin was created" test "$(json_field "$work/json.out" 'r["admin_created"]')" = "False"
+check "systemd: the json run kept the token out of the log file" sh -c "! grep -q feedface0123 '$work/install.log'"
+
+# --no-start installs the unit and starts nothing.
+hub_reset
+check "systemd: --no-start installs" test "$(hub_rc --no-start --public-url https://domovoi.example)" = 0
+check "systemd: --no-start starts nothing" sh -c "! grep -qE 'enable --now|restart' '$work/systemctl.log'"
+check "systemd: --no-start still prints the manual steps" grep -q "systemctl enable --now domovoi-hub" "$work/out"
+check "systemd: --no-start probed nothing" test ! -e "$work/readyz.log"
+check "systemd: --no-start still wrote hub.env" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=https://domovoi.example' /etc/domovoi/hub.env
+
+# A hub that never becomes ready: exit 40 with the journal; the token is hidden.
+hub_reset
+rm -f "$work/ready"
+printf 'hub: cannot bind\n  http://127.0.0.1:7420/setup?token=feedface0123\n' >"$work/journal.txt"
+DOMOVOI_READY_TIMEOUT=2
+export DOMOVOI_READY_TIMEOUT
+check "systemd: a hub that never answers exits 40" test "$(hub_rc)" = 40
+unset DOMOVOI_READY_TIMEOUT
+check "systemd: the timeout shows the journal" grep -q "hub: cannot bind" "$work/out" "$work/err"
+check "systemd: the timeout hides the token" sh -c "! grep -q feedface0123 '$work/out' '$work/err' '$work/install.log'"
+
+# An upgrade restarts a running hub, leaves a stopped one stopped, and never touches an admin.
+hub_reset
+hub_install --public-url https://domovoi.example --admin-password-file "$adminpw" || true
+: >"$work/systemctl.log"
+rm -f "$out_dir/pw.seen"
+touch "$work/active"
+check "systemd: an upgrade of a running hub succeeds" test "$(hub_rc --admin-password-file "$adminpw")" = 0
+check "systemd: a running hub is restarted" grep -qx 'restart domovoi-hub' "$work/systemctl.log"
+check "systemd: an upgrade never resets the admin" test ! -e "$out_dir/pw.seen"
+check "systemd: the skipped admin is explained" grep -q "never reset" "$work/out"
+check "systemd: hub.env is unchanged by an upgrade without flags" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=https://domovoi.example' /etc/domovoi/hub.env
+: >"$work/systemctl.log"
+rm -f "$work/active"
+check "systemd: an upgrade of a stopped hub succeeds" test "$(hub_rc)" = 0
+check "systemd: a stopped hub is left stopped" sh -c "! grep -qE 'enable|restart|start' '$work/systemctl.log'"
+check "systemd: that is said" grep -q "left stopped" "$work/out"
+
+# A password the hub rejects stops the install with its message.
+hub_reset
+printf '%s\n' "tiny-pw" >"$adminpw"
+check "systemd: a rejected password exits 40" test "$(hub_rc --admin-password-file "$adminpw")" = 40
+check "systemd: the hub message is shown" grep -q "at least 12 characters" "$work/out" "$work/err"
+check "systemd: the hub was not started after that" sh -c "! grep -qs 'enable --now' '$work/systemctl.log'"
+rm -f "$adminpw"
+
+# The dry run lists the start, hub.env and the admin.
+hub_reset
+printf '%s\n' "a long enough pass phrase" >"$adminpw"
+chmod 0600 "$adminpw"
+check "systemd: the dry run succeeds" test "$(hub_rc --dry-run --bind lan --admin-password-file "$adminpw")" = 0
+check "systemd: the dry run lists the start" grep -q "enable --now domovoi-hub" "$work/out"
+check "systemd: the dry run lists hub.env" grep -q "DOMOVOI_WEB__PUBLIC_URL=http://10.0.0.5:7420" "$work/out"
+check "systemd: the dry run lists the admin" grep -q "admin account" "$work/out"
+check "systemd: the dry run wrote no hub.env" test ! -e /etc/domovoi/hub.env
+check "systemd: the dry run started nothing" test ! -e "$work/systemctl.log"
+rm -f "$adminpw"
+hub_reset
+rm -f /etc/systemd/system/domovoi-hub.service
+if [ "$made_systemd_dir" -eq 1 ]; then rmdir /run/systemd/system /run/systemd 2>/dev/null || true; fi
+
 # Without root a user prefix works with --no-service, and is refused without it.
 if id nobody >/dev/null 2>&1 && command -v su >/dev/null 2>&1; then
     mkdir -p "$work/user" && chown nobody "$work/user"
