@@ -14,6 +14,8 @@ mod journal;
 #[cfg(test)]
 mod lifecycle;
 #[cfg(test)]
+mod named;
+#[cfg(test)]
 mod probe;
 #[cfg(test)]
 mod selftest;

@@ -5,6 +5,8 @@
 #[cfg(test)]
 mod basic;
 #[cfg(test)]
+mod drills;
+#[cfg(test)]
 mod load;
 #[cfg(test)]
 mod support;
