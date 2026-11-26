@@ -6461,6 +6461,19 @@ expression: spec
         ],
         "type": "object"
       },
+      "RevokeRequest": {
+        "description": "The body of a revoke: the host's name typed again, as the web page asks for.",
+        "properties": {
+          "confirm": {
+            "description": "Must equal the host name in the path.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "type": "object"
+      },
       "RuleDto": {
         "description": "One policy rule as the editor reads and writes it.",
         "properties": {
@@ -11255,6 +11268,16 @@ expression: spec
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -11265,6 +11288,16 @@ expression: spec
               }
             },
             "description": "Whether an agent was revoked"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The confirmation is not the host name"
           },
           "401": {
             "content": {

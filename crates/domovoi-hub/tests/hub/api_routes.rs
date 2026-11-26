@@ -239,7 +239,13 @@ async fn hosts_enrollment_skills_and_notes() {
             .status,
         StatusCode::BAD_REQUEST
     );
-    let revoke = a.post("/api/v1/hosts/nas/revoke", &login, json!({})).await;
+    let wrong = a
+        .post("/api/v1/hosts/nas/revoke", &login, json!({ "confirm": "nope" }))
+        .await;
+    assert_eq!(wrong.status, StatusCode::BAD_REQUEST, "{}", wrong.text);
+    let revoke = a
+        .post("/api/v1/hosts/nas/revoke", &login, json!({ "confirm": "nas" }))
+        .await;
     assert_eq!(revoke.body["revoked"], false);
 
     let restart = domovoi_testkit::build::manifest("restart_container", Risk::Write).unwrap();

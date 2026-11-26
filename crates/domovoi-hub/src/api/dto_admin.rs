@@ -138,6 +138,13 @@ pub struct InviteDto {
     pub command: String,
 }
 
+/// The body of a revoke: the host's name typed again, as the web page asks for.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct RevokeRequest {
+    /// Must equal the host name in the path.
+    pub confirm: String,
+}
+
 /// Whether an agent was revoked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct RevokeDto {

@@ -420,7 +420,7 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 | GET | `/api/v1/hosts/{name}/logs` | The recent log lines host `name`'s agent keeps, scrubbed again here so the page is safe even if the agent was not. An agent too old to send them is refused with a message telling the person to update it. |
 | GET | `/api/v1/hosts/{name}/profile` | What `host`'s machine looks like while it behaves normally; 404 before the hub has collected one. |
 | POST | `/api/v1/hosts/{name}/profile` | Collects the profile of `host` again now, and answers with it. 409 when its agent is not connected: there is nobody to ask. |
-| POST | `/api/v1/hosts/{name}/revoke` | Revokes the agent of host `name` and disconnects it. |
+| POST | `/api/v1/hosts/{name}/revoke` | Revokes the agent of host `name` and disconnects it. The body must be `{"confirm": "<host name>"}`; any other text is refused with 400. |
 | GET | `/api/v1/hosts/{name}/skills` | The skills host `name`'s agent reported. |
 | PUT | `/api/v1/hosts/{name}/skills/{skill}` | Turns one of a host's skills on or off. The switch is saved in the settings table and takes effect immediately: a disabled skill stays on the host, but the hub never runs it and never offers it to triage. |
 

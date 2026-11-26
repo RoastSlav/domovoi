@@ -132,7 +132,10 @@ export function useRevoke() {
   return useMutation({
     mutationFn: (name: string) =>
       call<{ revoked: boolean }>(
-        api.POST("/api/v1/hosts/{name}/revoke", { params: { path: { name } } }),
+        api.POST("/api/v1/hosts/{name}/revoke", {
+          params: { path: { name } },
+          body: { confirm: name },
+        }),
       ),
     onSuccess: (_, name) =>
       Promise.all([

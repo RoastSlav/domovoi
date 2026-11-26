@@ -4668,6 +4668,11 @@ export interface components {
             /** @description `false` when the host had no live agent. */
             revoked: boolean;
         };
+        /** @description The body of a revoke: the host's name typed again, as the web page asks for. */
+        RevokeRequest: {
+            /** @description Must equal the host name in the path. */
+            confirm: string;
+        };
         /** @description One policy rule as the editor reads and writes it. */
         RuleDto: {
             /** @description The capability dimension. */
@@ -7548,7 +7553,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeRequest"];
+            };
+        };
         responses: {
             /** @description Whether an agent was revoked */
             200: {
@@ -7557,6 +7566,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevokeDto"];
+                };
+            };
+            /** @description The confirmation is not the host name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description Not logged in */

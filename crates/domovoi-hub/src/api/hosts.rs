@@ -11,7 +11,7 @@ use jiff::SignedDuration;
 
 use super::dto::{LogLineDto, LogsQuery};
 use super::dto_admin::{
-    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, SkillDto, VerifyDto,
+    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, RevokeRequest, SkillDto, VerifyDto,
 };
 use super::error::{ApiError, ErrorBody};
 use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};
@@ -171,8 +171,10 @@ pub(super) async fn enrollment(
 #[utoipa::path(
     post, path = "/api/v1/hosts/{name}/revoke", operation_id = "revoke_agent", tag = "hosts",
     params(("name" = String, Path, description = "Host name")),
+    request_body = RevokeRequest,
     responses(
         (status = 200, description = "Whether an agent was revoked", body = RevokeDto),
+        (status = 400, description = "The confirmation is not the host name", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such host", body = ErrorBody),
     )
@@ -181,8 +183,15 @@ pub(super) async fn revoke(
     State(state): State<ApiState>,
     _auth: Authed,
     Path(name): Path<String>,
+    Json(body): Json<RevokeRequest>,
 ) -> Result<Json<RevokeDto>, ApiError> {
     let host = host_named(&state, &name).await?;
+    if body.confirm != host.name.as_str() {
+        return Err(ApiError::BadRequest(format!(
+            "type the host name ({}) in `confirm` to revoke its agent",
+            host.name
+        )));
+    }
     let revoked = state
         .deps
         .agents
