@@ -29,6 +29,11 @@
 # absent (enrolling writes agent.toml). Running it again upgrades the binary and leaves
 # everything else alone.
 #
+# The 0.1.0 release replaces the whole database schema, so a hub database written by an
+# older release cannot be opened by it. Installing 0.1.0 or later over a hub that has such a
+# database is refused (exit 10) until --accept-data-reset says the old data is to be moved
+# aside by hand; the installer never moves or deletes it.
+#
 # An agent on a systemd host with no hub gets three identities: the unprivileged
 # domovoi-agent account runs the agent, the group-less domovoi-skill account is for skills,
 # and root runs the sandboxed helper behind a socket. The installer creates only what is
@@ -101,6 +106,11 @@ Options:
   --name NAME          with --role agent or both: the host's name in Domovoi, as in the Add host dialog
                        (lower-case letters, digits and dashes; default: this machine's short
                        host name, cleaned up)
+  --accept-data-reset  with --role hub or both: go on although this hub's database is from before
+                       0.1.0, which cannot be upgraded (0.1.0 replaces the database schema).
+                       The old data directory is left untouched and the new hub refuses to open
+                       it, so the installer does not restart the hub and prints how to move the
+                       directory aside and set the hub up again
   --yes                never ask a question (also DOMOVOI_NONINTERACTIVE=1). The one
                        confirmation that exists, the typed word of --migrate-identity, is
                        not skipped by it: that step needs a terminal by design
@@ -142,8 +152,8 @@ Exit codes:
   2   usage: a bad flag or value (including a bad URL, a literal --token, an incomplete
       --hub, --fingerprint and token set, or a password or token file that is not a
       regular file with mode 0600 or 0400 owned by you)
-  10  preflight: this machine cannot take the install, or an older version without
-      --force-downgrade
+  10  preflight: this machine cannot take the install, an older version without
+      --force-downgrade, or a hub database from before 0.1.0 without --accept-data-reset
   20  download or checksum
   30  install: the binary or its files
   40  service: users, directories, units or sockets; the hub did not become ready; the
@@ -190,6 +200,9 @@ enroll_on=0
 hub_part=0
 hub_stopped=0
 both_wait=0
+accept_reset=0
+reset_pending=0
+hub_data_dir="/var/lib/domovoi"
 enrolled_host=""
 agent_started=0
 agent_timeout=30
@@ -1577,6 +1590,26 @@ detect_state() {
     esac
 }
 
+# The 0.1.0 release replaces the whole database schema with one baseline migration. A
+# database written by an older release has migration 1 recorded with different contents, so
+# the hub's start stops with "database migration failed ... previously applied but has been
+# modified"; it takes no backup and migrates nothing. Fails the preflight when an installed
+# hub older than 0.1.0 has such a database and the target is 0.1.0 or later, unless
+# --accept-data-reset was given; then it warns and sets $reset_pending.
+check_schema_reset() {
+    [ "$hub_part" -eq 1 ] || return 0
+    [ -n "$installed_version" ] || return 0
+    [ "$(ver_cmp "$installed_version" 0.1.0)" = "lt" ] || return 0
+    [ "$(ver_cmp "$version" 0.1.0)" != "lt" ] || return 0
+    [ -e "$hub_data_dir/hub.db" ] || return 0
+    if [ "$accept_reset" -eq 1 ]; then
+        reset_pending=1
+        pf_add warn schema "going on (--accept-data-reset): the hub database in $hub_data_dir is from before 0.1.0 and is left untouched; $version cannot open it, so the hub is not restarted. Move $hub_data_dir aside and set the hub up again"
+    else
+        pf_add fail schema "the hub database in $hub_data_dir is from $installed_version, and $version replaces the whole database schema: it cannot be upgraded, and the hub from $version would stop at start with a migration error (it changes none of the data). Move $hub_data_dir aside or delete it and set the hub up again, or pass --accept-data-reset to install anyway and do that yourself"
+    fi
+}
+
 # --- Plan (--dry-run) ---------------------------------------------------------------------
 plan_add() { # ACTION TEXT
     printf '%-8s %s\n' "$1" "$2" >>"$tmp/plan"
@@ -1635,6 +1668,8 @@ build_plan() {
         fi
         if [ "$start" -eq 0 ]; then
             plan_add note "the hub is not started (--no-start); the next steps are printed at the end"
+        elif [ "$reset_pending" -eq 1 ]; then
+            plan_add note "the hub is not restarted: its database from before 0.1.0 has to be moved aside first (--accept-data-reset); the steps are printed at the end"
         elif [ "$have_systemd" -eq 0 ]; then
             plan_add note "the hub is not started: this machine has no systemd; the next steps are printed at the end"
         elif [ -e /etc/systemd/system/domovoi-hub.service ]; then
@@ -2484,6 +2519,10 @@ while [ $# -gt 0 ]; do
         # history and in the process list.
         fail_with 2 "--token is not accepted: a token on the command line stays in the shell history and the process list. Put it in a file with mode 0600 and use --token-file FILE, or set DOMOVOI_ENROLL_TOKEN"
         ;;
+    --accept-data-reset)
+        accept_reset=1
+        shift
+        ;;
     --yes)
         yes=1
         shift
@@ -2594,6 +2633,8 @@ if [ "$hub_part" -eq 1 ] && [ "$service" -eq 1 ]; then
     resolve_net
     if [ -n "$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then prepare_admin_password; fi
 fi
+[ "$accept_reset" -eq 0 ] || [ "$hub_part" -eq 1 ] ||
+    fail_with 2 "--accept-data-reset goes with --role hub or both: an agent has no database to reset"
 resolve_enroll
 case "${DOMOVOI_AGENT_TIMEOUT:-30}" in
 "" | *[!0-9]* | 0) fail_with 2 "DOMOVOI_AGENT_TIMEOUT must be a whole number of seconds, not ${DOMOVOI_AGENT_TIMEOUT:-}" ;;
@@ -2623,9 +2664,14 @@ if [ "$pf_failed" -eq 0 ]; then
     if [ "$migrate" -eq 1 ]; then migrate_preconditions; fi
     resolve_version
     detect_state
+    check_schema_reset
 fi
 print_preflight
 [ "$pf_failed" -eq 0 ] || fail "preflight failed: $(preflight_failures)"
+if [ "$reset_pending" -eq 1 ] && [ "$dry_run" -eq 0 ] && [ "$service" -eq 1 ] && [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
+    step_total=$((step_total - 1))
+    if [ "$role" = "both" ]; then step_total=$((step_total - 1)); fi
+fi
 if [ "$state" = "downgrade" ]; then
     warn "downgrading from $installed_version to $version (--force-downgrade)"
 fi
@@ -2711,7 +2757,9 @@ if [ "$hub_part" -eq 1 ]; then
     if [ "$have_systemd" -eq 1 ]; then
         systemctl daemon-reload
     fi
-    if [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
+    if [ "$reset_pending" -eq 1 ]; then
+        say "The hub was not restarted: its database in $hub_data_dir is from before 0.1.0 and the new version cannot open it."
+    elif [ "$start" -eq 1 ] && [ "$have_systemd" -eq 1 ]; then
         step start "Starting the hub"
         fail_code=40
         start_hub
@@ -2758,7 +2806,17 @@ if [ "$enroll_on" -eq 1 ]; then
     exit 0
 fi
 say_always "Next steps:"
-if [ "$role" = "both" ] && [ "$upgrade" -eq 1 ]; then
+if [ "$reset_pending" -eq 1 ]; then
+    say_always "The old hub database is still in $hub_data_dir, and this version cannot open it. To finish:"
+    ns "systemctl stop domovoi-hub"
+    ns "mv $hub_data_dir $hub_data_dir.before-0.1.0"
+    ns "install -d -m 0750 -o domovoi -g domovoi $hub_data_dir"
+    ns "systemctl enable --now domovoi-hub"
+    ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    if [ "$role" = "both" ]; then
+        ns "Run this installer again with --role both: it enrolls the agent of this machine"
+    fi
+elif [ "$role" = "both" ] && [ "$upgrade" -eq 1 ]; then
     ns "systemctl restart domovoi-hub    # runs the new binary; config and data are kept"
     if [ "$both_wait" -eq 1 ]; then
         ns "Run this installer again with --role both once the hub is running: it enrolls the agent of this machine"
