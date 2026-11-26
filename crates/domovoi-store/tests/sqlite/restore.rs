@@ -3,8 +3,10 @@
 use domovoi_core::ports::SettingsRepo;
 use domovoi_store::{
     MIGRATOR, RestoreError, Store, StoreOptions, pre_migrate_name, restore_from_backup,
-    restore_from_backup_failing_at,
+    restore_from_backup_failing_at, restore_from_backup_with_extra_migrations,
 };
+
+use crate::common::pending_migration;
 use domovoi_testkit::build::{T0, at};
 
 /// A database in `dir/hub.db`, with `ui.theme` set to `theme`, and the store closed.
@@ -278,8 +280,8 @@ async fn broken_backup(dir: &std::path::Path) -> std::path::PathBuf {
         .connect_with(connect)
         .await
         .unwrap();
-    MIGRATOR.run_to(5, &pool).await.unwrap();
-    sqlx::query("CREATE TABLE journal (seq INTEGER PRIMARY KEY, wrong TEXT)")
+    MIGRATOR.run_to(1, &pool).await.unwrap();
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = x'00'")
         .execute(&pool)
         .await
         .unwrap();
@@ -305,8 +307,8 @@ async fn a_failed_copy_that_cannot_be_kept_still_reports_the_open_error() {
         .connect_with(connect)
         .await
         .unwrap();
-    MIGRATOR.run_to(5, &pool).await.unwrap();
-    sqlx::query("CREATE TABLE journal (seq INTEGER PRIMARY KEY, wrong TEXT)")
+    MIGRATOR.run_to(1, &pool).await.unwrap();
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = x'00'")
         .execute(&pool)
         .await
         .unwrap();
@@ -389,7 +391,7 @@ async fn restore_migrates_an_older_backup_forward() {
         .connect_with(connect)
         .await
         .unwrap();
-    MIGRATOR.run_to(5, &pool).await.unwrap();
+    MIGRATOR.run_to(1, &pool).await.unwrap();
     sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('ui.theme', '\"old\"')")
         .execute(&pool)
         .await
@@ -400,10 +402,16 @@ async fn restore_migrates_an_older_backup_forward() {
     let live = dir.path().join("live").join("hub.db");
     std::fs::create_dir_all(live.parent().unwrap()).unwrap();
 
-    let report = restore_from_backup(&live, &backup, at(60)).await.unwrap();
+    let report = restore_from_backup_with_extra_migrations(
+        &live,
+        &backup,
+        at(60),
+        vec![pending_migration()],
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        report.migrations_applied_after,
-        MIGRATOR.iter().count() - 5,
+        report.migrations_applied_after, 1,
         "the restore migrates the backup forward"
     );
     assert!(
@@ -458,8 +466,8 @@ async fn restore_puts_the_old_database_back_when_the_open_fails() {
     let dir = tempfile::tempdir().unwrap();
     let live = database_with(dir.path(), "live-theme").await;
 
-    // A backup that verifies as a Domovoi database but cannot be migrated: a table with a
-    // name the next migration creates, so opening it fails.
+    // A backup that verifies as a Domovoi database but cannot be migrated: a recorded
+    // migration whose checksum does not match, so opening it fails.
     let broken_dir = dir.path().join("broken");
     std::fs::create_dir_all(&broken_dir).unwrap();
     let broken = broken_dir.join("backup.db");
@@ -471,8 +479,8 @@ async fn restore_puts_the_old_database_back_when_the_open_fails() {
         .connect_with(connect)
         .await
         .unwrap();
-    MIGRATOR.run_to(5, &pool).await.unwrap();
-    sqlx::query("CREATE TABLE journal (seq INTEGER PRIMARY KEY, wrong TEXT)")
+    MIGRATOR.run_to(1, &pool).await.unwrap();
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = x'00'")
         .execute(&pool)
         .await
         .unwrap();
@@ -698,7 +706,7 @@ async fn restore_names_its_pre_migration_copy_with_the_supplied_clock() {
         .connect_with(connect)
         .await
         .unwrap();
-    MIGRATOR.run_to(5, &pool).await.unwrap();
+    MIGRATOR.run_to(1, &pool).await.unwrap();
     pool.close().await;
     let backup = dir.path().join("older.db");
     std::fs::copy(&older, &backup).unwrap();
@@ -707,7 +715,10 @@ async fn restore_names_its_pre_migration_copy_with_the_supplied_clock() {
     std::fs::create_dir_all(&live_dir).unwrap();
     let live = live_dir.join("hub.db");
     let now = at(12_345);
-    let report = restore_from_backup(&live, &backup, now).await.unwrap();
+    let report =
+        restore_from_backup_with_extra_migrations(&live, &backup, now, vec![pending_migration()])
+            .await
+            .unwrap();
     assert!(report.migrations_applied_after > 0);
     // The pre-migration copy the open took is named for `now`, not the wall clock.
     assert!(

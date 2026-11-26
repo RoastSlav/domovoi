@@ -23,3 +23,16 @@ impl Fresh {
         self.dir.path().join("db").join("domovoi.db")
     }
 }
+
+/// A migration after the baseline, so a database opened with it has one change pending.
+pub fn pending_migration() -> sqlx::migrate::Migration {
+    sqlx::migrate::Migration::new(
+        2,
+        "probe".into(),
+        sqlx::migrate::MigrationType::Simple,
+        sqlx::SqlSafeStr::into_sql_str(
+            "CREATE TABLE migration_probe (id INTEGER PRIMARY KEY) STRICT;",
+        ),
+        false,
+    )
+}

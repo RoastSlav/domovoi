@@ -5,7 +5,7 @@ use domovoi_store::{MIGRATOR, Store, StoreOptions, needs_backup, pre_migrate_nam
 use domovoi_testkit::build::{T0, at};
 use sqlx::ConnectOptions;
 
-use crate::common::Fresh;
+use crate::common::{Fresh, pending_migration};
 
 async fn applied(store: &Store) -> Vec<i64> {
     sqlx::query_as::<_, (i64,)>("SELECT version FROM _sqlx_migrations ORDER BY version")
@@ -59,7 +59,7 @@ async fn backup_is_taken_before_pending_migrations() {
         .connect()
         .await
         .unwrap();
-    sqlx::query("CREATE TABLE legacy (x TEXT); INSERT INTO legacy VALUES ('kept')")
+    sqlx::query("CREATE TABLE existing (x TEXT); INSERT INTO existing VALUES ('kept')")
         .execute(&mut conn)
         .await
         .unwrap();
@@ -75,7 +75,7 @@ async fn backup_is_taken_before_pending_migrations() {
         .connect()
         .await
         .unwrap();
-    let (kept,): (String,) = sqlx::query_as("SELECT x FROM legacy")
+    let (kept,): (String,) = sqlx::query_as("SELECT x FROM existing")
         .fetch_one(&mut copy)
         .await
         .unwrap();
@@ -124,75 +124,32 @@ async fn database_directory_is_private() {
 }
 
 #[tokio::test]
-async fn llm_admission_migration_keeps_existing_usage_rows() {
+async fn a_pending_migration_is_backed_up_first_and_then_applied() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db").join("domovoi.db");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let connect = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(connect)
+    Store::open(&path, StoreOptions::beside(&path, at(1)))
         .await
-        .unwrap();
-    // A database written by the previous schema, before the attribution columns existed.
-    MIGRATOR.run_to(9, &pool).await.unwrap();
-    sqlx::query(
-        "INSERT INTO llm_usage (provider, tokens_in, tokens_out, cost_micros, at) \
-         VALUES ('legacy', 10, 2, 500, ?)",
-    )
-    .bind(at(5).as_millisecond())
-    .execute(&pool)
-    .await
-    .unwrap();
-    pool.close().await;
+        .unwrap()
+        .close()
+        .await;
 
     let options = StoreOptions::beside(&path, at(1000));
-    let backups = options.backup_dir.clone();
-    let store = Store::open(&path, options).await.unwrap();
-    assert!(
-        backups
-            .join(domovoi_store::pre_migrate_name(at(1000)))
-            .exists(),
-        "the database is backed up before the migration"
-    );
-
-    let row: (
-        String,
-        Option<String>,
-        String,
-        i64,
-        Option<String>,
-        Option<i64>,
-    ) = sqlx::query_as(
-        "SELECT provider, model, outcome, cost_micros, usage_source, latency_ms \
-         FROM llm_usage WHERE provider = 'legacy'",
-    )
-    .fetch_one(store.pool_for_tests())
-    .await
-    .unwrap();
-    assert_eq!(row.0, "legacy");
-    assert_eq!(row.1, None, "a historical row has no model");
-    assert_eq!(row.2, "ok");
-    assert_eq!(row.3, 500, "the historical cost is kept as it was");
-    assert_eq!(row.4, None, "a historical row has no usage source");
-    assert_eq!(row.5, None, "a historical row has no latency");
-
-    // An unknown price can now be stored as NULL instead of a false zero.
-    sqlx::query(
-        "INSERT INTO llm_usage (provider, outcome, tokens_in, tokens_out, cost_micros, \
-         usage_source, latency_ms, at) VALUES ('free', 'ok', 3, 4, NULL, 'unknown', 7, ?)",
-    )
-    .bind(at(6).as_millisecond())
-    .execute(store.pool_for_tests())
-    .await
-    .unwrap();
-
-    let admitted: (i64,) = sqlx::query_as("SELECT count(*) FROM llm_admission")
-        .fetch_one(store.pool_for_tests())
+    let backup = options.backup_dir.join(pre_migrate_name(at(1000)));
+    let store = Store::open_with_extra_migrations(&path, options, vec![pending_migration()])
         .await
         .unwrap();
-    assert_eq!(admitted.0, 0, "the admission window starts empty");
-    store.close().await;
+
+    assert!(backup.exists(), "the database is copied before the change");
+    let applied: Vec<(i64,)> =
+        sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert_eq!(applied, vec![(1,), (2,)]);
+    let probe: Option<(String,)> =
+        sqlx::query_as("SELECT name FROM sqlite_master WHERE name = 'migration_probe'")
+            .fetch_optional(store.pool_for_tests())
+            .await
+            .unwrap();
+    assert!(probe.is_some(), "the pending change was applied");
 }

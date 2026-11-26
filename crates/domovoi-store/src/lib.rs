@@ -44,5 +44,5 @@ pub use purge::{FTS_CLEANUP, PURGED_TABLES, PurgeReport, RetentionPolicy};
 pub use repos::SNIPPET_CHARS;
 pub use restore::{
     RestoreError, RestoreReport, fail_next_sync_for_tests, restore_from_backup,
-    restore_from_backup_failing_at,
+    restore_from_backup_failing_at, restore_from_backup_with_extra_migrations,
 };

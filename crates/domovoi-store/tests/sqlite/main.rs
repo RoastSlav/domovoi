@@ -13,6 +13,8 @@ mod backup;
 #[cfg(test)]
 mod backup_logging;
 #[cfg(test)]
+mod baseline;
+#[cfg(test)]
 mod commit_cost;
 #[cfg(test)]
 mod common;

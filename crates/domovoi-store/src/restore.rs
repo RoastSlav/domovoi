@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use jiff::Timestamp;
+use sqlx::migrate::Migration;
 
 use crate::backup::{BackupError, BackupReport, Depth, verify_backup};
 use crate::db::{Store, StoreOptions};
@@ -116,7 +117,19 @@ pub async fn restore_from_backup(
     backup: &Path,
     now: Timestamp,
 ) -> Result<RestoreReport, RestoreError> {
-    restore(database, backup, now, None).await
+    restore(database, backup, now, None, Vec::new()).await
+}
+
+/// The same restore with `extra` migrations after the embedded ones, so a test can restore a
+/// backup that has a schema change pending.
+#[doc(hidden)]
+pub async fn restore_from_backup_with_extra_migrations(
+    database: &Path,
+    backup: &Path,
+    now: Timestamp,
+    extra: Vec<Migration>,
+) -> Result<RestoreReport, RestoreError> {
+    restore(database, backup, now, None, extra).await
 }
 
 /// The same restore with one file-system step forced to fail, so tests can drive the
@@ -135,7 +148,7 @@ pub async fn restore_from_backup_failing_at(
     now: Timestamp,
     step: &str,
 ) -> Result<RestoreReport, RestoreError> {
-    restore(database, backup, now, Some(step)).await
+    restore(database, backup, now, Some(step), Vec::new()).await
 }
 
 async fn restore(
@@ -143,6 +156,7 @@ async fn restore(
     backup: &Path,
     now: Timestamp,
     fail_at: Option<&str>,
+    extra: Vec<Migration>,
 ) -> Result<RestoreReport, RestoreError> {
     if same_file(database, backup) {
         return Err(RestoreError::SameFile);
@@ -156,7 +170,7 @@ async fn restore(
 
     // Migrate the copy under its temporary name: a backup that cannot be opened leaves
     // the live database exactly as it was.
-    let applied = match prepare(backup, temporary.path(), now, report.migrations).await {
+    let applied = match prepare(backup, temporary.path(), now, report.migrations, extra).await {
         Ok(applied) => applied,
         Err(PrepareError::Copy(err)) => {
             // The name holds only this run's partial copy; nothing has been moved over it.
@@ -385,6 +399,7 @@ async fn prepare(
     temporary: &Path,
     now: Timestamp,
     installed: usize,
+    extra: Vec<Migration>,
 ) -> Result<usize, PrepareError> {
     let copy = || -> Result<(), RestoreError> {
         std::fs::copy(backup, temporary).map_err(|err| io_err(temporary, err))?;
@@ -420,7 +435,7 @@ async fn prepare(
         })
     })?;
     let options = StoreOptions::beside(temporary, now);
-    let store = Store::open(temporary, options)
+    let store = Store::open_with_extra_migrations(temporary, options, extra)
         .await
         .map_err(|err| PrepareError::Open(RestoreError::Open(err)))?;
     let counted = applied_count(&store).await;
