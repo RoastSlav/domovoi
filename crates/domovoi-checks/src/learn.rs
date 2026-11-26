@@ -151,12 +151,6 @@ impl Baseline {
         self.entries.contains_key(name)
     }
 
-    /// Whether `name` has been learned.
-    #[must_use]
-    pub fn is_expected(&self, name: &str) -> bool {
-        self.entries.get(name).is_some_and(|e| e.expected)
-    }
-
     /// The learned entries, in name order.
     pub fn expected(&self) -> impl Iterator<Item = (&str, &BaselineEntry)> {
         self.entries
