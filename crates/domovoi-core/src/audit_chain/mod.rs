@@ -1,17 +1,16 @@
-//! The audit hash chain: canonical encoding, the anchor over legacy history and the verifier.
+//! The audit hash chain: canonical encoding, the anchor and the verifier.
 //!
-//! New audit rows carry `prev_hash` and `hash` columns. The first chained row links to an
-//! [`AuditAnchor`] that commits to every row written before the chain existed. Hashing lives in
+//! New audit rows carry `prev_hash` and `hash` columns. The first row links to an
+//! [`AuditAnchor`] written when the database is created. Hashing lives in
 //! this crate so the encoding is defined once; the store computes it inside the transaction that
 //! inserts the row.
 
 mod encode;
 mod verify;
 
-pub use encode::{AuditAnchor, LegacyDigest, canonical_json, entry_hash};
+pub use encode::{AuditAnchor, canonical_json, entry_hash};
 pub use verify::{
-    BreakReason, ChainBreak, ChainStart, ChainStatus, ChainVerifier, LegacyStatus, VerifyReport,
-    VerifyScope,
+    BreakReason, ChainBreak, ChainStart, ChainStatus, ChainVerifier, VerifyReport, VerifyScope,
 };
 
 use crate::ports::repos::AuditEvent;
@@ -22,7 +21,7 @@ pub type Hash = [u8; 32];
 /// The kind of a checkpoint row a pruner writes before deleting old audit rows.
 pub const CHECKPOINT_KIND: &str = "audit.checkpoint";
 
-/// One stored audit row with its chain fields. Both are `None` on a legacy row.
+/// One stored audit row with its chain fields. Both are `None` only on a row that lost them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChainRow {
     /// The row's sequence number.

@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyScope};
+use domovoi_core::audit_chain::{ChainStatus, VerifyScope};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::build::T0;
 use domovoi_testkit::crash::Reopen;
@@ -70,16 +70,11 @@ impl Reopen<SqliteStore> for Sqlite {
             .clone();
         let store = Arc::new(SqliteStore::new(open(&path).await));
         // A crash never breaks the chain: what was written before it either chained on or
-        // was never written, and the legacy history still matches its anchor.
+        // was never written.
         let report = store
             .verify_audit(VerifyScope::Full)
             .await
             .expect("the audit history is readable");
-        assert!(
-            matches!(report.legacy, LegacyStatus::Verified { .. }),
-            "the audit history before the chain still verifies: {:?}",
-            report.legacy,
-        );
         assert!(
             matches!(
                 report.chained,

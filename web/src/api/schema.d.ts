@@ -80,7 +80,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Checks the audit log: the legacy and the chained history separately. */
+        /** Checks the audit log's hash chain. */
         get: operations["verify_audit"];
         put?: never;
         post?: never;
@@ -2252,34 +2252,17 @@ export interface components {
          * @enum {string}
          */
         AttestationStateDto: "verified" | "stale" | "unverified";
-        /** @description The anchor over the history written before the chain. */
+        /** @description The anchor the chain starts from. */
         AuditAnchorDto: {
             /** @description The anchor's own hash, hex. */
             anchor_hash: string;
             /** @description The install this log belongs to. */
             install_id: string;
-            /**
-             * Format: int64
-             * @description How many legacy entries there were.
-             */
-            legacy_count: number;
-            /** @description The digest of the legacy entries, hex. */
-            legacy_digest: string;
-            /**
-             * Format: int64
-             * @description The highest legacy sequence number.
-             */
-            legacy_last_id: number;
         };
         /** @description One page of audit entries, newest first. */
         AuditPageDto: {
             /** @description The entries. */
             items: components["schemas"]["AuditRowDto"][];
-            /**
-             * Format: int64
-             * @description The highest sequence number written before the chain began; 0 on a fresh install.
-             */
-            legacy_last_id: number;
             /** @description Pass as `cursor` for the next page; `null` on the last. */
             next_cursor?: string | null;
         };
@@ -2293,10 +2276,8 @@ export interface components {
             detail: string;
             /** @description Whether `detail` was cut. */
             detail_truncated: boolean;
-            /** @description The entry's hash as 64 lower-case hex characters; `null` on a legacy entry. */
+            /** @description The entry's hash as 64 lower-case hex characters; `null` if the entry lost it. */
             hash?: string | null;
-            /** @description `legacy` (written before the chain) or `chained`. */
-            history: string;
             /** @description What kind of entry it is. */
             kind: string;
             /**
@@ -2309,18 +2290,16 @@ export interface components {
         };
         /** @description The result of checking the audit log. */
         AuditVerificationDto: {
-            /** @description The anchor both parts are judged against. */
+            /** @description The anchor the chain is judged against. */
             anchor: components["schemas"]["AuditAnchorDto"];
-            /** @description The chained part. */
+            /** @description The chain's status. */
             chained: components["schemas"]["ChainedHistoryDto"];
             /** @description When the check finished, RFC 3339. */
             checked_at: string;
             head?: components["schemas"]["HeadDto"] | null;
-            /** @description The legacy part. */
-            legacy: components["schemas"]["LegacyHistoryDto"];
             /**
              * Format: int64
-             * @description How many of the newest chained entries a `recent` check covers.
+             * @description How many of the newest entries a `recent` check covers.
              */
             recent_limit: number;
             /** @description `recent` or `full`. */
@@ -2626,7 +2605,7 @@ export interface components {
             /** @description The covered target names. */
             names: string[];
         };
-        /** @description The chained part of a verification. */
+        /** @description The chain's part of a verification. */
         ChainedHistoryDto: {
             /** @description A stable code for why (`broken`). */
             break_reason?: string | null;
@@ -3740,28 +3719,6 @@ export interface components {
              * @description Decisions recorded.
              */
             total: number;
-        };
-        /** @description The legacy part of a verification. */
-        LegacyHistoryDto: {
-            /**
-             * Format: int64
-             * @description Entries found (`mismatch`).
-             */
-            actual_count?: number | null;
-            /**
-             * Format: int64
-             * @description Entries counted (`verified`, `count_only`).
-             */
-            count?: number | null;
-            /** @description Whether the digest still matched (`mismatch`). */
-            digest_matches?: boolean | null;
-            /**
-             * Format: int64
-             * @description Entries the anchor recorded (`mismatch`).
-             */
-            expected_count?: number | null;
-            /** @description `verified`, `count_only`, `mismatch` or `not_verifiable`. */
-            status: string;
         };
         /** @description One language model provider. */
         LlmSettings: {
@@ -5712,8 +5669,6 @@ export interface operations {
     list_audit: {
         parameters: {
             query?: {
-                /** @description `legacy` or `chained`: only that part of the history. */
-                history?: string;
                 /** @description Only entries of this exact kind, at most 100 characters. */
                 kind?: string;
                 /** @description Where the previous page ended. */
@@ -5736,7 +5691,7 @@ export interface operations {
                     "application/json": components["schemas"]["AuditPageDto"];
                 };
             };
-            /** @description Unknown history or a kind that is too long */
+            /** @description A kind that is too long */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5760,7 +5715,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description `recent` (default) checks the newest chained entries and counts the older ones;
+                 * @description `recent` (default) checks the newest entries;
                  *     `full` checks everything.
                  */
                 scope?: string;

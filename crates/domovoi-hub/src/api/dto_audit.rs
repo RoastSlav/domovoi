@@ -1,8 +1,6 @@
 //! Wire shapes for the audit log routes and the mappers that build them.
 
-use domovoi_core::audit_chain::{
-    AuditAnchor, BreakReason, ChainRow, ChainStatus, LegacyStatus, VerifyReport,
-};
+use domovoi_core::audit_chain::{AuditAnchor, BreakReason, ChainRow, ChainStatus, VerifyReport};
 use domovoi_core::ports::Redactor;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -14,8 +12,6 @@ pub const MAX_DETAIL_BYTES: usize = 4096;
 #[derive(Debug, Clone, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct AuditQuery {
-    /// `legacy` or `chained`: only that part of the history.
-    pub history: Option<String>,
     /// Only entries of this exact kind, at most 100 characters.
     pub kind: Option<String>,
     /// Where the previous page ended.
@@ -28,7 +24,7 @@ pub struct AuditQuery {
 #[derive(Debug, Clone, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct VerificationQuery {
-    /// `recent` (default) checks the newest chained entries and counts the older ones;
+    /// `recent` (default) checks the newest entries;
     /// `full` checks everything.
     pub scope: Option<String>,
 }
@@ -50,39 +46,20 @@ pub struct AuditRowDto {
     pub detail: String,
     /// Whether `detail` was cut.
     pub detail_truncated: bool,
-    /// `legacy` (written before the chain) or `chained`.
-    pub history: String,
-    /// The entry's hash as 64 lower-case hex characters; `null` on a legacy entry.
+    /// The entry's hash as 64 lower-case hex characters; `null` if the entry lost it.
     pub hash: Option<String>,
 }
 
 /// One page of audit entries, newest first.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct AuditPageDto {
-    /// The highest sequence number written before the chain began; 0 on a fresh install.
-    pub legacy_last_id: u64,
     /// Pass as `cursor` for the next page; `null` on the last.
     pub next_cursor: Option<String>,
     /// The entries.
     pub items: Vec<AuditRowDto>,
 }
 
-/// The legacy part of a verification.
-#[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
-pub struct LegacyHistoryDto {
-    /// `verified`, `count_only`, `mismatch` or `not_verifiable`.
-    pub status: String,
-    /// Entries counted (`verified`, `count_only`).
-    pub count: Option<u64>,
-    /// Entries the anchor recorded (`mismatch`).
-    pub expected_count: Option<u64>,
-    /// Entries found (`mismatch`).
-    pub actual_count: Option<u64>,
-    /// Whether the digest still matched (`mismatch`).
-    pub digest_matches: Option<bool>,
-}
-
-/// The chained part of a verification.
+/// The chain's part of a verification.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct ChainedHistoryDto {
     /// `empty`, `intact` or `broken`.
@@ -101,17 +78,11 @@ pub struct ChainedHistoryDto {
     pub break_text: Option<String>,
 }
 
-/// The anchor over the history written before the chain.
+/// The anchor the chain starts from.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct AuditAnchorDto {
     /// The install this log belongs to.
     pub install_id: String,
-    /// The highest legacy sequence number.
-    pub legacy_last_id: u64,
-    /// How many legacy entries there were.
-    pub legacy_count: u64,
-    /// The digest of the legacy entries, hex.
-    pub legacy_digest: String,
     /// The anchor's own hash, hex.
     pub anchor_hash: String,
 }
@@ -130,17 +101,15 @@ pub struct HeadDto {
 pub struct AuditVerificationDto {
     /// `recent` or `full`.
     pub scope: String,
-    /// How many of the newest chained entries a `recent` check covers.
+    /// How many of the newest entries a `recent` check covers.
     pub recent_limit: u64,
     /// When the check finished, RFC 3339.
     pub checked_at: String,
-    /// The legacy part.
-    pub legacy: LegacyHistoryDto,
-    /// The chained part.
+    /// The chain's status.
     pub chained: ChainedHistoryDto,
-    /// The anchor both parts are judged against.
+    /// The anchor the chain is judged against.
     pub anchor: AuditAnchorDto,
-    /// The newest stored entry; `null` before the first chained entry.
+    /// The newest stored entry; `null` before the first entry.
     pub head: Option<HeadDto>,
 }
 
@@ -156,9 +125,8 @@ fn cut(text: String, max: usize) -> (String, bool) {
     (text[..end].to_owned(), true)
 }
 
-/// Maps a stored row to its wire shape. History is decided by `legacy_last_id`, never by
-/// whether the row has a hash.
-pub fn row_dto(row: &ChainRow, legacy_last_id: u64, redactor: &dyn Redactor) -> AuditRowDto {
+/// Maps a stored row to its wire shape.
+pub fn row_dto(row: &ChainRow, redactor: &dyn Redactor) -> AuditRowDto {
     let text = if row.event.detail.is_null() {
         String::new()
     } else {
@@ -173,12 +141,6 @@ pub fn row_dto(row: &ChainRow, legacy_last_id: u64, redactor: &dyn Redactor) -> 
         subject: row.event.subject.clone(),
         detail,
         detail_truncated,
-        history: if row.seq <= legacy_last_id {
-            "legacy"
-        } else {
-            "chained"
-        }
-        .to_owned(),
         hash: row.hash.as_ref().map(hex::encode),
     }
 }
@@ -191,43 +153,6 @@ fn reason_code(reason: BreakReason) -> &'static str {
         BreakReason::LinkMismatch => "link_mismatch",
         BreakReason::SequenceGap => "sequence_gap",
         BreakReason::CheckpointMismatch => "checkpoint_mismatch",
-    }
-}
-
-fn legacy_dto(status: &LegacyStatus) -> LegacyHistoryDto {
-    let empty = LegacyHistoryDto {
-        status: String::new(),
-        count: None,
-        expected_count: None,
-        actual_count: None,
-        digest_matches: None,
-    };
-    match status {
-        LegacyStatus::Verified { count } => LegacyHistoryDto {
-            status: "verified".to_owned(),
-            count: Some(*count),
-            ..empty
-        },
-        LegacyStatus::CountOnly { count } => LegacyHistoryDto {
-            status: "count_only".to_owned(),
-            count: Some(*count),
-            ..empty
-        },
-        LegacyStatus::Mismatch {
-            expected_count,
-            actual_count,
-            digest_matches,
-        } => LegacyHistoryDto {
-            status: "mismatch".to_owned(),
-            expected_count: Some(*expected_count),
-            actual_count: Some(*actual_count),
-            digest_matches: Some(*digest_matches),
-            ..empty
-        },
-        LegacyStatus::NotVerifiable => LegacyHistoryDto {
-            status: "not_verifiable".to_owned(),
-            ..empty
-        },
     }
 }
 
@@ -275,9 +200,6 @@ fn chained_dto(status: &ChainStatus) -> ChainedHistoryDto {
 fn anchor_dto(anchor: &AuditAnchor) -> AuditAnchorDto {
     AuditAnchorDto {
         install_id: anchor.install_id.clone(),
-        legacy_last_id: anchor.legacy_last_id,
-        legacy_count: anchor.legacy_count,
-        legacy_digest: hex::encode(anchor.legacy_digest),
         anchor_hash: hex::encode(anchor.hash()),
     }
 }
@@ -294,7 +216,6 @@ pub fn verification_dto(
         scope: scope.to_owned(),
         recent_limit,
         checked_at,
-        legacy: legacy_dto(&report.legacy),
         chained: chained_dto(&report.chained),
         anchor: anchor_dto(&report.anchor),
         head: head.map(|(seq, hash)| HeadDto {
@@ -309,60 +230,26 @@ mod tests {
     use super::*;
     use domovoi_core::audit_chain::AuditAnchor;
 
-    fn report(legacy: LegacyStatus, chained: ChainStatus) -> VerifyReport {
+    fn report(chained: ChainStatus) -> VerifyReport {
         VerifyReport {
-            legacy,
             chained,
             anchor: AuditAnchor {
                 install_id: "i".to_owned(),
-                legacy_last_id: 5,
-                legacy_count: 5,
-                legacy_digest: [2; 32],
             },
         }
     }
 
     #[test]
     fn verify_report_mapping_covers_every_core_variant() {
-        let legacy = [
-            (LegacyStatus::Verified { count: 3 }, "verified"),
-            (LegacyStatus::CountOnly { count: 3 }, "count_only"),
-            (
-                LegacyStatus::Mismatch {
-                    expected_count: 5,
-                    actual_count: 4,
-                    digest_matches: false,
-                },
-                "mismatch",
-            ),
-            (LegacyStatus::NotVerifiable, "not_verifiable"),
-        ];
-        for (status, name) in legacy {
-            let dto = verification_dto(
-                &report(status, ChainStatus::Empty),
-                "full",
-                10,
-                "t".to_owned(),
-                None,
-            );
-            assert_eq!(dto.legacy.status, name);
-            assert_eq!(dto.chained.status, "empty");
-            assert!(dto.head.is_none());
-        }
-        let mismatch = legacy_dto(&LegacyStatus::Mismatch {
-            expected_count: 5,
-            actual_count: 4,
-            digest_matches: false,
-        });
-        assert_eq!(
-            (
-                mismatch.expected_count,
-                mismatch.actual_count,
-                mismatch.digest_matches
-            ),
-            (Some(5), Some(4), Some(false))
+        let dto = verification_dto(
+            &report(ChainStatus::Empty),
+            "full",
+            10,
+            "t".to_owned(),
+            None,
         );
-        assert_eq!(mismatch.count, None);
+        assert_eq!(dto.chained.status, "empty");
+        assert!(dto.head.is_none());
         let intact = chained_dto(&ChainStatus::Intact {
             checked: 2,
             head_seq: 7,
@@ -389,7 +276,7 @@ mod tests {
             assert_eq!(dto.head_seq, None);
         }
         let dto = verification_dto(
-            &report(LegacyStatus::Verified { count: 5 }, ChainStatus::Empty),
+            &report(ChainStatus::Empty),
             "recent",
             10,
             "t".to_owned(),

@@ -139,32 +139,6 @@ impl ChainVerifier {
     }
 }
 
-/// What verification says about the rows written before the chain existed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LegacyStatus {
-    /// The count and digest match the anchor.
-    Verified {
-        /// How many legacy rows were read.
-        count: u64,
-    },
-    /// The legacy history no longer matches the anchor.
-    Mismatch {
-        /// The count the anchor committed to.
-        expected_count: u64,
-        /// The count found now.
-        actual_count: u64,
-        /// Whether the digest still matches.
-        digest_matches: bool,
-    },
-    /// A bounded check counted the rows but did not compute the digest.
-    CountOnly {
-        /// How many legacy rows were counted.
-        count: u64,
-    },
-    /// Legacy rows were pruned, so the digest can no longer be recomputed.
-    NotVerifiable,
-}
-
 /// What verification says about the chained rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainStatus {
@@ -193,20 +167,18 @@ pub enum ChainStatus {
 /// Everything one verification found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifyReport {
-    /// The legacy history's status.
-    pub legacy: LegacyStatus,
     /// The chained history's status.
     pub chained: ChainStatus,
-    /// The anchor both parts are judged against.
+    /// The anchor the chain is judged against.
     pub anchor: AuditAnchor,
 }
 
 /// How much history a verification checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifyScope {
-    /// Check the legacy digest and every retained chained row.
+    /// Check every retained row.
     Full,
-    /// Count the legacy rows and check the newest `n` chained rows.
+    /// Check the newest `n` rows.
     Last(u64),
 }
 

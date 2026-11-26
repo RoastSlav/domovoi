@@ -48,7 +48,7 @@ async fn audit_routes_require_a_session() {
 }
 
 #[tokio::test]
-async fn audit_list_returns_chained_rows_newest_first_with_hashes() {
+async fn audit_list_returns_rows_newest_first_with_hashes() {
     let a = api().await;
     let login = a.admin().await;
     let seqs = [
@@ -61,10 +61,9 @@ async fn audit_list_returns_chained_rows_newest_first_with_hashes() {
     let rows = items(&reply.body);
     let got: Vec<u64> = rows.iter().map(|r| r["seq"].as_u64().unwrap()).collect();
     assert_eq!(got, [seqs[2], seqs[1], seqs[0]]);
-    assert_eq!(reply.body["legacy_last_id"], 0);
     assert!(reply.body["next_cursor"].is_null());
     for row in &rows {
-        assert_eq!(row["history"], "chained");
+        assert!(row.get("history").is_none());
         let hash = row["hash"].as_str().unwrap();
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')));
@@ -112,32 +111,9 @@ async fn audit_list_pages_with_a_cursor_and_a_limit() {
 }
 
 #[tokio::test]
-async fn audit_list_filters_by_history() {
+async fn audit_list_rejects_a_long_kind() {
     let a = api().await;
     let login = a.admin().await;
-    append(&a, json!({})).await;
-    let chained = a
-        .get(
-            &format!("/api/v1/audit?kind={KIND}&history=chained"),
-            &login,
-        )
-        .await;
-    assert_eq!(items(&chained.body).len(), 1);
-    let legacy = a.get("/api/v1/audit?history=legacy", &login).await;
-    assert_eq!(legacy.status, StatusCode::OK, "{}", legacy.text);
-    assert!(items(&legacy.body).is_empty());
-}
-
-#[tokio::test]
-async fn audit_list_rejects_an_unknown_history_and_a_long_kind() {
-    let a = api().await;
-    let login = a.admin().await;
-    let bad = a.get("/api/v1/audit?history=old", &login).await;
-    assert_eq!(bad.status, StatusCode::BAD_REQUEST, "{}", bad.text);
-    assert!(
-        bad.text
-            .contains("unknown history `old`; use legacy or chained")
-    );
     let kind = "k".repeat(101);
     let long = a.get(&format!("/api/v1/audit?kind={kind}"), &login).await;
     assert_eq!(long.status, StatusCode::BAD_REQUEST, "{}", long.text);
@@ -166,7 +142,7 @@ async fn audit_detail_is_redacted_cut_and_empty_for_null() {
 }
 
 #[tokio::test]
-async fn verification_of_a_fresh_install_reports_both_parts() {
+async fn verification_of_a_fresh_install_reports_an_empty_chain() {
     let a = api().await;
     let login = a.admin().await;
     let reply = a.get("/api/v1/audit/verification", &login).await;
@@ -174,16 +150,16 @@ async fn verification_of_a_fresh_install_reports_both_parts() {
     let body = &reply.body;
     assert_eq!(body["scope"], "recent");
     assert_eq!(body["recent_limit"], 10_000);
-    assert_eq!(body["legacy"]["status"], "count_only");
-    assert_eq!(body["legacy"]["count"], 0);
+    assert!(body.get("legacy").is_none());
     let status = body["chained"]["status"].as_str().unwrap();
     assert!(["empty", "intact"].contains(&status), "{status}");
-    assert_eq!(body["anchor"]["legacy_last_id"], 0);
+    assert!(body["anchor"].get("legacy_last_id").is_none());
+    assert_eq!(body["anchor"]["anchor_hash"].as_str().unwrap().len(), 64);
     assert_eq!(body["checked_at"], a.now().to_string());
 }
 
 #[tokio::test]
-async fn full_verification_checks_the_legacy_digest() {
+async fn full_verification_checks_every_row() {
     let a = api().await;
     let login = a.admin().await;
     append(&a, json!({})).await;
@@ -191,7 +167,6 @@ async fn full_verification_checks_the_legacy_digest() {
     let reply = a.get("/api/v1/audit/verification?scope=full", &login).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
     assert_eq!(reply.body["scope"], "full");
-    assert_eq!(reply.body["legacy"]["status"], "verified");
     assert_eq!(reply.body["chained"]["status"], "intact");
     assert_eq!(reply.body["head"]["seq"], newest);
     assert_eq!(
@@ -226,7 +201,6 @@ async fn a_tampered_chain_is_reported_as_broken_with_the_first_broken_entry() {
     assert_eq!(chained["first_broken_seq"], middle);
     assert_eq!(chained["break_reason"], "hash_mismatch");
     assert_eq!(chained["break_text"], "a row was edited");
-    assert_eq!(reply.body["legacy"]["status"], "verified");
 }
 
 #[tokio::test]
@@ -332,8 +306,8 @@ async fn the_openapi_document_lists_the_audit_operations_and_the_retention_schem
         "verify_audit"
     );
     assert_eq!(
-        doc["components"]["schemas"]["AuditRowDto"]["properties"]["history"]["type"],
-        "string"
+        doc["components"]["schemas"]["AuditRowDto"]["properties"]["hash"]["type"],
+        serde_json::json!(["string", "null"])
     );
     let required = doc["components"]["schemas"]["SettingsDto"]["required"]
         .as_array()

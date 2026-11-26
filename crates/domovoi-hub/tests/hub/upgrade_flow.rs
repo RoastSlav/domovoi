@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyScope};
+use domovoi_core::audit_chain::{ChainStatus, VerifyScope};
 use domovoi_core::ports::{
     AggregateRef, IncidentFilter, IncidentRepo, JournalEntry, JournalRead, Page, VersionedRead,
 };
@@ -174,8 +174,7 @@ async fn new_incident_after_upgrade_is_stored_and_journaled() {
     harness.stop().await;
 }
 
-/// U5: the legacy history still matches its anchor and anything written afterwards is a
-/// chain.
+/// U5: anything written after the upgrade is a chain.
 #[tokio::test]
 async fn audit_verifies_after_upgrade() {
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -185,11 +184,6 @@ async fn audit_verifies_after_upgrade() {
         .verify_audit(VerifyScope::Full)
         .await
         .expect("the audit history is readable");
-    assert!(
-        matches!(report.legacy, LegacyStatus::Verified { count: 5 }),
-        "the five rows written before the chain still verify: {:?}",
-        report.legacy
-    );
     assert!(
         matches!(
             report.chained,

@@ -3,9 +3,7 @@
 //! [`insert_audit`] is the only code that inserts into `audit_log`. It runs inside the caller's
 //! `BEGIN IMMEDIATE` transaction, so a failed commit rolls the chain position back with it.
 
-use domovoi_core::audit_chain::{
-    AuditAnchor, CHECKPOINT_KIND, ChainRow, Hash, LegacyDigest, entry_hash,
-};
+use domovoi_core::audit_chain::{AuditAnchor, CHECKPOINT_KIND, ChainRow, Hash, entry_hash};
 use domovoi_core::ports::{AuditEvent, StoreError};
 use jiff::Timestamp;
 use serde_json::Value;
@@ -101,7 +99,7 @@ pub(crate) async fn insert_audit(
     Ok(seq)
 }
 
-/// Writes the single anchor row over the audit history if it does not exist yet.
+/// Writes the single anchor row if it does not exist yet.
 ///
 /// Called once in the open sequence, after migrations, in its own `BEGIN IMMEDIATE` transaction.
 pub(crate) async fn ensure_anchor(pool: &SqlitePool, now: Timestamp) -> Result<(), StoreOpenError> {
@@ -111,7 +109,7 @@ pub(crate) async fn ensure_anchor(pool: &SqlitePool, now: Timestamp) -> Result<(
         return Ok(());
     }
 
-    let chained: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE hash IS NOT NULL")
+    let chained: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
         .fetch_one(&mut *tx)
         .await
         .map_err(open_db)?;
@@ -121,39 +119,14 @@ pub(crate) async fn ensure_anchor(pool: &SqlitePool, now: Timestamp) -> Result<(
         ));
     }
 
-    let mut digest = LegacyDigest::new();
-    let mut last = 0;
-    let mut after = 0;
-    loop {
-        let rows = rows_after(&mut tx, after, Some(u64::MAX), BATCH)
-            .await
-            .map_err(open_store)?;
-        if rows.is_empty() {
-            break;
-        }
-        for row in rows {
-            digest.update(row.seq, &row.event);
-            last = row.seq;
-        }
-        after = last;
-    }
-    let (count, legacy_digest) = digest.finish();
     let anchor = AuditAnchor {
         install_id: Uuid::new_v4().to_string(),
-        legacy_last_id: last,
-        legacy_count: count,
-        legacy_digest,
     };
 
     sqlx::query(
-        "INSERT INTO audit_anchor \
-         (id, install_id, legacy_last_id, legacy_count, legacy_digest, anchor_hash, created_at) \
-         VALUES (1, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO audit_anchor (id, install_id, anchor_hash, created_at) VALUES (1, ?, ?, ?)",
     )
     .bind(&anchor.install_id)
-    .bind(int(anchor.legacy_last_id))
-    .bind(int(anchor.legacy_count))
-    .bind(anchor.legacy_digest.as_slice())
     .bind(anchor.hash().as_slice())
     .bind(ms(now))
     .execute(&mut *tx)
@@ -178,25 +151,17 @@ pub(crate) async fn load_anchor(
     #[derive(sqlx::FromRow)]
     struct AnchorRow {
         install_id: String,
-        legacy_last_id: i64,
-        legacy_count: i64,
-        legacy_digest: Vec<u8>,
         anchor_hash: Vec<u8>,
     }
-    let row: Option<AnchorRow> = sqlx::query_as(
-        "SELECT install_id, legacy_last_id, legacy_count, legacy_digest, anchor_hash \
-         FROM audit_anchor WHERE id = 1",
-    )
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(db)?;
+    let row: Option<AnchorRow> =
+        sqlx::query_as("SELECT install_id, anchor_hash FROM audit_anchor WHERE id = 1")
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?;
     row.map(|row| {
         Ok(StoredAnchor {
             anchor: AuditAnchor {
                 install_id: row.install_id,
-                legacy_last_id: uint(row.legacy_last_id),
-                legacy_count: uint(row.legacy_count),
-                legacy_digest: hash32(&row.legacy_digest, "audit anchor digest")?,
             },
             anchor_hash: hash32(&row.anchor_hash, "audit anchor hash")?,
         })
@@ -257,33 +222,29 @@ pub(crate) async fn rows_after(
         .collect()
 }
 
-/// The lowest-sequence row after the legacy history, if any.
+/// The lowest-sequence row, if any.
 pub(crate) async fn first_chained(
     conn: &mut SqliteConnection,
-    legacy_last_id: u64,
 ) -> Result<Option<ChainRow>, StoreError> {
     let row: Option<AuditChainRow> = sqlx::query_as(
         "SELECT seq, at, actor, kind, subject, detail, prev_hash, hash FROM audit_log \
-         WHERE seq > ? ORDER BY seq ASC LIMIT 1",
+         ORDER BY seq ASC LIMIT 1",
     )
-    .bind(int(legacy_last_id))
     .fetch_optional(&mut *conn)
     .await
     .map_err(db)?;
     row.map(AuditChainRow::into_chain_row).transpose()
 }
 
-/// The newest `limit` chained-range rows, oldest first.
+/// The newest `limit` rows, oldest first.
 pub(crate) async fn newest_rows(
     conn: &mut SqliteConnection,
-    legacy_last_id: u64,
     limit: u64,
 ) -> Result<Vec<ChainRow>, StoreError> {
     let rows: Vec<AuditChainRow> = sqlx::query_as(
         "SELECT seq, at, actor, kind, subject, detail, prev_hash, hash FROM audit_log \
-         WHERE seq > ? ORDER BY seq DESC LIMIT ?",
+         ORDER BY seq DESC LIMIT ?",
     )
-    .bind(int(legacy_last_id))
     .bind(int(limit))
     .fetch_all(&mut *conn)
     .await
@@ -294,19 +255,6 @@ pub(crate) async fn newest_rows(
         .collect::<Result<Vec<_>, _>>()?;
     rows.reverse();
     Ok(rows)
-}
-
-/// How many rows have `seq <= legacy_last_id`.
-pub(crate) async fn count_legacy(
-    conn: &mut SqliteConnection,
-    legacy_last_id: u64,
-) -> Result<u64, StoreError> {
-    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM audit_log WHERE seq <= ?")
-        .bind(int(legacy_last_id))
-        .fetch_one(&mut *conn)
-        .await
-        .map_err(db)?;
-    Ok(uint(count))
 }
 
 /// Every checkpoint row's sequence number and detail, newest first.

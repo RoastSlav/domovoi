@@ -56,5 +56,3 @@ mod restore;
 mod search;
 #[cfg(test)]
 mod uow;
-#[cfg(test)]
-mod upgrade;

@@ -348,7 +348,7 @@ expression: spec
         "type": "string"
       },
       "AuditAnchorDto": {
-        "description": "The anchor over the history written before the chain.",
+        "description": "The anchor the chain starts from.",
         "properties": {
           "anchor_hash": {
             "description": "The anchor's own hash, hex.",
@@ -357,29 +357,10 @@ expression: spec
           "install_id": {
             "description": "The install this log belongs to.",
             "type": "string"
-          },
-          "legacy_count": {
-            "description": "How many legacy entries there were.",
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "legacy_digest": {
-            "description": "The digest of the legacy entries, hex.",
-            "type": "string"
-          },
-          "legacy_last_id": {
-            "description": "The highest legacy sequence number.",
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
           }
         },
         "required": [
           "install_id",
-          "legacy_last_id",
-          "legacy_count",
-          "legacy_digest",
           "anchor_hash"
         ],
         "type": "object"
@@ -394,12 +375,6 @@ expression: spec
             },
             "type": "array"
           },
-          "legacy_last_id": {
-            "description": "The highest sequence number written before the chain began; 0 on a fresh install.",
-            "format": "int64",
-            "minimum": 0,
-            "type": "integer"
-          },
           "next_cursor": {
             "description": "Pass as `cursor` for the next page; `null` on the last.",
             "type": [
@@ -409,7 +384,6 @@ expression: spec
           }
         },
         "required": [
-          "legacy_last_id",
           "items"
         ],
         "type": "object"
@@ -434,15 +408,11 @@ expression: spec
             "type": "boolean"
           },
           "hash": {
-            "description": "The entry's hash as 64 lower-case hex characters; `null` on a legacy entry.",
+            "description": "The entry's hash as 64 lower-case hex characters; `null` if the entry lost it.",
             "type": [
               "string",
               "null"
             ]
-          },
-          "history": {
-            "description": "`legacy` (written before the chain) or `chained`.",
-            "type": "string"
           },
           "kind": {
             "description": "What kind of entry it is.",
@@ -466,8 +436,7 @@ expression: spec
           "kind",
           "subject",
           "detail",
-          "detail_truncated",
-          "history"
+          "detail_truncated"
         ],
         "type": "object"
       },
@@ -476,11 +445,11 @@ expression: spec
         "properties": {
           "anchor": {
             "$ref": "#/components/schemas/AuditAnchorDto",
-            "description": "The anchor both parts are judged against."
+            "description": "The anchor the chain is judged against."
           },
           "chained": {
             "$ref": "#/components/schemas/ChainedHistoryDto",
-            "description": "The chained part."
+            "description": "The chain's status."
           },
           "checked_at": {
             "description": "When the check finished, RFC 3339.",
@@ -490,19 +459,15 @@ expression: spec
             "oneOf": [
               {
                 "$ref": "#/components/schemas/HeadDto",
-                "description": "The newest stored entry; `null` before the first chained entry."
+                "description": "The newest stored entry; `null` before the first entry."
               },
               {
                 "type": "null"
               }
             ]
           },
-          "legacy": {
-            "$ref": "#/components/schemas/LegacyHistoryDto",
-            "description": "The legacy part."
-          },
           "recent_limit": {
-            "description": "How many of the newest chained entries a `recent` check covers.",
+            "description": "How many of the newest entries a `recent` check covers.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -516,7 +481,6 @@ expression: spec
           "scope",
           "recent_limit",
           "checked_at",
-          "legacy",
           "chained",
           "anchor"
         ],
@@ -1247,7 +1211,7 @@ expression: spec
         ]
       },
       "ChainedHistoryDto": {
-        "description": "The chained part of a verification.",
+        "description": "The chain's part of a verification.",
         "properties": {
           "break_reason": {
             "description": "A stable code for why (`broken`).",
@@ -4092,53 +4056,6 @@ expression: spec
           "by_enforced_outcome",
           "degraded",
           "differing"
-        ],
-        "type": "object"
-      },
-      "LegacyHistoryDto": {
-        "description": "The legacy part of a verification.",
-        "properties": {
-          "actual_count": {
-            "description": "Entries found (`mismatch`).",
-            "format": "int64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "count": {
-            "description": "Entries counted (`verified`, `count_only`).",
-            "format": "int64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "digest_matches": {
-            "description": "Whether the digest still matched (`mismatch`).",
-            "type": [
-              "boolean",
-              "null"
-            ]
-          },
-          "expected_count": {
-            "description": "Entries the anchor recorded (`mismatch`).",
-            "format": "int64",
-            "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
-          },
-          "status": {
-            "description": "`verified`, `count_only`, `mismatch` or `not_verifiable`.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
         ],
         "type": "object"
       },
@@ -8898,15 +8815,6 @@ expression: spec
         "operationId": "list_audit",
         "parameters": [
           {
-            "description": "`legacy` or `chained`: only that part of the history.",
-            "in": "query",
-            "name": "history",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "description": "Only entries of this exact kind, at most 100 characters.",
             "in": "query",
             "name": "kind",
@@ -8955,7 +8863,7 @@ expression: spec
                 }
               }
             },
-            "description": "Unknown history or a kind that is too long"
+            "description": "A kind that is too long"
           },
           "401": {
             "content": {
@@ -8979,7 +8887,7 @@ expression: spec
         "operationId": "verify_audit",
         "parameters": [
           {
-            "description": "`recent` (default) checks the newest chained entries and counts the older ones;\n`full` checks everything.",
+            "description": "`recent` (default) checks the newest entries;\n`full` checks everything.",
             "in": "query",
             "name": "scope",
             "required": false,
@@ -9020,7 +8928,7 @@ expression: spec
             "description": "Not logged in"
           }
         },
-        "summary": "Checks the audit log: the legacy and the chained history separately.",
+        "summary": "Checks the audit log's hash chain.",
         "tags": [
           "audit"
         ]

@@ -1,24 +1,21 @@
-//! `Store::verify_audit`, `Store::audit_head` and `Store::audit_anchor`: reading the chain and
-//! reporting the legacy and chained histories separately.
+//! `Store::verify_audit`, `Store::audit_head` and `Store::audit_anchor`: reading and verifying the chain.
 
 use domovoi_core::audit_chain::{
-    AuditAnchor, ChainStart, ChainStatus, ChainVerifier, Hash, LegacyDigest, LegacyStatus,
-    VerifyReport, VerifyScope,
+    AuditAnchor, ChainStart, ChainStatus, ChainVerifier, Hash, VerifyReport, VerifyScope,
 };
 use domovoi_core::ports::StoreError;
 use serde_json::Value;
 use sqlx::SqliteConnection;
 
 use crate::audit_chain::{
-    BATCH, checked_anchor, checkpoints, count_legacy, first_chained, newest_chained, newest_rows,
-    rows_after,
+    BATCH, checked_anchor, checkpoints, first_chained, newest_chained, newest_rows, rows_after,
 };
 use crate::db::Store;
 use crate::error::db;
 
 impl Store {
-    /// Verifies the audit history. `Full` checks the legacy digest and every retained chained row;
-    /// `Last(n)` checks the legacy row count only and the newest n chained rows.
+    /// Verifies the audit history. `Full` checks every retained row; `Last(n)` checks the newest
+    /// n rows.
     pub async fn verify_audit(&self, scope: VerifyScope) -> Result<VerifyReport, StoreError> {
         let mut conn = self.read.acquire().await.map_err(db)?;
         let anchor = checked_anchor(&mut conn)
@@ -30,7 +27,7 @@ impl Store {
         }
     }
 
-    /// The newest chained row's sequence number and hash, or `None` before the first chained row.
+    /// The newest row's sequence number and hash, or `None` before the first row.
     pub async fn audit_head(&self) -> Result<Option<(u64, Hash)>, StoreError> {
         let mut conn = self.read.acquire().await.map_err(db)?;
         newest_chained(&mut conn).await
@@ -47,57 +44,18 @@ async fn verify_full(
     conn: &mut SqliteConnection,
     anchor: AuditAnchor,
 ) -> Result<VerifyReport, StoreError> {
-    let legacy = if legacy_pruned(conn).await? {
-        LegacyStatus::NotVerifiable
-    } else {
-        verify_legacy(conn, &anchor).await?
-    };
     let chained = verify_chained(conn, &anchor).await?;
-    Ok(VerifyReport {
-        legacy,
-        chained,
-        anchor,
-    })
-}
-
-async fn verify_legacy(
-    conn: &mut SqliteConnection,
-    anchor: &AuditAnchor,
-) -> Result<LegacyStatus, StoreError> {
-    let mut digest = LegacyDigest::new();
-    let mut after = 0;
-    loop {
-        let rows = rows_after(conn, after, Some(anchor.legacy_last_id), BATCH).await?;
-        if rows.is_empty() {
-            break;
-        }
-        for row in &rows {
-            digest.update(row.seq, &row.event);
-        }
-        after = rows[rows.len() - 1].seq;
-    }
-    let (actual_count, actual_digest) = digest.finish();
-    if actual_count == anchor.legacy_count && actual_digest == anchor.legacy_digest {
-        Ok(LegacyStatus::Verified {
-            count: actual_count,
-        })
-    } else {
-        Ok(LegacyStatus::Mismatch {
-            expected_count: anchor.legacy_count,
-            actual_count,
-            digest_matches: actual_digest == anchor.legacy_digest,
-        })
-    }
+    Ok(VerifyReport { chained, anchor })
 }
 
 async fn verify_chained(
     conn: &mut SqliteConnection,
     anchor: &AuditAnchor,
 ) -> Result<ChainStatus, StoreError> {
-    let Some(first) = first_chained(conn, anchor.legacy_last_id).await? else {
+    let Some(first) = first_chained(conn).await? else {
         return Ok(ChainStatus::Empty);
     };
-    let start = if first.seq == anchor.legacy_last_id.saturating_add(1) {
+    let start = if first.seq == 1 {
         ChainStart::Anchor {
             anchor_hash: anchor.hash(),
             first_seq: first.seq,
@@ -116,7 +74,7 @@ async fn verify_chained(
     };
 
     let mut verifier = ChainVerifier::new(start);
-    let mut after = anchor.legacy_last_id;
+    let mut after = 0;
     loop {
         let rows = rows_after(conn, after, None, BATCH).await?;
         if rows.is_empty() {
@@ -141,24 +99,11 @@ async fn verify_last(
     anchor: AuditAnchor,
     n: u64,
 ) -> Result<VerifyReport, StoreError> {
-    let actual_count = count_legacy(conn, anchor.legacy_last_id).await?;
-    let legacy = if actual_count == anchor.legacy_count {
-        LegacyStatus::CountOnly {
-            count: actual_count,
-        }
-    } else {
-        LegacyStatus::Mismatch {
-            expected_count: anchor.legacy_count,
-            actual_count,
-            digest_matches: false,
-        }
-    };
-
-    let rows = newest_rows(conn, anchor.legacy_last_id, n).await?;
+    let rows = newest_rows(conn, n).await?;
     let chained = if rows.is_empty() {
         ChainStatus::Empty
     } else {
-        let start = if rows[0].seq == anchor.legacy_last_id.saturating_add(1) {
+        let start = if rows[0].seq == 1 {
             ChainStart::Anchor {
                 anchor_hash: anchor.hash(),
                 first_seq: rows[0].seq,
@@ -183,11 +128,7 @@ async fn verify_last(
             None => status_of(&verifier),
         }
     };
-    Ok(VerifyReport {
-        legacy,
-        chained,
-        anchor,
-    })
+    Ok(VerifyReport { chained, anchor })
 }
 
 /// A `Trusted` start when the newest checkpoint for this retained row links to it.
@@ -212,15 +153,6 @@ async fn checkpoint_start(
         .and_then(Value::as_str)
         == Some(expected.as_str());
     Ok(matches.then_some(ChainStart::Trusted))
-}
-
-async fn legacy_pruned(conn: &mut SqliteConnection) -> Result<bool, StoreError> {
-    Ok(checkpoints(conn).await?.into_iter().any(|(_, detail)| {
-        detail
-            .get("legacy_pruned")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    }))
 }
 
 fn status_of(verifier: &ChainVerifier) -> ChainStatus {

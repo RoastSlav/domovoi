@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use domovoi_config::MapEnv;
-use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyScope};
+use domovoi_core::audit_chain::{ChainStatus, VerifyScope};
 use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, Page, UserRepo};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::FakeClock;
@@ -221,13 +221,12 @@ async fn startup_verification_is_silent_on_an_intact_chain() {
 }
 
 #[tokio::test]
-async fn admin_verify_reports_both_parts() {
+async fn admin_verify_reports_an_empty_chain_on_a_fresh_database() {
     let dir = tempfile::tempdir().unwrap();
     let admin = OfflineAdmin::open(config(dir.path()), clock())
         .await
         .unwrap();
     let report = admin.verify_audit(VerifyScope::Full).await.unwrap();
-    assert!(matches!(report.legacy, LegacyStatus::Verified { count: 0 }));
     assert_eq!(report.chained, ChainStatus::Empty);
     assert_eq!(admin.audit_head().await.unwrap(), None);
     admin.close().await;
