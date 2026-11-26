@@ -8,7 +8,7 @@ use domovoi_core::ports::{
     AggregateRef, EffectDraft, EffectKind, EffectRead, EffectStatus, HostReconciler, LinkError,
     Presence, ToolOutput, Transaction,
 };
-use domovoi_core::{ActionId, EffectId, StepId, StepIntent, StepKind, StepOutcome};
+use domovoi_core::{EffectId, IncidentId, StepId, StepIntent, StepKind, StepOutcome};
 use domovoi_engine::operations::NewStep;
 use domovoi_testkit::build::T0;
 use serde_json::json;
@@ -173,14 +173,14 @@ async fn hello_triggered_reconcile_creates_one_effect_per_dispatched_execution()
 #[tokio::test]
 async fn operation_runner_never_claims_legacy_wake_effects() {
     let w = world().await;
-    // A wake of the action service: same kind, due now, but another aggregate.
-    let action = ActionId::new();
+    // A wake of the incident service: same kind, due now, but another aggregate.
+    let incident = IncidentId::new();
     let id = EffectId::new();
     let draft = EffectDraft {
         id,
         kind: EffectKind::Wake,
-        aggregate: AggregateRef::action(action),
-        payload: json!({ "v": 1, "purpose": "verify_action", "action": action.to_string() }),
+        aggregate: AggregateRef::incident(incident),
+        payload: json!({ "v": 1, "purpose": "verify_action", "incident": incident.to_string() }),
         not_before: T0,
         max_attempts: 3,
         dedup_key: None,

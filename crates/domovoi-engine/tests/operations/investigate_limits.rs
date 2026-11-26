@@ -76,7 +76,6 @@ async fn cached_report_goes_through_the_same_pipeline() {
         .await;
     w.settle().await;
     assert_eq!(w.count(&repeat, "triage.cached").await, 1);
-    assert!(w.actions().await.is_empty());
 }
 
 #[tokio::test]

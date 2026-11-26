@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::triage::ToolUse;
-use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
+use domovoi_core::{ExecutionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
 /// One request to the incident manager. Everything that changes an incident is one of these
@@ -51,7 +51,7 @@ pub enum Command {
         /// What triage produced.
         outcome: TriageOutcome,
         /// Plain chat tokens of the proposed actions, passed on in the event.
-        tokens: BTreeMap<ActionId, String>,
+        tokens: BTreeMap<ExecutionId, String>,
     },
     /// Sets the incident's verdict, for example `Fixed` once an action is verified. Works on
     /// resolved incidents too; publishes nothing.

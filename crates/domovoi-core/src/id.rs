@@ -74,10 +74,6 @@ define_id!(
     SignalId
 );
 define_id!(
-    /// Identifies a proposed or executed action.
-    ActionId
-);
-define_id!(
     /// Identifies one authenticated hub-agent connection.
     ///
     /// It is unique per connection and is not the agent's journal epoch: a reconnection may
@@ -86,26 +82,13 @@ define_id!(
 );
 
 define_id!(
-    /// The opaque idempotency key of one execution of an action.
+    /// The opaque idempotency key of one execution.
     ///
-    /// A legacy action's execution is keyed by its [`ActionId`]; an operation's execution
-    /// is keyed by the id of its Execution [`StepId`]. An id never names both.
+    /// An operation's execution is keyed by the id of its Execution [`StepId`].
     ExecutionId
 );
 
 impl ExecutionId {
-    /// The execution identity of `action`. At M1 the idempotency key is the action id.
-    #[must_use]
-    pub fn from_action(action: ActionId) -> Self {
-        Self(action.as_uuid())
-    }
-
-    /// The action this execution belongs to, for the M1 dispatch path.
-    #[must_use]
-    pub fn as_action(self) -> ActionId {
-        ActionId::from_uuid(self.as_uuid())
-    }
-
     /// The execution identity of an operation's Execution `step`: the step id's UUID.
     #[must_use]
     pub fn from_step(step: StepId) -> Self {

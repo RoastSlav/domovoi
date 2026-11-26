@@ -11,7 +11,7 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch,
+    AgentId, AgentSessionId, CapabilityHandoff, CheckKey, ExecutionId, HostId, JournalEpoch,
     PackageDispatch, PackageOutputs, ReadToolCall, SkillSummary, TargetKey, TransferAnswer,
     TransferFrame,
 };
@@ -48,7 +48,7 @@ type CheckHandler = Box<
     dyn Fn(HostId, &CheckKey, Option<&TargetKey>) -> Result<CheckRecheck, LinkError> + Send + Sync,
 >;
 type StatusHandler = Arc<
-    dyn Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
+    dyn Fn(HostId, &[ExecutionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
 >;
 
 #[derive(Default)]
@@ -76,7 +76,7 @@ pub struct FakeAgentLink {
     epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
     agents: Mutex<BTreeMap<HostId, AgentId>>,
     sessions: Mutex<BTreeMap<HostId, AgentSessionId>>,
-    answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
+    answers: Mutex<BTreeMap<HostId, BTreeMap<ExecutionId, ActionAnswer>>>,
     status: Mutex<Option<StatusHandler>>,
     /// When set, `start_skill` waits for a permit before it reports the request handed over,
     /// so a test can hold a dispatch at the point where it has been committed but not sent.
@@ -314,7 +314,7 @@ impl FakeAgentLink {
     }
 
     /// Scripts what the host's journal says about one run.
-    pub fn answer(&self, host: HostId, id: ActionId, answer: ActionAnswer) {
+    pub fn answer(&self, host: HostId, id: ExecutionId, answer: ActionAnswer) {
         lock(&self.answers)
             .entry(host)
             .or_default()
@@ -324,7 +324,7 @@ impl FakeAgentLink {
     /// Answers every `action_status` with `handler`, instead of the scripted answers.
     pub fn on_action_status(
         &self,
-        handler: impl Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
+        handler: impl Fn(HostId, &[ExecutionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
         + Send
         + Sync
         + 'static,

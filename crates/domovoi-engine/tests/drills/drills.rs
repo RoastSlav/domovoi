@@ -26,7 +26,7 @@ mod tests {
     use std::sync::Arc;
 
     use domovoi_core::ports::LlmProvider;
-    use domovoi_core::{ActionStatus, ReadToolCall, TriageOutcome};
+    use domovoi_core::{ReadToolCall, TriageOutcome};
     use domovoi_llm::{ProviderKind, ProviderSettings};
     use domovoi_testkit::link::LinkRequest;
     use secrecy::SecretString;
@@ -298,9 +298,9 @@ mod tests {
             "the report carries the steps for the person",
         );
         let proposed = outcome
-            .actions
+            .proposals
             .iter()
-            .filter(|action| *action.status() == ActionStatus::Proposed)
+            .filter(|proposal| proposal.awaiting_human)
             .count();
         assert_eq!(proposed, 0, "a read skill must not come back as a proposal");
     }

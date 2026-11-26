@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    ActionId, CheckKey, ExecutionId, HostId, ImplHash, Incident, KeyFingerprint, ManifestHash,
-    PlanBinding, PlanContract, PlanError, PlanHash, PlanTarget, Risk, ScriptDigest, Severity,
-    Signal, SkillName, SkillSummary, SourceKind, TargetKey, ValidatedArgs, host_target_text,
+    CheckKey, ExecutionId, HostId, ImplHash, Incident, KeyFingerprint, ManifestHash, PlanBinding,
+    PlanContract, PlanError, PlanHash, PlanTarget, Risk, ScriptDigest, Severity, Signal, SkillName,
+    SkillSummary, SourceKind, TargetKey, ValidatedArgs, host_target_text,
 };
 use jiff::{SignedDuration, Timestamp};
 
@@ -265,12 +265,6 @@ fn approval_bound_to_displayed_plan_hash() {
 }
 
 #[test]
-fn execution_id_for_an_action_equals_the_action_id() {
-    let id = ActionId::from_uuid(uuid::Uuid::from_u128(42));
-    assert_eq!(ExecutionId::from_action(id).as_action(), id);
-}
-
-#[test]
 fn plan_target_of_incident_takes_the_incidents_host() {
     let incident = incident(host(), "disk.usage", Some("/srv"));
     let canonical = PlanTarget::of_incident(&incident, key(7)).canonical();
@@ -335,86 +329,5 @@ fn host_target_text_is_the_only_formatter() {
         canonical,
         target(host(), 8, "disk.usage", None).canonical(),
         "changing the key changes the text"
-    );
-}
-
-#[test]
-fn execution_identity_is_the_final_action_id() {
-    let skill = summary("restart_container", Risk::Write);
-    let plan_args = args("web");
-    let incident = incident(host(), "docker.container", Some("web"));
-    let plan_target = PlanTarget::of_incident(&incident, key(7));
-    let request = domovoi_core::ActionRequest::propose(
-        &incident,
-        &skill,
-        &plan_args,
-        Some(key(7)),
-        domovoi_core::Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        T0,
-    )
-    .unwrap();
-    let expected = PlanHash::compute_v2(
-        &contract("restart_container", 1),
-        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
-        &plan_target,
-        &plan_args,
-        ExecutionId::from_action(request.id()),
-    );
-    assert_eq!(
-        request.plan_hash_v2(),
-        Some(expected),
-        "the v2 hash was calculated with the final action id",
-    );
-}
-
-#[test]
-fn propose_refuses_a_host_without_an_enrolled_key() {
-    let skill = summary("restart_container", Risk::Write);
-    let incident = incident(host(), "docker.container", Some("web"));
-    let result = domovoi_core::ActionRequest::propose(
-        &incident,
-        &skill,
-        &args("web"),
-        None,
-        domovoi_core::Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        T0,
-    );
-    assert_eq!(result, Err(PlanError::NoEnrolledKey));
-}
-
-#[test]
-fn propose_derives_the_plan_target_from_the_incident() {
-    let skill = summary("restart_container", Risk::Write);
-    let plan_args = args("web");
-    let incident = incident(host(), "docker.container", Some("web"));
-    let request = domovoi_core::ActionRequest::propose(
-        &incident,
-        &skill,
-        &plan_args,
-        Some(key(7)),
-        domovoi_core::Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        T0,
-    )
-    .unwrap();
-
-    assert_eq!(
-        request.host(),
-        incident.host(),
-        "the action is bound to the incident's host"
-    );
-    let expected = PlanHash::compute_v2(
-        &contract("restart_container", 1),
-        ImplHash::from_parts(skill.manifest_hash, skill.entry_script_digest),
-        &PlanTarget::of_incident(&incident, key(7)),
-        &plan_args,
-        ExecutionId::from_action(request.id()),
-    );
-    assert_eq!(
-        request.plan_hash_v2(),
-        Some(expected),
-        "the caller cannot supply a target from another incident"
     );
 }

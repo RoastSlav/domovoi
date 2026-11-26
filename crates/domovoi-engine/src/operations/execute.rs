@@ -7,10 +7,8 @@
 //! when another module hands a skill over, builds the dispatch command or builds an
 //! [`AuthorizedStep`].
 //!
-//! This is the operation service's own copy of the dispatch boundary in `actions::execute`;
-//! the two stay apart until the legacy executor is removed. Everything a run writes still goes
-//! through the one writer: the dispatch, the loop guard's refusal, the answer for the run and
-//! the re-check's delay. This module reads what it is handed and stores nothing itself.
+//! Everything a run writes goes through the one writer: the dispatch, the loop guard's
+//! refusal, the answer for the run and the re-check's delay. This module reads what it is handed and stores nothing itself.
 
 use domovoi_core::capability::TargetQuery;
 use domovoi_core::ports::{AgentSnapshot, LinkError, SkillDispatch, SkillOutput};
@@ -192,7 +190,7 @@ pub(super) async fn execute_step(
         .and_then(|t| t.checked_add(shared.settings.dispatch_grace))
         .unwrap_or(now);
     let dispatch = SkillDispatch {
-        action: ExecutionId::from_step(step).as_action(),
+        execution: ExecutionId::from_step(step),
         skill: skill.name.clone(),
         args,
         // The agent's local check recomputes v1, so a v2 value here would refuse every run.

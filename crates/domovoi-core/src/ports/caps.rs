@@ -19,7 +19,7 @@ use super::agent_link::{
     SkillDispatch, SkillHandoff, SkillOutput, ToolOutput,
 };
 use crate::action::JournalEpoch;
-use crate::id::{ActionId, AgentSessionId, HostId};
+use crate::id::{AgentSessionId, ExecutionId, HostId};
 use crate::install::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
 };
@@ -112,7 +112,7 @@ pub trait JournalStatus: Send + Sync {
     async fn status_batch(
         &self,
         host: HostId,
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError>;

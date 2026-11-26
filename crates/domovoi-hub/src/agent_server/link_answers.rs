@@ -1,7 +1,7 @@
 //! How the agent's journal answers become the engine's [`ActionAnswers`].
 
-use domovoi_core::ActionId;
 use domovoi_core::ContractId;
+use domovoi_core::ExecutionId;
 use domovoi_core::JournalEpoch;
 use domovoi_core::capability::{CatalogImplementation, ContractVersion};
 use domovoi_core::ports::{ActionAnswer, ActionAnswerEntry, ActionAnswers, UnknownReason};
@@ -26,7 +26,7 @@ pub(super) fn answers_from(
             .answers
             .into_iter()
             .map(|answer| ActionAnswerEntry {
-                execution: ActionId::from_uuid(answer.execution_id),
+                execution: ExecutionId::from_uuid(answer.execution_id),
                 answer: answer_from(answer.state, authoritative_absence),
             })
             .collect(),

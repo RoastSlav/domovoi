@@ -181,10 +181,7 @@ async fn repeat_incident_uses_cache_without_model_call() {
     assert_eq!(w.primary.requests().len(), 1, "no second model call");
     assert!(w.drain().iter().any(|e| matches!(
         &e.kind,
-        EventKind::TriageCompleted {
-            outcome: TriageOutcome::Cached { .. },
-            ..
-        }
+        EventKind::TriageCompleted { outcome, .. } if matches!(**outcome, TriageOutcome::Cached { .. })
     )));
 
     // Different evidence is a different situation.
@@ -246,7 +243,6 @@ async fn a_cached_report_stores_its_proposals_as_steps() {
     );
     assert!(steps[0].awaiting_human, "the step waits for a person");
     assert!(!steps[0].approved);
-    assert!(w.actions().await.is_empty(), "no legacy action was stored");
 }
 
 #[tokio::test]
@@ -305,13 +301,6 @@ async fn a_cached_proposal_for_a_removed_skill_is_dropped() {
         report.details,
     );
     assert!(w.tokens().is_empty(), "no chat token was minted");
-    let orphaned = w
-        .actions()
-        .await
-        .iter()
-        .filter(|a| a.incident() == again.id())
-        .count();
-    assert_eq!(orphaned, 0, "no action was stored for the removed skill");
 }
 
 #[tokio::test]
@@ -351,7 +340,6 @@ async fn a_repeat_request_does_not_duplicate_a_waiting_step() {
         "the waiting step is not stored twice"
     );
     assert_eq!(w.primary.requests().len(), 1, "no second model call");
-    assert!(w.actions().await.is_empty(), "no legacy action was stored");
 }
 
 #[tokio::test]

@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, ToolUse, count_clear};
 use domovoi_core::ports::IncidentTimelineEntry;
-use domovoi_core::{ActionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
+use domovoi_core::{ExecutionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 
 use super::command::{Command, CommandError};
@@ -68,7 +68,7 @@ pub(crate) fn attach(
     state: &State,
     incident: IncidentId,
     outcome: &TriageOutcome,
-    tokens: &BTreeMap<ActionId, String>,
+    tokens: &BTreeMap<ExecutionId, String>,
     now: Timestamp,
 ) -> Result<Decision, CommandError> {
     let mut found = loaded(state, incident)?;
@@ -87,7 +87,7 @@ pub(crate) fn attach(
     }));
     out.events.push(DomainEvent::new(
         EventKind::TriageCompleted {
-            outcome: outcome.clone(),
+            outcome: Box::new(outcome.clone()),
             tokens: tokens.clone(),
         },
         &found,

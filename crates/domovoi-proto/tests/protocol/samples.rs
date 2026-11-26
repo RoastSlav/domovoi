@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use domovoi_core::attest::{BootId, Hash32, UnverifiedReason};
 use domovoi_core::ports::LogLine;
 use domovoi_core::{
-    ActionId, AgentId, CheckKey, DigestFact, Evidence, EvidenceValue, FactValue, HostId, HostName,
-    PlanHash, ReadToolCall, RequestId, ScriptDigest, Severity, Signal, SignalId, SignalStatus,
-    SkillName, SkillSummary, SourceKind, TargetKey,
+    AgentId, CheckKey, DigestFact, Evidence, EvidenceValue, ExecutionId, FactValue, HostId,
+    HostName, PlanHash, ReadToolCall, RequestId, ScriptDigest, Severity, Signal, SignalId,
+    SignalStatus, SkillName, SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_proto::messages::*;
 use domovoi_proto::{
@@ -249,7 +249,7 @@ pub fn all() -> Vec<Message> {
         }
         .into(),
         RunSkill {
-            action_id: ActionId::from_uuid(Uuid::from_u128(
+            action_id: ExecutionId::from_uuid(Uuid::from_u128(
                 0x0190_0000_0000_7000_8000_0000_0000_00e1,
             )),
             skill: SkillName::parse("restart_container").unwrap(),

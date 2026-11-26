@@ -1,7 +1,7 @@
 //! The requests a fake agent link records.
 
 use domovoi_core::ports::SkillDispatch;
-use domovoi_core::{ActionId, CheckKey, HostId, JournalEpoch, ReadToolCall, TargetKey};
+use domovoi_core::{CheckKey, ExecutionId, HostId, JournalEpoch, ReadToolCall, TargetKey};
 use jiff::Timestamp;
 
 /// One request made through a `FakeAgentLink`.
@@ -41,7 +41,7 @@ pub enum LinkRequest {
         /// Target host.
         host: HostId,
         /// The executions asked about.
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         /// The epoch the caller believes the journal has.
         expected_epoch: JournalEpoch,
         /// The deadline passed.

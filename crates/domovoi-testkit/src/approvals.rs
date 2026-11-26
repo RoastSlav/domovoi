@@ -3,11 +3,7 @@
 //! Outside tests only the hub's auth layer may construct a `HumanApproval` (INV-1,
 //! ADR 0007); `xtask arch-check` allows testkit as the one other place.
 
-use domovoi_core::{
-    ActionChange, ActionError, ActionRequest, ApprovalChannel, ApprovalProvenance, Authorization,
-    HumanApproval, PlanBinding, UserId,
-};
-use jiff::Timestamp;
+use domovoi_core::{ApprovalChannel, ApprovalProvenance, Authorization, HumanApproval, UserId};
 
 use crate::build::T0;
 
@@ -21,16 +17,6 @@ pub fn provenance() -> ApprovalProvenance {
 #[must_use]
 pub fn authorize(approval: HumanApproval) -> Authorization {
     Authorization::human(approval)
-}
-
-/// Approves `request` as `approval`, bound to the plan it currently shows.
-pub fn approve(
-    request: &mut ActionRequest,
-    approval: HumanApproval,
-    now: Timestamp,
-) -> Result<ActionChange, ActionError> {
-    let binding = PlanBinding::Full(request.plan_hash_for_approval());
-    request.approve(authorize(approval), provenance(), &binding, now)
 }
 
 /// An approval from `user` through the web UI without typed confirmation, at [`T0`].

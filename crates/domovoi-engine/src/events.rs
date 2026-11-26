@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{
-    ActionId, ActionStatus, ExecutionId, Incident, Severity, SignalId, TriageOutcome, UserId,
-};
+use domovoi_core::{ExecutionId, Incident, Severity, SignalId, TriageOutcome, UserId};
 use jiff::Timestamp;
 
 /// What happened to an incident.
@@ -47,10 +45,10 @@ pub enum EventKind {
     /// Triage finished, was skipped or failed; the card shows the outcome.
     TriageCompleted {
         /// What triage produced.
-        outcome: TriageOutcome,
-        /// Plain chat tokens of the actions triage proposed, for the card's buttons. Only
+        outcome: Box<TriageOutcome>,
+        /// Plain chat tokens of the execution steps waiting for approval, for the card's buttons. Only
         /// their hashes are stored.
-        tokens: BTreeMap<ActionId, String>,
+        tokens: BTreeMap<ExecutionId, String>,
     },
     /// Triage failed several times in a row; incidents go out without triage.
     TriageDegraded {
@@ -62,25 +60,6 @@ pub enum EventKind {
     ExecutionChanged {
         /// Which execution.
         execution: ExecutionId,
-    },
-    /// A human approved an action; the executor picks it up.
-    ActionApproved {
-        /// Which action.
-        action: ActionId,
-    },
-    /// An action changed status.
-    ActionChanged {
-        /// Which action.
-        action: ActionId,
-        /// Its status now.
-        status: ActionStatus,
-    },
-    /// The loop guard stopped an approved action from running again.
-    ActionBlocked {
-        /// Which action.
-        action: ActionId,
-        /// Why, in one line.
-        reason: String,
     },
 }
 

@@ -90,9 +90,7 @@ async fn crash_between_applying_commit_and_send_leaves_not_run() {
 
     // On the next hello the agent's journal has never heard of the execution: the phase did not
     // run, so the block is not run, and nothing is sent to make up for it.
-    world
-        .link
-        .answer(world.host, id.as_action(), ActionAnswer::NotFound);
+    world.link.answer(world.host, id, ActionAnswer::NotFound);
     world.driver.reconcile_host(world.host).await;
     assert_eq!(world.block(id).await.phase, BlockPhase::NotRun);
     assert!(world.relay.dispatches().is_empty());

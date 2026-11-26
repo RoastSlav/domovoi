@@ -2,7 +2,7 @@
 //! token. Only operation steps can be decided; a press naming a retired action is refused.
 
 use domovoi_core::{
-    ActionId, CardButton, ExecutionError, IncidentId, PlanBinding, Risk, TriageOutcome,
+    CardButton, ExecutionError, ExecutionId, IncidentId, PlanBinding, Risk, TriageOutcome,
     TriageReport,
 };
 use domovoi_engine::operations::OperationError;
@@ -128,14 +128,16 @@ impl InteractionAuthorizer {
             }
             CardButton::Details => self.details(incident, subject).await,
             CardButton::Approve {
-                action,
+                execution,
                 token,
                 plan_prefix,
             } => {
-                self.approve(actor, incident, *action, token, plan_prefix.as_deref())
+                self.approve(actor, incident, *execution, token, plan_prefix.as_deref())
                     .await
             }
-            CardButton::Deny { action, token } => self.deny(actor, incident, *action, token).await,
+            CardButton::Deny { execution, token } => {
+                self.deny(actor, incident, *execution, token).await
+            }
             CardButton::OpenInWeb { .. } => Err(WEB_ONLY.to_owned()),
         }
     }
@@ -169,11 +171,11 @@ impl InteractionAuthorizer {
         &self,
         actor: &Actor<'_>,
         incident: IncidentId,
-        action: ActionId,
+        execution: ExecutionId,
         token: &str,
         plan_prefix: Option<&str>,
     ) -> Result<Accepted, String> {
-        if let Some(target) = self.step_for(incident, action).await? {
+        if let Some(target) = self.step_for(incident, execution).await? {
             return self
                 .approve_step(actor, incident, target, token, plan_prefix)
                 .await;
@@ -185,26 +187,26 @@ impl InteractionAuthorizer {
         &self,
         actor: &Actor<'_>,
         incident: IncidentId,
-        action: ActionId,
+        execution: ExecutionId,
         token: &str,
     ) -> Result<Accepted, String> {
-        if let Some(target) = self.step_for(incident, action).await? {
+        if let Some(target) = self.step_for(incident, execution).await? {
             return self.deny_step(actor, incident, target, token).await;
         }
         Err(STALE_CARD.to_owned())
     }
 
-    /// The Execution step the button's action id names, when it names one. `Ok(None)` means
-    /// the id is not an execution: a retired legacy action, whose buttons are out of date.
+    /// The Execution step the button's id names, when it names one. `Ok(None)` means the id
+    /// is not a stored execution, so the button is out of date.
     async fn step_for(
         &self,
         incident: IncidentId,
-        action: ActionId,
+        execution: ExecutionId,
     ) -> Result<Option<StepRef>, String> {
         let Some(target) = self
             .services
             .operations
-            .find_by_action(action)
+            .find_by_execution(execution)
             .await
             .map_err(|_| "Something went wrong; try again".to_owned())?
         else {

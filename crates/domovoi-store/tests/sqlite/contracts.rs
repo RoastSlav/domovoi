@@ -21,7 +21,6 @@ contract_tests! {
     expired_token_is_rejected_in_sqlite => expired_token_is_rejected,
     sqlite_signal_repo_satisfies_contract => signal_repo_contract,
     sqlite_incident_repo_satisfies_contract => incident_repo_contract,
-    sqlite_action_repo_satisfies_contract => action_repo_contract,
     sqlite_audit_log_satisfies_contract => audit_log_contract,
     sqlite_note_repo_satisfies_contract => note_repo_contract,
     sqlite_baseline_repo_satisfies_contract => baseline_repo_contract,

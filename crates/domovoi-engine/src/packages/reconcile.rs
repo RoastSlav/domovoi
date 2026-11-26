@@ -103,7 +103,7 @@ async fn settle_from_journal(shared: &Shared, job: &InstallJob, target: &Install
     }
     let now = deps.clock.now();
     let deadline = now.checked_add(shared.settings.result_grace).unwrap_or(now);
-    let wanted = target.execution.as_action();
+    let wanted = target.execution;
     let answers = match deps
         .caps
         .journal

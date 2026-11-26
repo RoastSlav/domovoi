@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use common::{Fixture, install};
 use domovoi_agent::requests::run_skill;
-use domovoi_core::{ActionId, PlanHash, Risk, SkillName};
+use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
 use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome};
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
@@ -49,7 +49,7 @@ async fn hub_cannot_run_skill_not_in_local_catalog() {
             continue;
         };
         let request = RunSkill {
-            action_id: ActionId::new(),
+            action_id: ExecutionId::new(),
             plan_hash: PlanHash::compute(
                 &skill,
                 pushed.manifest_hash(),
@@ -96,7 +96,7 @@ async fn plan_hash_mismatch_never_executes() {
     ];
     for plan_hash in wrong {
         let request = RunSkill {
-            action_id: ActionId::new(),
+            action_id: ExecutionId::new(),
             skill: skill.clone(),
             args: args(),
             plan_hash,
@@ -269,7 +269,7 @@ async fn package_skills_are_not_runnable_before_the_skill_runner() {
     assert!(rig.ctx.catalog.get(&skill).is_none());
     assert!(rig.ctx.catalog.summaries().is_empty());
     let request = RunSkill {
-        action_id: ActionId::new(),
+        action_id: ExecutionId::new(),
         skill,
         args: BTreeMap::new(),
         plan_hash: "01".repeat(32).parse::<PlanHash>().unwrap(),

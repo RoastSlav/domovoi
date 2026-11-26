@@ -22,8 +22,6 @@ pub const LLM_PROMPT_BYTES: &str = "domovoi_llm_prompt_bytes";
 pub const LLM_PROMPT_TRIMMED_TOTAL: &str = "domovoi_llm_prompt_trimmed_total";
 /// Admission refusals, by reason (`budget`, `unpriced`, `hourly`, `unverifiable`).
 pub const LLM_ADMISSION_REJECTIONS_TOTAL: &str = "domovoi_llm_admission_rejections_total";
-/// Action status changes, by the new status.
-pub const ACTIONS_TOTAL: &str = "domovoi_actions_total";
 
 /// Every incident status a gauge is kept for; resolved incidents are not active.
 const ACTIVE_STATUSES: [&str; 4] = ["pending", "open", "acked", "muted"];

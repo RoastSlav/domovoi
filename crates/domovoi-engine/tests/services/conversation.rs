@@ -1,6 +1,5 @@
 use domovoi_core::ports::{IncidentRepo, LlmError, LlmRequest, Part};
 use domovoi_core::{TriageOutcome, UserId};
-use domovoi_engine::EventKind;
 use domovoi_engine::triage::MAX_ANSWER_CHARS;
 use serde_json::json;
 
@@ -276,7 +275,7 @@ async fn the_follow_up_context_names_the_report() {
 /// A follow-up answer that ends in a `PROPOSALS:` line is shown as it is and creates nothing.
 #[tokio::test]
 async fn follow_up_answer_never_creates_an_action() {
-    let mut w = world(Setup::default()).await;
+    let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
     let block = json!([
         {"skill": "restart_container", "args": {"container": "nginx"}, "reason": "It is stuck."}
@@ -293,16 +292,9 @@ PROPOSALS: {block}"
         .await
         .unwrap();
     assert_eq!(answer, text, "the answer is the model's text, unchanged");
-    assert!(w.actions().await.is_empty(), "no action was stored");
     assert!(
         w.operations().await.is_empty(),
         "no operation or step was created"
-    );
-    assert!(
-        !w.drain()
-            .iter()
-            .any(|e| matches!(e.kind, EventKind::ActionChanged { .. })),
-        "no action change was published"
     );
 }
 
@@ -320,7 +312,6 @@ PROPOSALS: restart_container(container=nginx)",
         .follow_up(w.incident.id(), "Anything else?", UserId::new())
         .await
         .unwrap();
-    assert!(w.actions().await.is_empty(), "junk creates no action");
     assert!(answer.contains("restart_container"), "{answer}");
 }
 
@@ -340,7 +331,6 @@ PROPOSALS: [{{\"skill\": \"restart_container\", \"args\": {{\"container\": \"ngi
         .await
         .unwrap();
     assert_eq!(answer.chars().count(), MAX_ANSWER_CHARS);
-    assert!(w.actions().await.is_empty(), "no action was stored");
 }
 
 /// The triage service has no queue: questions and chat answer on their own, and nothing
@@ -365,5 +355,4 @@ async fn triage_service_without_a_queue_answers_questions_and_chat() {
     assert_eq!(chat, "Disk is fine.");
     assert_eq!(w.primary.requests().len(), 2, "one model call each");
     assert!(w.operations().await.is_empty(), "no investigation started");
-    assert!(w.actions().await.is_empty());
 }

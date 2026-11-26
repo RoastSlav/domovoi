@@ -46,7 +46,6 @@ pub use lifecycle_scope::{
 };
 pub use rollback::failed_effect_completion_rolls_back_every_stage;
 pub use states::{
-    action_guard_refuses_a_changed_status, chat_token_hash_must_be_unique_across_actions,
     commit_applies_state_journal_audit_and_effects_together, empty_transaction_commits_nothing,
     later_failure_rolls_back_earlier_writes_journal_audit_and_effects,
     new_incident_over_existing_id_conflicts, repository_writes_advance_versions_like_commits,
@@ -57,9 +56,8 @@ pub use states::{
 use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::ports::{
-    ActionRepo, AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalFeed,
-    JournalRead, NoteRepo, OperationRepo, PermitRepo, PolicyRepo, SignalRepo, UnitOfWork,
-    VersionedRead,
+    AuditLog, ClaimToken, EffectQueue, EffectRead, IncidentRepo, JournalFeed, JournalRead,
+    NoteRepo, OperationRepo, PermitRepo, PolicyRepo, SignalRepo, UnitOfWork, VersionedRead,
 };
 use jiff::Timestamp;
 
@@ -84,8 +82,6 @@ pub trait UowSubject: Send + Sync {
     fn incidents(&self) -> &dyn IncidentRepo;
     /// Signal writes.
     fn signals(&self) -> &dyn SignalRepo;
-    /// Action writes.
-    fn actions(&self) -> &dyn ActionRepo;
     /// Note writes.
     fn notes(&self) -> &dyn NoteRepo;
     /// The audit log.
@@ -135,10 +131,6 @@ impl UowSubject for InMemoryStore {
     }
 
     fn signals(&self) -> &dyn SignalRepo {
-        self
-    }
-
-    fn actions(&self) -> &dyn ActionRepo {
         self
     }
 

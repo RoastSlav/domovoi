@@ -1,6 +1,6 @@
 //! Button custom IDs and short incident IDs.
 //!
-//! A custom ID is `dv1:{kind}:{incident}[:{action}:{token}[:{prefix}]]`, with UUIDs, the hex
+//! A custom ID is `dv1:{kind}:{incident}[:{execution}:{token}[:{prefix}]]`, with UUIDs, the hex
 //! chat token and the plan hash prefix in unpadded base64url. An approval that names its
 //! plan is exactly 100 characters with a 32-byte token, which is the most Discord allows.
 //! The hub never sees these strings: the gateway turns them back into a [`CardButton`]
@@ -8,7 +8,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use domovoi_core::{ActionId, CardButton, IncidentId};
+use domovoi_core::{CardButton, ExecutionId, IncidentId};
 use uuid::Uuid;
 
 /// The longest custom ID Discord accepts.
@@ -68,13 +68,13 @@ pub fn custom_id(incident: IncidentId, button: &CardButton) -> Option<String> {
         CardButton::Mute1h => format!("{PREFIX}:m:{inc}"),
         CardButton::Details => format!("{PREFIX}:d:{inc}"),
         CardButton::Approve {
-            action,
+            execution,
             token,
             plan_prefix,
         } => {
             let base = format!(
                 "{PREFIX}:a:{inc}:{}:{}",
-                uuid_text(action.as_uuid()),
+                uuid_text(execution.as_uuid()),
                 token_text(token)?
             );
             match plan_prefix {
@@ -83,9 +83,9 @@ pub fn custom_id(incident: IncidentId, button: &CardButton) -> Option<String> {
                 Some(prefix) => format!("{base}:{}", prefix_text(prefix)?),
             }
         }
-        CardButton::Deny { action, token } => format!(
+        CardButton::Deny { execution, token } => format!(
             "{PREFIX}:n:{inc}:{}:{}",
-            uuid_text(action.as_uuid()),
+            uuid_text(execution.as_uuid()),
             token_text(token)?
         ),
         CardButton::OpenInWeb { .. } => return None,
@@ -102,30 +102,30 @@ pub fn parse_custom_id(id: &str) -> Option<(IncidentId, CardButton)> {
     }
     let kind = parts.next()?;
     let incident = IncidentId::from_uuid(uuid_of(parts.next()?)?);
-    let action_and_token = |parts: &mut std::str::Split<'_, char>| {
-        let action = ActionId::from_uuid(uuid_of(parts.next()?)?);
+    let execution_and_token = |parts: &mut std::str::Split<'_, char>| {
+        let execution = ExecutionId::from_uuid(uuid_of(parts.next()?)?);
         let token = token_of(parts.next()?)?;
-        Some((action, token))
+        Some((execution, token))
     };
     let button = match kind {
         "k" => CardButton::Ack,
         "m" => CardButton::Mute1h,
         "d" => CardButton::Details,
         "a" => {
-            let (action, token) = action_and_token(&mut parts)?;
+            let (execution, token) = execution_and_token(&mut parts)?;
             let plan_prefix = match parts.next() {
                 Some(text) => Some(prefix_of(text)?),
                 None => None,
             };
             CardButton::Approve {
-                action,
+                execution,
                 token,
                 plan_prefix,
             }
         }
         "n" => {
-            let (action, token) = action_and_token(&mut parts)?;
-            CardButton::Deny { action, token }
+            let (execution, token) = execution_and_token(&mut parts)?;
+            CardButton::Deny { execution, token }
         }
         _ => return None,
     };
@@ -148,9 +148,9 @@ mod tests {
         "ab".repeat(32)
     }
 
-    fn approve(action: ActionId, plan_prefix: Option<&str>) -> CardButton {
+    fn approve(execution: ExecutionId, plan_prefix: Option<&str>) -> CardButton {
         CardButton::Approve {
-            action,
+            execution,
             token: token(),
             plan_prefix: plan_prefix.map(str::to_owned),
         }
@@ -159,15 +159,15 @@ mod tests {
     #[test]
     fn custom_id_round_trip_and_length_limit() {
         let incident = IncidentId::new();
-        let action = ActionId::new();
+        let execution = ExecutionId::new();
         let buttons = [
             CardButton::Ack,
             CardButton::Mute1h,
             CardButton::Details,
-            approve(action, None),
-            approve(action, Some("01ffab")),
+            approve(execution, None),
+            approve(execution, Some("01ffab")),
             CardButton::Deny {
-                action,
+                execution,
                 token: token(),
             },
         ];
@@ -178,15 +178,18 @@ mod tests {
             assert_eq!(parse_custom_id(&id), Some((incident, button)));
         }
 
-        assert_eq!(custom_id(incident, &CardButton::OpenInWeb { action }), None);
+        assert_eq!(
+            custom_id(incident, &CardButton::OpenInWeb { execution }),
+            None
+        );
         let not_hex = CardButton::Approve {
-            action,
+            execution,
             token: "not hex".to_owned(),
             plan_prefix: None,
         };
         assert_eq!(custom_id(incident, &not_hex), None);
         let huge = CardButton::Approve {
-            action,
+            execution,
             token: "ab".repeat(64),
             plan_prefix: None,
         };
@@ -196,8 +199,8 @@ mod tests {
     #[test]
     fn approval_custom_id_carries_the_plan_prefix_and_fits_discord() {
         let incident = IncidentId::new();
-        let action = ActionId::new();
-        let button = approve(action, Some("0123ab"));
+        let execution = ExecutionId::new();
+        let button = approve(execution, Some("0123ab"));
         let id = custom_id(incident, &button).unwrap();
         assert_eq!(id.len(), MAX_CUSTOM_ID, "a 32-byte token fills the budget");
         assert_eq!(id.split(':').count(), 6);
@@ -205,13 +208,13 @@ mod tests {
         assert_eq!(parse_custom_id(&id), Some((incident, button)));
 
         // A card from before structured approvals still round-trips, without a prefix.
-        let legacy = approve(action, None);
+        let legacy = approve(execution, None);
         let old_id = custom_id(incident, &legacy).unwrap();
         assert_eq!(old_id.split(':').count(), 5);
         assert_eq!(parse_custom_id(&old_id), Some((incident, legacy)));
 
         for bad in ["0123abff", "0123a", "zzzzzz", "", "0123AB"] {
-            let button = approve(action, Some(bad));
+            let button = approve(execution, Some(bad));
             assert_eq!(custom_id(incident, &button), None, "{bad:?}");
         }
 

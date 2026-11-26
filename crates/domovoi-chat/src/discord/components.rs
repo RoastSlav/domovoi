@@ -1,6 +1,6 @@
 //! A [`Card`]'s buttons as Discord components.
 
-use domovoi_core::{ActionId, Card, CardButton};
+use domovoi_core::{Card, CardButton, ExecutionId};
 use twilight_model::channel::message::Component;
 use twilight_model::channel::message::component::{ActionRow, Button, ButtonStyle};
 
@@ -33,9 +33,9 @@ fn plain(
 }
 
 /// `verb` and what the plan will do: `Approve restart_container on nas`, or just the verb
-/// when the card names no plan for `action`, cut to [`MAX_LABEL`].
-fn plan_label(card: &Card, action: ActionId, verb: &str) -> String {
-    match card.plans.iter().find(|plan| plan.action == action) {
+/// when the card names no plan for `execution`, cut to [`MAX_LABEL`].
+fn plan_label(card: &Card, execution: ExecutionId, verb: &str) -> String {
+    match card.plans.iter().find(|plan| plan.execution == execution) {
         Some(plan) => clip(
             &format!("{verb} {} on {}", plan.skill, plan.host),
             MAX_LABEL,
@@ -52,10 +52,13 @@ pub fn button(card: &Card, button: &CardButton, settings: &DiscordSettings) -> O
         CardButton::Ack => ("Ack".to_owned(), ButtonStyle::Secondary),
         CardButton::Mute1h => ("Mute 1h".to_owned(), ButtonStyle::Secondary),
         CardButton::Details => ("Details".to_owned(), ButtonStyle::Secondary),
-        CardButton::Approve { action, .. } => {
-            (plan_label(card, *action, "Approve"), ButtonStyle::Success)
+        CardButton::Approve { execution, .. } => (
+            plan_label(card, *execution, "Approve"),
+            ButtonStyle::Success,
+        ),
+        CardButton::Deny { execution, .. } => {
+            (plan_label(card, *execution, "Deny"), ButtonStyle::Danger)
         }
-        CardButton::Deny { action, .. } => (plan_label(card, *action, "Deny"), ButtonStyle::Danger),
         CardButton::OpenInWeb { .. } => {
             // Destructive actions are approved in the web UI only (INV-6). A link button has
             // no custom id, so pressing it never reaches the hub.

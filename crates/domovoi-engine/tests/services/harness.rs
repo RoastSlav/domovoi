@@ -4,13 +4,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse,
-    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
+    Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse, NoteRepo, Part, Presence,
+    SignalRepo, StopReason, ToolOutput, Usage,
 };
 use domovoi_core::{
-    ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
-    NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
-    TargetKey,
+    AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
+    ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
@@ -448,7 +447,7 @@ impl World {
     }
 
     /// The plain chat tokens of the last `TriageCompleted` event.
-    pub fn tokens(&mut self) -> BTreeMap<domovoi_core::ActionId, String> {
+    pub fn tokens(&mut self) -> BTreeMap<domovoi_core::ExecutionId, String> {
         self.drain()
             .into_iter()
             .filter_map(|e| match e.kind {
@@ -457,13 +456,6 @@ impl World {
             })
             .next_back()
             .unwrap_or_default()
-    }
-
-    pub async fn actions(&self) -> Vec<ActionRequest> {
-        ActionRepo::list(&*self.store, &ActionFilter::default(), &Page::first(100))
-            .await
-            .unwrap()
-            .items
     }
 
     pub async fn note(&self, title: &str, body: &str) {

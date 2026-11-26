@@ -15,7 +15,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::triage::ReadToolCall;
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, SkillSummary, TargetKey,
+    AgentSessionId, CheckKey, ExecutionId, HostId, JournalEpoch, SkillSummary, TargetKey,
 };
 use jiff::Timestamp;
 
@@ -110,7 +110,7 @@ impl JournalStatus for JournalAny {
     async fn status_batch(
         &self,
         host: HostId,
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError> {

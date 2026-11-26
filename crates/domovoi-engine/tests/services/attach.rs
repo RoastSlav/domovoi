@@ -36,7 +36,7 @@ async fn attach_triage_sets_verdict_and_emits_completed() {
     assert_eq!(
         events[0].kind,
         EventKind::TriageCompleted {
-            outcome,
+            outcome: Box::new(outcome),
             tokens: BTreeMap::new()
         }
     );
@@ -100,7 +100,7 @@ async fn triage_events_update_the_card_and_degraded_replies_in_the_thread() {
     let now = w.now();
     let completed = DomainEvent::new(
         EventKind::TriageCompleted {
-            outcome: TriageOutcome::Report(parsed()),
+            outcome: Box::new(TriageOutcome::Report(parsed())),
             tokens: BTreeMap::new(),
         },
         &w.incident,
@@ -173,7 +173,7 @@ async fn triage_requested_event_is_queued_triaged_and_attached() {
     })
     .await
     .expect("the queued request is triaged");
-    assert!(matches!(completed, TriageOutcome::Report(_)));
+    assert!(matches!(*completed, TriageOutcome::Report(_)));
     assert_eq!(
         w.primary.requests().len(),
         1,

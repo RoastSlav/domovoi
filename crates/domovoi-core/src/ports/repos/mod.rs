@@ -12,7 +12,6 @@
 //! - [`StoreError::Backend`] means the store itself failed; nothing was written.
 
 mod accounts;
-mod actions;
 mod admission;
 mod audit;
 mod containment;
@@ -28,7 +27,6 @@ mod policy;
 mod triage;
 
 pub use accounts::{SessionRepo, SettingsRepo, UserRepo};
-pub use actions::{ActionFilter, ActionRepo, RAN_STATUSES};
 pub use admission::{AdmissionOutcome, AdmissionPurpose, AdmissionRepo};
 pub use audit::{AuditEvent, AuditFilter, AuditLog};
 pub use containment::{

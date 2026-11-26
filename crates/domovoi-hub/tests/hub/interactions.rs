@@ -5,20 +5,19 @@ use std::sync::Arc;
 
 use domovoi_core::notify::{ChatRefs, NotifyState};
 use domovoi_core::ports::{
-    ActionRepo, AuditFilter, AuditLog, IncidentRepo, InteractionSink, MessageRef, NotifyStateRepo,
-    Page, ThreadRef,
+    AuditFilter, AuditLog, IncidentRepo, InteractionSink, MessageRef, NotifyStateRepo, Page,
+    ThreadRef,
 };
 use domovoi_core::{
-    ActionRequest, ActionStatus, CardButton, IncidentStatus, Interaction, InteractionKind,
-    InteractionReply, Principal, Risk,
+    CardButton, ExecutionId, IncidentStatus, Interaction, InteractionKind, InteractionReply,
+    OperationId, Risk, StepId,
 };
 use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_hub::auth::interactions::{ChatDeps, InteractionAuthorizer, NOT_ALLOWED, SETUP_FIRST};
-use domovoi_testkit::build::manifest;
 use domovoi_testkit::{GatewayCall, RecordingGateway};
 use jiff::SignedDuration;
 
-use crate::api_harness::{Api, api, api_with_triage, api_without_profiles};
+use crate::api_harness::{Api, api, api_with_operations, api_with_triage, api_without_profiles};
 
 /// The allowlisted Discord user.
 pub const ALLOWED: &str = "234567890123456789";
@@ -98,51 +97,82 @@ pub fn press(a: &Api, user: &str, button: CardButton) -> Interaction {
     )
 }
 
-/// A proposed `restart_container` (or `prune_snapshots` when destructive) with a chat
-/// token, as triage would leave it.
-pub async fn proposed(a: &Api, risk: Risk) -> (ActionRequest, String) {
-    let name = if risk == Risk::Destructive {
-        "prune_snapshots"
+pub struct Waiting {
+    pub operation: OperationId,
+    pub step: StepId,
+    pub token: String,
+    pub prefix: String,
+}
+
+impl Waiting {
+    pub fn execution_id(&self) -> ExecutionId {
+        ExecutionId::from_step(self.step)
+    }
+
+    pub fn approve(&self) -> CardButton {
+        CardButton::Approve {
+            execution: self.execution_id(),
+            token: self.token.clone(),
+            plan_prefix: Some(self.prefix.clone()),
+        }
+    }
+}
+
+/// A proposed step of `skill` linked to the incident, holding a freshly rotated token.
+pub async fn proposed_step(a: &Api, skill: &str, linked: bool) -> Waiting {
+    let operation = a.create_operation("restart plex", linked).await;
+    let args: &[(&str, &str)] = if skill == "restart_container" {
+        &[("container", "plex")]
+    } else {
+        &[]
+    };
+    let step = a.propose_run(operation, skill, args).await;
+    let token = mint_token();
+    a.ops()
+        .rotate_chat_token(operation, step, token_hash(&token))
+        .await
+        .unwrap();
+    let snapshot = a.state.deps().operation_repo.load(operation).await.unwrap();
+    let hash = snapshot
+        .unwrap()
+        .execution_of(step)
+        .unwrap()
+        .value
+        .plan_hash;
+    Waiting {
+        operation,
+        step,
+        token,
+        prefix: hex::encode(&hash.as_bytes()[..3]),
+    }
+}
+
+pub async fn execution(a: &Api, w: &Waiting) -> domovoi_core::ExecutionRecord {
+    let snapshot = a
+        .state
+        .deps()
+        .operation_repo
+        .load(w.operation)
+        .await
+        .unwrap()
+        .unwrap();
+    snapshot.execution_of(w.step).unwrap().value.clone()
+}
+
+/// A waiting `restart_container` (or `prune_images` when destructive) step linked to the
+/// incident, with a chat token, as triage would leave it. Needs the operations harness.
+pub async fn proposed(a: &Api, risk: Risk) -> Waiting {
+    let skill = if risk == Risk::Destructive {
+        "prune_images"
     } else {
         "restart_container"
     };
-    let summary = manifest(name, risk)
-        .unwrap()
-        .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
-    let args = summary.validate_args(&BTreeMap::new()).unwrap();
-    let token = mint_token();
-    let action = ActionRequest::propose(
-        &a.incident,
-        &summary,
-        &args,
-        Some(domovoi_testkit::build::key_fingerprint()),
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        a.now(),
-    )
-    .unwrap()
-    .with_chat_token_hash(token_hash(&token));
-    ActionRepo::insert(&*a.store, &action).await.unwrap();
-    (action, token)
+    proposed_step(a, skill, true).await
 }
 
-pub async fn status_of(a: &Api, action: &ActionRequest) -> ActionStatus {
-    ActionRepo::get(&*a.store, action.id())
-        .await
-        .unwrap()
-        .unwrap()
-        .status()
-        .clone()
-}
-
-pub fn approve(action: &ActionRequest, token: &str) -> CardButton {
-    CardButton::Approve {
-        action: action.id(),
-        token: token.to_owned(),
-        plan_prefix: Some(hex::encode(
-            &action.plan_hash_for_approval().as_bytes()[..3],
-        )),
-    }
+/// Whether the step has been approved.
+pub async fn is_approved(a: &Api, w: &Waiting) -> bool {
+    execution(a, w).await.approval().is_some()
 }
 
 fn accepted(reply: &InteractionReply) -> Option<&str> {
@@ -172,17 +202,17 @@ async fn audit_kinds(a: &Api) -> Vec<(String, String)> {
 
 #[tokio::test]
 async fn non_allowlisted_user_is_rejected() {
-    let a = api().await;
+    let a = api_with_operations().await;
     a.admin().await;
     let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
+    let w = proposed(&a, Risk::Write).await;
     for kind in [
         InteractionKind::Button {
             button: CardButton::Ack,
             incident: a.incident.id(),
         },
         InteractionKind::Button {
-            button: approve(&action, &token),
+            button: w.approve(),
             incident: a.incident.id(),
         },
         InteractionKind::ThreadMessage {
@@ -197,7 +227,7 @@ async fn non_allowlisted_user_is_rejected() {
         let reply = c.authorizer.deliver(interaction(&a, STRANGER, kind)).await;
         assert_eq!(rejected(&reply), NOT_ALLOWED);
     }
-    assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
+    assert!(!is_approved(&a, &w).await);
     assert_eq!(
         IncidentRepo::get(&*a.store, a.incident.id())
             .await
@@ -266,27 +296,6 @@ async fn ack_and_mute_reach_incident_manager() {
             ("chat.ack".to_owned(), format!("chat:discord:{ALLOWED}")),
         ]
     );
-}
-
-#[tokio::test]
-async fn chat_approve_with_old_button_without_prefix_is_refused() {
-    let a = api().await;
-    a.admin().await;
-    let c = chat(&a).await;
-    let (action, token) = proposed(&a, Risk::Write).await;
-    let old = CardButton::Approve {
-        action: action.id(),
-        token,
-        plan_prefix: None,
-    };
-
-    let reply = c.authorizer.deliver(press(&a, ALLOWED, old)).await;
-
-    assert_eq!(
-        rejected(&reply),
-        "This card is out of date; open the incident in the web UI to approve"
-    );
-    assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
 }
 
 #[tokio::test]

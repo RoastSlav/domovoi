@@ -50,11 +50,9 @@ pub mod verdict;
 
 pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
 pub use action::{
-    ActionChange, ActionError, ActionRequest, ActionStatus, ApprovalChannel, ApprovalEvidenceError,
-    ApprovalPlan, ApprovalProvenance, Authorization, AuthorizationKind, CapabilityPlan,
+    ApprovalChannel, ApprovalProvenance, Authorization, AuthorizationKind, CapabilityPlan,
     HumanApproval, ImplHash, JournalEpoch, PackagePlan, PermitError, PlanBinding, PlanContract,
-    PlanError, PlanFamily, PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts, Principal,
-    StoredAction, StoredActionError, job_plan_hash,
+    PlanError, PlanHash, PlanTarget, PolicyPermit, PolicyPermitParts, Principal, job_plan_hash,
 };
 pub use actor::{
     Actor, ActorParseError, SYSTEM_ACTIONS, SYSTEM_AUDIT, SYSTEM_INCIDENTS, SYSTEM_KNOWLEDGE,
@@ -77,7 +75,7 @@ pub use host::{
     ProtocolParseError, REPORT_REFRESH, ReportOutcome, ReportedProtocol, host_target_text,
 };
 pub use id::{
-    AckRuleId, ActionId, AdvisoryId, AgentId, AgentSessionId, ConversationId, EffectId, EntityId,
+    AckRuleId, AdvisoryId, AgentId, AgentSessionId, ConversationId, EffectId, EntityId,
     ExecutionId, FactRecordId, HostId, IncidentId, InstallJobId, InstallTargetId, MessageId,
     NoteId, OperationId, PackageArtifactId, PolicyVersionId, RelationId, RequestId, SignalId,
     StepId, TurnId, UserId,

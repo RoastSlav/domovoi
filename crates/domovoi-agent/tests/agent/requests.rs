@@ -281,7 +281,7 @@ mod skills {
     use std::collections::BTreeMap;
 
     use domovoi_agent::requests::run_skill;
-    use domovoi_core::{ActionId, PlanHash, SkillName};
+    use domovoi_core::{ExecutionId, PlanHash, SkillName};
     use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome};
 
     use super::*;
@@ -305,7 +305,7 @@ mod skills {
         let loaded = ctx.catalog.get(&name(skill)).unwrap();
         let validated = loaded.manifest().validate_args(&args(service)).unwrap();
         RunSkill {
-            action_id: ActionId::new(),
+            action_id: ExecutionId::new(),
             skill: name(skill),
             args: args(service),
             plan_hash: PlanHash::compute(

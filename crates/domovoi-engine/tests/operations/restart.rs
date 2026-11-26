@@ -41,7 +41,7 @@ async fn reconcile_settles_a_dispatched_execution_after_restart() {
     let (op, step) = dispatched_without_an_answer(&w).await;
     w.link.answer(
         host_id(),
-        ExecutionId::from_step(step).as_action(),
+        ExecutionId::from_step(step),
         ActionAnswer::Finished {
             succeeded: true,
             detail: None,
@@ -126,7 +126,7 @@ async fn result_after_cancel_is_recorded() {
     // The result arrives anyway: the journal says it worked.
     w.link.answer(
         host_id(),
-        ExecutionId::from_step(step).as_action(),
+        ExecutionId::from_step(step),
         ActionAnswer::Finished {
             succeeded: true,
             detail: None,

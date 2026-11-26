@@ -2,11 +2,11 @@
 
 use domovoi_core::ports::{
     AdvisoryRepo, AggregateRef, EffectKind, EffectRead, EffectRecord, EffectStatus, IncidentRepo,
-    IncidentTimelineEntry, OperationRepo, Page,
+    IncidentTimelineEntry, OperationRepo,
 };
 use domovoi_core::{
-    ActionRequest, CheckKey, Evidence, Incident, Operation, OperationId, OperationSnapshot,
-    StepKind, StepRecord, TargetKey, TriageOutcome,
+    CheckKey, Evidence, Incident, Operation, OperationId, OperationSnapshot, StepKind, StepRecord,
+    TargetKey, TriageOutcome,
 };
 use domovoi_engine::operations::OperationService;
 use domovoi_engine::{DomainEvent, EventKind};
@@ -157,7 +157,7 @@ impl Inv {
         self.events()
             .into_iter()
             .filter_map(|event| match event.kind {
-                EventKind::TriageCompleted { outcome, tokens } => Some((outcome, tokens.len())),
+                EventKind::TriageCompleted { outcome, tokens } => Some((*outcome, tokens.len())),
                 _ => None,
             })
             .collect()
@@ -199,18 +199,6 @@ impl Inv {
             found.extend(self.effects(op, status, Some(kind)).await);
         }
         found
-    }
-
-    /// The legacy action rows.
-    pub async fn actions(&self) -> Vec<ActionRequest> {
-        domovoi_core::ports::ActionRepo::list(
-            &*self.store,
-            &domovoi_core::ports::ActionFilter::default(),
-            &Page::first(100),
-        )
-        .await
-        .unwrap()
-        .items
     }
 
     /// The open advisories.

@@ -390,7 +390,6 @@ async fn staged_steps_are_stored_through_propose_execution() {
         .await;
 
     assert_eq!(of_kind(&snapshot, StepKind::Approval).len(), 1);
-    assert!(w.actions().await.is_empty(), "no row in actions");
     let executions = of_kind(&snapshot, StepKind::Execution);
     assert_eq!(executions.len(), 1);
     let StepIntent::Execution(intent) = &executions[0].step.intent else {

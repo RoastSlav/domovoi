@@ -7,7 +7,7 @@ use axum::http::{Request, StatusCode, header};
 use domovoi_core::ports::{
     AggregateRef, JournalDraft, JournalKind, JournalRead, Transaction, UnitOfWork,
 };
-use domovoi_core::{ActionId, Actor, IncidentId, NoteId, OperationId};
+use domovoi_core::{Actor, IncidentId, NoteId, OperationId};
 use futures::StreamExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -265,11 +265,6 @@ async fn sse_filters_by_topic() {
         &a,
         vec![
             incident_row(),
-            draft(
-                AggregateRef::action(ActionId::new()),
-                JournalKind::ActionTransition,
-                json!({"to": "approved"}),
-            ),
             operation_row(op_a, JournalKind::StepFinished),
             operation_row(op_b, JournalKind::StepFinished),
             operation_row(op_a, JournalKind::ExecutionTransition),
@@ -283,12 +278,12 @@ async fn sse_filters_by_topic() {
     .await;
     let first = seqs[0] - 1;
     let cases = [
-        ("incidents".to_owned(), vec![seqs[0], seqs[1]]),
-        ("approvals".to_owned(), vec![seqs[1], seqs[4]]),
-        ("operations".to_owned(), vec![seqs[2], seqs[3], seqs[4]]),
+        ("incidents".to_owned(), vec![seqs[0]]),
+        ("approvals".to_owned(), vec![seqs[3]]),
+        ("operations".to_owned(), vec![seqs[1], seqs[2], seqs[3]]),
         (
             format!("operation:{}", op_a.as_uuid()),
-            vec![seqs[2], seqs[4]],
+            vec![seqs[1], seqs[3]],
         ),
     ];
     for (topic, want) in cases {

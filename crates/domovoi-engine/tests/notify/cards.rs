@@ -2,65 +2,53 @@
 
 use std::collections::BTreeMap;
 
-use domovoi_core::{
-    ActionId, ActionRequest, CardButton, ExecutionId, Incident, ParamKind, ParamName, ParamSpec,
-    PlanTarget, Risk, Severity, Verdict,
-};
+use domovoi_core::{CardButton, ExecutionId, Risk, Severity, Verdict};
 use domovoi_engine::cards::{CardLinks, WaitingStep, build_card};
 use domovoi_engine::render;
-use domovoi_testkit::build::{action, key_fingerprint};
 use uuid::Uuid;
 
-use crate::harness::{host, host_id, open, report, resolve, signal, ts};
+use crate::harness::{host, open, report, resolve, signal, ts};
 
-fn action_id(n: u128) -> ActionId {
-    ActionId::from_uuid(Uuid::from_u128(
+fn execution_id(n: u128) -> ExecutionId {
+    ExecutionId::from_uuid(Uuid::from_u128(
         0x0190_0000_0000_7000_8000_0000_0000_2000 + n,
     ))
 }
 
-/// A proposed `restart_container` action with `pairs` as arguments, a fixed `id` and `risk`.
-fn proposed_with_args(
-    incident: &Incident,
-    id: ActionId,
-    risk: Risk,
-    pairs: &[(&str, &str)],
-    at: jiff::Timestamp,
-) -> ActionRequest {
-    let mut manifest = domovoi_testkit::build::manifest("restart_container", risk).unwrap();
-    manifest.params = pairs
-        .iter()
-        .map(|(name, _)| ParamSpec {
-            name: ParamName::parse(name).unwrap(),
-            description: format!("The {name} argument."),
-            required: true,
-            kind: ParamKind::String {
-                pattern: "^[-a-z0-9_]+$".to_owned(),
-                max_len: 1024,
-            },
-        })
-        .collect();
-    let skill = manifest.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
-    let values: BTreeMap<String, String> = pairs
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .collect();
-    let args = skill.validate_args(&values).unwrap();
-    domovoi_testkit::build::action_from(
-        id,
-        incident.id(),
-        host_id(),
-        PlanTarget::of_incident(incident, key_fingerprint()),
-        &skill,
-        &args,
-        at,
-    )
-    .unwrap()
+/// A waiting `restart_container` step with `args` (already in name order), a fixed id and
+/// `risk`, created at `at`.
+fn waiting_step(n: u128, risk: Option<Risk>, args: &[(&str, &str)], at: &str) -> WaitingStep {
+    WaitingStep {
+        execution: execution_id(n),
+        skill: "restart_container".to_owned(),
+        host: host(),
+        risk,
+        args: args
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect(),
+        plan_short: "abcd1234".to_owned(),
+        plan_prefix: "abcd12".to_owned(),
+        expires_at: ts("2026-11-01T09:00:00Z"),
+        created_at: ts(at),
+    }
 }
 
-/// The first 6 lowercase hex characters of `action`'s plan hash.
-fn plan_prefix(action: &ActionRequest) -> String {
-    hex::encode(&action.plan_hash_for_approval().as_bytes()[..3])
+/// Links for `steps`, each with a chat token when `with_tokens`.
+fn step_links(steps: Vec<WaitingStep>, with_tokens: bool) -> CardLinks {
+    let tokens = if with_tokens {
+        steps
+            .iter()
+            .map(|s| (s.execution, "tok_write".to_owned()))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    CardLinks {
+        web_url: None,
+        tokens,
+        steps,
+    }
 }
 
 fn snapshot(name: &str, card: &domovoi_core::Card) {
@@ -83,7 +71,6 @@ fn card_without_report_uses_severity_title_and_signal_evidence() {
     let card = build_card(
         &incident,
         None,
-        &[],
         &host(),
         &CardLinks::default(),
         Some(&latest),
@@ -103,7 +90,6 @@ fn card_with_monitor_report() {
     let card = build_card(
         &incident,
         Some(&report),
-        &[],
         &host(),
         &CardLinks::default(),
         None,
@@ -114,31 +100,22 @@ fn card_with_monitor_report() {
 #[test]
 fn card_with_write_proposal_has_approve_and_deny() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = proposed_with_args(
-        &incident,
-        action_id(1),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:00:00Z"),
-    );
-    let mut links = CardLinks::default();
-    links.tokens.insert(write.id(), "tok_write".to_owned());
+    let step = waiting_step(1, Some(Risk::Write), &[], "2026-10-31T09:00:00Z");
     let report = report(Verdict::ActionNeeded);
     let card = build_card(
         &incident,
         Some(&report),
-        std::slice::from_ref(&write),
         &host(),
-        &links,
+        &step_links(vec![step.clone()], true),
         None,
     );
     assert!(card.buttons.contains(&CardButton::Approve {
-        action: write.id(),
+        execution: step.execution,
         token: "tok_write".to_owned(),
-        plan_prefix: Some(plan_prefix(&write)),
+        plan_prefix: Some("abcd12".to_owned()),
     }));
     assert!(card.buttons.contains(&CardButton::Deny {
-        action: write.id(),
+        execution: step.execution,
         token: "tok_write".to_owned()
     }));
     assert_eq!(card.plans.len(), 1);
@@ -146,29 +123,25 @@ fn card_with_write_proposal_has_approve_and_deny() {
 }
 
 #[test]
-fn card_lists_waiting_actions_with_skill_host_args_and_plan() {
+fn card_lists_waiting_steps_with_skill_host_args_and_plan() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = proposed_with_args(
-        &incident,
-        action_id(3),
-        Risk::Write,
-        &[("zeta", "1"), ("alpha", "2")],
-        ts("2026-10-31T09:00:00Z"),
+    let step = waiting_step(
+        3,
+        Some(Risk::Write),
+        &[("alpha", "2"), ("zeta", "1")],
+        "2026-10-31T09:00:00Z",
     );
-    let mut links = CardLinks::default();
-    links.tokens.insert(write.id(), "tok_write".to_owned());
     let card = build_card(
         &incident,
         Some(&report(Verdict::ActionNeeded)),
-        std::slice::from_ref(&write),
         &host(),
-        &links,
+        &step_links(vec![step.clone()], true),
         None,
     );
 
     assert_eq!(card.plans.len(), 1);
     let plan = &card.plans[0];
-    assert_eq!(plan.action, write.id());
+    assert_eq!(plan.execution, step.execution);
     assert_eq!(plan.skill, "restart_container");
     assert_eq!(plan.host, host());
     assert_eq!(plan.risk, Risk::Write);
@@ -179,20 +152,18 @@ fn card_lists_waiting_actions_with_skill_host_args_and_plan() {
             ("zeta".to_owned(), "1".to_owned())
         ]
     );
-    assert_eq!(plan.plan_short, write.plan_hash_for_approval().short());
-    assert_eq!(plan.plan_short.len(), 8);
-    assert_eq!(plan.expires_at, write.expires_at());
+    assert_eq!(plan.plan_short, "abcd1234");
+    assert_eq!(plan.expires_at, step.expires_at);
     assert_eq!(
         plan.args_text().as_deref(),
         Some("alpha=2, zeta=1"),
         "the plan shows the arguments in name order"
     );
     assert!(card.buttons.contains(&CardButton::Approve {
-        action: write.id(),
+        execution: step.execution,
         token: "tok_write".to_owned(),
-        plan_prefix: Some(plan_prefix(&write)),
+        plan_prefix: Some("abcd12".to_owned()),
     }));
-    assert_eq!(plan_prefix(&write).len(), 6);
     assert!(card.validate().is_ok());
 }
 
@@ -200,21 +171,17 @@ fn card_lists_waiting_actions_with_skill_host_args_and_plan() {
 fn card_with_long_arguments_links_to_the_web_instead_of_chat_buttons() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
     let long = "v".repeat(600);
-    let write = proposed_with_args(
-        &incident,
-        action_id(4),
-        Risk::Write,
+    let step = waiting_step(
+        4,
+        Some(Risk::Write),
         &[("payload", long.as_str())],
-        ts("2026-10-31T09:00:00Z"),
+        "2026-10-31T09:00:00Z",
     );
-    let mut links = CardLinks::default();
-    links.tokens.insert(write.id(), "tok_write".to_owned());
     let card = build_card(
         &incident,
         Some(&report(Verdict::ActionNeeded)),
-        std::slice::from_ref(&write),
         &host(),
-        &links,
+        &step_links(vec![step.clone()], true),
         None,
     );
 
@@ -225,10 +192,9 @@ fn card_with_long_arguments_links_to_the_web_instead_of_chat_buttons() {
             .any(|b| matches!(b, CardButton::Approve { .. } | CardButton::Deny { .. })),
         "arguments too long to show must never be approved from chat"
     );
-    assert!(
-        card.buttons
-            .contains(&CardButton::OpenInWeb { action: write.id() })
-    );
+    assert!(card.buttons.contains(&CardButton::OpenInWeb {
+        execution: step.execution
+    }));
     assert_eq!(card.plans.len(), 1);
     assert_eq!(card.plans[0].args_text(), None);
     let rendered = render::card(&card);
@@ -243,48 +209,21 @@ fn card_with_long_arguments_links_to_the_web_instead_of_chat_buttons() {
 }
 
 #[test]
-fn card_limits_waiting_actions_to_the_three_oldest_proposed() {
+fn card_limits_waiting_steps_to_the_three_oldest() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
     // Newest first, and ids in the opposite order to the creation time, so only a sort by
-    // `created_at` produces the right waiting list.
-    let newest = proposed_with_args(
-        &incident,
-        action_id(5),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:04:00Z"),
-    );
-    let third = proposed_with_args(
-        &incident,
-        action_id(7),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:03:00Z"),
-    );
-    let second = proposed_with_args(
-        &incident,
-        action_id(6),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:02:00Z"),
-    );
-    let oldest = proposed_with_args(
-        &incident,
-        action_id(9),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:01:00Z"),
-    );
-    let mut links = CardLinks::default();
-    for action in [&newest, &third, &second, &oldest] {
-        links.tokens.insert(action.id(), "tok_write".to_owned());
-    }
+    // creation time produces the right waiting list.
+    let steps = vec![
+        waiting_step(5, Some(Risk::Write), &[], "2026-10-31T09:04:00Z"),
+        waiting_step(7, Some(Risk::Write), &[], "2026-10-31T09:03:00Z"),
+        waiting_step(6, Some(Risk::Write), &[], "2026-10-31T09:02:00Z"),
+        waiting_step(9, Some(Risk::Write), &[], "2026-10-31T09:01:00Z"),
+    ];
     let card = build_card(
         &incident,
         Some(&report(Verdict::ActionNeeded)),
-        &[newest, third, second, oldest],
         &host(),
-        &links,
+        &step_links(steps, true),
         None,
     );
 
@@ -292,46 +231,33 @@ fn card_limits_waiting_actions_to_the_three_oldest_proposed() {
     assert_eq!(
         card.plans
             .iter()
-            .map(|plan| plan.action)
+            .map(|plan| plan.execution)
             .collect::<Vec<_>>(),
-        [action_id(9), action_id(6), action_id(7)]
+        [execution_id(9), execution_id(6), execution_id(7)]
     );
     assert!(
-        !card
-            .buttons
-            .iter()
-            .any(|b| matches!(b, CardButton::Approve { action, .. } if *action == action_id(5))),
-        "the fourth waiting action gets no button"
+        !card.buttons.iter().any(
+            |b| matches!(b, CardButton::Approve { execution, .. } if *execution == execution_id(5))
+        ),
+        "the fourth waiting step gets no button"
     );
     assert!(card.validate().is_ok());
 }
 
 #[test]
-fn markdown_card_names_the_waiting_action() {
+fn markdown_card_names_the_waiting_step() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = proposed_with_args(
-        &incident,
-        action_id(5),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:00:00Z"),
-    );
-    let mut links = CardLinks::default();
-    links.tokens.insert(write.id(), "tok_write".to_owned());
+    let step = waiting_step(5, Some(Risk::Write), &[], "2026-10-31T09:00:00Z");
     let card = build_card(
         &incident,
         Some(&report(Verdict::ActionNeeded)),
-        std::slice::from_ref(&write),
         &host(),
-        &links,
+        &step_links(vec![step], true),
         None,
     );
 
     let rendered = render::card(&card);
-    let expected = format!(
-        "Waiting: restart_container on nas (write), no arguments · plan {}",
-        write.plan_hash_for_approval().short()
-    );
+    let expected = "Waiting: restart_container on nas (write), no arguments · plan abcd1234";
     let lines: Vec<&str> = rendered.lines().collect();
     let plan_at = lines
         .iter()
@@ -363,23 +289,14 @@ fn markdown_card_names_the_waiting_action() {
 #[test]
 fn destructive_proposal_only_opens_in_web() {
     let incident = open(Severity::Critical, ts("2026-10-31T09:00:00Z"));
-    let wipe = proposed_with_args(
-        &incident,
-        action_id(2),
-        Risk::Destructive,
-        &[],
-        ts("2026-10-31T09:00:00Z"),
-    );
-    let mut links = CardLinks::default();
-    // Even with a token, a destructive action is never approvable from chat (INV-6).
-    links.tokens.insert(wipe.id(), "tok_wipe".to_owned());
+    let step = waiting_step(2, Some(Risk::Destructive), &[], "2026-10-31T09:00:00Z");
     let report = report(Verdict::ActionNeeded);
+    // Even with a token, a destructive step is never approvable from chat (INV-6).
     let card = build_card(
         &incident,
         Some(&report),
-        std::slice::from_ref(&wipe),
         &host(),
-        &links,
+        &step_links(vec![step.clone()], true),
         None,
     );
     assert!(
@@ -388,29 +305,26 @@ fn destructive_proposal_only_opens_in_web() {
             .iter()
             .any(|b| matches!(b, CardButton::Approve { .. } | CardButton::Deny { .. }))
     );
-    assert!(
-        card.buttons
-            .contains(&CardButton::OpenInWeb { action: wipe.id() })
-    );
+    assert!(card.buttons.contains(&CardButton::OpenInWeb {
+        execution: step.execution
+    }));
     snapshot("destructive_proposal", &card);
 }
 
 #[test]
 fn missing_token_falls_back_to_open_in_web() {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let write = action(incident.id(), host_id(), Risk::Write).unwrap();
+    let step = waiting_step(1, Some(Risk::Write), &[], "2026-10-31T09:00:00Z");
     let card = build_card(
         &incident,
         None,
-        std::slice::from_ref(&write),
         &host(),
-        &CardLinks::default(),
+        &step_links(vec![step.clone()], false),
         None,
     );
-    assert!(
-        card.buttons
-            .contains(&CardButton::OpenInWeb { action: write.id() })
-    );
+    assert!(card.buttons.contains(&CardButton::OpenInWeb {
+        execution: step.execution
+    }));
     assert!(
         !card
             .buttons
@@ -427,7 +341,6 @@ fn resolved_card_has_no_ack_or_mute() {
     let card = build_card(
         &incident,
         Some(&report),
-        &[],
         &host(),
         &CardLinks::default(),
         None,
@@ -445,7 +358,6 @@ fn long_headlines_are_cut() {
     let card = build_card(
         &incident,
         Some(&report),
-        &[],
         &host(),
         &CardLinks::default(),
         None,
@@ -455,43 +367,9 @@ fn long_headlines_are_cut() {
     assert!(card.validate().is_ok());
 }
 
-fn waiting_step(n: u128, risk: Option<Risk>, args: &[(&str, &str)], at: &str) -> WaitingStep {
-    let execution = ExecutionId::from_action(action_id(n));
-    WaitingStep {
-        execution,
-        skill: "restart_container".to_owned(),
-        host: host(),
-        risk,
-        args: args
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-            .collect(),
-        plan_short: "abcd1234".to_owned(),
-        plan_prefix: "abcd12".to_owned(),
-        expires_at: ts("2026-11-01T09:00:00Z"),
-        created_at: ts(at),
-    }
-}
-
-fn step_links(steps: Vec<WaitingStep>, with_tokens: bool) -> CardLinks {
-    let tokens = if with_tokens {
-        steps
-            .iter()
-            .map(|s| (s.execution.as_action(), format!("tok{}", s.skill.len())))
-            .collect()
-    } else {
-        BTreeMap::new()
-    };
-    CardLinks {
-        web_url: None,
-        tokens,
-        steps,
-    }
-}
-
-fn card_of(links: &CardLinks, actions: &[ActionRequest]) -> domovoi_core::Card {
+fn card_of(links: &CardLinks) -> domovoi_core::Card {
     let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    build_card(&incident, None, actions, &host(), links, None)
+    build_card(&incident, None, &host(), links, None)
 }
 
 #[test]
@@ -502,19 +380,19 @@ fn card_lists_a_waiting_step_with_buttons_and_the_v2_plan_prefix() {
         &[("container", "plex")],
         "2026-10-31T09:01:00Z",
     );
-    let id = step.execution.as_action();
-    let card = card_of(&step_links(vec![step], true), &[]);
+    let id = step.execution;
+    let card = card_of(&step_links(vec![step], true));
     assert_eq!(card.plans.len(), 1);
     assert_eq!(card.plans[0].skill, "restart_container");
     assert_eq!(card.plans[0].plan_short, "abcd1234");
     assert!(card.buttons.iter().any(|b| matches!(
         b,
-        CardButton::Approve { action, plan_prefix: Some(p), .. } if *action == id && p == "abcd12"
+        CardButton::Approve { execution, plan_prefix: Some(p), .. } if *execution == id && p == "abcd12"
     )));
     assert!(
         card.buttons
             .iter()
-            .any(|b| matches!(b, CardButton::Deny { action, .. } if *action == id))
+            .any(|b| matches!(b, CardButton::Deny { execution, .. } if *execution == id))
     );
 }
 
@@ -542,10 +420,13 @@ fn card_offers_a_web_link_for_a_destructive_unknown_or_long_step() {
         ),
     ];
     for (step, tokens) in cases {
-        let id = step.execution.as_action();
-        let card = card_of(&step_links(vec![step], tokens), &[]);
+        let id = step.execution;
+        let card = card_of(&step_links(vec![step], tokens));
         assert_eq!(card.plans.len(), 1, "the plan is still listed");
-        assert!(card.buttons.contains(&CardButton::OpenInWeb { action: id }));
+        assert!(
+            card.buttons
+                .contains(&CardButton::OpenInWeb { execution: id })
+        );
         assert!(
             !card
                 .buttons
@@ -558,36 +439,6 @@ fn card_offers_a_web_link_for_a_destructive_unknown_or_long_step() {
 #[test]
 fn unknown_risk_is_shown_as_destructive_on_the_card() {
     let step = waiting_step(1, None, &[], "2026-10-31T09:01:00Z");
-    let card = card_of(&step_links(vec![step], true), &[]);
+    let card = card_of(&step_links(vec![step], true));
     assert_eq!(card.plans[0].risk, Risk::Destructive);
-}
-
-#[test]
-fn card_shows_at_most_three_plans_across_actions_and_steps() {
-    let incident = open(Severity::Warning, ts("2026-10-31T09:00:00Z"));
-    let first = proposed_with_args(
-        &incident,
-        action_id(10),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:00:10Z"),
-    );
-    let second = proposed_with_args(
-        &incident,
-        action_id(11),
-        Risk::Write,
-        &[],
-        ts("2026-10-31T09:00:20Z"),
-    );
-    let steps = vec![
-        waiting_step(1, Some(Risk::Write), &[], "2026-10-31T09:00:15Z"),
-        waiting_step(2, Some(Risk::Write), &[], "2026-10-31T09:00:30Z"),
-    ];
-    let card = card_of(&step_links(steps, true), &[first.clone(), second]);
-    assert_eq!(card.plans.len(), 3);
-    assert_eq!(card.plans[0].action, first.id());
-    assert_eq!(
-        card.plans[1].action,
-        ExecutionId::from_action(action_id(1)).as_action()
-    );
 }

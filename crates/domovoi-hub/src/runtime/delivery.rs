@@ -129,7 +129,7 @@ impl Delivery {
         incident: Incident,
         actions: Vec<NotifyAction>,
         working: Working,
-        tokens: BTreeMap<domovoi_core::ActionId, String>,
+        tokens: BTreeMap<domovoi_core::ExecutionId, String>,
     ) -> Delivered {
         if actions.is_empty() || self.gateways.is_empty() {
             // Nothing to confirm: the plan's state is the truth, as with no chat configured.
@@ -298,7 +298,7 @@ impl Delivery {
     async fn card(
         &self,
         incident: &Incident,
-        tokens: BTreeMap<domovoi_core::ActionId, String>,
+        tokens: BTreeMap<domovoi_core::ExecutionId, String>,
     ) -> Option<Card> {
         let host = match self.store.get_host(incident.host()).await {
             Ok(Some(host)) => host,
@@ -327,7 +327,6 @@ impl Delivery {
         Some(build_card(
             incident,
             report.as_ref(),
-            &[],
             &host.name,
             &CardLinks {
                 web_url: self.config.web.public_url.as_ref().map(ToString::to_string),

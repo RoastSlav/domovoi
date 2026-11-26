@@ -9,7 +9,6 @@ use super::*;
 fn aggregate_kinds_round_trip() {
     for kind in [
         AggregateKind::Incident,
-        AggregateKind::Action,
         AggregateKind::Note,
         AggregateKind::Operation,
         AggregateKind::Policy,
@@ -21,11 +20,7 @@ fn aggregate_kinds_round_trip() {
     assert_eq!(AggregateKind::parse("host"), None);
     assert_eq!(
         AggregateKind::LEGACY,
-        [
-            AggregateKind::Incident,
-            AggregateKind::Action,
-            AggregateKind::Note
-        ]
+        [AggregateKind::Incident, AggregateKind::Note]
     );
 }
 

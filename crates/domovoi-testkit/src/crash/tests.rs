@@ -1,40 +1,25 @@
 //! Unit tests for the crash wrapper, snapshots and invariants.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::StoreError;
 use domovoi_core::ports::{
-    ActionGuard, AggregateRef, AuditDraft, IncidentRepo, IncidentTimelineEntry, JournalDraft,
-    JournalKind, SignalRepo, StateWrite, Transaction, UnitOfWork,
+    AggregateRef, AuditDraft, IncidentRepo, IncidentTimelineEntry, JournalDraft, JournalKind,
+    SignalRepo, StateWrite, Transaction, UnitOfWork,
 };
-use domovoi_core::{
-    ActionRequest, Actor, ApprovalProvenance, Authorization, Incident, PlanBinding, Risk, UserId,
-};
+use domovoi_core::{Actor, Incident};
 use serde_json::json;
 
 use super::snapshot::Snapshot;
 use super::{
     CrashPlan, CrashPoint, CrashingStore, Exempt, check_invariants, check_invariants_except,
 };
-use crate::build::{T0, at, incident as pending_incident, signal};
+use crate::build::{T0, incident as pending_incident, signal};
 use crate::repos::InMemoryStore;
 
 fn host() -> domovoi_core::HostId {
     domovoi_core::HostId::new()
-}
-
-/// Approves `action` as a human at `at(1)`, bound to the plan it shows.
-fn approve(action: &mut ActionRequest) {
-    let binding = PlanBinding::Full(action.plan_hash_for_approval());
-    action
-        .approve(
-            Authorization::human(crate::approvals::human(UserId::new())),
-            ApprovalProvenance::new(None, "test"),
-            &binding,
-            at(1),
-        )
-        .unwrap();
 }
 
 fn new_incident_tx(incident: &Incident) -> Transaction {
@@ -173,8 +158,6 @@ async fn summaries_describe_each_commit_without_ids() {
         summary: "opened".to_owned(),
         detail: json!({"from": "pending"}),
     };
-    let action = crate::build::action(incident.id(), host, Risk::Write).unwrap();
-    let action_id = action.id();
     let tx = Transaction::new()
         .write(StateWrite::Signal {
             signal,
@@ -185,12 +168,8 @@ async fn summaries_describe_each_commit_without_ids() {
             expected: domovoi_core::ports::Expected::New,
         })
         .write(StateWrite::IncidentEvent(entry))
-        .write(StateWrite::Action {
-            action,
-            expected: ActionGuard::New,
-        })
         .journal(JournalDraft {
-            aggregate: AggregateRef::action(domovoi_core::ActionId::new()),
+            aggregate: AggregateRef::incident(incident_id),
             kind: JournalKind::ActionTransition,
             payload_v: 1,
             payload: json!({"to": "proposed"}),
@@ -209,7 +188,7 @@ async fn summaries_describe_each_commit_without_ids() {
     let summary = &crashing.summaries()[0];
     assert_eq!(
         summary.writes,
-        vec!["signal", "incident:new", "incident_event", "action:new"]
+        vec!["signal", "incident:new", "incident_event"]
     );
     assert_eq!(
         summary.journal,
@@ -218,7 +197,6 @@ async fn summaries_describe_each_commit_without_ids() {
     assert_eq!(summary.audit, vec!["action.proposed"]);
     let rendered = format!("{summary:?}");
     assert!(!rendered.contains(&incident_id.to_string()), "{rendered}");
-    assert!(!rendered.contains(&action_id.to_string()), "{rendered}");
 }
 
 #[tokio::test]
@@ -226,22 +204,10 @@ async fn snapshot_is_independent_of_ids_and_order() {
     let first = Arc::new(InMemoryStore::new());
     let one = pending_incident(host(), "disk.smart", None).unwrap();
     IncidentRepo::insert(&*first, &one).await.unwrap();
-    domovoi_core::ports::ActionRepo::insert(
-        &*first,
-        &crate::build::action(one.id(), one.host(), Risk::Write).unwrap(),
-    )
-    .await
-    .unwrap();
 
     let second = Arc::new(InMemoryStore::new());
     let other_host = host();
     let two = pending_incident(other_host, "disk.smart", None).unwrap();
-    domovoi_core::ports::ActionRepo::insert(
-        &*second,
-        &crate::build::action(two.id(), other_host, Risk::Write).unwrap(),
-    )
-    .await
-    .unwrap();
     IncidentRepo::insert(&*second, &two).await.unwrap();
 
     assert_eq!(
@@ -279,9 +245,8 @@ async fn snapshots_distinguish_states() {
     );
 }
 
-/// One incident with a journaled timeline entry, and one action proposed and approved with
-/// its journal and audit rows: the shape the writers produce.
-async fn consistent_store() -> (Arc<InMemoryStore>, Incident, ActionRequest) {
+/// One incident with a journaled timeline entry: the shape the writers produce.
+async fn consistent_store() -> (Arc<InMemoryStore>, Incident) {
     let store = Arc::new(InMemoryStore::new());
     let host = host();
     let signal = signal(host, "disk.smart", None).unwrap();
@@ -293,8 +258,7 @@ async fn consistent_store() -> (Arc<InMemoryStore>, Incident, ActionRequest) {
         summary: "opened".to_owned(),
         detail: json!({"from": "pending", "to": "open"}),
     };
-    let mut action = crate::build::action(incident.id(), host, Risk::Write).unwrap();
-    let proposed = Transaction::new()
+    let opened = Transaction::new()
         .write(StateWrite::Signal {
             signal,
             incident: Some(incident.id()),
@@ -303,86 +267,15 @@ async fn consistent_store() -> (Arc<InMemoryStore>, Incident, ActionRequest) {
             incident: incident.clone(),
             expected: domovoi_core::ports::Expected::New,
         })
-        .write(StateWrite::IncidentEvent(entry))
-        .write(StateWrite::Action {
-            action: action.clone(),
-            expected: ActionGuard::New,
-        })
-        .journal(transition_journal(&action, "proposed"))
-        .audit(proposal_audit(&action));
-    store.commit(proposed).await.unwrap();
-
-    approve(&mut action);
-    let approved = Transaction::new()
-        .write(StateWrite::Action {
-            action: action.clone(),
-            expected: ActionGuard::Status("proposed".to_owned()),
-        })
-        .journal(transition_journal(&action, "approved"))
-        .audit(AuditDraft::new(
-            Actor::System("test".to_owned()),
-            at(1),
-            "action.approved".to_owned(),
-            format!("action:{}", action.id()),
-            json!({}),
-        ));
-    store.commit(approved).await.unwrap();
-    (store, incident, action)
-}
-
-fn transition_journal(action: &ActionRequest, to: &str) -> JournalDraft {
-    JournalDraft {
-        aggregate: AggregateRef::action(action.id()),
-        kind: JournalKind::ActionTransition,
-        payload_v: 1,
-        payload: json!({"to": to}),
-        actor: Actor::System("test".to_owned()),
-        occurred_at: T0,
-    }
-}
-
-fn proposal_audit(action: &ActionRequest) -> AuditDraft {
-    AuditDraft::new(
-        Actor::System("test".to_owned()),
-        T0,
-        "action.proposed".to_owned(),
-        format!("action:{}", action.id()),
-        json!({}),
-    )
+        .write(StateWrite::IncidentEvent(entry));
+    store.commit(opened).await.unwrap();
+    (store, incident)
 }
 
 #[tokio::test]
 async fn invariants_accept_consistent_state() {
-    let (store, _, _) = consistent_store().await;
+    let (store, _) = consistent_store().await;
     check_invariants(&*store).await.unwrap();
-}
-
-#[tokio::test]
-async fn invariants_report_an_action_without_its_audit_row() {
-    let store = Arc::new(InMemoryStore::new());
-    let host = host();
-    let incident = pending_incident(host, "disk.smart", None).unwrap();
-    IncidentRepo::insert(&*store, &incident).await.unwrap();
-    let action = crate::build::action(incident.id(), host, Risk::Write).unwrap();
-    store
-        .commit(
-            Transaction::new()
-                .write(StateWrite::Action {
-                    action: action.clone(),
-                    expected: ActionGuard::New,
-                })
-                .journal(transition_journal(&action, "proposed")),
-        )
-        .await
-        .unwrap();
-
-    let violations = check_invariants(&*store).await.unwrap_err();
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation.starts_with("I2:")),
-        "{violations:?}"
-    );
 }
 
 #[tokio::test]
@@ -414,7 +307,6 @@ async fn invariants_report_a_timeline_entry_without_its_journal_row() {
     check_invariants_except(
         &*store,
         &Exempt {
-            actions: Default::default(),
             legacy_timeline: [(incident.id(), 1)].into_iter().collect(),
         },
     )
@@ -423,42 +315,7 @@ async fn invariants_report_a_timeline_entry_without_its_journal_row() {
 }
 
 #[tokio::test]
-async fn invariants_report_an_action_whose_journal_disagrees_with_its_status() {
-    let store = Arc::new(InMemoryStore::new());
-    let host = host();
-    let incident = pending_incident(host, "disk.smart", None).unwrap();
-    IncidentRepo::insert(&*store, &incident).await.unwrap();
-    let action = crate::build::action(incident.id(), host, Risk::Write).unwrap();
-    store
-        .commit(
-            Transaction::new()
-                .write(StateWrite::Action {
-                    action: action.clone(),
-                    expected: ActionGuard::New,
-                })
-                .journal(transition_journal(&action, "proposed"))
-                .audit(proposal_audit(&action)),
-        )
-        .await
-        .unwrap();
-
-    let mut approved = action.clone();
-    approve(&mut approved);
-    domovoi_core::ports::ActionRepo::update_from(&*store, &approved, "proposed")
-        .await
-        .unwrap();
-
-    let violations = check_invariants(&*store).await.unwrap_err();
-    assert!(
-        violations
-            .iter()
-            .any(|violation| violation.starts_with("I1:")),
-        "{violations:?}"
-    );
-}
-
-#[tokio::test]
-async fn missing_actions_are_reported_as_store_errors_not_consistent() {
+async fn a_failed_read_is_reported_as_a_store_error_not_consistent() {
     let store = Arc::new(InMemoryStore::new());
     let incident = pending_incident(host(), "disk.smart", None).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
@@ -470,7 +327,7 @@ async fn missing_actions_are_reported_as_store_errors_not_consistent() {
 /// store reports it through its integrity read.
 #[tokio::test]
 async fn invariants_report_a_timeline_entry_for_a_missing_incident() {
-    let (store, _, _) = consistent_store().await;
+    let (store, _) = consistent_store().await;
     let missing = domovoi_core::IncidentId::new();
     store.insert_dangling_timeline(&IncidentTimelineEntry {
         incident: missing,
@@ -494,7 +351,7 @@ async fn invariants_report_a_timeline_entry_for_a_missing_incident() {
 /// A signal linked to an incident that is gone is an I3 violation.
 #[tokio::test]
 async fn invariants_report_a_signal_linked_to_a_missing_incident() {
-    let (store, _, _) = consistent_store().await;
+    let (store, _) = consistent_store().await;
     let missing = domovoi_core::IncidentId::new();
     let linked = crate::build::signal(host(), "net.link", None).unwrap();
     SignalRepo::insert(&*store, &linked, Some(missing))
@@ -540,7 +397,6 @@ async fn legacy_timeline_entries_are_exempt_from_the_journal_count() {
         "{violations:?}"
     );
     let exempt = Exempt {
-        actions: BTreeSet::new(),
         legacy_timeline: BTreeMap::from([(incident.id(), 1)]),
     };
     check_invariants_except(&*store, &exempt)

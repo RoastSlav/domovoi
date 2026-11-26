@@ -1,7 +1,6 @@
 //! One in-memory store implementing every repository port.
 
 mod accounts;
-mod actions;
 mod admission;
 mod audit;
 mod audit_inspect;
@@ -36,10 +35,10 @@ use domovoi_core::ports::{
     IncidentTimelineEntry, JournalEntry, Page, Paged, StoreError, UsageSource,
 };
 use domovoi_core::{
-    AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    AgentReport, BaselineEntry, DigestFact, ExecutionRecord, Fingerprint, Host, HostId, Incident,
-    IncidentId, MaintenanceWindow, Note, NoteId, Operation, OperationId, Session, Signal, SignalId,
-    StepEdge, StepId, StepRecord, TriageReport, User, UserId,
+    AckRule, AckRuleId, Advisory, AdvisoryId, AgentId, AgentIdentity, AgentReport, BaselineEntry,
+    DigestFact, ExecutionRecord, Fingerprint, Host, HostId, Incident, IncidentId,
+    MaintenanceWindow, Note, NoteId, Operation, OperationId, Session, Signal, SignalId, StepEdge,
+    StepId, StepRecord, TriageReport, User, UserId,
 };
 use jiff::Timestamp;
 use serde_json::Value;
@@ -79,7 +78,6 @@ struct State {
     signals: BTreeMap<SignalId, (Signal, Option<IncidentId>)>,
     incidents: BTreeMap<IncidentId, Incident>,
     timeline: BTreeMap<IncidentId, Vec<IncidentTimelineEntry>>,
-    actions: BTreeMap<ActionId, ActionRequest>,
     audit: Vec<AuditEvent>,
     notes: BTreeMap<NoteId, Note>,
     /// Package artifacts, install jobs, targets and host inventories.

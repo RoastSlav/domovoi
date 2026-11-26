@@ -1,7 +1,6 @@
 //! The hub API over a temporary SQLite store, a running incident manager and action
 //! service, fakes for agents and time, and the example `hub.toml` with test secrets.
 
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -13,11 +12,10 @@ use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo,
-    IncidentTimelineEntry, LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence,
-    StoreHealth,
+    AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo, IncidentTimelineEntry,
+    LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence, StoreHealth,
 };
-use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
+use domovoi_core::{HostId, HostName, Incident, SkillSummary};
 use domovoi_engine::{
     DomainEvent, EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,
     TriageDeps, TriageService, TriageSettings,
@@ -36,7 +34,7 @@ use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsServ
 use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
-use domovoi_testkit::build::{host, manifest, open_incident};
+use domovoi_testkit::build::{host, open_incident};
 use domovoi_testkit::link::{evidence_caps, observer_of};
 use domovoi_testkit::{
     CannedLogSource, FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm,
@@ -306,6 +304,19 @@ pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
         true,
         TriageSettings::default(),
         false,
+    )
+    .await
+}
+
+/// [`api_with_notifier`] with the operations service, so steps can wait for approval.
+pub async fn api_with_notifier_and_operations(notifier: Arc<dyn Notifier>) -> Api {
+    build(
+        false,
+        Some(notifier),
+        true,
+        true,
+        TriageSettings::default(),
+        true,
     )
     .await
 }
@@ -856,26 +867,6 @@ impl Api {
 
     pub async fn raw(&self, req: Request<Body>) -> Reply {
         reply_of(self.app.clone().oneshot(req).await.unwrap()).await
-    }
-
-    /// Proposes `restart_container` (no parameters) with `risk`, open for an hour.
-    pub async fn propose(&self, risk: Risk) -> ActionRequest {
-        let summary = manifest("restart_container", risk)
-            .unwrap()
-            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
-        let args = summary.validate_args(&BTreeMap::new()).unwrap();
-        let action = ActionRequest::propose(
-            &self.incident,
-            &summary,
-            &args,
-            Some(domovoi_testkit::build::key_fingerprint()),
-            Principal::System("triage".into()),
-            SignedDuration::from_hours(1),
-            self.now(),
-        )
-        .unwrap();
-        ActionRepo::insert(&*self.store, &action).await.unwrap();
-        action
     }
 
     pub async fn get(&self, uri: &str, login: &Login) -> Reply {

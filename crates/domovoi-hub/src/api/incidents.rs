@@ -147,7 +147,6 @@ pub(super) async fn detail(
     let card = build_card(
         &incident,
         report.as_ref(),
-        &[],
         &host.name,
         &CardLinks {
             steps,

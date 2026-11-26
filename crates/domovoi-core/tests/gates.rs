@@ -2,28 +2,16 @@
 //!
 //! Never delete or weaken these tests; extend them.
 
+use std::collections::BTreeMap;
+
+use domovoi_core::capability::ContractId;
 use domovoi_core::{
-    ActionChange, ActionError, ActionRequest, ApprovalChannel, ApprovalProvenance, Authorization,
-    CheckKey, HostId, HumanApproval, Incident, IncidentId, KeyFingerprint, ManifestHash,
-    PlanBinding, PolicyPermit, PolicyPermitParts, Principal, ReadTool, ReadToolCall, Risk,
-    Severity, Signal, SkillName, SkillSummary, SourceKind, TargetKey, ToolArgError, UserId,
+    ApprovalChannel, ApprovalProvenance, Authorization, CheckKey, ExecutionError, ExecutionIntent,
+    ExecutionRecord, HostId, HumanApproval, OperationId, PlanBinding, PolicyPermit,
+    PolicyPermitParts, ReadTool, ReadToolCall, Risk, StepId, ToolArgError, UserId,
 };
 use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
-
-#[cfg(test)]
-fn incident(id: IncidentId, host: HostId, check: &str, target: Option<&str>) -> Incident {
-    let signal = Signal::firing(
-        SourceKind::BuiltIn,
-        host,
-        CheckKey::parse(check).unwrap(),
-        target.map(|t| TargetKey::parse(t).unwrap()),
-        Severity::Warning,
-        "test",
-        Timestamp::UNIX_EPOCH,
-    );
-    Incident::new_pending(&signal, Timestamp::UNIX_EPOCH).with_id(id)
-}
 
 #[test]
 fn read_tool_catalogue_is_read_only() {
@@ -111,19 +99,43 @@ fn read_tool_call_rejects_unknown_tool_names() {
     }
 }
 
+/// A proposed execution of risk `risk`, for the approval gates.
+#[cfg(test)]
+fn proposed_execution(risk: Risk) -> ExecutionRecord {
+    let intent = ExecutionIntent {
+        contract: ContractId::parse("skill.restart_container").unwrap(),
+        contract_version: 1,
+        host: HostId::new(),
+        check: CheckKey::parse("disk.usage").unwrap(),
+        target: None,
+        args: BTreeMap::new(),
+        retry_of: None,
+    };
+    ExecutionRecord::propose(
+        &intent,
+        StepId::new(),
+        OperationId::new(),
+        "ab".repeat(32).parse().unwrap(),
+        Timestamp::UNIX_EPOCH + SignedDuration::from_hours(1),
+        risk,
+        Timestamp::UNIX_EPOCH,
+    )
+}
+
 #[test]
 fn no_approval_without_human() {
-    // `approve` must take an `Authorization`; if its signature changes, this stops compiling.
-    let approve: fn(
-        &mut ActionRequest,
+    // `authorize` must take an `Authorization`; if its signature changes, this stops compiling.
+    let authorize: fn(
+        &mut ExecutionRecord,
         Authorization,
         ApprovalProvenance,
         &PlanBinding,
         Timestamp,
-    ) -> Result<ActionChange, ActionError> = ActionRequest::approve;
-    let _ = approve;
+    ) -> Result<(), ExecutionError> = ExecutionRecord::authorize;
+    let _ = authorize;
 
-    // A policy authorization is refused at M1 even though the type can produce one in a test.
+    // A policy authorization is refused for a destructive execution even though the type can
+    // produce one in a test.
     let ceiling = "cd".repeat(32);
     let permit = PolicyPermit::issue(PolicyPermitParts {
         decision_id: "dec-1",
@@ -136,74 +148,24 @@ fn no_approval_without_human() {
         safety_identity: None,
     })
     .unwrap();
-    let skill = SkillSummary {
-        name: SkillName::parse("restart_container").unwrap(),
-        description: "Restart a container".to_owned(),
-        risk: Risk::Write,
-        params: Vec::new(),
-        applies_to: Vec::new(),
-        manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
-        entry_script_digest: domovoi_core::ScriptDigest::of_bytes(b"entry"),
-        timeout: SignedDuration::from_secs(60),
-        verify: None,
-        readme: None,
-    };
-    let args = skill.validate_args(&Default::default()).unwrap();
-    let host = HostId::new();
-    let incident = incident(IncidentId::new(), host, "disk.usage", None);
-    let mut req = ActionRequest::propose(
-        &incident,
-        &skill,
-        &args,
-        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        Timestamp::UNIX_EPOCH,
-    )
-    .unwrap();
-    let binding = PlanBinding::Full(req.plan_hash_for_approval());
+    let mut record = proposed_execution(Risk::Destructive);
+    let binding = PlanBinding::Full("ab".repeat(32).parse().unwrap());
     assert_eq!(
-        req.approve(
+        record.authorize(
             Authorization::policy(permit),
             ApprovalProvenance::new(None, "test"),
             &binding,
             Timestamp::UNIX_EPOCH,
         ),
-        Err(ActionError::NotAllowed {
-            status: domovoi_core::ActionStatus::Proposed,
-            operation: "approve",
-        }),
+        Err(ExecutionError::PermitNotAllowed),
     );
+    assert!(!record.is_authorized());
 }
 
 #[test]
 fn destructive_actions_cannot_be_approved_from_chat() {
-    let skill = SkillSummary {
-        name: SkillName::parse("wipe_volume").unwrap(),
-        description: "Delete a volume".to_owned(),
-        risk: Risk::Destructive,
-        params: Vec::new(),
-        applies_to: Vec::new(),
-        manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
-        entry_script_digest: domovoi_core::ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"),
-        timeout: jiff::SignedDuration::from_secs(60),
-        verify: None,
-        readme: None,
-    };
-    let args = skill.validate_args(&Default::default()).unwrap();
     let now = Timestamp::UNIX_EPOCH;
-    let host = HostId::new();
-    let incident = incident(IncidentId::new(), host, "disk.usage", None);
-    let mut req = ActionRequest::propose(
-        &incident,
-        &skill,
-        &args,
-        Some(KeyFingerprint::of_public_key(&[7u8; 32])),
-        Principal::System("triage".into()),
-        SignedDuration::from_hours(1),
-        now,
-    )
-    .unwrap();
+    let mut record = proposed_execution(Risk::Destructive);
     let chat = HumanApproval::new(
         UserId::new(),
         ApprovalChannel::Chat {
@@ -212,16 +174,17 @@ fn destructive_actions_cannot_be_approved_from_chat() {
         },
         now,
     );
-    let binding = PlanBinding::Full(req.plan_hash_for_approval());
+    let binding = PlanBinding::Full("ab".repeat(32).parse().unwrap());
     assert_eq!(
-        req.approve(
+        record.authorize(
             Authorization::human(chat),
             ApprovalProvenance::new(None, "test"),
             &binding,
             now,
         ),
-        Err(ActionError::DestructiveNeedsTypedConfirmation)
+        Err(ExecutionError::NeedsTypedConfirmation)
     );
+    assert!(!record.is_authorized());
 }
 
 /// `AuditLog` exposes only `append` and `list` (INV-7). This impl defines exactly those two
@@ -265,7 +228,7 @@ fn audit_log_has_no_mutation_api() {
 fn approvals_and_actions_cannot_be_deserialized() {
     use std::marker::PhantomData;
 
-    use domovoi_core::{ActionRequest, HumanApproval, Principal};
+    use domovoi_core::{ExecutionRecord, HumanApproval, Principal};
 
     struct Probe<T>(PhantomData<T>);
     trait Deserializable {
@@ -290,7 +253,7 @@ fn approvals_and_actions_cannot_be_deserialized() {
     assert!(!deserializable!(HumanApproval));
     assert!(!deserializable!(Authorization));
     assert!(!deserializable!(PolicyPermit));
-    assert!(!deserializable!(ActionRequest));
+    assert!(!deserializable!(ExecutionRecord));
     assert!(!deserializable!(Principal));
     // The probe does detect a type that can be deserialized.
     assert!(deserializable!(domovoi_core::Severity));

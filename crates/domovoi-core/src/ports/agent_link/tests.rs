@@ -61,7 +61,7 @@ impl AgentLink for PresenceOnly {
     async fn action_status(
         &self,
         _host: HostId,
-        _ids: Vec<ActionId>,
+        _ids: Vec<ExecutionId>,
         _expected_epoch: JournalEpoch,
         _deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError> {

@@ -2,65 +2,14 @@
 
 use domovoi_core::ports::{AuditFilter, AuditLog, InteractionSink, Page};
 use domovoi_core::{
-    ApprovalChannel, CardButton, ExecutionError, ExecutionId, InteractionKind, InteractionReply,
-    OperationId, StepId,
+    ApprovalChannel, CardButton, ExecutionError, InteractionKind, InteractionReply, OperationId,
 };
 use domovoi_engine::chat_token::{mint_token, token_hash};
 use domovoi_engine::operations::OperationError;
 use domovoi_hub::auth::interactions::{NOT_ALLOWED, step_reason};
 
-use crate::api_harness::{Api, api_with_operations};
-use crate::interactions::{ALLOWED, STRANGER, chat, press};
-
-struct Waiting {
-    operation: OperationId,
-    step: StepId,
-    token: String,
-    prefix: String,
-}
-
-impl Waiting {
-    fn action(&self) -> domovoi_core::ActionId {
-        ExecutionId::from_step(self.step).as_action()
-    }
-
-    fn approve(&self) -> CardButton {
-        CardButton::Approve {
-            action: self.action(),
-            token: self.token.clone(),
-            plan_prefix: Some(self.prefix.clone()),
-        }
-    }
-}
-
-/// A proposed step of `skill` linked to the incident, holding a freshly rotated token.
-async fn proposed_step(a: &Api, skill: &str, linked: bool) -> Waiting {
-    let operation = a.create_operation("restart plex", linked).await;
-    let args: &[(&str, &str)] = if skill == "restart_container" {
-        &[("container", "plex")]
-    } else {
-        &[]
-    };
-    let step = a.propose_run(operation, skill, args).await;
-    let token = mint_token();
-    a.ops()
-        .rotate_chat_token(operation, step, token_hash(&token))
-        .await
-        .unwrap();
-    let snapshot = a.state.deps().operation_repo.load(operation).await.unwrap();
-    let hash = snapshot
-        .unwrap()
-        .execution_of(step)
-        .unwrap()
-        .value
-        .plan_hash;
-    Waiting {
-        operation,
-        step,
-        token,
-        prefix: hex::encode(&hash.as_bytes()[..3]),
-    }
-}
+use crate::api_harness::api_with_operations;
+use crate::interactions::{ALLOWED, STRANGER, chat, execution, press, proposed_step};
 
 fn message(reply: &InteractionReply) -> &str {
     match reply {
@@ -71,18 +20,6 @@ fn message(reply: &InteractionReply) -> &str {
 
 fn is_accepted(reply: &InteractionReply) -> bool {
     matches!(reply, InteractionReply::Accepted { .. })
-}
-
-async fn execution(a: &Api, w: &Waiting) -> domovoi_core::ExecutionRecord {
-    let snapshot = a
-        .state
-        .deps()
-        .operation_repo
-        .load(w.operation)
-        .await
-        .unwrap()
-        .unwrap();
-    snapshot.execution_of(w.step).unwrap().value.clone()
 }
 
 #[tokio::test]
@@ -164,7 +101,7 @@ async fn chat_deny_step_refuses_the_execution() {
     let c = chat(&a).await;
     let w = proposed_step(&a, "restart_container", true).await;
     let deny = CardButton::Deny {
-        action: w.action(),
+        execution: w.execution_id(),
         token: w.token.clone(),
     };
     let reply = c.authorizer.deliver(press(&a, ALLOWED, deny)).await;
@@ -212,7 +149,7 @@ async fn discord_message_text_can_never_approve_a_step() {
     a.admin().await;
     let c = chat(&a).await;
     let w = proposed_step(&a, "restart_container", true).await;
-    let text = format!("approve {} {} {}", w.step, w.action(), w.token);
+    let text = format!("approve {} {} {}", w.step, w.execution_id(), w.token);
     let thread = InteractionKind::ThreadMessage {
         incident: a.incident.id(),
         text,
@@ -273,7 +210,7 @@ async fn chat_deny_with_a_rotated_token_is_refused() {
         .await
         .unwrap();
     let deny = CardButton::Deny {
-        action: w.action(),
+        execution: w.execution_id(),
         token: w.token.clone(),
     };
     let reply = c.authorizer.deliver(press(&a, ALLOWED, deny)).await;

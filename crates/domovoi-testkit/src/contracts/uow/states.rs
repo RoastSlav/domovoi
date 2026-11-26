@@ -2,19 +2,16 @@
 
 use domovoi_core::Actor;
 use domovoi_core::ports::{
-    ActionGuard, AggregateRef, AuditDraft, AuditFilter, CommitError, EffectDraft, EffectKind,
-    Expectation, Expected, IncidentTimelineEntry, JournalDraft, JournalKind, Observed, Page,
-    StateWrite, Transaction,
+    AggregateRef, AuditDraft, AuditFilter, CommitError, EffectDraft, EffectKind, Expectation,
+    Expected, IncidentTimelineEntry, JournalDraft, JournalKind, Observed, Page, StateWrite,
+    Transaction,
 };
-use domovoi_core::{
-    ApprovalProvenance, Authorization, EffectId, IncidentId, Note, NoteId, PlanBinding, Risk,
-    UserId,
-};
+use domovoi_core::{EffectId, IncidentId, Note, NoteId};
 use serde_json::json;
 
 use super::super::ContractResult;
 use super::UowSubject;
-use crate::build::{T0, action, at, host, incident, open_incident, signal};
+use crate::build::{T0, at, host, incident, open_incident, signal};
 
 fn audit(at_secs: i64, subject: String) -> AuditDraft {
     AuditDraft::new(
@@ -377,100 +374,5 @@ pub async fn repository_writes_advance_versions_like_commits(
         }))
         .await?;
     assert_eq!(receipt.versions, vec![(AggregateRef::note(note.id), 3)]);
-    Ok(())
-}
-
-/// An action guard refuses a status another writer already changed.
-pub async fn action_guard_refuses_a_changed_status(subject: &dyn UowSubject) -> ContractResult {
-    let host = host("nas")?;
-    let incident = open_incident(host.id, "disk.smart", Some("/dev/sda"))?;
-    let proposed = action(incident.id(), host.id, Risk::Write)?;
-    subject
-        .uow()
-        .commit(Transaction::new().write(StateWrite::Action {
-            action: proposed.clone(),
-            expected: ActionGuard::New,
-        }))
-        .await?;
-
-    let mut approved = proposed.clone();
-    let binding = PlanBinding::Full(approved.plan_hash_for_approval());
-    approved
-        .approve(
-            Authorization::human(crate::approvals::human(UserId::new())),
-            ApprovalProvenance::new(None, "test"),
-            &binding,
-            T0,
-        )
-        .map_err(|e| super::super::ContractError::Setup(e.to_string()))?;
-    subject
-        .uow()
-        .commit(Transaction::new().write(StateWrite::Action {
-            action: approved.clone(),
-            expected: ActionGuard::Status("proposed".to_owned()),
-        }))
-        .await?;
-
-    let failed = subject
-        .uow()
-        .commit(Transaction::new().write(StateWrite::Action {
-            action: approved,
-            expected: ActionGuard::Status("proposed".to_owned()),
-        }))
-        .await;
-    assert!(matches!(
-        failed,
-        Err(CommitError::Conflict {
-            expected: Expectation::Status(ref name),
-            found: Observed::Status(ref found),
-            ..
-        }) if name == "proposed" && found == "approved"
-    ));
-
-    let ghost = action(incident.id(), host.id, Risk::Read)?;
-    let failed = subject
-        .uow()
-        .commit(Transaction::new().write(StateWrite::Action {
-            action: ghost,
-            expected: ActionGuard::Status("proposed".to_owned()),
-        }))
-        .await;
-    assert!(matches!(
-        failed,
-        Err(CommitError::Conflict {
-            found: Observed::Missing,
-            ..
-        })
-    ));
-    Ok(())
-}
-
-/// A chat token hash is unique across actions, even inside one transaction.
-pub async fn chat_token_hash_must_be_unique_across_actions(
-    subject: &dyn UowSubject,
-) -> ContractResult {
-    let host = host("nas")?;
-    let incident = open_incident(host.id, "disk.smart", Some("/dev/sda"))?;
-    let first = action(incident.id(), host.id, Risk::Write)?.with_chat_token_hash([9; 32]);
-    let second = action(incident.id(), host.id, Risk::Read)?.with_chat_token_hash([9; 32]);
-    let failed = subject
-        .uow()
-        .commit(
-            Transaction::new()
-                .write(StateWrite::Action {
-                    action: first.clone(),
-                    expected: ActionGuard::New,
-                })
-                .write(StateWrite::Action {
-                    action: second,
-                    expected: ActionGuard::New,
-                }),
-        )
-        .await;
-    assert!(matches!(
-        failed,
-        Err(CommitError::Constraint(message)) if message == "chat token already used"
-    ));
-    assert_eq!(subject.actions().get(first.id()).await?, None);
     Ok(())
 }

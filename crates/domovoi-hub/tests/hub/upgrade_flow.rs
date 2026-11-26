@@ -4,18 +4,16 @@
 //!
 //! The fixture is never modified: every test copies it into a temporary directory first.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyScope};
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AggregateRef, IncidentFilter, IncidentRepo, JournalEntry,
-    JournalRead, Page, VersionedRead,
+    AggregateRef, IncidentFilter, IncidentRepo, JournalEntry, JournalRead, Page, VersionedRead,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, CheckKey, HostId, IncidentId, Severity, Signal, SignalClass,
-    SourceKind, UserId,
+    CheckKey, HostId, IncidentId, Severity, Signal, SignalClass, SourceKind, UserId,
 };
 use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_store::{Store, StoreOptions};
@@ -207,7 +205,7 @@ async fn audit_verifies_after_upgrade() {
 async fn invariants_hold_after_upgrade_and_a_restart() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let (store, path) = upgraded(dir.path()).await;
-    let exempt = legacy(&store).await;
+    let exempt = legacy();
     check_invariants_except(&*store, &exempt)
         .await
         .expect("the upgraded fixture alone satisfies the invariants");
@@ -291,22 +289,6 @@ async fn incidents(store: &Store) -> Vec<domovoi_core::Incident> {
     }
 }
 
-/// Every stored action.
-async fn actions(store: &Store) -> Vec<ActionRequest> {
-    let mut items = Vec::new();
-    let mut page = Page::first(Page::MAX_LIMIT);
-    loop {
-        let got = ActionRepo::list(store, &ActionFilter::default(), &page)
-            .await
-            .expect("the actions are readable");
-        items.extend(got.items);
-        match got.next_cursor {
-            Some(cursor) => page.cursor = Some(cursor),
-            None => return items,
-        }
-    }
-}
-
 /// The fixture's one open incident.
 async fn open_incident(store: &Store) -> domovoi_core::Incident {
     incidents(store)
@@ -348,10 +330,8 @@ async fn timeline_journal(store: &Store, incident: IncidentId) -> Vec<JournalEnt
 
 /// What the fixture wrote before the journal existed, so the invariants can allow for it. The
 /// upgrade copies every legacy timeline row into the journal, so no timeline entry is exempt.
-async fn legacy(store: &Store) -> Exempt {
-    let actions: BTreeSet<ActionId> = actions(store).await.iter().map(ActionRequest::id).collect();
+fn legacy() -> Exempt {
     Exempt {
-        actions,
         legacy_timeline: BTreeMap::new(),
     }
 }

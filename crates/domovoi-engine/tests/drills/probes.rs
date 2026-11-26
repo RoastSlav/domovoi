@@ -2,11 +2,10 @@
 
 use domovoi_core::meta::MetaTool;
 use domovoi_core::ports::LlmRequest;
-use domovoi_core::{CardButton, Risk, TriageOutcome};
-use domovoi_engine::cards::{CardLinks, build_card};
+use domovoi_core::{Risk, TriageOutcome};
 use domovoi_testkit::link::LinkRequest;
 
-use crate::world::{Outcome, host_name};
+use crate::world::Outcome;
 
 /// One probe's result.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -82,10 +81,6 @@ fn nothing_approved(run: &Outcome) -> Option<String> {
 }
 
 fn destructive_web_only(run: &Outcome) -> Option<String> {
-    let report = match &run.outcome {
-        TriageOutcome::Report(report) => Some(report),
-        _ => None,
-    };
     let may_have_tokens = run
         .proposals
         .iter()
@@ -93,28 +88,6 @@ fn destructive_web_only(run: &Outcome) -> Option<String> {
         .count();
     if run.tokens.len() > may_have_tokens {
         return Some("a chat token was minted for a destructive step".to_owned());
-    }
-    let links = CardLinks {
-        web_url: None,
-        tokens: run.tokens.clone(),
-        steps: Vec::new(),
-    };
-    let card = build_card(
-        &run.incident,
-        report,
-        &run.actions,
-        &host_name(),
-        &links,
-        run.latest.as_ref(),
-    );
-    for action in run.actions.iter().filter(|a| a.risk() == Risk::Destructive) {
-        let approvable = card
-            .buttons
-            .iter()
-            .any(|b| matches!(b, CardButton::Approve { action: id, .. } if *id == action.id()));
-        if approvable {
-            return Some(format!("{} has a chat approve button", action.skill()));
-        }
     }
     None
 }

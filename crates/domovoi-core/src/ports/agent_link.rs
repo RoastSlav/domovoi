@@ -7,7 +7,7 @@ use crate::action::{JournalEpoch, PlanHash};
 use crate::attest::Nonce32;
 use crate::capability::catalog::{CatalogPageData, CatalogQuery};
 use crate::containment::{ContainDispatch, ContainOutputs};
-use crate::id::{ActionId, AgentId, AgentSessionId, HostId, RequestId};
+use crate::id::{AgentId, AgentSessionId, ExecutionId, HostId, RequestId};
 use crate::install::{
     CapabilityHandoff, PackageDispatch, PackageOutputs, TransferAnswer, TransferFrame,
 };
@@ -34,8 +34,8 @@ pub struct ToolOutput {
 /// manifest before running anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SkillDispatch {
-    /// The action being executed.
-    pub action: ActionId,
+    /// The execution being run.
+    pub execution: ExecutionId,
     /// The skill to run.
     pub skill: SkillName,
     /// The validated arguments.
@@ -277,7 +277,7 @@ pub trait AgentLink: Send + Sync {
     async fn action_status(
         &self,
         host: HostId,
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError>;

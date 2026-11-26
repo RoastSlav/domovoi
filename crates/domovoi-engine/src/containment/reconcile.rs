@@ -115,7 +115,7 @@ async fn reconcile_block(deps: &ContainDeps, block: &BlockRow) {
     let answers = match deps
         .caps
         .journal
-        .status_batch(host, vec![wanted.as_action()], epoch, deadline)
+        .status_batch(host, vec![wanted], epoch, deadline)
         .await
     {
         Ok(answers) => answers,
@@ -136,7 +136,7 @@ async fn reconcile_block(deps: &ContainDeps, block: &BlockRow) {
     let mut own = answers
         .answers
         .into_iter()
-        .filter(|entry| entry.execution == wanted.as_action())
+        .filter(|entry| entry.execution == wanted)
         .map(|entry| entry.answer);
     let Some(first) = own.next() else {
         return;

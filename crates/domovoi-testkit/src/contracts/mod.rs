@@ -5,8 +5,8 @@
 //! [`ContractError`]. `domovoi-store` runs the same suites against SQLite.
 
 mod accounts;
-mod actions;
 mod admission;
+mod audit;
 pub mod context;
 mod conversations;
 mod experience;
@@ -25,8 +25,8 @@ mod triage;
 pub mod uow;
 
 pub use accounts::{session_repo_contract, settings_repo_contract, user_repo_contract};
-pub use actions::{action_repo_contract, audit_log_contract};
 pub use admission::admission_repo_contract;
+pub use audit::audit_log_contract;
 pub use conversations::conversation_repo_contract;
 pub use experience::*;
 pub use experience_search::*;
