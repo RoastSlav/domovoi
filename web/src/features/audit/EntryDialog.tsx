@@ -1,5 +1,5 @@
 import type { AuditRow } from "../../api/types";
-import { Button, CopyBlock, CopyButton, Dialog, KeyValueList, Tag } from "../../components";
+import { Button, CopyBlock, CopyButton, Dialog, KeyValueList } from "../../components";
 import styles from "./audit.module.css";
 
 /** One audit entry in full: its position, hash and detail text. */
@@ -20,17 +20,13 @@ export function EntryDialog({ row, onClose }: { onClose: () => void; row: AuditR
           { label: "What", value: row.kind },
           { label: "About", value: row.subject },
           {
-            label: "History",
-            value: <Tag>{row.history === "legacy" ? "Legacy" : "Chained"}</Tag>,
-          },
-          {
             label: "Hash",
             value: row.hash ? (
               <>
                 {row.hash} <CopyButton text={row.hash} />
               </>
             ) : (
-              "None. This entry was written before the chain began."
+              "None. This entry has no stored hash."
             ),
           },
         ]}

@@ -4,13 +4,13 @@ import { breakReasonText } from "../../design/auditText";
 import { chainStatusMeta } from "../../design/tone";
 import styles from "./audit.module.css";
 
-/** The chained history's status, what was checked and the head hash to keep off the host. */
+/** The chain's status, what was checked and the head hash to keep off the host. */
 export function ChainCard({ check }: { check: AuditVerification }) {
   const { chained, head } = check;
   return (
     <Card>
       <div className={styles.cardBody}>
-        <h3>Chained history</h3>
+        <h3>Hash chain</h3>
         <div>
           <StatusPill meta={chainStatusMeta(chained.status)} />
         </div>
@@ -19,7 +19,7 @@ export function ChainCard({ check }: { check: AuditVerification }) {
             {chained.checked} entries checked, up to #{chained.head_seq}.
           </p>
         )}
-        {chained.status === "empty" && <p>No entries since the chain began.</p>}
+        {chained.status === "empty" && <p>No entries yet.</p>}
         {chained.status === "broken" && (
           <InlineMessage tone="danger" title={`Broken at entry #${chained.first_broken_seq}`}>
             {breakReasonText(chained.break_reason ?? "", chained.break_text ?? null)}{" "}
@@ -35,7 +35,7 @@ export function ChainCard({ check }: { check: AuditVerification }) {
             </p>
           </>
         ) : (
-          <p className={styles.muted}>There is no head hash until the first chained entry.</p>
+          <p className={styles.muted}>There is no head hash until the first entry.</p>
         )}
       </div>
     </Card>

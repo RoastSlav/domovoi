@@ -1,12 +1,11 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { AuditVerification } from "../../api/types";
-import { Button, Grid, LoadError, Progress, RelativeTime, Stack } from "../../components";
+import { Button, LoadError, Progress, RelativeTime, Stack } from "../../components";
 import { scopeSentence } from "../../design/auditText";
 import { ChainCard } from "./ChainCard";
-import { LegacyCard } from "./LegacyCard";
 import styles from "./audit.module.css";
 
-/** Both histories' status cards, the line saying what was checked, and the whole-log check. */
+/** The chain's status card, the line saying what was checked, and the whole-log check. */
 export function VerificationCards({
   recent,
   full,
@@ -25,10 +24,7 @@ export function VerificationCards({
       {fullAsked && full.error && !full.data && (
         <LoadError error={full.error} context="check the whole log" onRetry={full.refetch} />
       )}
-      <Grid min="lg">
-        <ChainCard check={check} />
-        <LegacyCard check={check} />
-      </Grid>
+      <ChainCard check={check} />
       {running && <Progress label="Checking every entry…" />}
       <div className={styles.footer}>
         <span className={styles.muted}>
@@ -39,7 +35,7 @@ export function VerificationCards({
           variant="secondary"
           icon="refresh"
           loading={running}
-          hint="Reads every entry and compares the older ones with their digest. It can take a while on a large log."
+          hint="Reads every entry and checks it against the chain. It can take a while on a large log."
           onClick={() => (full.data ? void full.refetch() : onCheckFull())}
         >
           {full.data ? "Check again" : "Check the whole log"}

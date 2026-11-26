@@ -26,10 +26,10 @@ export function auditKindHint(kind: string): string | undefined {
 /** What a check covered. */
 export function scopeSentence(scope: string, recentLimit: number): string {
   if (scope === "recent") {
-    return `Checked the newest ${recentLimit.toLocaleString("en-US")} chained entries and counted the older ones.`;
+    return `Checked the newest ${recentLimit.toLocaleString("en-US")} entries.`;
   }
   if (scope === "full") {
-    return "Checked every entry and compared the older ones with their digest.";
+    return "Checked every entry.";
   }
   return "Checked.";
 }

@@ -16,7 +16,7 @@ export const keys = {
   policyDecision: (execution: string) => ["policy", "decision", execution] as const,
   preferences: ["preferences"] as const,
   audit: ["audit"] as const,
-  auditRows: (history: string) => ["audit", "rows", history] as const,
+  auditRows: () => ["audit", "rows"] as const,
   auditVerification: (scope: string) => ["audit", "verification", scope] as const,
   incidents: ["incidents"] as const,
   incidentLists: ["incidents", "list"] as const,

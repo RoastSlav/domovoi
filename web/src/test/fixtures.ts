@@ -108,25 +108,17 @@ export function auditRow(overrides: Partial<AuditRow> = {}): AuditRow {
     subject: "action:0190",
     detail: '{"plan_hash":"ab"}',
     detail_truncated: false,
-    history: "chained",
     hash: "9f".repeat(32),
     ...overrides,
   };
 }
 
-/** A check of the audit log: chained intact, legacy counted only. */
+/** A check of the audit log: chained intact. */
 export function verification(overrides: Partial<AuditVerification> = {}): AuditVerification {
   return {
     scope: "recent",
     recent_limit: 10000,
     checked_at: "2026-11-18T10:00:00Z",
-    legacy: {
-      status: "count_only",
-      count: 5,
-      expected_count: null,
-      actual_count: null,
-      digest_matches: null,
-    },
     chained: {
       status: "intact",
       checked: 812,
@@ -138,9 +130,6 @@ export function verification(overrides: Partial<AuditVerification> = {}): AuditV
     },
     anchor: {
       install_id: "install-1",
-      legacy_last_id: 5,
-      legacy_count: 5,
-      legacy_digest: "ab".repeat(32),
       anchor_hash: "cd".repeat(32),
     },
     head: { seq: 817, hash: "9f".repeat(32) },

@@ -52,9 +52,7 @@ export type ActionStatus =
   | "not_run"
   | "verified"
   | "verify_failed";
-/** How the legacy part of the audit log checked out. */
-export type LegacyStatus = "verified" | "count_only" | "mismatch" | "not_verifiable";
-/** How the chained part of the audit log checked out. */
+/** How the audit chain checked out. */
 export type ChainStatus = "empty" | "intact" | "broken";
 /** What a skill may do. */
 export type Risk = "read" | "write" | "destructive" | "unknown";

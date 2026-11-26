@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { AllHostsNote } from "../../app/AllHostsNote";
-import { useAuditVerification, type AuditHistoryName } from "../../api/hooks/audit";
+import { useAuditVerification } from "../../api/hooks/audit";
 import { keys } from "../../api/queryClient";
 import {
   Button,
@@ -12,7 +11,6 @@ import {
   Section,
   Skeleton,
   Stack,
-  Tabs,
   Visible,
   VisibilityPage,
 } from "../../components";
@@ -23,8 +21,6 @@ import { VerificationCards } from "./VerificationCards";
 
 /** The audit log: what Domovoi recorded, and whether the record still holds. */
 export function AuditPage() {
-  const [params, setParams] = useSearchParams();
-  const tab: AuditHistoryName = params.get("tab") === "legacy" ? "legacy" : "chained";
   const [fullAsked, setFullAsked] = useState(false);
   const recent = useAuditVerification("recent");
   const full = useAuditVerification("full", fullAsked);
@@ -72,7 +68,7 @@ export function AuditPage() {
           </InlineMessage>
         </Visible>
         {check && (
-          <Visible category="P2" id="audit.anchor" label="Anchor details" count={5}>
+          <Visible category="P2" id="audit.anchor" label="Anchor details" count={2}>
             <AnchorDetails anchor={check.anchor} />
           </Visible>
         )}
@@ -83,7 +79,7 @@ export function AuditPage() {
               <Button
                 variant="ghost"
                 icon="refresh"
-                onClick={() => void client.refetchQueries({ queryKey: keys.auditRows(tab) })}
+                onClick={() => void client.refetchQueries({ queryKey: keys.auditRows() })}
               >
                 Refresh
               </Button>
@@ -91,25 +87,7 @@ export function AuditPage() {
           }
         >
           <Visible category="P0" id="audit.entries">
-            <Tabs
-              label="Audit history"
-              selected={tab}
-              onSelect={(id) =>
-                setParams(id === "legacy" ? { tab: "legacy" } : {}, { replace: true })
-              }
-              tabs={[
-                {
-                  id: "chained",
-                  label: "Chained history",
-                  content: <AuditTable history="chained" firstBroken={firstBroken} />,
-                },
-                {
-                  id: "legacy",
-                  label: "Legacy history",
-                  content: <AuditTable history="legacy" firstBroken={undefined} />,
-                },
-              ]}
-            />
+            <AuditTable firstBroken={firstBroken} />
           </Visible>
         </Section>
       </Stack>

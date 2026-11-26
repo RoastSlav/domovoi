@@ -36,7 +36,7 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
-export { chainStatusMeta, legacyStatusMeta } from "./auditVocab";
+export { chainStatusMeta } from "./auditVocab";
 export { blockPhaseMeta, drillsStateMeta, gateStateMeta } from "./containmentVocab";
 export { attestationStateMeta, helperKeyStateMeta } from "./helperVocab";
 export {

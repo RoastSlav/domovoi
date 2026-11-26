@@ -456,9 +456,9 @@ export function settings() {
 
 const HASH = "9f2c".repeat(16);
 
-/** `GET /audit`: five chained and two legacy entries; one detail holds an angle bracket. */
-export function auditPage(history) {
-    const row = (seq, legacy) => ({
+/** `GET /audit`: five entries; one detail holds an angle bracket. */
+export function auditPage() {
+    const row = (seq) => ({
         seq,
         at: "2026-11-18T10:00:00Z",
         actor: "user:0190",
@@ -466,13 +466,9 @@ export function auditPage(history) {
         subject: `action:${seq}`,
         detail: seq === 7 ? "<b>marked</b>" : "{}",
         detail_truncated: false,
-        history: legacy ? "legacy" : "chained",
-        hash: legacy ? null : HASH,
+        hash: HASH,
     });
-    const legacy = [row(2, true), row(1, true)];
-    const chained = [7, 6, 5, 4, 3].map((seq) => row(seq, false));
-    const items = history === "legacy" ? legacy : chained;
-    return { legacy_last_id: 2, next_cursor: null, items };
+    return { next_cursor: null, items: [7, 6, 5, 4, 3].map(row) };
 }
 
 /** `GET /audit/verification`: a recent check, or the whole log. */
@@ -481,13 +477,6 @@ export function auditVerification(scope) {
         scope: scope === "full" ? "full" : "recent",
         recent_limit: 10000,
         checked_at: "2026-11-18T10:00:00Z",
-        legacy: {
-            status: scope === "full" ? "verified" : "count_only",
-            count: 2,
-            expected_count: null,
-            actual_count: null,
-            digest_matches: null,
-        },
         chained: {
             status: "intact",
             checked: 5,
@@ -499,9 +488,6 @@ export function auditVerification(scope) {
         },
         anchor: {
             install_id: "install-1",
-            legacy_last_id: 2,
-            legacy_count: 2,
-            legacy_digest: "ab".repeat(32),
             anchor_hash: "cd".repeat(32),
         },
         head: { seq: 7, hash: HASH },
