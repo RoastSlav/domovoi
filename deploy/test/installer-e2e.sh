@@ -85,8 +85,16 @@ aarch64 | arm64) target="aarch64-unknown-linux-musl" ;;
     ;;
 esac
 
-# The fake release: download/<tag>/<asset> and its .sha256.
-tag="v0.0.1"
+# The fake release: download/<tag>/<asset> and its .sha256. Its tag is the binary's own version,
+# so the installer sees the same version it installed and a re-run is an upgrade, not a downgrade.
+tag="v$("$E2E_BINARY" version | sed -n '1s/^domovoi //p')"
+case "$tag" in
+v[0-9]*.[0-9]*.[0-9]*) ;;
+*)
+    echo "cannot read a version from: $E2E_BINARY version" >&2
+    exit 2
+    ;;
+esac
 name="domovoi-$tag-$target"
 dir="$work/srv/download/$tag"
 mkdir -p "$dir" "$work/build/$name"
@@ -151,8 +159,12 @@ check "the password is not in the installer error output" sh -c "! grep -q '$pas
 
 # An upgrade keeps the admin and the running hub.
 rc=0
-sh "$installer" --role hub --version "$tag" --json >"$work/result2.json" 2>/dev/null || rc=$?
+sh "$installer" --role hub --version "$tag" --json >"$work/result2.json" 2>"$work/install2.err" || rc=$?
 check "a second run exits 0" test "$rc" -eq 0
+if [ "$rc" -ne 0 ]; then
+    echo "the second run exited $rc; its result and its error output follow"
+    cat "$work/result2.json" "$work/install2.err"
+fi
 check "a second run restarts and starts the hub" test "$(result_field "$work/result2.json" 'r["started"]')" = "True"
 check "a second run creates no admin" test "$(result_field "$work/result2.json" 'r["admin_created"]')" = "False"
 check "the unit is still active" systemctl is-active --quiet domovoi-hub
