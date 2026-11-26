@@ -1,9 +1,9 @@
-//! Who authorised a run, and the packaged policy decision a later milestone will consume.
+//! Who authorised a run, and the packaged policy decision.
 //!
 //! `Authorization` is a wrapper with private internals: the two cases are not public variants,
 //! so the only construction paths are [`Authorization::human`] and [`Authorization::policy`].
-//! Both, and [`PolicyPermit::issue`], are confined by `xtask arch-check`. No permit is issued
-//! operationally at M1: `issue` is a data factory that evaluates and grants nothing.
+//! Both, and [`PolicyPermit::issue`], are confined by `xtask arch-check`. `issue` is a data factory
+//! that evaluates and grants nothing; the hub's policy issuer decides when to call it.
 
 use jiff::Timestamp;
 
@@ -15,7 +15,7 @@ use super::approval::{HumanApproval, PlanHash};
 pub enum AuthorizationKind {
     /// An authenticated human approved.
     Human,
-    /// A policy permit authorised, which M1 refuses at the writer.
+    /// A policy permit authorised.
     Policy,
 }
 
@@ -62,8 +62,7 @@ impl Authorization {
 
     /// Wraps a policy permit.
     ///
-    /// Call only from `crates/domovoi-hub/src/policy/` and from tests. M1 has no policy
-    /// evaluation and the writer refuses this case.
+    /// Call only from `crates/domovoi-hub/src/policy/` and from tests.
     #[must_use]
     pub fn policy(permit: PolicyPermit) -> Self {
         Self {
@@ -102,9 +101,9 @@ impl Authorization {
 /// A packaged policy decision.
 ///
 /// Every field is private and the only constructor is [`PolicyPermit::issue`]. It performs
-/// no policy evaluation, holds no registry and grants no authority; the operational issuer
-/// does not exist in M1. The three policy identifiers, `ceiling_hash` and `safety_identity`
-/// are documented opaque strings until the decision types land.
+/// no policy evaluation, holds no registry and grants no authority; the hub's policy issuer
+/// is the only operational caller. The three policy identifiers, `ceiling_hash` and
+/// `safety_identity` are opaque strings here.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PolicyPermit {
     decision_id: String,

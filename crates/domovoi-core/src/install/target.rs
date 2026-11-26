@@ -42,12 +42,6 @@ impl StoredAuthorization {
     pub fn provenance(&self) -> &ApprovalProvenance {
         &self.provenance
     }
-
-    /// Splits into the approval and its provenance.
-    #[must_use]
-    pub fn into_parts(self) -> (HumanApproval, ApprovalProvenance) {
-        (self.approval, self.provenance)
-    }
 }
 
 /// One host's attempt within a job. A retry is a new target with the next `attempt`.

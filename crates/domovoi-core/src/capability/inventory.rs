@@ -2,7 +2,7 @@
 //!
 //! `docker_ps` on the agent prints a tab-separated table with a header and no id; the hub takes
 //! only column 0. `docker_inspect` returns Docker's own document, whose top-level `Id` is the
-//! full container id RW-34 binds. A short id is refused, never expanded, and a document without
+//! full container id a plan binds. A short id is refused, never expanded, and a document without
 //! one proves nothing, so it is an error rather than an empty answer.
 //!
 //! The parsers are pure and live here so both the hub's inventory and the engine's resolver can

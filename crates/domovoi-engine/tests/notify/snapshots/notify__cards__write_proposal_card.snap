@@ -26,25 +26,25 @@ expression: card
     },
     {
       "type": "approve",
-      "action": "01900000-0000-7000-8000-000000002001",
+      "execution": "01900000-0000-7000-8000-000000002001",
       "token": "tok_write",
-      "plan_prefix": "31b795"
+      "plan_prefix": "abcd12"
     },
     {
       "type": "deny",
-      "action": "01900000-0000-7000-8000-000000002001",
+      "execution": "01900000-0000-7000-8000-000000002001",
       "token": "tok_write"
     }
   ],
   "plans": [
     {
-      "action": "01900000-0000-7000-8000-000000002001",
+      "execution": "01900000-0000-7000-8000-000000002001",
       "skill": "restart_container",
       "host": "nas",
       "risk": "write",
       "args": [],
-      "plan_short": "31b7958e",
-      "expires_at": "2026-10-31T10:00:00Z"
+      "plan_short": "abcd1234",
+      "expires_at": "2026-11-01T09:00:00Z"
     }
   ],
   "details": "The container exits during startup.\n\nDatabase migration 42 fails on the new image.",

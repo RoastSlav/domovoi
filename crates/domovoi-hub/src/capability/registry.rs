@@ -7,7 +7,7 @@
 //! be reordered, because a later answer would then rest on a weaker fact.
 //!
 //! The registry never evaluates policy, approves anything or dispatches: `Available` means
-//! "the hub would offer it here" and never "approved" (RW-10). Enforcement stays at the two
+//! "the hub would offer it here" and never "approved". Enforcement stays at the two
 //! engine boundaries, which ask this registry whether a contract is enabled.
 
 use std::collections::BTreeMap;
@@ -447,7 +447,7 @@ impl domovoi_core::ports::CapabilityRegistry for HubRegistry {
     fn enabled(&self, host: HostId, contract: &ContractId) -> bool {
         match contract.skill_name() {
             Some(name) => !self.enablement.is_disabled(host, &name),
-            // Nothing but the `skill.<name>` family has an owner switch in this milestone.
+            // Nothing but the `skill.<name>` family has an owner switch.
             None => true,
         }
     }

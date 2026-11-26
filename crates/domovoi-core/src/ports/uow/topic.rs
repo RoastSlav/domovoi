@@ -9,10 +9,9 @@ use super::{AggregateKind, JournalEntry};
 /// A subscription topic of the journal stream.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Topic {
-    /// Every incident row, and every action row (an incident's card shows its actions).
+    /// Every incident row.
     Incidents,
-    /// Rows that change what awaits a human decision: `action.transition` and
-    /// `operation.execution`.
+    /// Rows that change what awaits a human decision: `operation.execution`.
     Approvals,
     /// Every row of every operation.
     Operations,
@@ -146,7 +145,6 @@ impl TopicSet {
 pub fn topics_of(entry: &JournalEntry) -> Vec<Topic> {
     match entry.aggregate.kind {
         AggregateKind::Incident => vec![Topic::Incidents],
-        AggregateKind::Action => vec![Topic::Approvals, Topic::Incidents],
         AggregateKind::Operation => {
             let mut topics = vec![Topic::Operations];
             if canonical_uuid(&entry.aggregate.id).is_ok() {
@@ -246,12 +244,6 @@ mod tests {
     }
 
     #[test]
-    fn action_rows_belong_to_approvals_and_incidents() {
-        let e = entry(AggregateKind::Action, OP, "action.transition");
-        assert_eq!(topics_of(&e), [Topic::Approvals, Topic::Incidents]);
-    }
-
-    #[test]
     fn operation_rows_belong_to_operations_and_their_own_topic() {
         let e = entry(AggregateKind::Operation, OP, "operation.step_finished");
         assert_eq!(
@@ -276,7 +268,6 @@ mod tests {
         let set = TopicSet::parse_list(Some(&format!("hosts,conversations:{OP}"))).unwrap();
         for e in [
             entry(AggregateKind::Incident, OP, "incident.timeline"),
-            entry(AggregateKind::Action, OP, "action.transition"),
             entry(AggregateKind::Operation, OP, "operation.execution"),
             entry(AggregateKind::Note, OP, "x"),
         ] {

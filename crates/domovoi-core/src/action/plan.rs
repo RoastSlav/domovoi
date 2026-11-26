@@ -1,8 +1,9 @@
-//! Plan hash v2: what exactly an approval binds, beyond the v1 skill/manifest/host/args.
+//! The plan hash: what exactly an approval binds (contract, implementation, target, arguments
+//! and execution).
 //!
 //! The encoding is length-prefixed so a value may contain `\n`, `:` or `@` without making the
-//! byte string ambiguous. The domain line (`plan:v1` / `plan:v2`) keeps the two families from
-//! ever colliding, which is the only defence against a version downgrade.
+//! byte string ambiguous. The domain line (`plan:v2`) keeps this hash apart from the agent
+//! check hash (`plan:v1`), so one can never stand in for the other.
 
 use crate::ScriptDigest;
 use crate::host::{KeyFingerprint, host_target_text};
@@ -16,8 +17,7 @@ use super::approval::PlanHash;
 
 /// The capability contract a plan names: an id and a version.
 ///
-/// At M1 the skill adapter supplies the skill name as the id and version `1`. A later
-/// milestone replaces the producer, not this type or its position in the hash.
+/// The skill adapter supplies the skill name as the id and version `1`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanContract {
     id: String,
@@ -43,7 +43,7 @@ impl PlanContract {
         })
     }
 
-    /// The M1 adapter: the skill name is the contract id and the version is supplied.
+    /// The skill adapter: the skill name is the contract id and the version is supplied.
     pub fn skill(skill: &SkillName, version: u32) -> Result<Self, PlanError> {
         Self::new(skill.as_str(), version)
     }
@@ -118,7 +118,7 @@ impl PlanTarget {
     /// The canonical target text.
     ///
     /// `target:absent` keeps "no target" distinct from an empty target; the fingerprint is
-    /// always present because a v2 plan cannot name a host without an enrolled key.
+    /// always present because a plan cannot name a host without an enrolled key.
     #[must_use]
     pub fn canonical(&self) -> String {
         let subject = match &self.target {
@@ -155,13 +155,13 @@ impl ImplHash {
 }
 
 impl PlanHash {
-    /// The v2 plan identity over exactly five inputs, in this order: contract (id and
+    /// The plan identity over exactly five inputs, in this order: contract (id and
     /// version), implementation, target, arguments and execution id.
     ///
     /// Not included: the incident id, the proposer, risk, expiry, approval time, the short
     /// form, the entry path, `run_as` or any UI text.
     #[must_use]
-    pub fn compute_v2(
+    pub fn compute(
         contract: &PlanContract,
         implementation: ImplHash,
         target: &PlanTarget,
@@ -182,7 +182,7 @@ impl PlanHash {
     }
 }
 
-/// Why a v2 plan cannot be built.
+/// Why a plan cannot be built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
     /// A capability contract id is outside its canonical grammar.
@@ -191,7 +191,4 @@ pub enum PlanError {
         /// The rejected id.
         id: String,
     },
-    /// The host has no enrolled, non-revoked agent key to bind.
-    #[error("the host has no enrolled agent key; a v2 plan cannot bind its identity")]
-    NoEnrolledKey,
 }

@@ -1,3 +1,5 @@
+//! In-memory incidents, their timelines and signals.
+
 use async_trait::async_trait;
 use domovoi_core::ports::{
     AggregateRef, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo,

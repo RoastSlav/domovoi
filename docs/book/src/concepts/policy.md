@@ -1,14 +1,14 @@
 # Policy
 
-A **policy** is the set of rules that says what Domovoi may do on its own and what needs you. Every step of an operation that runs a capability is checked against it. Rules are enforced for one thing only: restarting a service with `unit.restart`. For that, a rule that says Allow can let the restart run without you, inside hard limits. For everything else a person still approves every step that changes a host, and nothing a rule says can run it by itself.
+A **policy** is the set of rules that says what Domovoi may do on its own and what needs you. Every step of an operation that runs a capability is checked against it. Rules are enforced for two capabilities only: restarting a service with `unit.restart` and blocking a network source with `firewall.block_source`. For those, a rule that says Allow can let the step run without you, inside hard limits. For everything else a person approves every step that changes a host, and nothing a rule says can run it by itself.
 
 ## What a rule is
 
 A rule matches a capability, a host or a target, and gives one of three answers:
 
 - **Deny:** the step does not run. Nothing asks you.
-- **RequireApproval:** the step waits for a person. This is what happens today for every step that changes a host.
-- **Allow:** the step may run without asking. Allow is only meaningful once enforcement exists; until then it is a recorded answer, not a permission.
+- **RequireApproval:** the step waits for a person. This is what happens for every step that changes a host, and for every step whose rules do not say otherwise.
+- **Allow:** the step may run without asking, but only for the two capabilities above. For any other capability, Allow is a recorded answer, not a permission.
 
 When several rules match one step, the most specific rule wins. A rule that names one host beats a rule that names every host, and a rule that names one capability beats a rule for a whole group of them.
 
@@ -23,7 +23,7 @@ Shadow mode is the way to see what a policy would do before it does anything. Wh
 
 Nothing is enforced in shadow mode. The step runs or waits exactly as it would without it, and a sweep writes the rows a few seconds after the step is created. A failed sweep never blocks an operation; the rows just arrive later.
 
-A row is **degraded** when some input the decision needs could not be read. The hub then uses the value that denies or narrows, and lists the gap in the row. A degraded row can therefore be stricter than the real answer would be, so read it as "at least this strict", not as a verdict. The inputs that are not available yet are listed under [What is not yet available](#what-is-not-yet-available).
+A row is **degraded** when some input the decision needs could not be read. The hub then uses the value that denies or narrows, and lists the gap in the row. A degraded row can therefore be stricter than the real answer would be, so read it as "at least this strict", not as a verdict. The inputs that are not available yet are listed under [What is not available](#what-is-not-available).
 
 ## Versions and publication
 
@@ -47,12 +47,12 @@ The simulator takes a description of a step (a capability, a host and its argume
 
 ## Enforcement
 
-A rule is acted on in one place: when a step asks to restart a service, the hub evaluates the published rules and, only if the answer is **Allow automatically** and every guard below holds, issues a **permit**. The permit names the decision, the rules that applied, the policy version and the exact plan, and it expires after `[policy] permit_ttl` (never later than the step's own window). The permit goes to the agent, which checks it against its own `[unattended]` ceiling before it asks the helper to restart anything. A permit cannot be made by any API call or by a chat message: only the hub's issuer makes one, and the web UI has no control that does.
+A rule is acted on in one place: when a step asks to restart a service or block a network source, the hub evaluates the published rules and, only if the answer is **Allow automatically** and every guard below holds, issues a **permit**. The permit names the decision, the rules that applied, the policy version and the exact plan, and it expires after `[policy] permit_ttl` (never later than the step's own window). The permit goes to the agent, which checks it against its own `[unattended]` ceiling before it asks the helper to restart anything. A permit cannot be made by any API call or by a chat message: only the hub's issuer makes one, and the web UI has no control that does.
 
 The guards run in this order, and the first one that fails withholds the permit. Each is recorded in the audit log with its reason:
 
 1. The **pause switch** is off. Pausing needs only your session; resuming needs your password.
-2. The capability can be allowed at all: only `unit.restart` can. Skills and `container.restart` never get a permit.
+2. The capability can be allowed at all: only `unit.restart` and `firewall.block_source` can. Skills and `container.restart` never get a permit.
 3. The rule is not **suspended** by its circuit breaker. A rule is suspended when it has `[policy] circuit_failures` failed restarts inside `circuit_window`. Resetting a rule needs your password.
 4. No earlier restart of the same step has an **unknown outcome**. Resolve it yourself first, with your password.
 5. The hub and the agent agree on what will be restarted: the helper's identity of the unit still matches the plan.
@@ -62,15 +62,13 @@ Anything else is the ordinary path: you approve in the web UI. A withheld permit
 
 What stays true when a permit exists: the agent's `[unattended]` section and the helper's `restart_units` and `protected_units` are local files that the hub cannot change. A compromised hub could label a request as allowed by policy, and the agent would still refuse it unless it is inside what you set on that host. That is the accepted limit of this design.
 
-## What is not yet available
+## What is not available
 
-One kind of input is not produced yet, so every decision made today uses the safe value for it:
+One kind of input is not produced, so every decision uses the safe value for it:
 
-- **Safety facts.** The hub does not produce any facts yet, so every fact is unknown and is treated as not met.
+- **Safety facts.** The hub does not produce any facts, so every fact is unknown and is treated as not met. A rule cannot depend on one.
 
-The unattended ceiling is now reported by each agent, and the pause switch and the circuit breaker are read from the hub's own records, so none of those shows as a gap. Other inputs are still modelled conservatively: the root account of the agent is assumed to be root unless the hub knows otherwise, and contracts that need the containment helper are marked incomplete. Each of these shows as a gap in the decision rows.
-
-Until facts exist, a rule cannot depend on one.
+The unattended ceiling is reported by each agent, and the pause switch and the circuit breaker are read from the hub's own records, so none of those shows as a gap. Other inputs are modelled conservatively: the root account of the agent is assumed to be root unless the hub knows otherwise, and contracts that need the containment helper are marked incomplete. Each of these shows as a gap in the decision rows.
 
 ## The Policy pages
 
@@ -78,7 +76,7 @@ The **Policy** page shows what is in force, what is being drafted and what was r
 
 ### Overview and recording status
 
-The top of the page shows the active version with its rule counts, the draft if one exists, and the recording card. Decisions are recorded for comparison and are not enforced. Nothing on this page blocks or allows a step; the answers are there so you can compare them before you rely on a rule.
+The top of the page shows the active version with its rule counts, the draft if one exists, and the recording card. Recorded decisions are for comparison and are not applied themselves. Nothing on this page blocks or allows a step; the answers are there so you can compare them before you rely on a rule.
 
 - When recording is on, the card shows how many decisions were recorded in the last 24 hours, how many are degraded, how many differ between the active rules and the shadow rules, how many could not be evaluated, and when the last recording pass ran.
 - When recording is off, the page says so. To turn it on, set `shadow = true` under `[policy]` in `hub.toml` and restart the hub (see [Configuration](../reference/configuration.md)).
@@ -127,7 +125,7 @@ Open a row in **Decisions** to see one recorded decision. It shows:
 - **Hard limits**: the limits that applied after the rules, in their own card. They are not rules and cannot be edited on this page. When the answer with the limits differs from the answer with the rules alone, both are shown.
 - **Missing inputs**: any input the decision could not read is listed as a gap. The result then uses the safe reading of that input, so it can be stricter than the real answer. Read it as "at least this strict".
 - **Part of this explanation could not be read**: if the hub recorded something this page does not know, a warning says so and **Unread details** lists what was skipped. Do not treat that explanation as complete.
-- **Not enforced**: the answer on this page is a record. It is never applied itself. A rule that allows a service restart is acted on only when a new permit is issued for a live request, as described under Enforcement above.
+- **Not enforced**: the answer on this page is a record. It is never applied itself. A rule that allows a service restart or a block is acted on only when a new permit is issued for a live request, as described under Enforcement above.
 
 **Simulate this step** opens the simulator for the same step.
 
@@ -146,4 +144,4 @@ Each result is marked **Same**, **Changed** or **Cannot replay**.
 
 ### Time zones
 
-The hub evaluates time windows in UTC today. Every time window on a rule, such as "Start" and "End" for a time of day, shows its time zone beside it, for example "Start (UTC)". The pages read the zone from the policy overview and label it, so they follow the hub if that ever changes. A window that ends before it starts runs overnight. If the hub does not report a zone, the time fields are read-only and say so.
+The hub evaluates time windows in UTC. Every time window on a rule, such as "Start" and "End" for a time of day, shows its time zone beside it, for example "Start (UTC)". The pages read the zone from the policy overview and label it, so they follow the hub's zone. A window that ends before it starts runs overnight. If the hub does not report a zone, the time fields are read-only and say so.

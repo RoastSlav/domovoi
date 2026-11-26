@@ -34,9 +34,6 @@ export const SEARCH_GROUPS = [
   matched: "hub" | "browser";
 }[];
 
-/** The id of one group. */
-export type GroupId = (typeof SEARCH_GROUPS)[number]["id"];
-
 /** What one group has so far. `total` is how many items matched; `items` are all of them. */
 export interface GroupState<T> {
   error?: unknown;

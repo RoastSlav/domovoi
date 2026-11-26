@@ -32,11 +32,6 @@ impl Catalogue {
         lock(&self.hashes).insert(host, hash.into());
     }
 
-    /// Drops a host's announced hash, as an agent that announces none.
-    pub(super) fn clear_hash(&self, host: HostId) {
-        lock(&self.hashes).remove(&host);
-    }
-
     /// Scripts the pages a host answers with, in page order.
     pub(super) fn set_pages(&self, host: HostId, pages: Vec<CatalogPageData>) {
         let pages = pages

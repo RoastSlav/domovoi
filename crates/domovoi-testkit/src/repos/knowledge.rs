@@ -1,3 +1,5 @@
+//! In-memory notes, acknowledgement rules, advisories, baselines and metric samples.
+
 use async_trait::async_trait;
 use domovoi_core::ports::{
     AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo, StoreError,

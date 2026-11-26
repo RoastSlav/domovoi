@@ -6,17 +6,14 @@ import { call, defined, type AuditPage, type AuditVerification } from "../types"
 /** Entries per request. */
 export const AUDIT_PAGE = 50;
 
-/** Which part of the audit history a list covers. */
-export type AuditHistoryName = "chained" | "legacy";
-
-/** One part of the audit history, newest first, a page at a time. */
-export function useAuditRows(history: AuditHistoryName) {
+/** The audit log, newest first, a page at a time. */
+export function useAuditRows() {
   return useInfiniteQuery({
-    queryKey: keys.auditRows(history),
+    queryKey: keys.auditRows(),
     queryFn: ({ pageParam }) =>
       call<AuditPage>(
         api.GET("/api/v1/audit", {
-          params: { query: defined({ history, cursor: pageParam, limit: AUDIT_PAGE }) },
+          params: { query: defined({ cursor: pageParam, limit: AUDIT_PAGE }) },
         }),
       ),
     initialPageParam: undefined as string | undefined,

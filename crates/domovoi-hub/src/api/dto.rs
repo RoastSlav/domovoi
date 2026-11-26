@@ -4,16 +4,13 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::ports::IncidentTimelineEntry;
-use domovoi_core::{
-    ActionRequest, ActionStatus, Card, CardBadge, Incident, Principal, TriageReport, Verdict,
-};
+use domovoi_core::{Card, CardBadge, Incident, TriageReport, Verdict};
 use domovoi_engine::triage::Turn;
 
-use super::plan_binding::PlanBinding;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-pub use super::dto_query::{ActionQuery, IncidentQuery, LogsQuery, RetryQuery};
+pub use super::dto_query::{IncidentQuery, LogsQuery, RetryQuery};
 
 /// The wire name of `verdict`, for example `ACTION_NEEDED`.
 fn verdict_name(verdict: Verdict) -> String {
@@ -276,8 +273,6 @@ pub struct IncidentDetail {
     pub card: CardDto,
     /// The timeline, oldest first.
     pub timeline: Vec<TimelineEntryDto>,
-    /// Actions for this incident, newest first.
-    pub actions: Vec<ActionDto>,
     /// Operations about this incident, newest first.
     pub operations: Vec<super::dto_operations::OperationSummaryDto>,
     /// Skills and tools used while triaging or answering, in first-call order.
@@ -301,96 +296,6 @@ pub struct ToolUsageDto {
     pub refused: u32,
     /// When it was last called.
     pub last_used: String,
-}
-
-/// An action.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct ActionDto {
-    /// Action id.
-    pub id: String,
-    /// The incident it is for.
-    pub incident_id: String,
-    /// The host it runs on.
-    pub host_id: String,
-    /// Skill name.
-    pub skill: String,
-    /// `read`, `write` or `destructive`.
-    pub risk: String,
-    /// Arguments by parameter name.
-    pub args: BTreeMap<String, String>,
-    /// The status name, for example `proposed` or `verified`.
-    pub status: String,
-    /// The plan hash of this action's own family: what an approval covers and what the
-    /// dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
-    pub plan_hash: String,
-    /// The stored legacy v1 plan hash, for audit display.
-    pub plan_hash_v1: Option<String>,
-    /// Which binding family `plan_hash` belongs to: `v1` or `v2`.
-    pub plan_binding: PlanBinding,
-    /// Why it was rejected or failed.
-    pub reason: Option<String>,
-    /// Who proposed it, for example `system:triage`.
-    pub proposed_by: String,
-    /// Who approved it, if anyone.
-    pub approved_by: Option<String>,
-    /// When the approval window closes.
-    pub expires_at: String,
-    /// When it was proposed.
-    pub created_at: String,
-    /// When it last changed.
-    pub updated_at: String,
-    /// Whether this action belongs to the retired approval path, which survives only as
-    /// read-only history: always true.
-    pub legacy: bool,
-}
-
-impl From<&ActionRequest> for ActionDto {
-    fn from(a: &ActionRequest) -> Self {
-        let reason = match a.status() {
-            ActionStatus::Rejected { reason }
-            | ActionStatus::Failed { reason }
-            | ActionStatus::OutcomeUnknown { reason }
-            | ActionStatus::NotRun { reason } => Some(reason.clone()),
-            _ => None,
-        };
-        let risk = serde_json::to_value(a.risk())
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
-        Self {
-            id: a.id().to_string(),
-            incident_id: a.incident().to_string(),
-            host_id: a.host().to_string(),
-            skill: a.skill().to_string(),
-            risk,
-            args: a.args().clone(),
-            status: a.status().name().to_owned(),
-            plan_hash: a.plan_hash_for_approval().to_string(),
-            plan_hash_v1: Some(a.plan_hash().to_string()),
-            plan_binding: PlanBinding::from(a.approval_plan().family()),
-            reason,
-            proposed_by: match a.proposed_by() {
-                Principal::Human(user) => format!("user:{user}"),
-                Principal::System(component) => format!("system:{component}"),
-            },
-            approved_by: a.approved_by().map(|h| format!("user:{}", h.user())),
-            expires_at: a.expires_at().to_string(),
-            created_at: a.created_at().to_string(),
-            updated_at: a.updated_at().to_string(),
-            legacy: true,
-        }
-    }
-}
-
-/// One page of actions, newest first.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
-pub struct ActionPage {
-    /// The actions.
-    pub items: Vec<ActionDto>,
-    /// Pass as `cursor` for the next page; absent on the last.
-    pub next_cursor: Option<String>,
-    /// The journal position this snapshot was read at; apply only events with a greater `seq`.
-    pub as_of_seq: u64,
 }
 
 /// Muting an incident.

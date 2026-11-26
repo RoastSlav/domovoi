@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::ExitCode;
 use clap::{Args, Subcommand};
-use domovoi_core::audit_chain::{ChainStatus, LegacyStatus, VerifyReport, VerifyScope};
+use domovoi_core::audit_chain::{ChainStatus, VerifyReport, VerifyScope};
 use domovoi_hub::admin::OfflineAdmin;
 
 use super::HubConfigArg;
@@ -13,9 +13,9 @@ use crate::init::SystemClock;
 /// Audit subcommands.
 #[derive(Debug, Subcommand)]
 pub enum AuditCommand {
-    /// Verify the audit log's hash chain and legacy digest.
+    /// Verify the audit log's hash chain.
     Verify(VerifyArgs),
-    /// Print the newest chained audit row's sequence number and hash.
+    /// Print the newest audit row's sequence number and hash.
     Head(HubConfigArg),
 }
 
@@ -24,7 +24,7 @@ pub enum AuditCommand {
 pub struct VerifyArgs {
     #[command(flatten)]
     config: HubConfigArg,
-    /// Check only the newest N chained rows, and the legacy row count.
+    /// Check only the newest N rows.
     #[arg(long)]
     last: Option<u64>,
 }
@@ -62,7 +62,7 @@ async fn head(args: HubConfigArg) -> anyhow::Result<ExitCode> {
     admin.close().await;
     match head? {
         Some((seq, hash)) => println!("seq {seq} hash {}", hex::encode(hash)),
-        None => println!("no chained rows yet"),
+        None => println!("no audit rows yet"),
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -72,46 +72,15 @@ async fn head(args: HubConfigArg) -> anyhow::Result<ExitCode> {
 pub fn render_report(report: &VerifyReport) -> (String, bool) {
     let mut out = String::new();
     let mut ok = true;
-    match &report.legacy {
-        LegacyStatus::Verified { count } => {
-            out.push_str(&format!(
-                "Legacy history:  verified, {count} rows (digest matches the anchor)\n"
-            ));
-        }
-        LegacyStatus::Mismatch {
-            expected_count,
-            actual_count,
-            digest_matches,
-        } => {
-            let digest = if *digest_matches {
-                "matches"
-            } else {
-                "differs"
-            };
-            out.push_str(&format!(
-                "Legacy history:  CHANGED: expected {expected_count} rows, found {actual_count} \
-                 (digest {digest})\n"
-            ));
-            ok = false;
-        }
-        LegacyStatus::CountOnly { count } => {
-            out.push_str(&format!(
-                "Legacy history:  count matches, {count} rows (digest not checked)\n"
-            ));
-        }
-        LegacyStatus::NotVerifiable => {
-            out.push_str("Legacy history:  not verifiable (older rows were pruned)\n");
-        }
-    }
     match &report.chained {
-        ChainStatus::Empty => out.push_str("Chained history: empty\n"),
+        ChainStatus::Empty => out.push_str("Audit chain: empty\n"),
         ChainStatus::Intact {
             checked,
             head_seq,
             head_hash,
         } => {
             out.push_str(&format!(
-                "Chained history: intact, {checked} rows checked, head seq {head_seq} hash {}\n",
+                "Audit chain: intact, {checked} rows checked, head seq {head_seq} hash {}\n",
                 hex::encode(head_hash)
             ));
         }
@@ -121,7 +90,7 @@ pub fn render_report(report: &VerifyReport) -> (String, bool) {
             ..
         } => {
             out.push_str(&format!(
-                "Chained history: BROKEN at seq {first_broken_seq}: {reason}\n"
+                "Audit chain: BROKEN at seq {first_broken_seq}: {reason}\n"
             ));
             ok = false;
         }
@@ -138,16 +107,12 @@ mod tests {
     fn anchor() -> AuditAnchor {
         AuditAnchor {
             install_id: "install-1".to_owned(),
-            legacy_last_id: 0,
-            legacy_count: 0,
-            legacy_digest: [0u8; 32],
         }
     }
 
     #[test]
     fn render_intact() {
         let report = VerifyReport {
-            legacy: LegacyStatus::Verified { count: 1204 },
             chained: ChainStatus::Intact {
                 checked: 311,
                 head_seq: 1515,
@@ -157,16 +122,12 @@ mod tests {
         };
         let (text, ok) = render_report(&report);
         assert!(ok);
-        assert!(text.contains("Legacy history:  verified, 1204 rows"));
-        assert!(
-            text.contains("Chained history: intact, 311 rows checked, head seq 1515 hash 9f9f")
-        );
+        assert!(text.contains("Audit chain: intact, 311 rows checked, head seq 1515 hash 9f9f"));
     }
 
     #[test]
     fn render_broken_sets_failure() {
         let report = VerifyReport {
-            legacy: LegacyStatus::Verified { count: 0 },
             chained: ChainStatus::Broken {
                 checked: 2,
                 first_broken_seq: 3,
@@ -180,15 +141,13 @@ mod tests {
     }
 
     #[test]
-    fn render_not_verifiable_does_not_fail() {
+    fn render_empty_does_not_fail() {
         let report = VerifyReport {
-            legacy: LegacyStatus::NotVerifiable,
             chained: ChainStatus::Empty,
             anchor: anchor(),
         };
         let (text, ok) = render_report(&report);
         assert!(ok);
-        assert!(text.contains("not verifiable"));
-        assert!(text.contains("Chained history: empty"));
+        assert!(text.contains("Audit chain: empty"));
     }
 }

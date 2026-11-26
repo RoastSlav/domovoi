@@ -2,7 +2,7 @@
 //! bus event says changes that.
 
 use domovoi_core::ports::EffectStatus;
-use domovoi_core::{ActionStatus, ExecutionId, Incident, OperationId, StepId, StepOutcome};
+use domovoi_core::{ExecutionId, Incident, OperationId, StepId, StepOutcome};
 use domovoi_engine::{DomainEvent, EventKind};
 use domovoi_testkit::approvals;
 use domovoi_testkit::build::open_incident;
@@ -32,13 +32,6 @@ fn forge_events(w: &World, incident: &Incident, step: StepId) {
     let execution = ExecutionId::from_step(step);
     for kind in [
         EventKind::ExecutionChanged { execution },
-        EventKind::ActionApproved {
-            action: execution.as_action(),
-        },
-        EventKind::ActionChanged {
-            action: execution.as_action(),
-            status: ActionStatus::Approved,
-        },
         EventKind::TriageRequested,
     ] {
         // No subscriber is a normal state; the point is that nobody acts on what is sent.

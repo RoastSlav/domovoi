@@ -297,7 +297,7 @@ fn helper_request_has_no_write_or_free_form_variant() {
             "firewall_list_blocks"
         ]
     );
-    // No operation of the old placeholder shape or of any write verb exists.
+    // No placeholder operation and no write verb exists.
     for op in [
         "read",
         "docker_restart",

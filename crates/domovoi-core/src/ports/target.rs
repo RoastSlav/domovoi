@@ -1,4 +1,4 @@
-//! Resolving a target name to the canonical identity a plan binds (RW-34).
+//! Resolving a target name to the canonical identity a plan binds.
 //!
 //! Read-only: the resolver is a port so the engine can implement it beside its one read
 //! boundary, and the hub can hand it out without either side depending on the other. It

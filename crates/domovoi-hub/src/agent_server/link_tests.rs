@@ -10,7 +10,7 @@ use domovoi_core::ports::{
     AgentLink, Clock, EnrollmentToken, HostRepo, LinkError, StoreError, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentId, AgentIdentity, AgentReport, AgentSessionId, AuthenticatedReport, Host,
+    AgentId, AgentIdentity, AgentReport, AgentSessionId, AuthenticatedReport, ExecutionId, Host,
     HostId, HostName, PlanHash, ReadToolCall, ReportOutcome, Risk, SkillName,
 };
 use domovoi_proto::messages::{HostFacts, SessionId, ToolOutcome, ToolResult, ToolSuccess};
@@ -184,8 +184,8 @@ async fn a_stalled_lookup_in_start_skill_is_bounded_by_the_deadline_too() {
         let built = manifest(skill.as_str(), Risk::Write).unwrap();
         let args = built.validate_args(&BTreeMap::new()).unwrap();
         let req = SkillDispatch {
-            action: ActionId::new(),
-            plan_hash: PlanHash::compute(&skill, built.manifest_hash(), host, &args),
+            execution: ExecutionId::new(),
+            plan_hash: PlanHash::agent_check(&skill, built.manifest_hash(), host, &args),
             skill,
             args,
         };

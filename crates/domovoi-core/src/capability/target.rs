@@ -1,4 +1,4 @@
-//! Target identity (RW-34): what a plan binds, as opposed to what an owner typed.
+//! Target identity: what a plan binds, as opposed to what an owner typed.
 //!
 //! A policy rule names a target (`plex`); a permit and a plan hash bind a canonical identity.
 //! A host identity is its `HostId` plus the fingerprint of its enrolled agent key, written by
@@ -22,7 +22,7 @@ use crate::id::HostId;
 /// A Docker container's full id: exactly 64 ASCII lowercase hex characters.
 ///
 /// A short id, such as Docker's 12-character display form, is refused rather than expanded:
-/// RW-34 binds the full id, and an expanded one could stop matching the same container.
+/// A plan binds the full id, and an expanded one could stop matching the same container.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ContainerId(String);
@@ -230,10 +230,10 @@ impl TargetUnresolved {
     }
 }
 
-/// RW-34's container-name grammar, anchored: `[a-zA-Z0-9][a-zA-Z0-9_.-]+`, a full match.
+/// The container-name grammar, anchored: `[a-zA-Z0-9][a-zA-Z0-9_.-]+`, a full match.
 ///
 /// Run before any resolution: a name that fails here never reaches an agent. As written in
-/// RW-34 the grammar needs at least two characters, so a single-character name is refused.
+/// The grammar needs at least two characters, so a single-character name is refused.
 pub fn validate_container_name(text: &str) -> Result<TargetName, ValidationError> {
     let chars = text.chars().collect::<Vec<char>>();
     if chars.len() < 2 {

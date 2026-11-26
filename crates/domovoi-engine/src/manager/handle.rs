@@ -8,7 +8,7 @@ use domovoi_core::ports::{IngestError, SignalSink};
 use std::collections::BTreeMap;
 
 use crate::triage::ToolUse;
-use domovoi_core::{ActionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
+use domovoi_core::{ExecutionId, IncidentId, Signal, TriageOutcome, UserId, Verdict};
 use jiff::Timestamp;
 use tokio::sync::{mpsc, oneshot};
 
@@ -111,7 +111,7 @@ impl ManagerHandle {
         &self,
         incident: IncidentId,
         outcome: TriageOutcome,
-        tokens: BTreeMap<ActionId, String>,
+        tokens: BTreeMap<ExecutionId, String>,
     ) -> Result<(), CommandError> {
         self.send(Command::AttachTriage {
             incident,

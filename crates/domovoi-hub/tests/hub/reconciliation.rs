@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{ActionAnswer, AgentLink, Clock, LinkError, UnknownReason};
-use domovoi_core::{ActionId, HostId, JournalEpoch};
+use domovoi_core::{ExecutionId, HostId, JournalEpoch};
 use domovoi_proto::messages::AUTHORITATIVE_ABSENCE;
 use domovoi_proto::messages::{
     ActionState, ActionStatusAnswer, ActionStatusAnswers, CapabilityOutcome, CapabilityResult,
@@ -198,11 +198,11 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
     let mut agent =
         authenticate_promising(&hub, &ident, epoch, vec![AUTHORITATIVE_ABSENCE.to_owned()]).await;
 
-    let finished = ActionId::new();
-    let failed = ActionId::new();
-    let missing = ActionId::new();
-    let unprovable = ActionId::new();
-    let future_failure = ActionId::new();
+    let finished = ExecutionId::new();
+    let failed = ExecutionId::new();
+    let missing = ExecutionId::new();
+    let unprovable = ExecutionId::new();
+    let future_failure = ExecutionId::new();
     let asked = vec![finished, failed, missing, unprovable, future_failure];
     let deadline = hub.clock.now() + SignedDuration::from_secs(10);
     let waiting = tokio::spawn({
@@ -220,7 +220,7 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
     };
     assert_eq!(
         query.execution_ids,
-        asked.iter().map(ActionId::as_uuid).collect::<Vec<_>>(),
+        asked.iter().map(ExecutionId::as_uuid).collect::<Vec<_>>(),
         "the hub asks about exactly the runs it could not settle",
     );
     assert_eq!(query.expected_epoch, epoch);
@@ -278,7 +278,7 @@ async fn the_link_asks_the_journal_about_each_run_and_maps_the_answers() {
 
     let got = guard(waiting).await.unwrap().unwrap();
     assert_eq!(got.epoch, JournalEpoch::from_uuid(epoch));
-    let settled: Vec<(ActionId, ActionAnswer)> = got
+    let settled: Vec<(ExecutionId, ActionAnswer)> = got
         .answers
         .into_iter()
         .map(|entry| (entry.execution, entry.answer))
@@ -327,7 +327,7 @@ async fn an_unrecognised_journal_reason_is_treated_as_a_lost_record() {
     let ident = enroll(&hub, "nas").await;
     let mut agent = authenticate_with(&hub, &ident, epoch).await;
 
-    let run = ActionId::new();
+    let run = ExecutionId::new();
     let deadline = hub.clock.now() + SignedDuration::from_secs(10);
     let waiting = tokio::spawn({
         let link = link.clone();
@@ -427,7 +427,7 @@ async fn an_action_status_query_is_not_sent_to_a_replacement_session() {
     let out = link
         .action_status(
             ident.host,
-            vec![ActionId::new()],
+            vec![ExecutionId::new()],
             JournalEpoch::from_uuid(first),
             hub.clock.now() + SignedDuration::from_secs(5),
         )
@@ -462,7 +462,7 @@ async fn a_same_epoch_reconnect_is_still_answered() {
         async move {
             link.action_status(
                 ident.host,
-                vec![ActionId::new()],
+                vec![ExecutionId::new()],
                 JournalEpoch::from_uuid(epoch),
                 deadline,
             )
@@ -566,7 +566,7 @@ async fn answer_status(
     epoch: uuid::Uuid,
     state: ActionState,
 ) -> domovoi_core::ports::ActionAnswers {
-    let run = ActionId::new();
+    let run = ExecutionId::new();
     let host = ident.host;
     let deadline = hub.clock.now() + SignedDuration::from_secs(10);
     let waiting = tokio::spawn({

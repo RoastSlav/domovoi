@@ -1,12 +1,10 @@
-//! `AuditInspect` on SQLite: rows with their chain fields, history split, and read-only reads.
-
-use std::path::Path;
+//! `AuditInspect` on SQLite: rows with their chain fields and read-only reads.
 
 use domovoi_core::audit_chain::{BreakReason, ChainStatus, VerifyScope};
 use domovoi_core::ports::{
-    AuditEvent, AuditFilter, AuditHistory, AuditInspect, AuditLog, AuditRowFilter, Page, StoreError,
+    AuditEvent, AuditFilter, AuditInspect, AuditLog, AuditRowFilter, Page, StoreError,
 };
-use domovoi_store::{Store, StoreOptions};
+use domovoi_store::Store;
 use domovoi_testkit::build::at;
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -36,32 +34,8 @@ async fn exec(pool: &SqlitePool, sql: &str) {
         .unwrap();
 }
 
-async fn open_fixture(dir: &Path) -> Store {
-    let dbdir = dir.join("db");
-    std::fs::create_dir_all(&dbdir).unwrap();
-    let path = dbdir.join("domovoi.db");
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests")
-            .join("fixtures")
-            .join("n1-schema5.db"),
-        &path,
-    )
-    .unwrap();
-    Store::open(&path, StoreOptions::beside(&path, at(1000)))
-        .await
-        .unwrap()
-}
-
 fn seqs(rows: &[domovoi_core::audit_chain::ChainRow]) -> Vec<u64> {
     rows.iter().map(|r| r.seq).collect()
-}
-
-fn history(h: AuditHistory) -> AuditRowFilter {
-    AuditRowFilter {
-        history: Some(h),
-        ..AuditRowFilter::default()
-    }
 }
 
 #[tokio::test]
@@ -113,59 +87,22 @@ async fn rows_page_with_a_cursor_until_the_last_page_has_none() {
 }
 
 #[tokio::test]
-async fn history_filter_splits_legacy_from_chained() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = open_fixture(dir.path()).await;
-    let first = append(&store, "new.a").await;
-    let second = append(&store, "new.b").await;
-    let page = Page::first(50);
-    let legacy = store
-        .rows(&history(AuditHistory::Legacy), &page)
-        .await
-        .unwrap();
-    assert_eq!(seqs(&legacy.items), [5, 4, 3, 2, 1]);
-    assert!(legacy.items.iter().all(|r| r.hash.is_none()));
-    let chained = store
-        .rows(&history(AuditHistory::Chained), &page)
-        .await
-        .unwrap();
-    assert_eq!(seqs(&chained.items), [second, first]);
-    assert!(chained.items.iter().all(|r| r.hash.is_some()));
-    let all = store.rows(&AuditRowFilter::default(), &page).await.unwrap();
-    assert_eq!(all.items.len(), 7);
-}
-
-#[tokio::test]
-async fn kind_filter_narrows_the_rows_and_combines_with_history() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = open_fixture(dir.path()).await;
-    append(&store, "new.a").await;
-    let b = append(&store, "new.b").await;
+async fn kind_filter_narrows_the_rows() {
+    let f = Fresh::new().await;
+    append(&f.store, "new.a").await;
+    let b = append(&f.store, "new.b").await;
     let filter = AuditRowFilter {
         events: AuditFilter {
             kind: Some("new.b".to_owned()),
             ..AuditFilter::default()
         },
-        history: Some(AuditHistory::Chained),
     };
-    let out = store.rows(&filter, &Page::first(50)).await.unwrap();
+    let out = f.store.rows(&filter, &Page::first(50)).await.unwrap();
     assert_eq!(seqs(&out.items), [b]);
-    let none = AuditRowFilter {
-        history: Some(AuditHistory::Legacy),
-        ..filter
-    };
-    assert!(
-        store
-            .rows(&none, &Page::first(50))
-            .await
-            .unwrap()
-            .items
-            .is_empty()
-    );
 }
 
 #[tokio::test]
-async fn a_chained_row_that_lost_its_hash_is_still_chained_and_breaks_the_chain() {
+async fn a_row_that_lost_its_hash_breaks_the_chain() {
     let f = Fresh::new().await;
     append(&f.store, "k").await;
     append(&f.store, "k").await;
@@ -176,17 +113,11 @@ async fn a_chained_row_that_lost_its_hash_is_still_chained_and_breaks_the_chain(
     let page = Page::first(10);
     let chained = f
         .store
-        .rows(&history(AuditHistory::Chained), &page)
+        .rows(&AuditRowFilter::default(), &page)
         .await
         .unwrap();
     let row = chained.items.iter().find(|r| r.seq == 2).unwrap();
     assert!(row.hash.is_none());
-    let legacy = f
-        .store
-        .rows(&history(AuditHistory::Legacy), &page)
-        .await
-        .unwrap();
-    assert!(legacy.items.is_empty());
     let report = f.store.verify(VerifyScope::Full).await.unwrap();
     assert!(matches!(
         report.chained,

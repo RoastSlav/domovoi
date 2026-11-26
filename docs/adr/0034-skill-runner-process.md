@@ -1,15 +1,11 @@
-# 0034 The skill runner process: placement, protocol and rules
+# 0034. The skill runner process: placement, protocol and rules
 
-- Status: proposed
+- Status: Accepted
 - Date: 2026-11-25
-- Extends [0030](0030-three-identities.md) (the three identities; Decision 6, a missing runner never falls back to a local run) and [0031](0031-helper-and-skill-runner-delivery.md) (the runner's units and sandbox; Decision 3).
-- Changes `xtask/src/arch/rules.rs` and the crate table of `ARCHITECTURE.md` §4, which is why it exists.
-
-This record is **proposed**. It makes no statement of platform support. The unit text is the one measured with a stand-in program in 0031; its behaviour with the production runner is an exit criterion of the change, not a finding.
 
 ## Context
 
-0030 and 0031 decided that skills run as the unprivileged `domovoi-skill` account, in a sandbox that systemd builds from a socket-activated unit. They left the program itself, the protocol between the agent and the runner, and the enforcement of the rules open. The agent already has two call sites that run skills, and its hub link already carries a `skill_runner_status`; the hub derives availability from it.
+[0030](0030-three-identities.md) and [0031](0031-helper-and-skill-runner-delivery.md) decide that skills run as the unprivileged `domovoi-skill` account, in a sandbox that systemd builds from a socket-activated unit. This record decides the program, the protocol between the agent and the runner and the enforcement of the rules. The agent's hub link carries a `skill_runner_status`, and the hub derives availability from it.
 
 Adapters never depend on adapters (R1), so the runner cannot use anything the helper or the agent owns, and neither can the agent link the runner's server code.
 
@@ -26,23 +22,23 @@ Adapters never depend on adapters (R1), so the runner cannot use anything the he
 
 3. **`run_as` is wire-neutral.** The runner accepts a manifest `run_as` only when it is absent or `domovoi-skill`; the agent refuses first, before it connects. The refusal travels as the token `run_as_unsupported` at the start of the existing `exec` failure message, because adding a field or a failure code needs a wire revision, a UI vocabulary entry and an OpenAPI regeneration. `domovoi agent selftest` lists the affected skills. Carrying the reason to the hub is left to a later wire revision.
 
-4. **The runner never falls back and never switches users.** An agent that does not run as root runs skills only through the runner, never in its own process; a runner that is not `ok` makes every skill unavailable. An agent that runs as root keeps the labelled legacy path.
+4. **The runner never falls back and never switches users.** An agent that does not run as root runs skills only through the runner, never in its own process; a runner that is not `ok` makes every skill unavailable. An agent that runs as root keeps the labelled local path.
 
 5. **Units and installer.** The two unit files ship under `deploy/systemd/` with concrete default values; `install.sh` embeds the same text and renders the binary path and the two directories into the service unit, from `domovoi agent dirs`, which refuses any path a unit cannot hold safely. The installer creates the configured directories before it starts any socket, starts the runner socket only after the units are installed, the daemon reloaded and the self-test passed, runs the self-test once more with the socket up, and stops the socket again, naming the check, when that fails. `MemoryMax=`, `TasksMax=` and the other hardening candidates are not shipped: each needs a measurement under real skills first.
 
 6. **Rules.** Each rule has a card in `rules.rs` and a test that feeds it a failing input. The unit rules reuse the parser of `xtask/src/arch/units.rs`; the checks live in `runner_rules.rs` (units and installer order) and `runner_scan.rs` (source scans).
 
-   | Rule | What it checks | Evidence it rests on |
-   |---|---|---|
-   | `UNIT-1` | No `InaccessiblePaths=` entry sits at or under a `TemporaryFileSystem=` parent | 0031 Decision 3: the combination fails the start with `226/NAMESPACE` and `systemd-analyze verify` is silent |
-   | `UNIT-2` (runner) | The runner unit has `Group=domovoi-skill` and no non-empty `SupplementaryGroups=` | 0030 Decision 3: the account carries the control |
-   | `UNIT-3` (runner) | The runner unit carries every directive of 0031's unit with its value, no `SupplementaryGroups=` line, and bind sources equal to the two `ExecStart=` directories; no hardening candidate is required | 0031 Decision 3 |
-   | `UNIT-5` (runner) | The runner socket exists, listens only on `/run/domovoi-skill-runner.sock`, and is `0660 root:domovoi-agent` | 0030 Decision 2 |
-   | `UNIT-6` | No `BindPaths=` or `BindReadOnlyPaths=` entry names a `.sock` path or anything under `/run` | 0031 Decision 3: never bind a socket node |
-   | `UNIT-7` | Covers `TemporaryFileSystem=` and both runner binds against the created set, as for the helper | 0031 Decision 3 |
-   | `INSTALL-1` (runner) | `install.sh` reads the runner directories, creates them, installs both units and reloads before the self-test, and enables the runner socket only after the self-test | 0031 Decision 3 |
-   | `RUNNER-1` | The literal `domovoi-skill-runner.sock` and the type `RunnerRequest` appear only in core's `skill_runner` module, the agent's `skill_runner` module, the runner's `serve` module, the binary's `skill-runner` command, testkit, tests and `deploy/` | 0030 Decision 8 |
-   | `RUNNER-2` | The runner's `serve` module imports no `domovoi_helper` item, no helper client and no agent state type | 0030 Decision 8 |
+   | Rule | What it checks |
+   |---|---|
+   | `UNIT-1` | No `InaccessiblePaths=` entry sits at or under a `TemporaryFileSystem=` parent |
+   | `UNIT-2` (runner) | The runner unit has `Group=domovoi-skill` and no non-empty `SupplementaryGroups=` |
+   | `UNIT-3` (runner) | The runner unit carries every directive of 0031's unit with its value, no `SupplementaryGroups=` line, and bind sources equal to the two `ExecStart=` directories; no hardening candidate is required |
+   | `UNIT-5` (runner) | The runner socket exists, listens only on `/run/domovoi-skill-runner.sock`, and is `0660 root:domovoi-agent` |
+   | `UNIT-6` | No `BindPaths=` or `BindReadOnlyPaths=` entry names a `.sock` path or anything under `/run` |
+   | `UNIT-7` | Covers `TemporaryFileSystem=` and both runner binds against the created set, as for the helper |
+   | `INSTALL-1` (runner) | `install.sh` reads the runner directories, creates them, installs both units and reloads before the self-test, and enables the runner socket only after the self-test |
+   | `RUNNER-1` | The literal `domovoi-skill-runner.sock` and the type `RunnerRequest` appear only in core's `skill_runner` module, the agent's `skill_runner` module, the runner's `serve` module, the binary's `skill-runner` command, testkit, tests and `deploy/` |
+   | `RUNNER-2` | The runner's `serve` module imports no `domovoi_helper` item, no helper client and no agent state type |
 
    `ID-2` also allows the runner's `start_checks.rs` to call `supplementary_groups`, which is how ST-05 reads the account's groups at start.
 
@@ -52,26 +48,21 @@ The rules above and the existing ones, on every pull request: the shipped units 
 
 ## What the checker cannot see
 
-- That a mask or bind works on a host. `systemd-analyze verify` checks syntax only. `deploy/test/skill-runner.sh` measures it on a machine with systemd as PID 1 and cgroup v2, and the self-test (ST-07, ST-13) reads the effective view.
+- That a mask or bind works on a host. `systemd-analyze verify` checks syntax only; the self-test (`ST-07`, `ST-13`) reads the effective view.
 - That the rendered directories match `agent.toml` after a later edit. `health` returns the roots and the self-test reports `unit_modified` naming `bind_paths`.
-
-## Unproven (residual items the owner accepts)
-
-- The runner behind the real unit on the measured hosts, and whether a hosted CI image can run the privileged test at all.
-- The behaviour at `MaxConnections=`; the agent holds at most eight runs at once.
-- `RuntimeMaxSec=3720s` against a real one-hour skill, and the `/run` mask's effect on journald logging with the production binary.
 
 ## Consequences
 
-- A migrated agent loses local skill execution until the runner socket is up. The hub already shows the skills as unavailable.
-- Starter skills that need root or the `docker` group (`restart_container`, `restart_unit`, `vacuum_journal`, the journal readers) report errors until the helper has operations for them.
-- A manifest `run_as` other than `domovoi-skill` stops working on a migrated agent.
-- Package skills stay non-executable; the runner implements the `package` source and nothing sends it yet.
+- An agent that does not run as root has no local skill execution: skills are unavailable until the runner socket is up, and the hub shows them so.
+- A skill that needs root or the `docker` group has no way to run until the helper has an operation for it.
+- A manifest `run_as` other than `domovoi-skill` is refused.
+- Package skills are not executable: the runner implements the `package` source and nothing sends it.
+- The runner behind the real unit and the behaviour at `MaxConnections=` (the agent holds at most eight runs at once) depend on the host; `deploy/test/skill-runner.sh` measures them on a machine with systemd as PID 1 and cgroup v2.
 
 ## Alternatives considered
 
 - **A user namespace sandbox built by the runner.** Rejected: Ubuntu 24.04 and later restrict user namespaces for unprivileged accounts; systemd builds the view from the unit.
 - **A runner that reads `agent.toml`.** Rejected: the mask hides `/etc/domovoi`, and the request would have to carry a path.
-- **`Accept=no` with one long-lived runner.** Rejected (0031): it keeps skill state between requests and loses the per-connection sandbox.
+- **`Accept=no` with one long-lived runner.** Rejected ([0031](0031-helper-and-skill-runner-delivery.md)): it keeps skill state between requests and loses the per-connection sandbox.
 - **Streaming the reply.** Rejected: nothing consumes partial output.
-- **Falling back to a local run when the runner is down.** Rejected (0030 Decision 6): package code would reach the helper and agent state.
+- **Falling back to a local run when the runner is down.** Rejected: package code would reach the helper and agent state.

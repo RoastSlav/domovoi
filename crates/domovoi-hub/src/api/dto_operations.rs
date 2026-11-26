@@ -133,10 +133,8 @@ pub struct ExecutionDto {
     pub args: BTreeMap<String, String>,
     /// The derived state, for example `awaiting_approval` or `succeeded`.
     pub state: String,
-    /// The v2 plan hash a person approves, 64 hex characters.
+    /// The plan hash a person approves, 64 hex characters.
     pub plan_hash: String,
-    /// Always `v2`.
-    pub plan_binding: String,
     /// `read`, `write` or `destructive` from the host's current skills; `null` when the
     /// skill is not on the host now.
     pub risk: Option<String>,
@@ -240,7 +238,6 @@ impl ExecutionDto {
             args: row.args.clone(),
             state: state.name().to_owned(),
             plan_hash: row.plan_hash.to_string(),
-            plan_binding: "v2".to_owned(),
             risk,
             confirm_required,
             expires_at: row.expires_at.to_string(),

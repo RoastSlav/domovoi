@@ -25,7 +25,6 @@ pub mod error;
 pub mod notes_import;
 pub mod packages;
 
-mod actions;
 mod audit;
 mod auth;
 mod autonomy;
@@ -52,7 +51,6 @@ mod overview;
 mod packages_error;
 mod packages_hosts;
 mod packages_jobs;
-mod plan_binding;
 mod policy;
 mod policy_shadow;
 mod preferences;
@@ -73,8 +71,8 @@ use axum::http::request::Parts;
 use domovoi_config::HubConfig;
 use domovoi_core::HostName;
 use domovoi_core::ports::{
-    AckRepo, ActionRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LogSource, MetricSampleRepo,
-    NoteRepo, Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
+    AckRepo, AdvisoryRepo, Clock, HostRepo, IncidentRepo, LogSource, MetricSampleRepo, NoteRepo,
+    Notifier, Page, PolicyRepo, Redactor, SignalRepo, UsageRepo,
 };
 use domovoi_engine::ManagerHandle;
 use domovoi_engine::triage::TriageHandle;
@@ -106,8 +104,6 @@ pub struct ApiDeps {
     pub incidents: Arc<dyn IncidentRepo>,
     /// Recent signals, for cards.
     pub signals: Arc<dyn SignalRepo>,
-    /// Actions, read only: retired legacy history.
-    pub actions: Arc<dyn ActionRepo>,
     /// Hosts.
     pub hosts: Arc<dyn HostRepo>,
     /// Notes.
@@ -297,7 +293,6 @@ pub(crate) async fn host_named(
     tags(
         (name = "auth", description = "Setup, login and sessions"),
         (name = "incidents", description = "Incidents and their triage"),
-        (name = "actions", description = "Retired legacy actions, read only"),
         (name = "operations", description = "Operations, their steps and step approvals"),
         (name = "experience", description = "Summaries of finished operations, similar past operations and search"),
         (name = "policy", description = "Policy versions, shadow decisions, the simulator and publication"),
@@ -365,7 +360,6 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(operator::set_conversation_operation))
         .routes(routes!(followups::history, followups::clear))
         .routes(routes!(incidents::retry_triage))
-        .routes(routes!(actions::list))
         .routes(routes!(operations::list))
         .routes(routes!(operations::detail))
         .routes(routes!(operations::trace))

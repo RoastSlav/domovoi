@@ -12,7 +12,7 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentSessionId, CheckKey, HostId, JournalEpoch, ReadToolCall, RequestId,
+    AgentSessionId, CheckKey, ExecutionId, HostId, JournalEpoch, ReadToolCall, RequestId,
     SkillSummary, TargetKey,
 };
 use domovoi_core::{
@@ -299,12 +299,12 @@ impl AgentLink for WsAgentLink {
     async fn action_status(
         &self,
         host: HostId,
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError> {
         let query = ActionStatusQuery {
-            execution_ids: ids.iter().map(ActionId::as_uuid).collect(),
+            execution_ids: ids.iter().map(ExecutionId::as_uuid).collect(),
             expected_epoch: expected_epoch.as_uuid(),
         };
         let (reply, facts) = self

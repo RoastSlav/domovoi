@@ -11,7 +11,6 @@ use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::build::{T0, open_incident};
 use domovoi_testkit::crash::{Snapshot, TxSummary};
 
-use crate::legacy::legacy_drain;
 use crate::operations::operation_lifecycle;
 use crate::scenarios::incident_lifecycle;
 use crate::sweep::BoxFuture;
@@ -22,7 +21,7 @@ type Run = fn(&mut World<InMemoryStore>) -> BoxFuture<'_, ()>;
 
 /// The files a commit goes through. A later writer that commits anywhere else fails
 /// [`commit_sites_are_the_ones_the_sweep_exercises`] until it adds a scenario here.
-const COMMIT_SITES: [&str; 17] = [
+const COMMIT_SITES: [&str; 16] = [
     "containment/driver.rs",
     "containment/phases.rs",
     "containment/run.rs",
@@ -31,7 +30,6 @@ const COMMIT_SITES: [&str; 17] = [
     "conversations/writer/settle.rs",
     "effects/runner.rs",
     "knowledge/service.rs",
-    "legacy.rs",
     "manager/actor.rs",
     "operations/startup.rs",
     "operations/writer/commit.rs",
@@ -42,16 +40,9 @@ const COMMIT_SITES: [&str; 17] = [
     "policy_shadow/recorder.rs",
 ];
 
-/// Every audit kind the legacy retirement and the operation writer can produce, plus the three
-/// the legacy scenario seeds as the first-generation executor's last word on a row. A scenario
-/// has to exercise each one, and a new producer has to be added here.
-const AUDIT_KINDS: [&str; 17] = [
-    "action.proposed",
-    "action.approved",
-    "action.expired",
-    "action.dispatched",
-    "action.outcome_unknown",
-    "action.not_run",
+/// Every audit kind the operation writer can produce. A scenario has to exercise each one, and a
+/// new producer has to be added here.
+const AUDIT_KINDS: [&str; 11] = [
     // The operation writer's, as far as the scenarios reach them: an approved restart is
     // dispatched and settled by the operation service's own handlers.
     "operation.created",
@@ -78,7 +69,7 @@ async fn recorded(run: Run) -> Vec<TxSummary> {
     summaries
 }
 
-/// Every write kind, action status, journal kind and audit kind the writers produce is
+/// Every write kind, journal kind and audit kind the writers produce is
 /// exercised by at least one commit of one scenario.
 #[tokio::test]
 async fn sweep_covers_every_kind_of_write() {
@@ -88,7 +79,6 @@ async fn sweep_covers_every_kind_of_write() {
     for run in [
         incident_lifecycle::<InMemoryStore>,
         operation_lifecycle::<InMemoryStore>,
-        legacy_drain::<InMemoryStore>,
     ] {
         for summary in recorded(run).await {
             writes.extend(summary.writes);
@@ -103,7 +93,6 @@ async fn sweep_covers_every_kind_of_write() {
         "incident:version",
         "incident_event",
         "incident:discard",
-        "action:new",
         "operation:new",
         "operation:version",
         "step:new",
@@ -119,22 +108,10 @@ async fn sweep_covers_every_kind_of_write() {
             "no scenario writes {required}, so the sweep does not cover every write\nfound: {writes:#?}"
         );
     }
-    for status in ["expired", "not_run", "outcome_unknown"] {
-        let wanted = format!("action:status:{status}");
-        assert!(
-            writes.contains(&wanted),
-            "no scenario moves an action to {status}, so the sweep does not cover every status\nfound: {writes:#?}"
-        );
-    }
     assert!(
         journal.contains("incident.timeline"),
         "no scenario writes a mirrored timeline journal row\nfound: {journal:#?}"
     );
-    assert!(
-        journal.contains("action.transition"),
-        "no scenario writes an action transition journal row\nfound: {journal:#?}"
-    );
-
     // The audit contract, both ways: every kind the writers produce must be exercised,
     // and a kind this list does not know is a new producer that needs reviewing here.
     let observed: BTreeSet<&str> = audit.iter().map(String::as_str).collect();
@@ -233,7 +210,6 @@ async fn scenarios_are_deterministic() {
     for run in [
         incident_lifecycle::<InMemoryStore>,
         operation_lifecycle::<InMemoryStore>,
-        legacy_drain::<InMemoryStore>,
     ] {
         let first = recorded(run).await;
         let second = recorded(run).await;

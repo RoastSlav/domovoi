@@ -671,8 +671,7 @@ pub const ZONES: &[Zone] = &[
 pub const SERVICE_FORBIDDEN_MODULES: &[&str] = &["runtime", "router"];
 
 /// Command handles transports may not name: commands go through a service (MOD-4).
-pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] =
-    &["ActionHandle", "OperationHandle", "PackageHandle"];
+pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] = &["OperationHandle", "PackageHandle"];
 
 /// Top-level hub modules that are not a zone. A module neither here nor a zone is MOD-3.
 pub const UNZONED_MODULES: &[&str] = &[
@@ -789,7 +788,7 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     RuleCard {
         id: "IDENT-1",
         message: "the skill account name has one definition, domovoi-core/src/identity/accounts.rs; use the constant",
-        backs: "D-31",
+        backs: "ADR 0030",
     },
     RuleCard {
         id: "ID-2",
@@ -819,7 +818,7 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     RuleCard {
         id: "READ-1",
         message: "the bollard crate is named only by domovoi-checks/src/containers/docker.rs and the helper's reads/docker/ module; the helper's Docker client is the one place that holds the engine socket and it calls five read endpoints",
-        backs: "ADR 0036, D-24",
+        backs: "ADR 0036",
     },
     RuleCard {
         id: "UNIT-4",
@@ -844,7 +843,7 @@ pub const IDENTITY_CARDS: &[RuleCard] = &[
     RuleCard {
         id: "UNIT-8",
         message: "domovoi-agent.service runs as User=domovoi-agent, and no compose volume mounts docker.sock read-write",
-        backs: "D-29, F-DOC-6",
+        backs: "ADR 0031, ADR 0033",
     },
     RuleCard {
         id: "UNIT-9",

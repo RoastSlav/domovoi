@@ -320,8 +320,10 @@ jobs:
             exit 1
           fi
 
-  web:
-    name: Web (lint, typecheck, test, build)
+  # The web checks run as separate jobs side by side, and `web` below gathers them under the name
+  # the branch ruleset requires.
+  web-lint:
+    name: Web lint, format and API types
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
@@ -338,12 +340,78 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
-      - run: npm test
       - name: Generated API types are up to date (ARCHITECTURE.md R12)
         run: |
           npm run gen:api
           git diff --exit-code -- src/api
+
+  web-test:
+    name: Web tests (shard ${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm test -- --shard=${{ matrix.shard }}/3
+
+  # The one place the UI is built: the browser smoke test and the embedded-UI job both take this
+  # artifact. The build runs the type check and the bundle size budget.
+  web-build:
+    name: Build web UI
+    needs: changes
+    if: needs.changes.outputs.embedded_ui == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
       - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: web/dist
+          retention-days: 7
+
+  web-smoke:
+    name: Web browser smoke test
+    needs: [changes, web-build]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-dist
+          path: web/dist
       - name: Playwright version
         id: playwright
         run: echo "version=$(npx playwright --version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
@@ -368,34 +436,23 @@ jobs:
           path: web/smoke-out
           if-no-files-found: ignore
           retention-days: 7
-      - uses: actions/upload-artifact@v7
-        with:
-          name: web-dist
-          path: web/dist
-          retention-days: 7
 
-  web-build:
-    name: Build web UI for embedding
-    needs: changes
-    if: needs.changes.outputs.embedded_ui == 'true' && needs.changes.outputs.web != 'true'
+  web:
+    name: Web (lint, typecheck, test, build)
+    if: ${{ !cancelled() && needs.changes.outputs.web == 'true' }}
+    needs: [changes, web-lint, web-test, web-build, web-smoke]
     runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: web
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-      - run: npm run build
-      - uses: actions/upload-artifact@v7
-        with:
-          name: web-dist
-          path: web/dist
-          retention-days: 7
+      - name: Every web job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" == failure || "$result" == cancelled ]]; then
+              echo "::error::A web job did not pass (results: $RESULTS)."
+              exit 1
+            fi
+          done
 
   docs-links:
     name: Book links, anchors and pages
@@ -424,56 +481,27 @@ jobs:
         run: rustup toolchain install
       - run: cargo metadata --locked --no-deps --format-version 1 > /dev/null
 
-  rust:
-    name: Rust (fmt, clippy, tests, docs, arch-check)
-    # Starts as soon as the files are classified: nothing here needs the web build or the book check.
-    if: ${{ !cancelled() }}
+  # The Rust checks run as three jobs side by side (lint, tests, repository checks), and `rust`
+  # below gathers them under the name the branch ruleset requires.
+  rust-lint:
+    name: Rust lint (fmt, clippy, feature-gated)
     needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - name: Check the classification
-        env:
-          CHANGES_RESULT: ${{ needs.changes.result }}
-        run: |
-          [[ "$CHANGES_RESULT" == success ]] || { echo "::error::Could not classify changed files."; exit 1; }
       - name: Install the pinned toolchain from rust-toolchain.toml
-        if: >-
-          needs.changes.outputs.rust == 'true' ||
-          needs.changes.outputs.architecture == 'true' ||
-          needs.changes.outputs.openapi == 'true' ||
-          needs.changes.outputs.config_docs == 'true'
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:
-          shared-key: rust
+          shared-key: rust-lint
           save-if: ${{ github.event_name == 'push' }}
           cache-on-failure: true
-        if: >-
-          needs.changes.outputs.rust == 'true' ||
-          needs.changes.outputs.architecture == 'true' ||
-          needs.changes.outputs.openapi == 'true' ||
-          needs.changes.outputs.config_docs == 'true'
-      - uses: taiki-e/install-action@v2
-        if: needs.changes.outputs.rust == 'true'
-        with:
-          tool: cargo-nextest
       - name: Format
-        if: needs.changes.outputs.rust == 'true'
         run: cargo fmt --all --check
       - name: Clippy
-        if: needs.changes.outputs.rust == 'true'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Tests
-        if: needs.changes.outputs.rust == 'true'
-        run: cargo nextest run --workspace --locked --no-tests=pass
-      - name: Doctests
-        if: needs.changes.outputs.rust == 'true'
-        run: cargo test --workspace --doc --locked
       - name: Feature-gated checks (clippy, tests, rustdoc)
-        if: needs.changes.outputs.rust == 'true'
         env:
           RUSTDOCFLAGS: -D warnings
         run: |
@@ -481,6 +509,60 @@ jobs:
           cargo test --package domovoi-checks --all-features --locked
           cargo clippy --package domovoi-checks --no-default-features --features net --all-targets --locked -- -D warnings
           cargo doc --package domovoi-checks --all-features --no-deps --locked
+
+  rust-test:
+    name: Rust tests
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.rust == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: rust
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2
+        with:
+          tool: cargo-nextest
+      - name: Tests
+        run: cargo nextest run --workspace --locked --no-tests=pass
+      - name: Doctests
+        run: cargo test --workspace --doc --locked
+      # The tests build the binary; the real-accounts job runs that same file instead of
+      # compiling it again.
+      - name: Keep the debug binary for the real-accounts job
+        if: needs.changes.outputs.privileged == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: domovoi-debug-bin
+          path: target/debug/domovoi
+          retention-days: 1
+          if-no-files-found: ignore
+
+  rust-checks:
+    name: Rust repository checks (arch, OpenAPI, docs)
+    needs: changes
+    if: >-
+      ${{ !cancelled() && needs.changes.result == 'success' && (
+      needs.changes.outputs.rust == 'true' ||
+      needs.changes.outputs.architecture == 'true' ||
+      needs.changes.outputs.openapi == 'true' ||
+      needs.changes.outputs.config_docs == 'true') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install the pinned toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: rust-checks
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
       - name: Architecture rules
         if: needs.changes.outputs.architecture == 'true'
         run: |
@@ -501,38 +583,56 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps --locked
 
+  rust:
+    name: Rust (fmt, clippy, tests, docs, arch-check)
+    if: ${{ !cancelled() }}
+    needs: [changes, rust-lint, rust-test, rust-checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every Rust job passed
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          [[ "$CHANGES_RESULT" == success ]] || { echo "::error::Could not classify changed files."; exit 1; }
+          for result in $RESULTS; do
+            if [[ "$result" == failure || "$result" == cancelled ]]; then
+              echo "::error::A Rust job did not pass (results: $RESULTS)."
+              exit 1
+            fi
+          done
+
   embedded-ui:
     name: Embedded UI (build, hub clippy, tests)
     if: ${{ !cancelled() && needs.changes.outputs.embedded_ui == 'true' }}
-    needs: [changes, web, web-build]
+    needs: [changes, web-build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Check the web build
         env:
-          WEB_RESULT: ${{ needs.web.result }}
           WEB_BUILD_RESULT: ${{ needs.web-build.result }}
         run: |
-          set -euo pipefail
-          [[ "$WEB_RESULT" == success || "$WEB_RESULT" == skipped ]] || { echo "::error::Web checks did not pass."; exit 1; }
-          [[ "$WEB_BUILD_RESULT" == success || "$WEB_BUILD_RESULT" == skipped ]] || { echo "::error::Web build did not pass."; exit 1; }
+          [[ "$WEB_BUILD_RESULT" == success ]] || { echo "::error::The web build did not pass."; exit 1; }
       - name: Install the pinned toolchain from rust-toolchain.toml
         run: rustup toolchain install
+      # Restores the cache the Rust test job saves on main: the dependencies are the same, so
+      # only the workspace crates compile here. Nothing is saved from this job.
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:
-          shared-key: embedded-ui
-          save-if: ${{ github.event_name == 'push' }}
+          shared-key: rust
+          save-if: false
           cache-on-failure: true
       - uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: web/dist
-      - name: Build application with embedded UI
-        run: cargo build --package domovoi --features embed-ui --locked
       - name: Hub with embedded UI (clippy, tests)
         run: |
           cargo clippy --package domovoi-hub --features embed-ui --all-targets --locked -- -D warnings
           cargo test --package domovoi-hub --features embed-ui --locked
+      - name: The application builds with the embedded UI
+        run: cargo check --package domovoi --features embed-ui --locked
 
   gate:
     name: CI passed
@@ -569,11 +669,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - name: Check on the rust-version from Cargo.toml
+      - name: Install the rust-version from Cargo.toml
+        id: msrv
         run: |
           msrv=$(grep -m1 '^rust-version' Cargo.toml | cut -d '"' -f2)
           rustup toolchain install "$msrv" --profile minimal
-          cargo "+$msrv" check --workspace --locked
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        with:
+          shared-key: msrv-${{ steps.msrv.outputs.version }}
+          save-if: ${{ github.event_name == 'push' }}
+          cache-on-failure: true
+      - name: Check on the rust-version from Cargo.toml
+        run: cargo "+${{ steps.msrv.outputs.version }}" check --workspace --locked
 
   musl:
     name: Static musl build check
@@ -672,8 +780,8 @@ jobs:
   # then its result is recorded in the pull request.
   privileged:
     name: Real accounts and systemd units
-    needs: changes
-    if: needs.changes.outputs.privileged == 'true' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    needs: [changes, rust-test]
+    if: ${{ !cancelled() && needs.changes.outputs.privileged == 'true' && (github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -687,15 +795,28 @@ jobs:
             echo "::error::PID 1 is not systemd on this runner image, so the real-account tests cannot run here. Run deploy/test/identities.sh on a virtual machine that boots with systemd."
             exit 1
           fi
+      # The Rust test job builds the same binary; the nightly run has no such job, so it builds.
+      - name: The binary from the Rust test job
+        id: binary
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: domovoi-debug-bin
+          path: target/debug
       - name: Install the pinned toolchain from rust-toolchain.toml
+        if: steps.binary.outcome != 'success'
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
+        if: steps.binary.outcome != 'success'
         with:
-          shared-key: privileged
-          save-if: ${{ github.event_name == 'push' }}
+          shared-key: rust
+          save-if: false
           cache-on-failure: true
       - name: Build the binary
+        if: steps.binary.outcome != 'success'
         run: cargo build --package domovoi --locked
+      - name: Make the binary executable
+        run: chmod 0755 target/debug/domovoi
       - name: Install and migrate with real accounts, run the helper in a real unit
         run: |
           sudo env "PATH=$PATH" "HOME=$HOME" DOMOVOI_PRIVILEGED_TESTS=1 \
@@ -757,7 +878,7 @@ jobs:
         with:
           shared-key: coverage
           cache-on-failure: true
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@893d6ee8d714b6c7dfe2bcd94e5759e9a7958a7e # v2
         with:
           tool: cargo-llvm-cov,cargo-nextest
       - run: cargo llvm-cov nextest --workspace --locked --no-tests=pass --lcov --output-path lcov.info

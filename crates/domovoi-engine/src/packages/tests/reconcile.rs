@@ -21,9 +21,7 @@ async fn sent(world: &World) -> InstallTarget {
 }
 
 async fn reconciled(world: &World, target: &InstallTarget, answer: ActionAnswer) -> InstallTarget {
-    world
-        .link
-        .answer(world.host, target.execution.as_action(), answer);
+    world.link.answer(world.host, target.execution, answer);
     world.handle.reconcile_host(world.host).await;
     world.target(target).await
 }

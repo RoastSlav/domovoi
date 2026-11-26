@@ -11,7 +11,6 @@ use domovoi_core::containment::{
     coalesce, templates,
 };
 
-use super::exec::Run;
 use super::journal_file::{Loaded, fold};
 use super::view::{TableView, is_absent, parse};
 use super::{Cx, Refusal, TableState};
@@ -376,10 +375,4 @@ pub async fn ensure(
         lost,
         layout,
     })
-}
-
-/// The `Run` of a failed read or script as the token it means; used by the other modules.
-#[must_use]
-pub fn token_for(op: NftOp, run: &Run, table_exists: bool) -> Token {
-    token_of(classify_stderr(op, &run.stderr), table_exists)
 }

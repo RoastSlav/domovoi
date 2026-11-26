@@ -1,10 +1,9 @@
-//! The overview counts, the group and text filters of the incident list, and the host and
-//! decided filters of the action list.
+//! The overview counts and the group and text filters of the incident list.
 
 use axum::http::StatusCode;
-use domovoi_core::ports::{ActionRepo, HostRepo, IncidentRepo, Presence};
-use domovoi_core::{AgentIdentity, Risk, Verdict};
-use domovoi_testkit::build::{action, host, incident, open_incident, resolved_incident};
+use domovoi_core::ports::{HostRepo, IncidentRepo, Presence};
+use domovoi_core::{AgentIdentity, Verdict};
+use domovoi_testkit::build::{host, incident, open_incident, resolved_incident};
 use serde_json::json;
 
 use crate::api_harness::{Api, api, api_with_operations};
@@ -24,7 +23,7 @@ async fn enroll(a: &Api, host: domovoi_core::HostId) {
 }
 
 #[tokio::test]
-async fn overview_counts_incidents_approvals_and_offline_hosts() {
+async fn overview_counts_incidents_and_offline_hosts() {
     let a = api().await;
     let login = a.admin().await;
     let media = host("media").unwrap();
@@ -38,13 +37,9 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
     IncidentRepo::insert(&*a.store, &pending).await.unwrap();
     let done = resolved_incident(a.nas.id, "net.ping", None, a.now()).unwrap();
     IncidentRepo::insert(&*a.store, &done).await.unwrap();
-    // On media: one open incident and one proposed action.
+    // On media: one open incident.
     let other = open_incident(media.id, "disk.usage", None).unwrap();
     IncidentRepo::insert(&*a.store, &other).await.unwrap();
-    let on_media = action(other.id(), media.id, Risk::Write).unwrap();
-    ActionRepo::insert(&*a.store, &on_media).await.unwrap();
-    a.propose(Risk::Write).await;
-    a.propose(Risk::Write).await;
 
     // nas has an agent that is connected; media has one that is not.
     enroll(&a, a.nas.id).await;
@@ -67,11 +62,10 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
             "incident_groups": {
                 "needs_action": 2, "monitor": 0, "pending": 1, "expected": 1, "handled": 0,
             },
-            "approvals_waiting": 3,
             "hosts_offline": 1,
             "hosts_total": 2,
             "operations_running": 0, "operations_waiting_approval": 0, "operations_waiting_user": 0,
-            "operations_paused": 0, "actions_outcome_unknown": 0, "attention_total": 6,
+            "operations_paused": 0, "attention_total": 3,
         })
     );
 
@@ -84,15 +78,13 @@ async fn overview_counts_incidents_approvals_and_offline_hosts() {
             "incident_groups": {
                 "needs_action": 1, "monitor": 0, "pending": 1, "expected": 1, "handled": 0,
             },
-            "approvals_waiting": 2,
             "hosts_offline": 0,
             "hosts_total": 1,
             "operations_running": 0, "operations_waiting_approval": 0, "operations_waiting_user": 0,
-            "operations_paused": 0, "actions_outcome_unknown": 0, "attention_total": 3,
+            "operations_paused": 0, "attention_total": 1,
         })
     );
     let media = a.get("/api/v1/overview?host=media", &login).await;
-    assert_eq!(media.body["approvals_waiting"], 1);
     assert_eq!(media.body["hosts_offline"], 1);
 }
 
@@ -121,37 +113,6 @@ async fn overview_needs_a_session_and_a_known_host() {
     assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
     assert_eq!(
         a.get("/api/v1/overview?host=nowhere", &login).await.status,
-        StatusCode::NOT_FOUND
-    );
-}
-
-#[tokio::test]
-async fn action_list_filters_by_host() {
-    let a = api().await;
-    let login = a.admin().await;
-    let media = host("media").unwrap();
-    HostRepo::upsert_host(&*a.store, &media).await.unwrap();
-    let other = open_incident(media.id, "disk.usage", None).unwrap();
-    IncidentRepo::insert(&*a.store, &other).await.unwrap();
-    let on_media = action(other.id(), media.id, Risk::Write).unwrap();
-    ActionRepo::insert(&*a.store, &on_media).await.unwrap();
-    let on_nas = a.propose(Risk::Write).await;
-
-    let everything = a.get("/api/v1/actions?status=proposed", &login).await;
-    assert_eq!(everything.body["items"].as_array().unwrap().len(), 2);
-
-    let media_only = a
-        .get("/api/v1/actions?status=proposed&host=media", &login)
-        .await;
-    assert_eq!(media_only.status, StatusCode::OK, "{}", media_only.text);
-    let items = media_only.body["items"].as_array().unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["id"], on_media.id().to_string());
-
-    let nas_only = a.get("/api/v1/actions?host=nas", &login).await;
-    assert_eq!(nas_only.body["items"][0]["id"], on_nas.id().to_string());
-    assert_eq!(
-        a.get("/api/v1/actions?host=nowhere", &login).await.status,
         StatusCode::NOT_FOUND
     );
 }
@@ -192,42 +153,6 @@ async fn incident_list_filters_by_group_and_text() {
     assert_eq!(unknown.status, StatusCode::BAD_REQUEST);
 }
 
-#[tokio::test]
-async fn action_list_filters_by_decided_and_since() {
-    let a = api().await;
-    let login = a.admin().await;
-    let waiting = a.propose(Risk::Write).await;
-    let denied = a.propose(Risk::Write).await;
-    let mut retired = denied.clone();
-    retired.deny(a.now()).unwrap();
-    ActionRepo::update_from(&*a.store, &retired, "proposed")
-        .await
-        .unwrap();
-
-    let decided = a.get("/api/v1/actions?decided=true", &login).await;
-    let items = decided.body["items"].as_array().unwrap();
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0]["id"], denied.id().to_string());
-    assert_eq!(items[0]["status"], "denied");
-
-    let open = a.get("/api/v1/actions?decided=false", &login).await;
-    assert_eq!(open.body["items"][0]["id"], waiting.id().to_string());
-    assert_eq!(open.body["items"].as_array().unwrap().len(), 1);
-
-    let later = a
-        .now()
-        .checked_add(jiff::SignedDuration::from_hours(1))
-        .unwrap();
-    let since = |at: jiff::Timestamp| format!("/api/v1/actions?decided=true&since={at}");
-    let recent = a.get(&since(a.now()), &login).await;
-    assert_eq!(recent.body["items"].as_array().unwrap().len(), 1);
-    let none = a.get(&since(later), &login).await;
-    assert!(none.body["items"].as_array().unwrap().is_empty());
-
-    let bad = a.get("/api/v1/actions?since=yesterday", &login).await;
-    assert_eq!(bad.status, StatusCode::BAD_REQUEST);
-}
-
 /// The counts without the journal position they were read at, which moves with every write.
 fn without_position(mut body: serde_json::Value) -> serde_json::Value {
     if let Some(object) = body.as_object_mut() {
@@ -260,39 +185,11 @@ async fn overview_counts_operations_by_state() {
 }
 
 #[tokio::test]
-async fn overview_counts_classic_actions_with_an_unknown_result() {
-    let a = api().await;
-    let login = a.admin().await;
-    let mut unknown = a.propose(Risk::Write).await;
-    let now = a.now();
-    domovoi_testkit::approvals::approve(
-        &mut unknown,
-        domovoi_testkit::approvals::human(domovoi_core::UserId::new()),
-        now,
-    )
-    .unwrap();
-    unknown
-        .dispatch(unknown.plan_hash_for_approval(), None, now)
-        .unwrap();
-    unknown.outcome_unknown("lost".to_owned(), now).unwrap();
-    ActionRepo::update_from(&*a.store, &unknown, "proposed")
-        .await
-        .unwrap();
-    a.propose(Risk::Write).await;
-
-    let reply = a.get("/api/v1/overview", &login).await;
-
-    assert_eq!(reply.body["actions_outcome_unknown"], 1);
-    assert_eq!(reply.body["approvals_waiting"], 1);
-}
-
-#[tokio::test]
 async fn attention_total_is_the_sum_of_what_the_attention_centre_lists() {
     let a = api_with_operations().await;
     let login = a.admin().await;
     let op = a.create_operation("waiting", true).await;
     a.propose_restart(op).await;
-    a.propose(Risk::Write).await;
     let mut monitor = open_incident(a.nas.id, "cpu.load", None).unwrap();
     monitor.set_verdict(Some(Verdict::Expected));
     IncidentRepo::insert(&*a.store, &monitor).await.unwrap();
@@ -301,14 +198,12 @@ async fn attention_total_is_the_sum_of_what_the_attention_centre_lists() {
 
     let n = |k: &str| body[k].as_u64().unwrap();
     let expected = body["incident_groups"]["needs_action"].as_u64().unwrap()
-        + n("approvals_waiting")
         + n("operations_waiting_approval")
         + n("operations_waiting_user")
         + n("operations_paused")
-        + n("actions_outcome_unknown")
         + n("hosts_offline");
     assert_eq!(n("attention_total"), expected);
-    assert!(expected >= 3, "{body}");
+    assert!(expected >= 2, "{body}");
 }
 
 #[tokio::test]

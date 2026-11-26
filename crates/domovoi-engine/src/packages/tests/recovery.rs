@@ -80,7 +80,7 @@ async fn restart_in_dispatched_waits_for_the_agent() {
         .set_journal_epoch(world.host, World::epoch(world.host));
     world.link.answer(
         world.host,
-        sent.execution.as_action(),
+        sent.execution,
         ActionAnswer::Finished {
             succeeded: true,
             detail: None,

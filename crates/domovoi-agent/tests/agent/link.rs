@@ -211,8 +211,7 @@ async fn revoked_reject_stops_retrying() {
     assert_eq!(hub.accepted(), 1);
 }
 
-/// A too-old reject from a hub that still sends the legacy reason leaves the agent idle,
-/// not stopped and restarted.
+/// A too-old reject from a hub leaves the agent idle, not stopped and restarted.
 #[tokio::test]
 async fn agent_too_old_reject_from_older_hub_is_idle() {
     let mut hub = TestHub::start().await;

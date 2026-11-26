@@ -33,8 +33,7 @@ export function experienceFixture(name) {
 }
 
 /**
- * A fresh, mutable state for one run: one legacy action and, by default, the waiting-approval
- * operation; `trace` names another of the golden trace fixtures to serve instead.
+ * A fresh, mutable state for one run: by default the waiting-approval operation; `trace` names another of the golden trace fixtures to serve instead.
  */
 export function makeState({ destructive = false, trace: fixture = "waiting-approval" } = {}) {
     const trace = load(fixture);
@@ -90,7 +89,6 @@ export function executions(state) {
             args: { name: state.hostTarget },
             state: state.executionState,
             plan_hash: PLAN_HASH,
-            plan_binding: "v2",
             risk: state.destructive ? "destructive" : "write",
             confirm_required: state.destructive,
             expires_at: "2099-01-01T00:00:00Z",
@@ -272,47 +270,6 @@ export function hosts(state) {
     ];
 }
 
-/** The classic actions by status: one proposed (tagged Legacy in lists), one whose result is unknown. */
-function classicActions(state) {
-    const base = {
-        host_id: state.hostId,
-        risk: "write",
-        plan_binding: "v1",
-        proposed_by: "system:triage",
-        expires_at: "2099-01-01T00:00:00Z",
-        created_at: "2026-10-30T12:00:00Z",
-        updated_at: "2026-10-30T12:00:00Z",
-        legacy: true,
-    };
-    return [
-        {
-            ...base,
-            id: "act-legacy",
-            incident_id: "inc-legacy",
-            skill: "restart_container",
-            args: { name: "web" },
-            status: "proposed",
-            plan_hash: "9f2c1a4b".repeat(8),
-            plan_hash_v1: "1a4b9f2c".repeat(8),
-        },
-        {
-            ...base,
-            id: "act-unknown",
-            incident_id: "inc-unknown",
-            skill: "prune_images",
-            args: { all: false },
-            status: "outcome_unknown",
-            plan_hash: "3c7e5d21".repeat(8),
-            plan_hash_v1: "5d213c7e".repeat(8),
-        },
-    ];
-}
-
-/** `GET /actions`: without a status only the proposed one (the list tags it Legacy). */
-export function actions(state, status) {
-    return classicActions(state).filter((action) => action.status === (status ?? "proposed"));
-}
-
 /** Incidents the mock knows, with the group each belongs to (not sent to the page). */
 const INCIDENTS = [
     ["inc-plex", "plex keeps restarting", "critical", "needs_action", "2026-10-31T11:50:00Z"],
@@ -377,8 +334,6 @@ export function overview(state) {
         operations_waiting_approval: waitingApproval,
         operations_waiting_user: 1,
         operations_paused: paused,
-        actions_outcome_unknown: 1,
-        approvals_waiting: 1,
         hosts_offline: 1,
     };
     const needsAction = 1;
@@ -395,11 +350,9 @@ export function overview(state) {
         ...counts,
         attention_total:
             needsAction +
-            counts.approvals_waiting +
             counts.operations_waiting_approval +
             counts.operations_waiting_user +
             counts.operations_paused +
-            counts.actions_outcome_unknown +
             counts.hosts_offline,
         hosts_total: 2,
         as_of_seq: state.seq,
@@ -456,9 +409,9 @@ export function settings() {
 
 const HASH = "9f2c".repeat(16);
 
-/** `GET /audit`: five chained and two legacy entries; one detail holds an angle bracket. */
-export function auditPage(history) {
-    const row = (seq, legacy) => ({
+/** `GET /audit`: five entries; one detail holds an angle bracket. */
+export function auditPage() {
+    const row = (seq) => ({
         seq,
         at: "2026-11-18T10:00:00Z",
         actor: "user:0190",
@@ -466,13 +419,9 @@ export function auditPage(history) {
         subject: `action:${seq}`,
         detail: seq === 7 ? "<b>marked</b>" : "{}",
         detail_truncated: false,
-        history: legacy ? "legacy" : "chained",
-        hash: legacy ? null : HASH,
+        hash: HASH,
     });
-    const legacy = [row(2, true), row(1, true)];
-    const chained = [7, 6, 5, 4, 3].map((seq) => row(seq, false));
-    const items = history === "legacy" ? legacy : chained;
-    return { legacy_last_id: 2, next_cursor: null, items };
+    return { next_cursor: null, items: [7, 6, 5, 4, 3].map(row) };
 }
 
 /** `GET /audit/verification`: a recent check, or the whole log. */
@@ -481,13 +430,6 @@ export function auditVerification(scope) {
         scope: scope === "full" ? "full" : "recent",
         recent_limit: 10000,
         checked_at: "2026-11-18T10:00:00Z",
-        legacy: {
-            status: scope === "full" ? "verified" : "count_only",
-            count: 2,
-            expected_count: null,
-            actual_count: null,
-            digest_matches: null,
-        },
         chained: {
             status: "intact",
             checked: 5,
@@ -499,9 +441,6 @@ export function auditVerification(scope) {
         },
         anchor: {
             install_id: "install-1",
-            legacy_last_id: 2,
-            legacy_count: 2,
-            legacy_digest: "ab".repeat(32),
             anchor_hash: "cd".repeat(32),
         },
         head: { seq: 7, hash: HASH },

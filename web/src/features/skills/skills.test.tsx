@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { action, nas } from "../../test/fixtures";
+import { nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { SkillDetail } from "./SkillDetail";
 import { SkillsPage } from "./SkillsPage";
@@ -148,7 +148,7 @@ test("skills_list_groups_skills_by_risk_with_a_pill_and_what_it_allows_per_group
     within(read)
       .getAllByRole("columnheader")
       .map((h) => h.textContent),
-  ).toEqual(["Skill", "Description", "Timeout", "Applies to", "Last used", "Enabled"]);
+  ).toEqual(["Skill", "Description", "Timeout", "Applies to", "Enabled"]);
   expect(screen.getByText(/^Only looks\. Triage may run it on its own\./)).toBeVisible();
 
   const disk = rowOf("disk_usage");
@@ -162,7 +162,6 @@ test("a_skill_row_opens_the_skill_when_clicked_anywhere", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [skill("docker_ps", "read")]);
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
   renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await user.click(await screen.findByText("Does docker_ps"));
@@ -195,22 +194,7 @@ test("a_hub_only_host_sorts_last_under_all_hosts_and_its_card_is_not_a_link", as
   expect(within(hosts).getByText("No agent here, so no skills.")).toBeVisible();
 });
 
-test("skills_list_shows_when_each_skill_last_ran_and_never_for_those_that_did_not", async () => {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000).toISOString();
-  route("GET /api/v1/hosts", () => [nas]);
-  route("GET /api/v1/hosts/{name}/skills", () => [
-    skill("docker_ps", "read", { last_used: fiveMinutesAgo }),
-    skill("disk_usage", "read", { last_used: null }),
-  ]);
-  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
-
-  await screen.findByText("docker_ps");
-  expect(screen.getByRole("columnheader", { name: /last used/i })).toBeVisible();
-  expect(within(rowOf("docker_ps")).getByText("5 minutes ago")).toBeVisible();
-  expect(within(rowOf("disk_usage")).getByText("Never")).toBeVisible();
-});
-
-test("skill_detail_opens_from_the_list_with_parameters_readme_and_runs", async () => {
+test("skill_detail_opens_from_the_list_with_parameters_and_readme", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [
@@ -228,7 +212,6 @@ test("skill_detail_opens_from_the_list_with_parameters_readme_and_runs", async (
       readme: "# Restart container\n\nRestarts one container managed by compose.",
     }),
   ]);
-  route("GET /api/v1/actions", () => ({ items: [action()], next_cursor: null }));
   renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await user.click(await screen.findByRole("button", { name: "restart_container" }));
@@ -255,18 +238,12 @@ test("skill_detail_opens_from_the_list_with_parameters_readme_and_runs", async (
   expect(within(dialog).getByText("0123456789ab")).toHaveAccessibleDescription(
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
   );
-  expect(await within(dialog).findByRole("link", { name: "inc-1" })).toHaveAttribute(
-    "href",
-    "/incidents/inc-1",
-  );
-  expect(within(dialog).getByText("Waiting for approval")).toBeVisible();
 });
 
-test("skill_detail_says_when_there_is_no_readme_and_no_runs_and_closes_on_escape", async () => {
+test("skill_detail_says_when_there_is_no_readme_and_closes_on_escape", async () => {
   const user = userEvent.setup();
   route("GET /api/v1/hosts", () => [nas]);
   route("GET /api/v1/hosts/{name}/skills", () => [skill("disk_usage", "read")]);
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
   renderAt("/skills?host=nas", "/skills", <SkillsPage />);
 
   await user.click(await screen.findByRole("button", { name: "disk_usage" }));
@@ -274,7 +251,6 @@ test("skill_detail_says_when_there_is_no_readme_and_no_runs_and_closes_on_escape
   expect(within(dialog).getByText(/^Only looks\. Triage may run it on its own\./)).toBeVisible();
   expect(within(dialog).getByText("This skill has no README.")).toBeVisible();
   expect(within(dialog).getByText("This skill takes no parameters.")).toBeVisible();
-  expect(await within(dialog).findByText("No runs yet")).toBeVisible();
 
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -297,7 +273,6 @@ test("skill_detail_shows_an_error_with_retry_when_the_request_fails", async () =
   const user = userEvent.setup();
   let failing = true;
   route("GET /api/v1/hosts", () => [nas]);
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null }));
   route("GET /api/v1/hosts/{name}/skills", () =>
     failing ? failure(503, "unavailable", "the hub is starting") : [skill("disk_usage", "read")],
   );

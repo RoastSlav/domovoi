@@ -1,11 +1,7 @@
-# 0038 Containment boundary
+# 0038. Containment boundary
 
-- Status: proposed
+- Status: Accepted
 - Date: 2026-11-26
-- Extends [0021](0021-authorization-and-plan-hash.md), [0022](0022-one-dispatch-boundary.md), [0023](0023-capability-objects.md), [0032](0032-helper-safety-attestation.md) and [0037](0037-permit-issuer-and-unit-restart.md).
-- Changes `xtask/src/arch/rules.rs`, which is why it exists.
-
-This record is **proposed**. It decides how a timed block of one external source is requested, approved, applied, confirmed and removed, and which rules guard that path. It does not accept the research risks the launch gate names; the owner accepts those.
 
 ## Context
 
@@ -29,7 +25,7 @@ This record is **proposed**. It decides how a timed block of one external source
 
 ## What the checks cannot see
 
-A passing self-test is weak evidence: it does not cover a real NIC, multi-queue receive, a conntrack rule, lower rates or the live set's contents. A flood from the blocked source can delay the confirmation past 30 seconds; the block then expires, which fails safe for management and is ineffective for containment. Nothing here claims platform support.
+A passing leak self-test is weak evidence: it does not cover a real NIC, multi-queue receive, a conntrack rule, lower rates or the live set's contents. A flood from the blocked source can delay the confirmation past 30 seconds; the block then expires, which fails safe for management and is ineffective for containment. Containment writes follow the platform tiers of [0031](0031-helper-and-skill-runner-delivery.md): an untested platform needs the owner's per-host opt-in. The attestation that gates verified blocks is [0032](0032-helper-safety-attestation.md).
 
 ## Consequences
 

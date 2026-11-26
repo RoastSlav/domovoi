@@ -12,17 +12,17 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionFilter, ActionRepo, AdvisoryRepo, AggregateKind, AggregateRef, AuditEvent,
-    AuditFilter, AuditLog, ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue,
-    EffectRead, EffectRecord, EffectStatus, EnrollmentToken, HostRepo, IncidentFilter,
-    IncidentRepo, IncidentTimelineEntry, JournalEntry, JournalRead, OperationFilter, OperationRepo,
-    Page, Paged, SignalRepo, StoreError, Transaction, UnitOfWork, Versioned, VersionedRead,
+    AckRepo, AdvisoryRepo, AggregateKind, AggregateRef, AuditEvent, AuditFilter, AuditLog,
+    ClaimBatch, CommitError, CommitReceipt, EffectKind, EffectQueue, EffectRead, EffectRecord,
+    EffectStatus, EnrollmentToken, HostRepo, IncidentFilter, IncidentRepo, IncidentTimelineEntry,
+    JournalEntry, JournalRead, OperationFilter, OperationRepo, Page, Paged, SignalRepo, StoreError,
+    Transaction, UnitOfWork, Versioned, VersionedRead,
 };
 use domovoi_core::{
-    AckRule, AckRuleId, ActionId, ActionRequest, Advisory, AdvisoryId, AgentId, AgentIdentity,
-    AgentReport, AuthenticatedReport, ContractId, ExecutionId, ExecutionRecord, Fingerprint, Host,
-    HostId, HostName, Incident, IncidentId, MaintenanceWindow, Note, NoteId, Operation,
-    OperationId, OperationSnapshot, ReportOutcome, Signal, SkillName,
+    AckRule, AckRuleId, Advisory, AdvisoryId, AgentId, AgentIdentity, AgentReport,
+    AuthenticatedReport, ContractId, ExecutionId, ExecutionRecord, Fingerprint, Host, HostId,
+    HostName, Incident, IncidentId, MaintenanceWindow, Note, NoteId, Operation, OperationId,
+    OperationSnapshot, ReportOutcome, Signal,
 };
 use domovoi_store::Store;
 use domovoi_testkit::crash::{IntegrityRead, Orphan, OrphanStorage, check_invariants};
@@ -241,43 +241,6 @@ impl SignalRepo for SqliteStore {
 
     async fn purge_older_than(&self, before: Timestamp) -> Result<u64, StoreError> {
         SignalRepo::purge_older_than(&*self.0, before).await
-    }
-}
-
-#[async_trait]
-impl ActionRepo for SqliteStore {
-    async fn insert(&self, action: &ActionRequest) -> Result<(), StoreError> {
-        ActionRepo::insert(&*self.0, action).await
-    }
-
-    async fn update_from(&self, action: &ActionRequest, expected: &str) -> Result<(), StoreError> {
-        ActionRepo::update_from(&*self.0, action, expected).await
-    }
-
-    async fn get(&self, id: ActionId) -> Result<Option<ActionRequest>, StoreError> {
-        ActionRepo::get(&*self.0, id).await
-    }
-
-    async fn list(
-        &self,
-        filter: &ActionFilter,
-        page: &Page,
-    ) -> Result<Paged<ActionRequest>, StoreError> {
-        ActionRepo::list(&*self.0, filter, page).await
-    }
-
-    async fn find_by_chat_token_hash(
-        &self,
-        hash: &[u8; 32],
-    ) -> Result<Option<ActionRequest>, StoreError> {
-        ActionRepo::find_by_chat_token_hash(&*self.0, hash).await
-    }
-
-    async fn last_run_by_skill(
-        &self,
-        host: HostId,
-    ) -> Result<BTreeMap<SkillName, Timestamp>, StoreError> {
-        ActionRepo::last_run_by_skill(&*self.0, host).await
     }
 }
 

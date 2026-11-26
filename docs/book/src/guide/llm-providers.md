@@ -173,8 +173,7 @@ largest prompt one call may send, 131072 bytes (128 KiB) by default; when a conv
 past it, older tool output is replaced by a short note and then the newest tool output is cut,
 so the incident's opening context is never dropped. The opening context is limited to a quarter
 of `prompt_bytes`, never below 8 KiB, and at most 32 KiB for an investigation, 40 KiB for a
-follow-up and 24 KiB for a chat, so it is never trimmed away; older tool output is trimmed first,
-as before. `call_deadline` on a provider is the
+follow-up and 24 KiB for a chat, so it is never trimmed away. `call_deadline` on a provider is the
 longest one call may take in total, 5 minutes by default, even if it keeps streaming; a call
 past it fails as a timeout and the chain moves on as for any other provider failure.
 

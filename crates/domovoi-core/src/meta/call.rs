@@ -10,7 +10,7 @@ use super::schema::{
 };
 use super::{MetaTool, PlanStepInput};
 use crate::capability::EffectClass;
-use crate::triage::{MAX_PROPOSALS, ReadTool, ReadToolCall, ToolArgError, TriageReport};
+use crate::triage::{MAX_PROPOSALS, ReadToolCall, ToolArgError, TriageReport};
 
 /// One parsed call to a [`MetaTool`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,12 +168,6 @@ impl MetaToolCall {
                 Ok(Self::Finish(Box::new(report)))
             }
         }
-    }
-
-    /// Whether `name` is a read-tool name the model used in place of `request_evidence`.
-    #[must_use]
-    pub fn is_old_read_name(name: &str) -> bool {
-        ReadTool::from_name(name).is_some()
     }
 }
 

@@ -348,13 +348,9 @@ export async function startServer(dist) {
             "GET /api/v1/system/update": () => ({ current: "0.1.0", latest: null, newer: false }),
             "GET /api/v1/settings": () => data.settings(),
             "GET /api/v1/advisories": () => [],
-            "GET /api/v1/audit": () => data.auditPage(url.searchParams.get("history")),
+            "GET /api/v1/audit": () => data.auditPage(),
             "GET /api/v1/audit/verification": () =>
                 data.auditVerification(url.searchParams.get("scope")),
-            "GET /api/v1/actions": () => ({
-                items: data.actions(state, url.searchParams.get("status")),
-                next_cursor: null,
-            }),
             "GET /api/v1/incidents": () =>
                 data.incidents(state, url.searchParams.get("group"), url.searchParams.get("q")),
             "GET /api/v1/notes/search": () => data.noteHits(state, url.searchParams.get("q") ?? ""),

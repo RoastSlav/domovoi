@@ -40,7 +40,7 @@ async fn reconcile_maps_each_journal_answer_per_phase() {
         let world = World::new().await;
         world.verify();
         let id = stuck_applying(&world).await;
-        world.link.answer(world.host, id.as_action(), answer);
+        world.link.answer(world.host, id, answer);
         world.driver.reconcile_host(world.host).await;
         assert_eq!(world.block(id).await.phase, expected);
     }
@@ -51,9 +51,7 @@ async fn a_running_phase_is_asked_about_again_later() {
     let world = World::new().await;
     world.verify();
     let id = stuck_applying(&world).await;
-    world
-        .link
-        .answer(world.host, id.as_action(), ActionAnswer::Running);
+    world.link.answer(world.host, id, ActionAnswer::Running);
     world.driver.reconcile_host(world.host).await;
     assert_eq!(world.block(id).await.phase, BlockPhase::Applying);
 }
@@ -65,7 +63,7 @@ async fn applied_past_30s_without_confirm_settles_expired() {
     let id = stuck_applying(&world).await;
     world.link.answer(
         world.host,
-        id.as_action(),
+        id,
         ActionAnswer::Finished {
             succeeded: true,
             detail: None,

@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Query, State};
 
 use domovoi_core::audit_chain::VerifyScope;
-use domovoi_core::ports::{AuditFilter, AuditHistory, AuditRowFilter};
+use domovoi_core::ports::{AuditFilter, AuditRowFilter};
 
 use super::dto_audit::{
     AuditPageDto, AuditQuery, AuditVerificationDto, VerificationQuery, row_dto, verification_dto,
@@ -13,7 +13,7 @@ use super::dto_audit::{
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, page};
 
-/// How many of the newest chained entries a `recent` check covers: the same bound the hub
+/// How many of the newest entries a `recent` check covers: the same bound the hub
 /// uses when it starts.
 pub const RECENT_ROWS: u64 = 10_000;
 
@@ -33,7 +33,7 @@ fn shown(text: &str) -> String {
     params(AuditQuery),
     responses(
         (status = 200, description = "A page of audit entries", body = AuditPageDto),
-        (status = 400, description = "Unknown history or a kind that is too long", body = ErrorBody),
+        (status = 400, description = "A kind that is too long", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
     )
 )]
@@ -42,17 +42,6 @@ pub(super) async fn list(
     _auth: Authed,
     Query(query): Query<AuditQuery>,
 ) -> Result<Json<AuditPageDto>, ApiError> {
-    let history = match query.history.as_deref() {
-        None => None,
-        Some("legacy") => Some(AuditHistory::Legacy),
-        Some("chained") => Some(AuditHistory::Chained),
-        Some(other) => {
-            return Err(ApiError::BadRequest(format!(
-                "unknown history `{}`; use legacy or chained",
-                shown(other)
-            )));
-        }
-    };
     if query
         .kind
         .as_deref()
@@ -61,17 +50,11 @@ pub(super) async fn list(
         return Err(ApiError::BadRequest("kind is too long".to_owned()));
     }
     let inspect = &state.deps.audit_inspect;
-    let legacy_last_id = inspect
-        .anchor()
-        .await
-        .map_err(|e| ApiError::internal("reading the audit log", e))?
-        .map_or(0, |anchor| anchor.legacy_last_id);
     let filter = AuditRowFilter {
         events: AuditFilter {
             kind: query.kind,
             ..AuditFilter::default()
         },
-        history,
     };
     let rows = inspect
         .rows(&filter, &page(query.cursor, query.limit))
@@ -79,17 +62,16 @@ pub(super) async fn list(
         .map_err(|e| ApiError::internal("reading the audit log", e))?;
     let redactor = &*state.deps.redactor;
     Ok(Json(AuditPageDto {
-        legacy_last_id,
         next_cursor: rows.next_cursor,
         items: rows
             .items
             .iter()
-            .map(|row| row_dto(row, legacy_last_id, redactor))
+            .map(|row| row_dto(row, redactor))
             .collect(),
     }))
 }
 
-/// Checks the audit log: the legacy and the chained history separately.
+/// Checks the audit log's hash chain.
 #[utoipa::path(
     get,
     path = "/api/v1/audit/verification",
@@ -167,24 +149,20 @@ mod tests {
     }
 
     #[test]
-    fn row_dto_marks_rows_up_to_the_anchor_as_legacy_whatever_their_hash() {
-        let a = row_dto(&row(3, None, Value::Null), 5, &Plain);
-        let b = row_dto(&row(6, Some([1; 32]), Value::Null), 5, &Plain);
-        let c = row_dto(&row(6, None, Value::Null), 5, &Plain);
-        assert_eq!((a.history.as_str(), a.hash), ("legacy", None));
-        assert_eq!(b.history, "chained");
-        assert_eq!(b.hash, Some("01".repeat(32)));
-        assert_eq!(c.history, "chained");
-        assert_eq!(c.hash, None);
+    fn row_dto_reports_the_stored_hash() {
+        let with = row_dto(&row(6, Some([1; 32]), Value::Null), &Plain);
+        let without = row_dto(&row(6, None, Value::Null), &Plain);
+        assert_eq!(with.hash, Some("01".repeat(32)));
+        assert_eq!(without.hash, None);
     }
 
     #[test]
     fn row_dto_cuts_detail_on_a_character_boundary() {
         let long = Value::String("é".repeat(MAX_DETAIL_BYTES));
-        let dto = row_dto(&row(1, None, long), 0, &Plain);
+        let dto = row_dto(&row(1, None, long), &Plain);
         assert!(dto.detail_truncated);
         assert!(dto.detail.len() <= MAX_DETAIL_BYTES);
-        let none = row_dto(&row(1, None, Value::Null), 0, &Plain);
+        let none = row_dto(&row(1, None, Value::Null), &Plain);
         assert_eq!(none.detail, "");
     }
 }

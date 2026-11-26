@@ -56,7 +56,7 @@ impl HelperReads {
     }
 
     /// Asks the helper which container engine it reaches. The agent cannot open the sockets
-    /// itself, so this replaces looking for them.
+    /// itself, so it asks the helper.
     pub async fn detect_docker(&self) -> Detection {
         match self.client.docker_probe(&*self.clock).await {
             Ok(Some(info)) => Detection::Found {

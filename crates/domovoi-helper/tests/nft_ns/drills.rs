@@ -1,5 +1,5 @@
 //! The drill suite of `domovoi helper containment-drill`, run once in throwaway namespaces and
-//! asserted under each drill's own name, plus the three named tests of the containment milestone
+//! asserted under each drill's own name, plus the three named behaviours
 //! that the same drills answer. They run only with `DOMOVOI_NS_TESTS=1` inside `unshare -Urnm`
 //! with a writable `/run`, and the expiry drill waits out the kernel's 30 s timeout.
 
@@ -88,7 +88,7 @@ drill_test!(
     drill_max_active_reached_is_refused,
     "drill_max_active_reached_is_refused"
 );
-// The milestone's own names: the same behaviour, answered by the same drills.
+// The same behaviour under behaviour names, answered by the same drills.
 drill_test!(
     block_expires_with_agent_stopped,
     "drill_expiry_on_time_with_agent_stopped"

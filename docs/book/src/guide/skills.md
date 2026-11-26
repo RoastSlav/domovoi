@@ -43,18 +43,16 @@ Each skill is a folder under the agent's skills directory, `/etc/domovoi/skills`
 - The folder must not be world-writable. Keep the whole tree owned by root.
 - The agent reads the folder when it starts. After adding or changing a skill, run `domovoi check skills /etc/domovoi/skills`, then restart the agent.
 
-The Skills page lists the skills of the host chosen in the host selector. Under **All hosts** it asks you to pick one. Each row of the table shows:
+The Skills page lists the skills of the host chosen in the host selector. Under **All hosts** it asks you to pick one. The skills are grouped by risk, the harmless first, and each group is a table with:
 
-- the skill's name and description,
-- its **Risk**, with the harmless skills first and destructive skills marked,
+- the skill's name, tagged "Disabled" when it is switched off, and its description,
 - its **Timeout**, how long one run may take before the agent stops it,
 - **Applies to**, the checks the skill is suggested for, or "Any check" when it names none,
-- **Last used**, when Domovoi last sent the skill to that host's agent, or "Never",
 - an **Enabled** switch.
 
-Choose a skill's name (also on the Overview tab of a host's page) to open its details: what its risk means, its timeout, what it applies to, its verification and its manifest hash, then a **Parameters** table with the type, constraints and description of every parameter, the folder's `README.md` when it has one, and its **Recent runs** on that host. Each run links to its incident.
+Choose a skill's name (also on the Overview tab of a host's page) to open its details: its risk, timeout, what it applies to, its verification and its manifest hash, then a **Parameters** table with the type, constraints and description of every parameter, and the folder's `README.md` when it has one.
 
-You can also turn a skill off without touching the host. Switch **Enabled** off in its row: the skill stays on the host and in the list, shown greyed and tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is saved per host, so it survives a hub restart, and switching it on again turns the skill back on. The Capabilities page shows the same state for every skill on that host, and a raised floor there can only make a skill stricter.
+You can also turn a skill off without touching the host. Switch **Enabled** off in its row: the skill stays on the host and in the list, shown greyed and tagged "Disabled", and the hub stops running it and stops offering it to triage. The switch is saved per host, so it survives a hub restart, and switching it on again turns the skill back on. The Capabilities page shows the same state for every skill on that host.
 
 Editing a manifest changes its hash, which cancels any pending approval for that skill: you always approve exactly what runs.
 
@@ -133,11 +131,11 @@ Because of this, three things differ from a root agent:
 - `HOME` points to a directory that does not exist. Do not rely on `~`.
 - `run_as` other than `domovoi-skill` stops working. The runner refuses it with `run_as_unsupported`, and `domovoi agent selftest` lists the skill. Remove the `run_as` line, or move the privileged part to the helper when it supports it.
 
-A container agent has no skill runner. Skills are not run there, and the hub refuses them with `agent_in_container` ([container agent](../install/container-agent.md#what-a-container-agent-can-and-cannot-do)). The one exception is the legacy root behaviour below, which does not apply to the container image.
+A container agent has no skill runner. Skills are not run there, and the hub refuses them with `agent_in_container` ([container agent](../install/container-agent.md#what-a-container-agent-can-and-cannot-do)).
 
-Skills in an agent that still runs as root keep the old behaviour, labelled "privilege boundary not in effect", including `run_as`.
+An agent that runs as root, where the boundary is not in effect, runs skills itself instead of through the runner, and `run_as` works there. The host is labelled "privilege boundary not in effect". This does not apply to the container image.
 
-The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a migrated host they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
+The starter skills `restart_container`, `restart_unit` and `vacuum_journal`, and the readers of the journal and other protected state, need access the `domovoi-skill` account does not have. On a host with the three identities they report errors until the helper has operations for them. The other starter skills only read what an unprivileged account can read.
 
 POSIX `sh` is fine for the script itself, as long as it starts with a shebang. Quote every argument (`"$1"`), and pass it after `--` where the tool supports that.
 

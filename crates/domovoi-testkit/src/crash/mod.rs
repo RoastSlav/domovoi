@@ -31,9 +31,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    AckRepo, ActionGuard, ActionRepo, AuditLog, CommitError, CommitReceipt, EffectRead,
-    ExecutionGuard, Expected, ExperienceRead, IncidentRepo, JournalRead, OperationWrite,
-    SignalRepo, StateWrite, StoreError, Transaction, UnitOfWork, VersionedRead,
+    AckRepo, AuditLog, CommitError, CommitReceipt, EffectRead, ExecutionGuard, Expected,
+    ExperienceRead, IncidentRepo, JournalRead, OperationWrite, SignalRepo, StateWrite, StoreError,
+    Transaction, UnitOfWork, VersionedRead,
 };
 
 use domovoi_core::policy_store::PolicyWrite;
@@ -67,7 +67,6 @@ pub trait SweepStore:
     + EffectRead
     + IncidentRepo
     + SignalRepo
-    + ActionRepo
     + AuditLog
     + AckRepo
     + IntegrityRead
@@ -85,7 +84,6 @@ impl<T> SweepStore for T where
         + EffectRead
         + IncidentRepo
         + SignalRepo
-        + ActionRepo
         + AuditLog
         + AckRepo
         + IntegrityRead
@@ -128,12 +126,6 @@ fn summarize(tx: &Transaction) -> TxSummary {
                 );
             }
             StateWrite::DiscardPendingIncident { .. } => writes.push("incident:discard".to_owned()),
-            StateWrite::Action { action, expected } => writes.push(match expected {
-                ActionGuard::New => "action:new".to_owned(),
-                ActionGuard::Status(_) => {
-                    format!("action:status:{}", action.status().name())
-                }
-            }),
             StateWrite::Note { expected, .. } => writes.push(match expected {
                 Expected::New => "note:new".to_owned(),
                 Expected::Version(_) => "note:version".to_owned(),

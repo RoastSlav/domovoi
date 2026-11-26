@@ -3,15 +3,14 @@
 use std::path::{Path, PathBuf};
 
 use domovoi_core::audit_chain::{
-    BreakReason, CHECKPOINT_KIND, ChainStatus, Hash, LegacyDigest, LegacyStatus, VerifyScope,
-    entry_hash,
+    BreakReason, CHECKPOINT_KIND, ChainStatus, Hash, VerifyScope, entry_hash,
 };
 use domovoi_core::ports::{
     AuditDraft, AuditEvent, AuditFilter, AuditLog, Expected, Page, StateWrite, Transaction,
     UnitOfWork,
 };
 use domovoi_core::{Actor, IncidentId};
-use domovoi_store::{Store, StoreOptions};
+use domovoi_store::Store;
 use domovoi_testkit::build::{at, host, incident};
 use serde_json::{Value, json};
 use sqlx::SqlitePool;
@@ -64,29 +63,7 @@ async fn stored_hash(pool: &SqlitePool, seq: u64) -> (Vec<u8>, Vec<u8>) {
         .unwrap()
 }
 
-fn fixture() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("n1-schema5.db")
-}
-
-fn copy_fixture(dir: &Path) -> PathBuf {
-    let dbdir = dir.join("db");
-    std::fs::create_dir_all(&dbdir).unwrap();
-    let path = dbdir.join("domovoi.db");
-    std::fs::copy(fixture(), &path).unwrap();
-    path
-}
-
-async fn open_fixture(dir: &Path) -> Store {
-    let path = copy_fixture(dir);
-    Store::open(&path, StoreOptions::beside(&path, at(1000)))
-        .await
-        .unwrap()
-}
-
-async fn append_checkpoint(store: &Store, first_seq: u64, prev: &Hash, legacy_pruned: bool) -> u64 {
+async fn append_checkpoint(store: &Store, first_seq: u64, prev: &Hash) -> u64 {
     AuditLog::append(
         store,
         &AuditEvent {
@@ -98,7 +75,6 @@ async fn append_checkpoint(store: &Store, first_seq: u64, prev: &Hash, legacy_pr
                 "first_retained_seq": first_seq,
                 "first_retained_prev_hash": hex::encode(prev),
                 "pruned_count": first_seq.saturating_sub(1),
-                "legacy_pruned": legacy_pruned,
             }),
         },
     )
@@ -107,12 +83,10 @@ async fn append_checkpoint(store: &Store, first_seq: u64, prev: &Hash, legacy_pr
 }
 
 #[tokio::test]
-async fn fresh_install_gets_an_empty_anchor() {
+async fn fresh_install_gets_an_anchor() {
     let fresh = Fresh::new().await;
     let anchor = fresh.store.audit_anchor().await.unwrap().unwrap();
-    assert_eq!(anchor.legacy_last_id, 0);
-    assert_eq!(anchor.legacy_count, 0);
-    assert_eq!(anchor.legacy_digest, LegacyDigest::new().finish().1);
+    assert!(!anchor.install_id.is_empty());
     let count: (i64,) = sqlx::query_as("SELECT count(*) FROM audit_anchor")
         .fetch_one(fresh.store.pool_for_tests())
         .await
@@ -293,27 +267,34 @@ async fn audit_chain_detects_a_row_inserted_without_the_chain() {
 }
 
 #[tokio::test]
-async fn legacy_audit_digest_reported_separately() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = open_fixture(dir.path()).await;
-    let pool = store.pool_for_tests();
-    drop_trigger(pool, "audit_log_no_update").await;
-    sqlx::query("UPDATE audit_log SET detail = '{\"edited\":true}' WHERE seq = 1")
-        .execute(pool)
-        .await
-        .unwrap();
-    recreate_trigger(pool, NO_UPDATE).await;
-
-    let report = store.verify_audit(VerifyScope::Full).await.unwrap();
+async fn audit_chain_starts_at_the_first_row_of_a_fresh_database() {
+    let fresh = Fresh::new().await;
     assert!(matches!(
-        report.legacy,
-        LegacyStatus::Mismatch {
-            expected_count: 5,
-            actual_count: 5,
-            digest_matches: false,
+        fresh
+            .store
+            .verify_audit(VerifyScope::Full)
+            .await
+            .unwrap()
+            .chained,
+        ChainStatus::Empty
+    ));
+    let anchor = fresh.store.audit_anchor().await.unwrap().unwrap();
+    assert_eq!(append(&fresh.store, "test.first", 1).await, 1);
+    let (prev, _) = stored_hash(fresh.store.pool_for_tests(), 1).await;
+    assert_eq!(prev, anchor.hash().to_vec());
+    assert!(matches!(
+        fresh
+            .store
+            .verify_audit(VerifyScope::Full)
+            .await
+            .unwrap()
+            .chained,
+        ChainStatus::Intact {
+            checked: 1,
+            head_seq: 1,
+            ..
         }
     ));
-    assert_eq!(report.chained, ChainStatus::Empty);
 }
 
 #[tokio::test]
@@ -339,7 +320,6 @@ async fn last_n_verification_checks_only_the_newest_rows() {
         last.chained,
         ChainStatus::Intact { checked: 10, .. }
     ));
-    assert_eq!(last.legacy, LegacyStatus::CountOnly { count: 0 });
 
     assert!(matches!(
         fresh
@@ -368,7 +348,7 @@ async fn verification_starts_at_the_retained_start_after_a_checkpoint() {
         .await
         .unwrap();
     let prev: Hash = prev.try_into().unwrap();
-    append_checkpoint(&fresh.store, 5, &prev, false).await;
+    append_checkpoint(&fresh.store, 5, &prev).await;
 
     drop_trigger(pool, "audit_log_no_delete").await;
     sqlx::query("DELETE FROM audit_log WHERE seq < 5")
@@ -394,7 +374,7 @@ async fn checkpoint_with_a_wrong_link_is_broken() {
     for index in 1..=10 {
         append(&fresh.store, &format!("test.{index}"), index).await;
     }
-    append_checkpoint(&fresh.store, 5, &[0u8; 32], false).await;
+    append_checkpoint(&fresh.store, 5, &[0u8; 32]).await;
     let pool = fresh.store.pool_for_tests();
     drop_trigger(pool, "audit_log_no_delete").await;
     sqlx::query("DELETE FROM audit_log WHERE seq < 5")
@@ -430,8 +410,8 @@ async fn newest_checkpoint_for_a_retained_row_wins() {
         .await
         .unwrap();
     let prev: Hash = prev.try_into().unwrap();
-    append_checkpoint(&fresh.store, 5, &prev, false).await;
-    append_checkpoint(&fresh.store, 5, &[0u8; 32], false).await;
+    append_checkpoint(&fresh.store, 5, &prev).await;
+    append_checkpoint(&fresh.store, 5, &[0u8; 32]).await;
 
     drop_trigger(pool, "audit_log_no_delete").await;
     sqlx::query("DELETE FROM audit_log WHERE seq < 5")

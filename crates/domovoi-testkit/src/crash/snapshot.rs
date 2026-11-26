@@ -1,6 +1,6 @@
 //! An id-free picture of the durable state.
 
-use domovoi_core::ports::{ActionFilter, AuditFilter, IncidentFilter, Page, StoreError};
+use domovoi_core::ports::{AuditFilter, IncidentFilter, Page, StoreError};
 
 use super::SweepStore;
 
@@ -10,8 +10,6 @@ pub struct Snapshot {
     /// (check key, status name) of every incident, sorted. Versions are checked by
     /// invariants, not snapshots.
     pub incidents: Vec<(String, String)>,
-    /// (skill name, status name, has_chat_token) of every action.
-    pub actions: Vec<(String, String, bool)>,
     /// Number of signals linked to an incident.
     pub signals: usize,
     /// (kind) of every timeline entry, sorted.
@@ -42,9 +40,6 @@ impl Snapshot {
             );
         }
 
-        let mut actions = all_actions(store).await?;
-        actions.sort();
-
         let mut audit_kinds = all_audit_kinds(store).await?;
         audit_kinds.sort();
 
@@ -65,7 +60,6 @@ impl Snapshot {
 
         Ok(Self {
             incidents,
-            actions,
             signals,
             timeline_kinds,
             audit_kinds,
@@ -84,27 +78,6 @@ pub(super) async fn all_incidents<S: SweepStore>(
         let got = domovoi_core::ports::IncidentRepo::list(store, &IncidentFilter::default(), &page)
             .await?;
         items.extend(got.items);
-        match got.next_cursor {
-            Some(cursor) => page.cursor = Some(cursor),
-            None => return Ok(items),
-        }
-    }
-}
-
-/// Every stored action as its id-free snapshot row.
-async fn all_actions<S: SweepStore>(store: &S) -> Result<Vec<(String, String, bool)>, StoreError> {
-    let mut items = Vec::new();
-    let mut page = Page::first(Page::MAX_LIMIT);
-    loop {
-        let got =
-            domovoi_core::ports::ActionRepo::list(store, &ActionFilter::default(), &page).await?;
-        items.extend(got.items.into_iter().map(|action| {
-            (
-                action.skill().as_str().to_owned(),
-                action.status().name().to_owned(),
-                action.chat_token_hash().is_some(),
-            )
-        }));
         match got.next_cursor {
             Some(cursor) => page.cursor = Some(cursor),
             None => return Ok(items),

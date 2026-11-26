@@ -483,7 +483,7 @@ async fn a_waiting_run_does_not_starve_another_host() {
     assert_eq!(w.outcome(waiting_op, waiting).await, StepOutcome::Pending);
     let sent = w.skill_requests();
     assert_eq!(sent.len(), 1, "only the host that is there got a request");
-    assert_eq!(sent[0].action, ExecutionId::from_step(other).as_action());
+    assert_eq!(sent[0].execution, ExecutionId::from_step(other));
 }
 
 #[tokio::test]
@@ -542,7 +542,7 @@ async fn a_sent_run_is_never_mistaken_for_not_run() {
         .unwrap();
     w.link.answer(
         host_id(),
-        ExecutionId::from_step(step).as_action(),
+        ExecutionId::from_step(step),
         ActionAnswer::NotFound,
     );
     run_on(&w, 5).await;
@@ -662,7 +662,7 @@ async fn a_failed_hand_off_never_overwrites_a_terminal_decision() {
     // The journal later claims the run finished; the settled step keeps its outcome.
     w.link.answer(
         host_id(),
-        ExecutionId::from_step(step).as_action(),
+        ExecutionId::from_step(step),
         ActionAnswer::Finished {
             succeeded: true,
             detail: None,

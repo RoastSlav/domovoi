@@ -417,12 +417,12 @@ fn installer_creates_runner_paths_before_enabling_the_socket() {
         ),
         replace(
             INSTALLER,
-            "    place_unit domovoi-skill-runner.socket runner_socket_unit 0\n",
+            "    place_unit domovoi-skill-runner.socket runner_socket_unit\n",
             "",
         ),
         replace(
             INSTALLER,
-            "    place_unit domovoi-skill-runner@.service render_runner_service 0\n",
+            "    place_unit domovoi-skill-runner@.service render_runner_service\n",
             "",
         ),
         INSTALLER.replace("agent selftest --installer", "agent selftest --other"),
@@ -481,6 +481,6 @@ fn installer_renders_custom_skills_dir_into_exec_start_and_bind() {
     ] {
         assert!(INSTALLER.contains(expr), "install.sh lacks {expr}");
     }
-    assert!(INSTALLER.contains("place_unit domovoi-skill-runner@.service render_runner_service 0"));
+    assert!(INSTALLER.contains("place_unit domovoi-skill-runner@.service render_runner_service"));
     assert!(INSTALLER.contains("\"$bin\" agent dirs"));
 }

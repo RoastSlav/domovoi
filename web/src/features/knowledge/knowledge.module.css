@@ -74,8 +74,3 @@
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
   gap: var(--space-3);
 }
-
-.wrapCell {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}

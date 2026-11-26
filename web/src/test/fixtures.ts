@@ -1,5 +1,4 @@
 import type {
-  Action,
   AuditRow,
   AuditVerification,
   Host,
@@ -46,28 +45,6 @@ export function incident(overrides: Partial<IncidentSummary> = {}): IncidentSumm
   };
 }
 
-/** A proposed action, overridable. */
-export function action(overrides: Partial<Action> = {}): Action {
-  return {
-    id: "act-1",
-    incident_id: "inc-1",
-    host_id: nas.id,
-    skill: "restart_container",
-    risk: "write",
-    args: { name: "web" },
-    status: "proposed",
-    plan_hash: "9f2c1a4b".repeat(8),
-    plan_hash_v1: "1a4b9f2c".repeat(8),
-    plan_binding: "v2",
-    proposed_by: "system:triage",
-    expires_at: "2099-01-01T00:00:00Z",
-    created_at: T0,
-    updated_at: T0,
-    legacy: false,
-    ...overrides,
-  };
-}
-
 /** The detail of `incident()` after triage. */
 export function detail(): IncidentDetail {
   return {
@@ -88,7 +65,6 @@ export function detail(): IncidentDetail {
       { at: T0, kind: "incident.opened", summary: "Disk /srv crossed 90%" },
       { at: "2026-10-31T12:01:00Z", kind: "triage.report", summary: "ACTION_NEEDED" },
     ],
-    actions: [action()],
     tools_used: [],
     as_of_seq: 0,
   };
@@ -100,14 +76,12 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     incidents_action_needed: 0,
     incidents_open: 0,
     incident_groups: { needs_action: 0, monitor: 0, pending: 0, expected: 0, handled: 0 },
-    approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 2,
     operations_running: 0,
     operations_waiting_approval: 0,
     operations_waiting_user: 0,
     operations_paused: 0,
-    actions_outcome_unknown: 0,
     attention_total: 0,
     as_of_seq: 0,
     ...overrides,
@@ -134,25 +108,17 @@ export function auditRow(overrides: Partial<AuditRow> = {}): AuditRow {
     subject: "action:0190",
     detail: '{"plan_hash":"ab"}',
     detail_truncated: false,
-    history: "chained",
     hash: "9f".repeat(32),
     ...overrides,
   };
 }
 
-/** A check of the audit log: chained intact, legacy counted only. */
+/** A check of the audit log: chained intact. */
 export function verification(overrides: Partial<AuditVerification> = {}): AuditVerification {
   return {
     scope: "recent",
     recent_limit: 10000,
     checked_at: "2026-11-18T10:00:00Z",
-    legacy: {
-      status: "count_only",
-      count: 5,
-      expected_count: null,
-      actual_count: null,
-      digest_matches: null,
-    },
     chained: {
       status: "intact",
       checked: 812,
@@ -164,9 +130,6 @@ export function verification(overrides: Partial<AuditVerification> = {}): AuditV
     },
     anchor: {
       install_id: "install-1",
-      legacy_last_id: 5,
-      legacy_count: 5,
-      legacy_digest: "ab".repeat(32),
       anchor_hash: "cd".repeat(32),
     },
     head: { seq: 817, hash: "9f".repeat(32) },

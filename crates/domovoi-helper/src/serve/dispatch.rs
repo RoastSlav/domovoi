@@ -47,7 +47,7 @@ pub fn read_platform_record(
 ///
 /// A group that is not enabled is `GroupDisabled`. A write group is `PlatformBlocked` unless the
 /// record is `Ok` and the tier is not Blocked, and `WriteGroupNeedsOptIn` on an untested platform
-/// without the opt-in. Everything else is `NotImplemented` in this milestone.
+/// without the opt-in. Everything else is `NotImplemented`.
 #[must_use]
 pub fn unavailable_reason(
     group: HelperGroup,

@@ -5,7 +5,7 @@
 
 ## Context
 
-ADR 0012 chose MIT OR Apache-2.0 for maximum reach. That choice also lets anyone run Domovoi inside a company, bundle it into a paid product or resell it as a hosted service, without anything coming back to the project that has to fund its development. Domovoi is aimed at homelabs and self-hosters, who should keep getting it for free, and at businesses, which can afford to pay for the product they run their operations on.
+A permissive license such as MIT OR Apache-2.0 gives maximum reach, and it lets anyone run Domovoi inside a company, bundle it into a paid product or resell it as a hosted service, without anything coming back to the project that has to fund its development. Domovoi is aimed at homelabs and self-hosters, who should keep getting it for free, and at businesses, which can afford to pay for the product they run their operations on.
 
 ## Decision
 
@@ -25,7 +25,7 @@ ADR 0012 chose MIT OR Apache-2.0 for maximum reach. That choice also lets anyone
 
 ## Alternatives considered
 
-- Keep MIT OR Apache-2.0: maximum reach and no friction with packagers, but nothing prevents a closed hosted fork from taking the homelab market this project is built for. Rejected.
+- MIT OR Apache-2.0: maximum reach and no friction with packagers, but nothing prevents a closed hosted fork from taking the homelab market this project is built for. Rejected.
 - BSL 1.1: free for non-production use, converts to Apache-2.0 after four years, but hobbyists read it as "not free" and the conversion date adds a second set of terms to explain. Rejected.
 - FSL-1.1-MIT: allows almost all commercial use short of a competing product and converts to MIT after two years; too permissive to fund development through commercial licenses. Rejected.
 - AGPL-3.0-only with a commercial license: a real open-source license that keeps internal business use free, so it does not make commercial use paid. Rejected.

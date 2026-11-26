@@ -471,7 +471,7 @@ async fn root_agent_without_a_runner_keeps_skills_available() {
 }
 
 #[tokio::test]
-async fn helper_status_changes_nothing_in_this_milestone() {
+async fn helper_status_does_not_change_the_registry() {
     let fixture = Fixture::new(Vec::new()).await;
     fixture.complete(&[
         ("container.logs", 1),

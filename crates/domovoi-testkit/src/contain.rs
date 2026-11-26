@@ -51,12 +51,6 @@ impl FakeContainRelay {
         lock(&self.script).dispatch_errors.push_back(outcome);
     }
 
-    /// Makes every `dispatch` move `clock` forward by `by` before it hands the frame off, so a
-    /// test can spend the confirmation window.
-    pub fn advance_clock_on_dispatch(&self, clock: Arc<FakeClock>, by: SignedDuration) {
-        lock(&self.script).advance = Some((clock, by));
-    }
-
     /// Makes every `dispatch_phase` read the block's stored phase from `repo` before it
     /// answers, so a test can prove a phase was committed before its frame was sent.
     pub fn watch(&self, repo: Arc<dyn ContainmentRepo>) {

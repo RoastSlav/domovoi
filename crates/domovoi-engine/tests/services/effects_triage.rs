@@ -7,7 +7,7 @@ use domovoi_core::incident::{IncidentEvent, IncidentPolicy, apply};
 use domovoi_core::ports::{
     IncidentRepo, IncidentTimelineEntry, StateWrite, Transaction, UnitOfWork,
 };
-use domovoi_core::{ActionId, ActionStatus, Incident, IncidentId, UserId};
+use domovoi_core::{Incident, IncidentId, UserId};
 use domovoi_engine::{DomainEvent, EventKind};
 use domovoi_testkit::InMemoryStore;
 use domovoi_testkit::build::{T0, open_incident};
@@ -119,10 +119,7 @@ async fn lag_reload_still_queues_acked_incidents() {
     // Overflow the bus while the service cannot run, so its next read reports a lag.
     for _ in 0..300 {
         let _ = world.bus.send(DomainEvent::new(
-            EventKind::ActionChanged {
-                action: ActionId::new(),
-                status: ActionStatus::Proposed,
-            },
+            EventKind::IncidentUnmuted,
             &world.incident,
             true,
         ));

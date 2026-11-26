@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo,
-    MessageRef, Notifier, NotifyStateRepo, OutboundMessage, Page, SignalRepo, StoreError,
+    AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo, MessageRef, Notifier,
+    NotifyStateRepo, OutboundMessage, SignalRepo, StoreError,
 };
 use domovoi_core::{
     Advisory, AdvisoryKind, Card, ChatRefs, Incident, IncidentId, NotifyState, TriageOutcome,
@@ -129,7 +129,7 @@ impl Delivery {
         incident: Incident,
         actions: Vec<NotifyAction>,
         working: Working,
-        tokens: BTreeMap<domovoi_core::ActionId, String>,
+        tokens: BTreeMap<domovoi_core::ExecutionId, String>,
     ) -> Delivered {
         if actions.is_empty() || self.gateways.is_empty() {
             // Nothing to confirm: the plan's state is the truth, as with no chat configured.
@@ -298,7 +298,7 @@ impl Delivery {
     async fn card(
         &self,
         incident: &Incident,
-        tokens: BTreeMap<domovoi_core::ActionId, String>,
+        tokens: BTreeMap<domovoi_core::ExecutionId, String>,
     ) -> Option<Card> {
         let host = match self.store.get_host(incident.host()).await {
             Ok(Some(host)) => host,
@@ -318,17 +318,6 @@ impl Delivery {
             .ok()
             .and_then(|signals| signals.into_iter().next());
         let report = self.latest_report(incident.id()).await;
-        let actions = ActionRepo::list(
-            &*self.store,
-            &ActionFilter {
-                incident: Some(incident.id()),
-                ..ActionFilter::default()
-            },
-            &Page::first(Page::MAX_LIMIT),
-        )
-        .await
-        .map(|page| page.items)
-        .unwrap_or_default();
         let steps = waiting_steps(&*self.store, incident, &host.name, MAX_PLANS)
             .await
             .unwrap_or_else(|err| {
@@ -338,7 +327,6 @@ impl Delivery {
         Some(build_card(
             incident,
             report.as_ref(),
-            &actions,
             &host.name,
             &CardLinks {
                 web_url: self.config.web.public_url.as_ref().map(ToString::to_string),

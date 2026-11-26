@@ -5,7 +5,7 @@ use domovoi_core::ports::{
     AggregateKind, AggregateRef, ClaimBatch, EffectCancel, EffectCompletion, EffectDraft,
     EffectKind, Transaction,
 };
-use domovoi_core::{ActionId, OperationId};
+use domovoi_core::{NoteId, OperationId};
 use jiff::SignedDuration;
 
 use super::super::ContractResult;
@@ -211,24 +211,24 @@ pub async fn pending_of_filters_by_kind_aggregate_and_status(
         owned_by(AggregateRef::operation(OperationId::new())),
     )
     .await?;
-    let first = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
-    let second = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
-    let dropped = store(subject, owned_by(AggregateRef::action(ActionId::new()))).await?;
+    let first = store(subject, owned_by(AggregateRef::note(NoteId::new()))).await?;
+    let second = store(subject, owned_by(AggregateRef::note(NoteId::new()))).await?;
+    let dropped = store(subject, owned_by(AggregateRef::note(NoteId::new()))).await?;
     let other_kind = EffectDraft {
-        aggregate: AggregateRef::action(ActionId::new()),
+        aggregate: AggregateRef::note(NoteId::new()),
         ..draft(EffectKind::Dispatch, 0)
     };
     store(subject, other_kind).await?;
 
     let listed = subject
         .effects()
-        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .pending_of(EffectKind::Wake, AggregateKind::Note, 10)
         .await?;
     let found: Vec<_> = listed.iter().map(|record| record.id).collect();
     assert_eq!(found, vec![first, second, dropped]);
     let limited = subject
         .effects()
-        .pending_of(EffectKind::Wake, AggregateKind::Action, 1)
+        .pending_of(EffectKind::Wake, AggregateKind::Note, 1)
         .await?;
     assert_eq!(limited.len(), 1);
     assert_eq!(limited[0].id, first);
@@ -244,17 +244,17 @@ pub async fn pending_of_filters_by_kind_aggregate_and_status(
         .await?;
     let after = subject
         .effects()
-        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .pending_of(EffectKind::Wake, AggregateKind::Note, 10)
         .await?;
     let found: Vec<_> = after.iter().map(|record| record.id).collect();
     assert_eq!(found, vec![first, second]);
 
     // A claimed effect is no longer pending either.
-    let claimed = claim_in(subject, &[EffectKind::Wake], &[AggregateKind::Action]).await?;
+    let claimed = claim_in(subject, &[EffectKind::Wake], &[AggregateKind::Note]).await?;
     assert_eq!(claimed.claimed.len(), 2);
     let none = subject
         .effects()
-        .pending_of(EffectKind::Wake, AggregateKind::Action, 10)
+        .pending_of(EffectKind::Wake, AggregateKind::Note, 10)
         .await?;
     assert!(none.is_empty());
     Ok(())

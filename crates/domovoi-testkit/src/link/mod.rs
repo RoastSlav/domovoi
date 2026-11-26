@@ -1,6 +1,6 @@
 //! A fake agent link, and the recording doubles next to it.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -11,7 +11,7 @@ use domovoi_core::ports::{
     SkillOutput, ToolOutput,
 };
 use domovoi_core::{
-    ActionId, AgentId, AgentSessionId, CapabilityHandoff, CheckKey, HostId, JournalEpoch,
+    AgentId, AgentSessionId, CapabilityHandoff, CheckKey, ExecutionId, HostId, JournalEpoch,
     PackageDispatch, PackageOutputs, ReadToolCall, SkillSummary, TargetKey, TransferAnswer,
     TransferFrame,
 };
@@ -48,7 +48,7 @@ type CheckHandler = Box<
     dyn Fn(HostId, &CheckKey, Option<&TargetKey>) -> Result<CheckRecheck, LinkError> + Send + Sync,
 >;
 type StatusHandler = Arc<
-    dyn Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
+    dyn Fn(HostId, &[ExecutionId], JournalEpoch) -> Result<ActionAnswers, LinkError> + Send + Sync,
 >;
 
 #[derive(Default)]
@@ -76,7 +76,7 @@ pub struct FakeAgentLink {
     epochs: Mutex<BTreeMap<HostId, JournalEpoch>>,
     agents: Mutex<BTreeMap<HostId, AgentId>>,
     sessions: Mutex<BTreeMap<HostId, AgentSessionId>>,
-    answers: Mutex<BTreeMap<HostId, BTreeMap<ActionId, ActionAnswer>>>,
+    answers: Mutex<BTreeMap<HostId, BTreeMap<ExecutionId, ActionAnswer>>>,
     status: Mutex<Option<StatusHandler>>,
     /// When set, `start_skill` waits for a permit before it reports the request handed over,
     /// so a test can hold a dispatch at the point where it has been committed but not sent.
@@ -100,8 +100,6 @@ pub struct FakeAgentLink {
     handlers: Mutex<Handlers>,
     requests: Mutex<Vec<LinkRequest>>,
     snapshot_calls: std::sync::atomic::AtomicUsize,
-    /// Test support: answers the next `snapshot` calls in order, before the live state.
-    scripted_snapshots: Mutex<VecDeque<Option<AgentSnapshot>>>,
 }
 
 impl FakeAgentLink {
@@ -131,7 +129,6 @@ impl FakeAgentLink {
             handlers: Mutex::new(Handlers::default()),
             requests: Mutex::new(Vec::new()),
             snapshot_calls: std::sync::atomic::AtomicUsize::new(0),
-            scripted_snapshots: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -146,13 +143,6 @@ impl FakeAgentLink {
     /// as a full agent queue or an offline host would.
     pub fn fail_next_skill_handoff(&self, error: LinkError) {
         *lock(&self.handoff_failure) = Some(error);
-    }
-
-    /// Makes `action_status` for `host` wait for a permit from `gate` before answering, so a
-    /// test can hold a reconciliation pass inside its journal query. The request is recorded
-    /// before the wait, so the query is visible while it is held.
-    pub fn hold_status_queries(&self, host: HostId, gate: std::sync::Arc<tokio::sync::Semaphore>) {
-        lock(&self.status_gates).insert(host, gate);
     }
 
     /// Makes `availability` for `host` wait for a permit from `gate` before it answers,
@@ -203,11 +193,6 @@ impl FakeAgentLink {
         lock(&self.availability).insert(host, availability);
     }
 
-    /// Drops a scripted availability, so the host's presence decides again.
-    pub fn clear_availability(&self, host: HostId) {
-        lock(&self.availability).remove(&host);
-    }
-
     /// Sets the skills a host announces.
     pub fn set_skills(&self, host: HostId, skills: Vec<SkillSummary>) {
         lock(&self.skills).insert(host, skills);
@@ -222,11 +207,6 @@ impl FakeAgentLink {
     /// summary and whether it has a container runtime.
     pub fn set_host_words(&self, host: HostId, words: HostWords) {
         lock(&self.words).insert(host, words);
-    }
-
-    /// Drops a host's announced catalogue hash, as an agent that announces none.
-    pub fn clear_catalog_hash(&self, host: HostId) {
-        self.catalogue.clear_hash(host);
     }
 
     /// Scripts the pages a host's agent answers `get_catalog` with, by page number.
@@ -314,7 +294,7 @@ impl FakeAgentLink {
     }
 
     /// Scripts what the host's journal says about one run.
-    pub fn answer(&self, host: HostId, id: ActionId, answer: ActionAnswer) {
+    pub fn answer(&self, host: HostId, id: ExecutionId, answer: ActionAnswer) {
         lock(&self.answers)
             .entry(host)
             .or_default()
@@ -324,7 +304,7 @@ impl FakeAgentLink {
     /// Answers every `action_status` with `handler`, instead of the scripted answers.
     pub fn on_action_status(
         &self,
-        handler: impl Fn(HostId, &[ActionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
+        handler: impl Fn(HostId, &[ExecutionId], JournalEpoch) -> Result<ActionAnswers, LinkError>
         + Send
         + Sync
         + 'static,

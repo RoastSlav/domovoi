@@ -11,14 +11,14 @@ use super::backend;
 pub(super) async fn insert(
     conn: &mut SqliteConnection,
     draft: &JournalDraft,
-    legacy_event_seq: Option<u64>,
+    incident_event_seq: Option<u64>,
 ) -> Result<u64, CommitError> {
     const SQL: &str = "INSERT INTO journal \
         (aggregate_type, aggregate_id, kind, payload_v, payload, actor, occurred_at, \
-         legacy_event_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq";
+         incident_event_seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING seq";
     let payload = serde_json::to_string(&draft.payload)
         .map_err(|e| CommitError::Backend(format!("cannot encode journal payload: {e}")))?;
-    let legacy = legacy_event_seq.map(|seq| i64::try_from(seq).unwrap_or(i64::MAX));
+    let legacy = incident_event_seq.map(|seq| i64::try_from(seq).unwrap_or(i64::MAX));
     let (seq,): (i64,) = sqlx::query_as(SQL)
         .bind(draft.aggregate.kind.as_str())
         .bind(&draft.aggregate.id)

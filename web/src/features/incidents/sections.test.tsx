@@ -1,8 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Action } from "../../api/types";
 import { resetApi, route } from "../../test/apiMock";
-import { action, detail, nas } from "../../test/fixtures";
+import { detail, nas } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { IncidentDetailPage } from "./IncidentDetailPage";
 
@@ -21,106 +20,6 @@ beforeEach(() => {
 function open() {
   return renderAt("/incidents/inc-1", "/incidents/:id", <IncidentDetailPage />);
 }
-
-/** The actions of an incident with every kind of status, as a long-running one has. */
-function manyActions(): Action[] {
-  const finished = ["succeeded", "verified", "failed", "denied", "expired", "rejected"];
-  return [
-    action({ id: "r1", skill: "running_one", status: "dispatched" }),
-    ...finished.map((status, n) =>
-      action({
-        id: `f${n}`,
-        skill: `done_${status}`,
-        status,
-        updated_at: `2026-10-31T12:0${n}:00Z`,
-        ...(status === "failed" ? { reason: "exit code 1: no such container" } : {}),
-      }),
-    ),
-  ];
-}
-
-const section = (name: RegExp | string) => within(screen.getByRole("region", { name }));
-
-test("actions_are_grouped_into_running_and_earlier_and_never_offer_a_decision", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: manyActions() }));
-  open();
-
-  await screen.findByRole("region", { name: "In progress · 1" });
-  expect(screen.queryByRole("region", { name: /^Waiting for you/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Approve" }), "history only").toBeNull();
-  expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
-
-  const progress = section("In progress · 1");
-  expect(progress.getByText("running_one")).toBeVisible();
-  expect(progress.getByText("Running on nas. Waiting for the result…")).toBeVisible();
-  expect(progress.queryByRole("button", { name: "Approve" })).toBeNull();
-
-  const earlier = section("Earlier actions · 6");
-  expect(earlier.getAllByRole("listitem"), "four, then Show all").toHaveLength(4);
-  expect(earlier.getByText("done_succeeded")).toBeVisible();
-  expect(earlier.queryByRole("group"), "a finished action is a row, not a card").toBeNull();
-});
-
-test("a_failed_earlier_action_says_why_on_a_second_line", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: manyActions() }));
-  const user = userEvent.setup();
-  open();
-
-  const earlier = await screen.findByRole("region", { name: "Earlier actions · 6" });
-  await user.click(within(earlier).getByRole("button", { name: "Show all 6" }));
-  expect(within(earlier).getAllByRole("listitem")).toHaveLength(6);
-  const failed = within(earlier).getByText("done_failed").closest("li") as HTMLElement;
-  expect(failed).toHaveTextContent("exit code 1: no such container");
-  const fine = within(earlier).getByText("done_succeeded").closest("li") as HTMLElement;
-  expect(fine).not.toHaveTextContent("exit code");
-});
-
-test("outcome_unknown_is_not_in_flight", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({
-    ...detail(),
-    actions: [
-      action({
-        id: "u",
-        skill: "maybe_ran",
-        status: "outcome_unknown",
-        reason: "The agent stopped answering before it reported back.",
-      }),
-    ],
-  }));
-  open();
-
-  const earlier = await screen.findByRole("region", { name: "Earlier actions · 1" });
-  expect(within(earlier).getByText("maybe_ran"), "an unknown result is finished").toBeVisible();
-  expect(within(earlier).getByText("Result unknown")).toBeVisible();
-  expect(
-    within(earlier).getByText("The agent stopped answering before it reported back."),
-  ).toBeVisible();
-  expect(screen.queryByRole("region", { name: /^In progress/ })).toBeNull();
-  expect(within(earlier).queryByRole("progressbar"), "no progress spinner").toBeNull();
-});
-
-test("an_expired_action_is_history_with_a_legacy_label_and_its_reason", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({
-    ...detail(),
-    actions: [
-      action({
-        id: "x",
-        skill: "old_one",
-        status: "expired",
-        reason: "Closed when the hub upgraded; nobody decided it.",
-      }),
-    ],
-  }));
-  open();
-
-  const earlier = await screen.findByRole("region", { name: "Earlier actions · 1" });
-  expect(within(earlier).getByText("Legacy")).toBeVisible();
-  expect(within(earlier).getByText("Expired")).toBeVisible();
-  expect(
-    within(earlier).getByText("Closed when the hub upgraded; nobody decided it."),
-  ).toBeVisible();
-  expect(within(earlier).queryByText(/^Expires in/)).toBeNull();
-});
 
 test("long_details_fold_until_asked_for", async () => {
   const user = userEvent.setup();
@@ -192,30 +91,6 @@ test("sending_a_question_scrolls_only_as_far_as_needed", async () => {
   await user.type(await screen.findByLabelText("Ask about this incident"), "Why?{Enter}");
   await vi.waitFor(() => expect(scroll).toHaveBeenCalled());
   expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
-});
-
-test("running_and_earlier_rows_show_their_arguments_in_full_on_a_second_line", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({
-    ...detail(),
-    actions: [
-      action({
-        id: "r",
-        skill: "restart_container",
-        status: "dispatched",
-        args: { name: "web", volume: "old-backups-volume-with-a-long-name" },
-      }),
-      action({ id: "d", skill: "vacuum_db", status: "succeeded", args: { name: "main" } }),
-    ],
-  }));
-  open();
-
-  const progress = await screen.findByRole("region", { name: "In progress · 1" });
-  expect(
-    within(progress).getByText("name = web · volume = old-backups-volume-with-a-long-name"),
-    "every argument, as key = value joined by dots",
-  ).toBeVisible();
-  const earlier = screen.getByRole("region", { name: "Earlier actions · 1" });
-  expect(within(earlier).getByText("name = main")).toBeVisible();
 });
 
 test("the_chat_send_button_is_secondary_beside_acknowledge", async () => {

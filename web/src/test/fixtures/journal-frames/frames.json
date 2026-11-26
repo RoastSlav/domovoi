@@ -173,46 +173,6 @@
       }
     },
     {
-      "name": "action_changed",
-      "event": "journal",
-      "id": 20,
-      "data": {
-        "seq": 20,
-        "aggregate_type": "action",
-        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000d1",
-        "kind": "action.transition",
-        "payload_v": 1,
-        "payload": {
-          "incident": "0190a0a0-0000-7000-8000-0000000000a1",
-          "from": "proposed",
-          "to": "approved"
-        },
-        "actor": "system:actions",
-        "at": "2026-11-18T10:00:00Z",
-        "topics": ["approvals", "incidents"]
-      }
-    },
-    {
-      "name": "action_blocked",
-      "event": "journal",
-      "id": 21,
-      "data": {
-        "seq": 21,
-        "aggregate_type": "action",
-        "aggregate_id": "0190a0a0-0000-7000-8000-0000000000d1",
-        "kind": "action.transition",
-        "payload_v": 1,
-        "payload": {
-          "incident": "0190a0a0-0000-7000-8000-0000000000a1",
-          "from": "proposed",
-          "to": "rejected"
-        },
-        "actor": "system:actions",
-        "at": "2026-11-18T10:00:00Z",
-        "topics": ["approvals", "incidents"]
-      }
-    },
-    {
       "name": "operation_step_finished",
       "event": "journal",
       "id": 22,

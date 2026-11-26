@@ -4,12 +4,11 @@
 //! Built into the `triage` test binary, which shares its harness.
 
 use domovoi_core::meta::{MetaTool, ToolSet};
-use domovoi_core::ports::{ActionRepo, Part, ToolOutput};
-use domovoi_core::{ActionStatus, HostName, ReadTool, Risk, TriageOutcome, UserId};
+use domovoi_core::ports::{Part, ToolOutput};
+use domovoi_core::{HostName, ReadTool, TriageOutcome, UserId};
 use domovoi_engine::EventKind;
 use domovoi_engine::cards::{CardLinks, build_card};
 use domovoi_engine::notify::{NotifyAction, NotifySettings, plan};
-use domovoi_testkit::build::action;
 use domovoi_testkit::link::LinkRequest;
 use jiff::tz::TimeZone;
 use serde_json::json;
@@ -609,13 +608,11 @@ fn no_proposals_marker_remains() {
 #[tokio::test]
 async fn model_calling_approve_or_unknown_tool_changes_nothing() {
     let w = world(Setup::default()).await;
-    let pending = action(w.incident.id(), host_id(), Risk::Write).unwrap();
-    ActionRepo::insert(&*w.store, &pending).await.unwrap();
     w.primary.push_ok(calls(&[
         (
             "c1",
             "approve_action",
-            json!({"action": pending.id().to_string()}),
+            json!({"action": uuid::Uuid::nil().to_string()}),
         ),
         ("c2", "run_skill", json!({"skill": "restart_container"})),
         ("c3", "shell", json!({"command": "reboot"})),
@@ -627,12 +624,10 @@ async fn model_calling_approve_or_unknown_tool_changes_nothing() {
         assert!(is_error);
         assert!(content.contains("unknown tool"), "{content}");
     }
-    let stored = ActionRepo::get(&*w.store, pending.id())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(stored.status(), &ActionStatus::Proposed);
-    assert_eq!(w.actions().await.len(), 1);
+    assert!(
+        w.proposals(&w.incident).await.is_empty(),
+        "no step was proposed"
+    );
     no_skill_ran(&w);
 }
 
@@ -655,7 +650,6 @@ async fn shell_command_in_report_is_never_executed() {
     };
     assert_eq!(report.next_step, "rm -rf /", "kept as text, nothing more");
     no_skill_ran(&w);
-    assert!(w.actions().await.is_empty());
     assert!(w.link.requests().iter().all(|r| match r {
         LinkRequest::Tool { call, .. } => !format!("{call:?}").contains("rm -rf"),
         _ => true,
@@ -731,7 +725,6 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
     )]));
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
-    assert!(w.actions().await.is_empty());
 
     // Even a model that complies cannot create the action.
     w.primary.push_ok(read_calls(&[(
@@ -747,7 +740,6 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
         panic!("a report");
     };
     assert!(report.proposals.is_empty());
-    assert!(w.actions().await.is_empty());
     no_skill_ran(&w);
 
     // When the host does offer the skill, a complying model gets a proposal and nothing
@@ -767,7 +759,6 @@ async fn prompt_injection_in_logs_does_not_create_actions() {
     let proposed = w.proposals(&w.incident).await;
     assert_eq!(proposed.len(), 1, "one proposal: {proposed:?}");
     assert!(proposed[0].awaiting_human && !proposed[0].approved);
-    assert!(w.actions().await.is_empty(), "no legacy action");
     no_skill_ran(&w);
 }
 
@@ -808,7 +799,6 @@ async fn triage_failure_still_leaves_a_card() {
     let card = build_card(
         &completed.incident,
         None,
-        &[],
         &HostName::parse("nas").unwrap(),
         &CardLinks::default(),
         None,
@@ -822,15 +812,13 @@ async fn triage_failure_still_leaves_a_card() {
 mod redaction {
     use domovoi_core::ports::{IncidentRepo, SignalRepo};
     use domovoi_core::{
-        ActionRequest, ActionStatus, CheckKey, Evidence, EvidenceValue, HostName, IncidentId,
-        Severity, Signal, SignalClass, SourceKind, TriageOutcome, TriageReport,
+        CheckKey, Evidence, EvidenceValue, HostName, Severity, Signal, SignalClass, SourceKind,
+        TriageOutcome, TriageReport,
     };
     use domovoi_engine::EventKind;
     use domovoi_engine::cards::{CardLinks, build_card};
     use domovoi_testkit::build::resolved_incident;
     use serde_json::json;
-
-    use domovoi_core::Risk;
 
     use crate::harness::{SECRET, Setup, disk, host_id, restart_skill, world};
 
@@ -846,12 +834,7 @@ mod redaction {
     /// The repeat cache must hand back the report the fresh run stored, redacted.
     /// The only difference allowed is dropping proposals that are already waiting on
     /// the incident, which the drop records in the reasoning.
-    fn assert_cached_report(
-        outcome: &TriageOutcome,
-        fresh: &TriageReport,
-        incident: IncidentId,
-        waiting: Vec<ActionRequest>,
-    ) {
+    fn assert_cached_report(outcome: &TriageOutcome, fresh: &TriageReport) {
         let TriageOutcome::Cached {
             report: got,
             from: _source,
@@ -889,21 +872,10 @@ mod redaction {
                 .all(|proposed| fresh.proposals.contains(proposed)),
             "the repeat invented a proposal: {outcome:?}",
         );
-        for dropped in fresh
-            .proposals
-            .iter()
-            .filter(|wanted| !got.proposals.contains(wanted))
-        {
-            assert!(
-                waiting
-                    .iter()
-                    .any(|action| matches!(action.status(), ActionStatus::Proposed)
-                        && action.incident() == incident
-                        && action.skill() == &dropped.skill
-                        && action.args() == &dropped.args),
-                "a proposal was dropped with nothing waiting: {outcome:?}",
-            );
-        }
+        assert_eq!(
+            got.proposals, fresh.proposals,
+            "a proposal was dropped with nothing waiting: {outcome:?}",
+        );
     }
 
     #[tokio::test]
@@ -954,14 +926,9 @@ mod redaction {
             .unwrap();
         assert_clean("the timeline", &format!("{timeline:?}"));
 
-        // A legacy action waiting on the incident still lands on the card, so the card check
-        // covers action arguments and reasons too.
-        let legacy =
-            domovoi_testkit::build::action(w.incident.id(), host_id(), Risk::Write).unwrap();
         let card = build_card(
             &w.incident,
             Some(report),
-            std::slice::from_ref(&legacy),
             &HostName::parse("nas").unwrap(),
             &CardLinks::default(),
             None,
@@ -975,7 +942,7 @@ mod redaction {
         w.signal(disk(92.1)).await;
         w.withdraw(&w.incident).await;
         let cached = w.run().await;
-        assert_cached_report(&cached, report, w.incident.id(), w.actions().await);
+        assert_cached_report(&cached, report);
         assert_clean("the cached report", &format!("{cached:?}"));
     }
 
@@ -1036,7 +1003,6 @@ mod redaction {
         let card = build_card(
             &incident,
             None,
-            &[],
             &HostName::parse("nas").unwrap(),
             &CardLinks::default(),
             Some(stored),
@@ -1638,6 +1604,33 @@ fn no_code_path_creates_a_legacy_action() {
     );
 }
 
+/// The legacy action types are gone: no engine or hub source names the request, its status,
+/// its repository or its unit-of-work write, so no code path can create an action row.
+#[test]
+fn legacy_action_types_are_gone() {
+    let mut files = production_sources();
+    files.extend(
+        crate_sources("domovoi-hub")
+            .into_iter()
+            .filter(|(rel, _)| !rel.contains("/tests/") && !rel.ends_with("_tests.rs")),
+    );
+    let names = [
+        "ActionRequest",
+        "ActionRepo",
+        "ActionFilter",
+        "ActionGuard",
+        "ActionId",
+        "StoredAction",
+        "from_action",
+    ];
+    let paths = ["StateWrite::Action", "ActionStatus::"];
+    let offenders = forbidden_in(&files, &names, &paths);
+    assert!(
+        offenders.is_empty(),
+        "a legacy action type is back: {offenders:#?}"
+    );
+}
+
 /// The triage queue and its in-memory retries are gone, and the triage handle serves only
 /// follow-ups, chat and history.
 #[test]
@@ -1679,7 +1672,6 @@ fn no_enforcement_path_reads_a_policy_decision() {
     let engine = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let roots = [
         engine.join("src/operations"),
-        engine.join("src/legacy.rs"),
         engine.join("../domovoi-hub/src/auth"),
     ];
     let needles = [
@@ -1805,18 +1797,16 @@ fn chat_token_pieces_step_approval_needs_still_exist() {
     );
 }
 
-/// Legacy action rows are written by one engine module, the upgrade drain, and by the store and
-/// testkit crates that implement and exercise the unit of work; nothing else builds the write.
+/// No hub or engine code writes an action row: the unit of work only holds that write for the
+/// store, and the old drain that produced such rows is gone.
 #[test]
-fn legacy_rows_are_written_only_by_the_drain() {
-    let allowed = [
-        "crates/domovoi-engine/src/legacy.rs",
-        "crates/domovoi-store/",
-        "crates/domovoi-testkit/",
-    ];
+fn no_engine_or_hub_code_writes_an_action_row() {
     let offenders: Vec<String> = workspace_sources()
         .into_iter()
-        .filter(|(rel, _)| !allowed.iter().any(|ok| rel.starts_with(ok)))
+        .filter(|(rel, _)| {
+            rel.starts_with("crates/domovoi-engine/src/")
+                || rel.starts_with("crates/domovoi-hub/src/")
+        })
         .flat_map(|(rel, text)| {
             code_lines(&text)
                 .filter(|(_, line)| names_path(line, "StateWrite::Action"))
@@ -1826,16 +1816,13 @@ fn legacy_rows_are_written_only_by_the_drain() {
         .collect();
     assert!(
         offenders.is_empty(),
-        "a legacy action row is written outside the drain: {offenders:#?}"
+        "an action row is written outside the store: {offenders:#?}"
     );
-    let drain = crate_sources("domovoi-engine")
-        .into_iter()
-        .find(|(rel, _)| rel == "crates/domovoi-engine/src/legacy.rs")
-        .map(|(_, text)| text)
-        .unwrap_or_default();
     assert!(
-        drain.contains("StateWrite::Action"),
-        "the drain no longer writes through the unit of work"
+        !std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/legacy.rs")
+            .exists(),
+        "the upgrade drain for old action rows is back"
     );
 }
 

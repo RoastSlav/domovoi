@@ -32,7 +32,7 @@ export function SkillDetail({
       >
         {(list) => {
           const skill = list.find((s) => s.name === name);
-          return skill ? <SkillBody host={host} skill={skill} /> : null;
+          return skill ? <SkillBody skill={skill} /> : null;
         }}
       </QueryBoundary>
     </Dialog>

@@ -1,7 +1,6 @@
 //! The hub API over a temporary SQLite store, a running incident manager and action
 //! service, fakes for agents and time, and the example `hub.toml` with test secrets.
 
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -13,11 +12,10 @@ use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{
-    ActionRepo, AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo,
-    IncidentTimelineEntry, LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence,
-    StoreHealth,
+    AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo, IncidentTimelineEntry,
+    LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence, StoreHealth,
 };
-use domovoi_core::{ActionRequest, HostId, HostName, Incident, Principal, Risk, SkillSummary};
+use domovoi_core::{HostId, HostName, Incident, SkillSummary};
 use domovoi_engine::{
     DomainEvent, EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor,
     TriageDeps, TriageService, TriageSettings,
@@ -36,7 +34,7 @@ use domovoi_hub::settings::{ConfigSources, SecretKey, SettingsDeps, SettingsServ
 use domovoi_proto::EnrollToken;
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_store::{Store, StoreOptions};
-use domovoi_testkit::build::{host, manifest, open_incident};
+use domovoi_testkit::build::{host, open_incident};
 use domovoi_testkit::link::{evidence_caps, observer_of};
 use domovoi_testkit::{
     CannedLogSource, FakeAgentLink, FakeClock, RecordingSignalSink, ScriptedLlm,
@@ -52,7 +50,7 @@ use tower::ServiceExt;
 pub const ORIGIN: &str = "https://domovoi.example.net";
 
 /// Secret values the example config reads; none may ever appear in a response.
-pub const SECRETS: [(&str, &str); 5] = [
+pub const SECRETS: [(&str, &str); 7] = [
     ("ANTHROPIC_API_KEY", "sk-ant-test-0123456789abcdef"),
     ("DISCORD_BOT_TOKEN", "discord-bot-token-not-for-eyes"),
     (
@@ -64,6 +62,8 @@ pub const SECRETS: [(&str, &str); 5] = [
         "DOMOVOI_HEARTBEAT_URL",
         "https://hc.example/ping/heartbeat-secret",
     ),
+    ("DOMOVOI_METRICS_TOKEN", "metrics-token-not-for-eyes"),
+    ("OLLAMA_API_KEY", "ollama-key-not-for-eyes"),
 ];
 
 /// The admin's credentials.
@@ -310,6 +310,19 @@ pub async fn api_with_notifier(notifier: Arc<dyn Notifier>) -> Api {
     .await
 }
 
+/// [`api_with_notifier`] with the operations service, so steps can wait for approval.
+pub async fn api_with_notifier_and_operations(notifier: Arc<dyn Notifier>) -> Api {
+    build(
+        false,
+        Some(notifier),
+        true,
+        true,
+        TriageSettings::default(),
+        true,
+    )
+    .await
+}
+
 /// [`api`] with triage on, answering from [`Api::llm`].
 pub async fn api_with_triage() -> Api {
     build(true, None, true, true, TriageSettings::default(), false).await
@@ -457,7 +470,6 @@ async fn assemble(
                 signals: store.clone(),
                 notes: store.clone(),
                 hosts: store.clone(),
-                actions: store.clone(),
                 cache: store.clone(),
                 usage: store.clone(),
                 admission: store.clone(),
@@ -716,7 +728,6 @@ async fn assemble(
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
-        actions: store.clone(),
         hosts: store.clone(),
         notes: store.clone(),
         advisories: store.clone(),
@@ -858,26 +869,6 @@ impl Api {
 
     pub async fn raw(&self, req: Request<Body>) -> Reply {
         reply_of(self.app.clone().oneshot(req).await.unwrap()).await
-    }
-
-    /// Proposes `restart_container` (no parameters) with `risk`, open for an hour.
-    pub async fn propose(&self, risk: Risk) -> ActionRequest {
-        let summary = manifest("restart_container", risk)
-            .unwrap()
-            .summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
-        let args = summary.validate_args(&BTreeMap::new()).unwrap();
-        let action = ActionRequest::propose(
-            &self.incident,
-            &summary,
-            &args,
-            Some(domovoi_testkit::build::key_fingerprint()),
-            Principal::System("triage".into()),
-            SignedDuration::from_hours(1),
-            self.now(),
-        )
-        .unwrap();
-        ActionRepo::insert(&*self.store, &action).await.unwrap();
-        action
     }
 
     pub async fn get(&self, uri: &str, login: &Login) -> Reply {

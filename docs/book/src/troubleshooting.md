@@ -24,13 +24,13 @@ The web UI's **Advisories** list problems the hub found with itself: a failing h
 
 **The enroll command fails with a connection error.** The agent dials the address in the command, `wss://<name>:7421` until you set the hub's agent address. Set it on **Settings → Hub** to an address the agent can reach, then create a new command with **Add host**. Check that port 7421 is open from the agent to the hub.
 
-**"token is invalid or expired".** Enroll tokens work once, for 15 minutes. Create a new one with **Add host**.
+**"the hub refused the enrollment token; it may be used or expired".** Enroll tokens work once, for 15 minutes. Create a new one with **Add host**.
 
-**"certificate fingerprint does not match".** The hub's certificate changed, usually because its data directory was lost or replaced. Restore `tls/` from a backup, or enroll the agent again: remove `/var/lib/domovoi-agent/identity.json`, then run a new enroll command.
+**"the hub presented a certificate whose fingerprint is not the pinned one".** The hub's certificate changed, usually because its data directory was lost or replaced. Restore `tls/` from a backup, or enroll the agent again: remove `/var/lib/domovoi-agent/identity.json`, then run a new enroll command.
 
 **The host shows "silent".** The agent stopped sending heartbeats. Check `systemctl status domovoi-agent` on the host, and the network between the two. If several hosts went silent at once, the hub's own network is the likely cause.
 
-**"revoked" or "unknown agent" in the agent's log.** The host was revoked or re-enrolled elsewhere. Enroll it again.
+**"the hub rejected this agent (revoked)" or "(unknown agent)" in the agent's log.** The host was revoked or re-enrolled elsewhere. Enroll it again.
 
 **"incompatible" in the agent's log.** The agent and the hub speak different protocol `major.minor` versions. Upgrade the hub first, then the agent, and restart the agent. `domovoi agent status` shows both versions.
 
@@ -44,7 +44,7 @@ The host named after the hub is its own machine, shown as "Hub only, no agent" w
 
 **A skill is not offered.** Run `sudo domovoi check skills /etc/domovoi/skills`: it explains each problem, such as a group-writable script or a folder name that differs from the manifest's. Then restart the agent; it reads skills when it starts.
 
-**A proposed action is refused when approved.** Look at the action in the web UI. Common reasons: the skill's risk is above the host's `[policy] allow_risk`; the skill or its manifest changed since it was proposed; the proposal expired.
+**A proposed step is refused when approved.** Open the step on its operation. Common reasons: the skill's risk is above the host's `[policy] allow_risk`; the skill or its manifest changed since it was proposed; the approval window expired.
 
 **A skill fails with "permission denied".** On an agent that still runs as root, skills run as root unless the manifest sets `run_as`. On the three-identities layout they run through the skill runner as `domovoi-skill`, which cannot write to its working directory (the skill's own folder, read-only; use `/tmp`), cannot read the agent's or the helper's files and is in no `docker` group. Check also that the program it calls exists in the agent's `PATH` and on the host. If a starter skill such as `restart_container` fails this way, it needs an operation the helper does not offer yet; see [What a skill can reach](guide/skills.md#what-a-skill-can-reach).
 
@@ -54,7 +54,7 @@ Run `sudo domovoi agent selftest --installer` to see every check. [Command line]
 
 ### The host says "privilege boundary not in effect"
 
-The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: an agent installed before the three-identities layout (it runs as root), a hub on the same host, a container install (the host is also labelled a container agent, and write capabilities are refused with `agent_in_container`), or no systemd. For an old root agent, `sudo sh install.sh --role agent --migrate-identity` moves it ([Binary and systemd](install/binary.md#already-installed)). The host gets no unattended execution until the boundary is in effect.
+The agent is not running as the `domovoi-agent` account with its expected groups. Common causes: a hub on the same host, a container install (the host is also labelled a container agent, and write capabilities are refused with `agent_in_container`), or no systemd. The host gets no unattended execution until the boundary is in effect.
 
 ### The helper refuses to start
 
@@ -84,7 +84,7 @@ A check or tool that reads through the helper shows the helper's token. Each one
 | `engine_denied` | The socket exists but the helper may not open it. Check the socket's owner and any security module (SELinux, AppArmor) that confines the helper. |
 | `engine_api_refused` | The engine or a proxy in front of it answered 403 or 405 to a read. Allow `GET` on containers, images, events and logs. |
 | `device_not_allowed` | The device is not in `[smart] devices` in `helper.toml`. Add a pattern such as `/dev/sd[a-z]` and restart nothing: the helper reads the file at every request. |
-| `command_failed` | The tool failed; the detail shows the first line of its error. `Operation not permitted` or `Permission denied` on an already migrated host usually means the helper unit is the old one; see [Upgrading](install/upgrading.md). |
+| `command_failed` | The tool failed; the detail shows the first line of its error. `Operation not permitted` or `Permission denied` on a host with the three-identities layout usually means the installed helper unit is older than the release; see [Upgrading](install/upgrading.md). |
 | `group_disabled` (shown as "switched off") | The group is not in `groups` in `helper.toml`. Add it back to use that read. |
 
 ### Skills are unavailable: the skill runner
@@ -107,7 +107,7 @@ Read the runner's own messages with `sudo journalctl -u 'domovoi-skill-runner@*'
 sudo systemctl reset-failed 'domovoi-skill-runner@*'
 ```
 
-**A skill is refused with `run_as_unsupported`.** The failure reads `run_as_unsupported: <skill> names run_as <user>; only domovoi-skill is supported on this host`. A migrated host runs skills only as `domovoi-skill`. Remove the `run_as` line from the manifest (or set it to `domovoi-skill`), run `domovoi check skills`, and restart the agent. `domovoi agent selftest` lists every affected skill. The hub shows the skill as failed with this message; it does not yet show the reason separately.
+**A skill is refused with `run_as_unsupported`.** The failure reads `run_as_unsupported: <skill> names run_as <user>; only domovoi-skill is supported on this host`. An agent on the three-identities layout runs skills only as `domovoi-skill`. Remove the `run_as` line from the manifest (or set it to `domovoi-skill`), run `domovoi check skills`, and restart the agent. `domovoi agent selftest` lists every affected skill. The hub shows the skill as failed with this message; it does not show the reason separately.
 
 **Skills stopped working after I edited `agent.toml` or a unit.** The runner gets its two directories from its unit, not from `agent.toml`. Run the installer again to re-render it. `unit_modified` with `bind_paths` means the unit and the file disagree. A drop-in that removes the unit's mount mask makes the runner fail closed, so skills stop; remove it.
 

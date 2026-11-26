@@ -7,6 +7,9 @@ use std::process::Command;
 use super::Violation;
 use super::rules::{ADR_DIR, MIGRATIONS_DIR, RULES_FILE};
 
+/// The ADR whose addition lets one change rewrite the migrations directory (ADR 0039).
+const BASELINE_ADR: &str = "docs/adr/0039-single-baseline-migration.md";
+
 /// One changed path from `git diff --name-status`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Change {
@@ -65,12 +68,15 @@ pub fn parse(text: &str) -> Vec<Change> {
 /// Apply the rules to a list of changes.
 pub fn evaluate(changes: &[Change]) -> Vec<Violation> {
     let mut out = Vec::new();
+    let baseline_adr_added = changes
+        .iter()
+        .any(|c| c.status == 'A' && c.path == BASELINE_ADR);
     for c in changes {
         let touches_migration = c.path.starts_with(MIGRATIONS_DIR)
             || c.old_path
                 .as_deref()
                 .is_some_and(|p| p.starts_with(MIGRATIONS_DIR));
-        if touches_migration && c.status != 'A' {
+        if touches_migration && c.status != 'A' && !baseline_adr_added {
             out.push(Violation {
                 rule: "R13",
                 location: c.path.clone(),
@@ -128,6 +134,25 @@ mod tests {
     fn editing_a_migration_is_rejected() {
         let c = parse(&format!("M\t{MIGRATIONS_DIR}0001_init.sql\n"));
         assert_eq!(evaluate(&c)[0].rule, "R13");
+    }
+
+    #[test]
+    fn baseline_migration_is_immutable_after_first_release() {
+        let squash = format!(
+            "M\t{MIGRATIONS_DIR}0001_init.sql\nD\t{MIGRATIONS_DIR}0002_more.sql\nA\t{BASELINE_ADR}\n"
+        );
+        assert!(
+            evaluate(&parse(&squash)).is_empty(),
+            "the squash is allowed once"
+        );
+        let later = format!("M\t{MIGRATIONS_DIR}0001_init.sql\nM\t{BASELINE_ADR}\n");
+        assert_eq!(
+            evaluate(&parse(&later))[0].rule,
+            "R13",
+            "a later edit is not"
+        );
+        let delete = format!("D\t{MIGRATIONS_DIR}0002_more.sql\n");
+        assert_eq!(evaluate(&parse(&delete))[0].rule, "R13");
     }
 
     #[test]

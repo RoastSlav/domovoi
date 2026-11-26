@@ -1,0 +1,162 @@
+index advisories_open on advisories
+index agents_one_live_per_host on agents
+index audit_log_actor on audit_log
+index audit_log_at on audit_log
+index audit_log_kind on audit_log
+index audit_log_subject on audit_log
+index containment_blocks_host on containment_blocks
+index conversations_host on conversations
+index conversations_operation on conversations
+index conversations_updated on conversations
+index effects_aggregate on effects
+index effects_dedup on effects
+index effects_due on effects
+index entities_name on entities
+index execution_permit_rules_rule on execution_permit_rules
+index execution_permits_issued on execution_permits
+index executions_chat_token on executions
+index executions_host_contract on executions
+index executions_operation on executions
+index facts_created on facts
+index facts_host on facts
+index facts_one_live_value on facts
+index facts_retracted on facts
+index facts_subject on facts
+index incident_events_at on incident_events
+index incident_events_incident on incident_events
+index incident_signals_signal on incident_signals
+index incidents_fingerprint_resolved on incidents
+index incidents_host_opened on incidents
+index incidents_one_active_per_fingerprint on incidents
+index incidents_opened on incidents
+index incidents_status on incidents
+index install_jobs_created on install_jobs
+index install_targets_job on install_job_targets
+index install_targets_one_active_per_host on install_job_targets
+index install_targets_status on install_job_targets
+index journal_aggregate on journal
+index journal_incident_event on journal
+index journal_occurred on journal
+index llm_admission_started on llm_admission
+index llm_usage_at on llm_usage
+index maintenance_windows_ends on maintenance_windows
+index management_path_confirmations_host on management_path_confirmations
+index messages_created on messages
+index messages_one_pending on messages
+index messages_turn_role on messages
+index metric_samples_host_observed on metric_samples
+index notes_host on notes
+index notify_state_held on notify_state
+index operation_incidents_incident on operation_incidents
+index operation_resolution_hosts_host on operation_resolution_hosts
+index operation_resolution_subjects_lookup on operation_resolution_subjects
+index operation_resolutions_ended on operation_resolutions
+index operations_created on operations
+index operations_status on operations
+index package_artifacts_digest on package_artifacts
+index policy_shadow_evaluated on policy_shadow_decisions
+index policy_shadow_host on policy_shadow_decisions
+index policy_shadow_version on policy_shadow_decisions
+index policy_versions_number on policy_versions
+index policy_versions_one_draft on policy_versions
+index relations_created on relations
+index relations_from on relations
+index relations_one_live_edge on relations
+index relations_retracted on relations
+index relations_to on relations
+index sessions_expires on sessions
+index sessions_user on sessions
+index signals_observed on signals
+index step_edges_operation on step_edges
+index step_edges_to on step_edges
+index steps_status on steps
+index triage_cache_stored on triage_cache
+table _sqlx_migrations: version BIGINT pk, description TEXT not null, installed_on TIMESTAMP not null, success BOOLEAN not null, checksum BLOB not null, execution_time BIGINT not null
+table ack_rules: id TEXT pk not null, host_id TEXT, check_key TEXT not null, target_pattern TEXT, predicates TEXT not null, note TEXT not null, expires_at INTEGER, created_at INTEGER, created_by TEXT
+table advisories: id TEXT pk not null, kind TEXT not null, host_id TEXT, title TEXT not null, detail TEXT not null, created_at INTEGER not null, resolved_at INTEGER
+table agents: agent_id TEXT pk not null, host_id TEXT not null, public_key BLOB not null, version TEXT not null, enrolled_at INTEGER not null, revoked_at INTEGER, reported_protocol TEXT, reported_release TEXT, last_authenticated_at INTEGER, incompatible_since INTEGER
+table audit_anchor: id INTEGER pk, install_id TEXT not null, anchor_hash BLOB not null, created_at INTEGER not null
+table audit_log: seq INTEGER pk, at INTEGER not null, actor TEXT not null, kind TEXT not null, subject TEXT not null, detail TEXT not null, prev_hash BLOB, hash BLOB
+table autonomy_state: id INTEGER pk, paused INTEGER not null, changed_by TEXT, changed_at INTEGER, reason TEXT
+table baselines: host_id TEXT pk not null, kind TEXT pk not null, key TEXT pk not null, criticality TEXT not null, learned_at INTEGER not null, last_seen_at INTEGER not null, managed INTEGER not null
+table containment_blocks: block_id TEXT pk not null, host_id TEXT not null, operation_id TEXT not null, step_id TEXT not null, source TEXT not null, ttl_s INTEGER not null, plan_hash TEXT not null, phase TEXT not null, authorization_kind TEXT not null, assurance TEXT not null, confirm_execution TEXT, rollback_execution TEXT, applied_at INTEGER, deadline INTEGER, existing_flows TEXT, bridge_gap INTEGER, failure_token TEXT, failure_message TEXT, created_at INTEGER not null, updated_at INTEGER not null, version INTEGER not null
+table conversations: id TEXT pk not null, version INTEGER not null, title TEXT not null, scope_kind TEXT not null, host_id TEXT, operation_id TEXT, last_ordinal INTEGER not null, created_at INTEGER not null, updated_at INTEGER not null
+table effects: seq INTEGER pk, id TEXT not null, kind TEXT not null, aggregate_type TEXT not null, aggregate_id TEXT not null, payload TEXT not null, status TEXT not null, not_before INTEGER not null, attempt INTEGER not null, max_attempts INTEGER not null, dedup_key TEXT, claim_token TEXT, claim_generation INTEGER not null, lease_until INTEGER, runner_id TEXT, last_error TEXT, created_at INTEGER not null, completed_at INTEGER
+table enrollment_tokens: token_hash BLOB pk not null, host_id TEXT not null, expires_at INTEGER not null, used_at INTEGER
+table entities: id TEXT pk not null, kind TEXT not null, name TEXT not null, created_by TEXT not null, created_at INTEGER not null, version INTEGER not null
+table execution_permit_rules: execution_id TEXT pk not null, rule_id TEXT pk not null
+table execution_permits: execution_id TEXT pk not null, decision_id TEXT not null, policy_version TEXT not null, ceiling_hash TEXT not null, plan_hash TEXT not null, issued_at INTEGER not null, expires_at INTEGER not null, decision TEXT not null
+table executions: execution_id TEXT pk not null, operation_id TEXT not null, host_id TEXT not null, contract TEXT not null, contract_version INTEGER not null, check_key TEXT not null, target TEXT, args TEXT not null, plan_hash TEXT not null, expires_at INTEGER not null, authorization_kind TEXT, approved_by TEXT, approved_channel TEXT, approved_at INTEGER, approved_plan_hash TEXT, approval_session_ref TEXT, approval_client TEXT, waiting_since INTEGER, agent_epoch TEXT, dispatched_at INTEGER, settled_at INTEGER, created_at INTEGER not null, updated_at INTEGER not null, version INTEGER not null, chat_token_hash BLOB, risk TEXT
+table facts: id TEXT pk not null, subject_ref TEXT not null, host_id TEXT, predicate TEXT not null, value TEXT, search_text TEXT, live INTEGER not null, source TEXT not null, status TEXT not null, observed_at INTEGER not null, valid_until INTEGER, last_verified_at INTEGER, supersedes_id TEXT, evidence_ref TEXT, actor TEXT not null, created_at INTEGER not null, retracted_at INTEGER, retracted_by TEXT, content_purged_at INTEGER, version INTEGER not null
+table facts_fts: subject_ref , predicate , search_text 
+table helper_attestation: host_id TEXT pk not null, latest_outcome TEXT not null, latest_reason TEXT, latest_detail TEXT, latest_at INTEGER not null, fingerprint TEXT, report BLOB, generation INTEGER, boot_id TEXT, config_hash TEXT, route_state_hash TEXT, nonce_issued_at INTEGER, accepted_at INTEGER, version INTEGER not null
+table helper_high_water: host_id TEXT pk not null, fingerprint TEXT pk not null, generation INTEGER not null, config_hash TEXT not null, route_state_hash TEXT not null, updated_at INTEGER not null
+table helper_keys: host_id TEXT pk not null, public_key BLOB not null, fingerprint TEXT not null, pinned_at INTEGER not null, pinned_by TEXT not null
+table host_packages: host_id TEXT pk not null, name TEXT pk not null, version TEXT not null, key_id TEXT not null, archive_sha256 TEXT not null, installed_at INTEGER not null, status TEXT not null, key_state TEXT not null, skills TEXT not null, privilege_boundary TEXT not null, observed_at INTEGER not null, observed_by TEXT not null
+table hosts: id TEXT pk not null, name TEXT not null, kind TEXT not null, labels TEXT not null, created_at INTEGER not null
+table incident_events: seq INTEGER pk, incident_id TEXT not null, at INTEGER not null, kind TEXT not null, summary TEXT not null, detail TEXT not null
+table incident_signals: incident_id TEXT pk not null, signal_id TEXT pk not null
+table incidents: id TEXT pk not null, fingerprint TEXT not null, host_id TEXT not null, check_key TEXT not null, target TEXT, title TEXT not null, summary_text TEXT not null, status TEXT not null, severity TEXT not null, opened_at INTEGER not null, resolved_at INTEGER, body TEXT not null, version INTEGER not null
+table incidents_fts: title , summary_text 
+table install_job_targets: id TEXT pk not null, job_id TEXT not null, host_id TEXT not null, attempt INTEGER not null, execution_id TEXT not null, status TEXT not null, plan_hash TEXT not null, approved_by TEXT not null, approval_channel TEXT not null, approved_at INTEGER not null, approval_session_ref TEXT, approval_client TEXT not null, authorization_kind TEXT not null, expires_at INTEGER not null, artifact_transfer TEXT, signature_transfer TEXT, dispatched_session TEXT, dispatched_epoch TEXT, failure_code TEXT, failure_message TEXT, outputs TEXT, outputs_confirmed INTEGER not null, queued_at INTEGER not null, started_at INTEGER, finished_at INTEGER, version INTEGER not null
+table install_jobs: id TEXT pk not null, kind TEXT not null, name TEXT not null, version TEXT not null, archive_sha256 TEXT, key_id TEXT, requested_by TEXT not null, created_at INTEGER not null, job_plan_hash TEXT not null
+table journal: seq INTEGER pk, aggregate_type TEXT not null, aggregate_id TEXT not null, kind TEXT not null, payload_v INTEGER not null, payload TEXT not null, actor TEXT not null, occurred_at INTEGER not null, incident_event_seq INTEGER
+table journal_floor: id INTEGER pk, pruned_through_seq INTEGER not null
+table llm_admission: id INTEGER pk, purpose TEXT not null, started_at INTEGER not null
+table llm_usage: id INTEGER pk, provider TEXT not null, model TEXT, outcome TEXT not null, tokens_in INTEGER not null, tokens_out INTEGER not null, cost_micros INTEGER, usage_source TEXT, latency_ms INTEGER, at INTEGER not null
+table maintenance_windows: host_id TEXT not null, starts_at INTEGER not null, ends_at INTEGER not null, note TEXT not null
+table management_path_confirmations: fact_id TEXT pk not null, host_id TEXT not null, confirmed_by TEXT not null, confirmed_at INTEGER not null, evidence TEXT not null
+table messages: id TEXT pk not null, conversation_id TEXT not null, ordinal INTEGER not null, role TEXT not null, status TEXT not null, turn_id TEXT not null, text TEXT not null, failure TEXT, failure_detail TEXT, tools TEXT not null, created_at INTEGER not null, completed_at INTEGER
+table metric_samples: id INTEGER pk, host_id TEXT not null, key TEXT not null, label TEXT not null, value TEXT not null, unit TEXT, observed_at INTEGER not null
+table notes: id TEXT pk not null, host_id TEXT, title TEXT not null, body TEXT not null, tags TEXT not null, updated_at INTEGER not null, version INTEGER not null
+table notes_fts: title , body , tags 
+table notify_state: incident_id TEXT pk not null, held INTEGER not null, state TEXT not null, updated_at INTEGER not null
+table operation_incidents: operation_id TEXT pk not null, incident_id TEXT pk not null, linked_at INTEGER not null
+table operation_resolution_hosts: operation_id TEXT pk not null, host_id TEXT pk not null
+table operation_resolution_subjects: operation_id TEXT pk not null, host_id TEXT pk not null, check_key TEXT pk not null, target TEXT pk not null
+table operation_resolutions: operation_id TEXT pk not null, goal TEXT not null, outcome TEXT not null, verified INTEGER not null, problem TEXT not null, cause TEXT not null, fix TEXT not null, subjects TEXT not null, contracts TEXT not null, tags TEXT not null, ended_at INTEGER not null, updated_at INTEGER not null
+table operation_resolutions_fts: goal , problem , cause , fix , subjects , contracts , tags 
+table operations: id TEXT pk not null, kind TEXT not null, goal TEXT not null, status TEXT not null, pause_reason TEXT, cycle INTEGER not null, budgets TEXT not null, pinned TEXT not null, parent_id TEXT, created_at INTEGER not null, started_at INTEGER, ended_at INTEGER, updated_at INTEGER not null, version INTEGER not null
+table package_artifacts: id TEXT pk not null, name TEXT not null, version TEXT not null, archive_sha256 TEXT not null, key_id TEXT not null, archive_size INTEGER not null, signature_toml TEXT not null, signer_label TEXT, source TEXT not null, imported_by TEXT not null, imported_at INTEGER not null
+table policy_acknowledgements: version_id TEXT pk not null, finding_key TEXT pk not null, kind TEXT not null, first_rule TEXT not null, second_rule TEXT not null, resolution TEXT, note TEXT not null, acknowledged_by TEXT not null, acknowledged_at INTEGER not null
+table policy_rules: version_id TEXT pk not null, rule_id TEXT pk not null, ordinal INTEGER not null, enabled INTEGER not null, shadow INTEGER not null, locked INTEGER not null, body TEXT not null
+table policy_shadow_decisions: execution_id TEXT pk not null, operation_id TEXT not null, host_id TEXT not null, contract TEXT not null, step_created_at INTEGER not null, evaluated_at INTEGER not null, status TEXT not null, reason TEXT, policy_version INTEGER not null, rules_hash TEXT not null, enforced_outcome TEXT, shadow_outcome TEXT, degraded INTEGER not null, candidate TEXT not null, inputs TEXT, enforced TEXT, shadow TEXT, gaps TEXT not null
+table policy_shadow_state: id INTEGER pk, last_sweep_at INTEGER, last_error TEXT, total_evaluated INTEGER not null, total_unevaluable INTEGER not null, total_skipped INTEGER not null
+table policy_versions: id TEXT pk not null, status TEXT not null, number INTEGER, draft_revision INTEGER not null, based_on INTEGER, rules_hash TEXT not null, rule_count INTEGER not null, locked_count INTEGER not null, shadow_count INTEGER not null, created_at INTEGER not null, created_by TEXT not null, updated_at INTEGER not null, updated_by TEXT not null, published_at INTEGER, published_by TEXT
+table relations: id TEXT pk not null, from_ref TEXT, to_ref TEXT, kind TEXT not null, source TEXT not null, status TEXT not null, live INTEGER not null, observed_at INTEGER not null, evidence_ref TEXT, actor TEXT not null, created_at INTEGER not null, retracted_at INTEGER, retracted_by TEXT, content_purged_at INTEGER, version INTEGER not null
+table resolution_summary_fields: operation_id TEXT pk not null, field TEXT pk not null, revision INTEGER pk not null, value TEXT not null, source TEXT not null, actor TEXT not null, created_at INTEGER not null
+table rule_circuit_resets: rule_id TEXT pk not null, reset_at INTEGER pk not null, reset_by TEXT not null
+table schema_compat: id INTEGER pk, min_reader TEXT not null, written_by TEXT not null, written_at INTEGER not null
+table sessions: token_hash BLOB pk not null, user_id TEXT not null, csrf_hash BLOB not null, created_at INTEGER not null, expires_at INTEGER not null
+table settings: key TEXT pk not null, value TEXT not null
+table signals: id TEXT pk not null, host_id TEXT not null, check_key TEXT not null, target TEXT, status TEXT not null, severity TEXT not null, observed_at INTEGER not null, body TEXT not null
+table step_edges: operation_id TEXT not null, from_step TEXT pk not null, to_step TEXT pk not null, kind TEXT pk not null
+table steps: id TEXT pk not null, operation_id TEXT not null, ordinal INTEGER not null, kind TEXT not null, phase TEXT not null, parent_step_id TEXT, cycle INTEGER not null, intent TEXT not null, created_at INTEGER not null, status TEXT not null, started_at INTEGER, ended_at INTEGER, summary TEXT, reason TEXT, output TEXT
+table triage_cache: fingerprint TEXT pk not null, evidence_digest BLOB pk not null, report TEXT not null, stored_at INTEGER not null
+table unknown_resolutions: execution_id TEXT pk not null, resolved_at INTEGER not null, resolved_by TEXT not null, how TEXT not null, note TEXT
+table users: id TEXT pk not null, username TEXT not null, password_hash TEXT not null, created_at INTEGER not null
+trigger audit_anchor_no_delete on audit_anchor
+trigger audit_anchor_no_update on audit_anchor
+trigger audit_log_no_delete on audit_log
+trigger audit_log_no_replace on audit_log
+trigger audit_log_no_update on audit_log
+trigger digest_facts_insert on digest_facts
+trigger facts_fts_delete on facts
+trigger facts_fts_insert on facts
+trigger facts_fts_update on facts
+trigger incidents_fts_delete on incidents
+trigger incidents_fts_insert on incidents
+trigger incidents_fts_update on incidents
+trigger notes_fts_delete on notes
+trigger notes_fts_insert on notes
+trigger notes_fts_update on notes
+trigger operation_resolutions_fts_delete on operation_resolutions
+trigger operation_resolutions_fts_insert on operation_resolutions
+trigger operation_resolutions_fts_update on operation_resolutions
+trigger policy_rules_frozen_when_published on policy_rules
+trigger policy_rules_no_delete_when_published on policy_rules
+trigger resolution_summary_fields_append_only_delete on resolution_summary_fields
+trigger resolution_summary_fields_append_only_update on resolution_summary_fields
+trigger step_edges_point_backwards on step_edges
+trigger steps_intent_immutable on steps
+view digest_facts

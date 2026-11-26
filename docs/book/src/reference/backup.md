@@ -4,7 +4,7 @@ The hub keeps everything in its data directory (`/var/lib/domovoi` by default):
 
 | Path | What it holds |
 | --- | --- |
-| `hub.db` | Incidents, signals, actions, notes, the audit log, accounts and the settings saved in the web UI. |
+| `hub.db` | Incidents, signals, operations, notes, the audit log, accounts and the settings saved in the web UI. |
 | `backups/` | Nightly copies of `hub.db`, and one taken before every migration. |
 | `secret.key` | The key that encrypts secrets entered in the web UI: bot tokens, API keys, webhook secrets and heartbeat URLs. |
 | `tls/` | The agent server's certificate, which every enrolled agent pins. |

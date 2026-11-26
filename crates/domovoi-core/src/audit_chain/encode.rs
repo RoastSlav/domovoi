@@ -1,4 +1,4 @@
-//! Canonical encoding of audit rows, the legacy digest and the anchor hash.
+//! Canonical encoding of audit rows and the anchor hash.
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -6,17 +6,11 @@ use sha2::{Digest, Sha256};
 use super::Hash;
 use crate::ports::repos::AuditEvent;
 
-/// Commits to every audit row that existed before the hash chain was introduced.
+/// The fixed starting point of the chain: the first row's `prev_hash` is the anchor's hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuditAnchor {
     /// A fresh identifier written when the anchor was created.
     pub install_id: String,
-    /// The highest legacy row sequence number, `0` on a fresh install.
-    pub legacy_last_id: u64,
-    /// How many legacy rows the digest covers.
-    pub legacy_count: u64,
-    /// The SHA-256 digest over every legacy row.
-    pub legacy_digest: Hash,
 }
 
 impl AuditAnchor {
@@ -28,9 +22,6 @@ impl AuditAnchor {
         hasher.update(b"domovoi-audit-anchor-v1");
         hasher.update(length_u32(install.len()));
         hasher.update(install);
-        hasher.update(self.legacy_last_id.to_be_bytes());
-        hasher.update(self.legacy_count.to_be_bytes());
-        hasher.update(self.legacy_digest);
         hasher.finalize().into()
     }
 }
@@ -102,38 +93,6 @@ pub fn entry_hash(seq: u64, prev: &Hash, event: &AuditEvent) -> Hash {
     hasher.finalize().into()
 }
 
-/// A streaming digest over legacy rows, in ascending sequence order.
-#[derive(Debug, Clone, Default)]
-pub struct LegacyDigest {
-    hasher: Sha256,
-    count: u64,
-}
-
-impl LegacyDigest {
-    /// Starts an empty digest; with no rows its result is the SHA-256 of the empty string.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds one legacy row. The stored `detail` text is parsed first, so key order in the text
-    /// does not matter.
-    pub fn update(&mut self, seq: u64, event: &AuditEvent) {
-        let canonical = canonical_json(event);
-        let bytes = canonical.as_bytes();
-        self.hasher.update(seq.to_be_bytes());
-        self.hasher.update(length_u32(bytes.len()));
-        self.hasher.update(bytes);
-        self.count += 1;
-    }
-
-    /// The number of rows added and their digest.
-    #[must_use]
-    pub fn finish(self) -> (u64, Hash) {
-        (self.count, self.hasher.finalize().into())
-    }
-}
-
 fn length_u32(length: usize) -> [u8; 4] {
     u32::try_from(length).unwrap_or(u32::MAX).to_be_bytes()
 }
@@ -155,11 +114,6 @@ mod tests {
         }
     }
 
-    fn empty_digest() -> Hash {
-        let hasher = Sha256::new();
-        hasher.finalize().into()
-    }
-
     #[test]
     fn canonical_json_sorts_keys_recursively_and_is_compact() {
         let event = event(
@@ -178,32 +132,13 @@ mod tests {
     }
 
     #[test]
-    fn anchor_hash_matches_golden_vectors() {
-        let fresh = AuditAnchor {
+    fn anchor_hash_matches_golden_vector() {
+        let anchor = AuditAnchor {
             install_id: "install-1".to_owned(),
-            legacy_last_id: 0,
-            legacy_count: 0,
-            legacy_digest: empty_digest(),
         };
         assert_eq!(
-            hex::encode(fresh.hash()),
-            "9f0e006afbfa18e042a21bfb571b46792ee6a222f79fb448aeb0d026f93fd549"
-        );
-
-        let legacy = AuditAnchor {
-            install_id: "install-2".to_owned(),
-            legacy_last_id: 2,
-            legacy_count: 2,
-            legacy_digest: hex::decode(
-                "9acfd54233b8d05352496b07960b45dcf81083510c76d9740e291df079d76cbe",
-            )
-            .unwrap()
-            .try_into()
-            .unwrap(),
-        };
-        assert_eq!(
-            hex::encode(legacy.hash()),
-            "41a8cf272a78ac1655662964bdd8858f6eebfaf5c0e14dc38bcf37208c79f6ad"
+            hex::encode(anchor.hash()),
+            "5136a8fd8fb5cf1c41f7847de5fd9ba486651b613a54a8e29cf2079ad40a8ca1"
         );
     }
 
@@ -243,47 +178,6 @@ mod tests {
         assert_eq!(
             hex::encode(entry_hash(2, &first_hash, &second)),
             "fd2a3eb162101f8b87ea3904222b963f9d9a30120703b0a292dc0291da612436"
-        );
-    }
-
-    #[test]
-    fn legacy_digest_matches_golden_vector() {
-        let mut digest = LegacyDigest::new();
-        digest.update(
-            1,
-            &event(
-                "user:u1",
-                1_700_000_000_000,
-                "login",
-                "user:u1",
-                Value::Null,
-            ),
-        );
-        digest.update(
-            2,
-            &event(
-                "system:actions",
-                1_700_000_000_500,
-                "action.expired",
-                "action:a1",
-                json!({"x": 1}),
-            ),
-        );
-        let (count, hash) = digest.finish();
-        assert_eq!(count, 2);
-        assert_eq!(
-            hex::encode(hash),
-            "9acfd54233b8d05352496b07960b45dcf81083510c76d9740e291df079d76cbe"
-        );
-    }
-
-    #[test]
-    fn legacy_digest_of_no_rows_is_the_empty_digest() {
-        let (count, hash) = LegacyDigest::new().finish();
-        assert_eq!(count, 0);
-        assert_eq!(
-            hex::encode(hash),
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
     }
 }

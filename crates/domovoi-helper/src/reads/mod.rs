@@ -31,21 +31,6 @@ fn op_name(request: &HelperRequest) -> &'static str {
     }
 }
 
-/// Whether `request` is one of the read operations served here.
-#[must_use]
-pub fn is_read(request: &HelperRequest) -> bool {
-    matches!(
-        request.group(),
-        Some(
-            HelperGroup::DockerRead
-                | HelperGroup::SmartRead
-                | HelperGroup::KernelRead
-                | HelperGroup::NetRead
-                | HelperGroup::SystemdRead
-        )
-    )
-}
-
 /// Answers one read request. `peer_uid` is only logged.
 pub async fn serve(
     request: &HelperRequest,

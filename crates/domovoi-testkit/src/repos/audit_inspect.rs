@@ -3,7 +3,7 @@
 
 use async_trait::async_trait;
 use domovoi_core::audit_chain::{AuditAnchor, ChainRow, Hash, VerifyReport, VerifyScope};
-use domovoi_core::ports::{AuditHistory, AuditInspect, AuditRowFilter, Page, Paged, StoreError};
+use domovoi_core::ports::{AuditInspect, AuditRowFilter, Page, Paged, StoreError};
 
 use super::audit::matches;
 use super::{InMemoryStore, paginate};
@@ -16,27 +16,23 @@ impl AuditInspect for InMemoryStore {
         page: &Page,
     ) -> Result<Paged<ChainRow>, StoreError> {
         let state = self.begin()?;
-        let items = if filter.history == Some(AuditHistory::Legacy) {
-            Vec::new()
-        } else {
-            state
-                .audit
-                .iter()
-                .zip(1_u64..)
-                .filter(|(event, _)| matches(&filter.events, event))
-                .map(|(event, seq)| {
-                    (
-                        (i128::from(seq), String::new()),
-                        ChainRow {
-                            seq,
-                            prev_hash: None,
-                            hash: None,
-                            event: event.clone(),
-                        },
-                    )
-                })
-                .collect()
-        };
+        let items = state
+            .audit
+            .iter()
+            .zip(1_u64..)
+            .filter(|(event, _)| matches(&filter.events, event))
+            .map(|(event, seq)| {
+                (
+                    (i128::from(seq), String::new()),
+                    ChainRow {
+                        seq,
+                        prev_hash: None,
+                        hash: None,
+                        event: event.clone(),
+                    },
+                )
+            })
+            .collect();
         paginate(items, page)
     }
 
@@ -88,17 +84,5 @@ mod tests {
         assert!(store.head().await.expect("head").is_none());
         let err = store.verify(VerifyScope::Full).await.expect_err("no chain");
         assert!(err.to_string().contains("no audit chain"));
-        let legacy = AuditRowFilter {
-            history: Some(AuditHistory::Legacy),
-            ..AuditRowFilter::default()
-        };
-        assert!(
-            store
-                .rows(&legacy, &page)
-                .await
-                .expect("rows")
-                .items
-                .is_empty()
-        );
     }
 }

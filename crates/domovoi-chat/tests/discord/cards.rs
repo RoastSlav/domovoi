@@ -2,7 +2,8 @@ use domovoi_chat::discord::DiscordSettings;
 use domovoi_chat::discord::components::card_buttons;
 use domovoi_chat::discord::embed::card_embed;
 use domovoi_core::{
-    ActionId, Card, CardBadge, CardButton, CardPlan, HostName, IncidentId, Risk, Severity, Verdict,
+    Card, CardBadge, CardButton, CardPlan, ExecutionId, HostName, IncidentId, Risk, Severity,
+    Verdict,
 };
 use serde_json::{Value, json};
 use url::Url;
@@ -18,7 +19,7 @@ fn incident() -> IncidentId {
     "01a19721-5d58-7277-a3eb-f866e4efb986".parse().unwrap()
 }
 
-fn action(n: u8) -> ActionId {
+fn execution(n: u8) -> ExecutionId {
     format!("01a19721-6000-7000-8000-0000000000{n:02}")
         .parse()
         .unwrap()
@@ -96,21 +97,21 @@ fn approval_buttons_for_read_and_write_actions() {
     let mut buttons = basic();
     buttons.extend([
         CardButton::Approve {
-            action: action(1),
+            execution: execution(1),
             token: token('a'),
             plan_prefix: None,
         },
         CardButton::Deny {
-            action: action(1),
+            execution: execution(1),
             token: token('a'),
         },
         CardButton::Approve {
-            action: action(2),
+            execution: execution(2),
             token: token('b'),
             plan_prefix: None,
         },
         CardButton::Deny {
-            action: action(2),
+            execution: execution(2),
             token: token('b'),
         },
     ]);
@@ -127,7 +128,9 @@ fn approval_buttons_for_read_and_write_actions() {
 #[test]
 fn destructive_action_links_to_the_web_ui() {
     let mut buttons = basic();
-    buttons.push(CardButton::OpenInWeb { action: action(3) });
+    buttons.push(CardButton::OpenInWeb {
+        execution: execution(3),
+    });
     let card = card(CardBadge::Verdict(Verdict::ActionNeeded), buttons);
     let value = rendered(&card);
     let link = &value["components"][0]["components"][3];
@@ -153,9 +156,9 @@ fn no_buttons_and_long_titles() {
     insta::assert_json_snapshot!("no_buttons_long_title", value);
 }
 
-fn plan(action: ActionId) -> CardPlan {
+fn plan(execution: ExecutionId) -> CardPlan {
     CardPlan {
-        action,
+        execution,
         skill: "restart_container".to_owned(),
         host: HostName::parse("nas").unwrap(),
         risk: Risk::Write,
@@ -170,17 +173,17 @@ fn discord_card_names_target_and_args() {
     let mut buttons = basic();
     buttons.extend([
         CardButton::Approve {
-            action: action(1),
+            execution: execution(1),
             token: token('a'),
             plan_prefix: Some("0123ab".to_owned()),
         },
         CardButton::Deny {
-            action: action(1),
+            execution: execution(1),
             token: token('a'),
         },
     ]);
     let mut card = card(CardBadge::Verdict(Verdict::ActionNeeded), buttons);
-    card.plans = vec![plan(action(1))];
+    card.plans = vec![plan(execution(1))];
     let value = rendered(&card);
 
     let description = value["embed"]["description"].as_str().unwrap();

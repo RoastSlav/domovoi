@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectRecord};
-use domovoi_core::{ActionId, Incident, OperationId, StepKind, StepOutcome, TriageOutcome};
+use domovoi_core::{ExecutionId, Incident, OperationId, StepKind, StepOutcome, TriageOutcome};
 
 use super::close::try_close;
 use super::plumbing::{claim, conclude, handle_of, incident_of, runtime, short, step_of};
@@ -55,7 +55,7 @@ async fn mint_tokens(
     snapshot: &domovoi_core::OperationSnapshot,
     incident: &Incident,
     operation: OperationId,
-) -> (BTreeMap<ActionId, String>, usize) {
+) -> (BTreeMap<ExecutionId, String>, usize) {
     let mut tokens = BTreeMap::new();
     let host = match shared.deps.hosts.get_host(incident.host()).await {
         Ok(Some(host)) => host.name,
@@ -83,7 +83,7 @@ async fn mint_tokens(
             .await
         {
             Ok(()) => {
-                tokens.insert(step.execution.as_action(), token);
+                tokens.insert(step.execution, token);
             }
             Err(err) => {
                 tracing::debug!(%err, "a step could not take a chat token");

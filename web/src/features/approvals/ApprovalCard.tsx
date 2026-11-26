@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import type { Action, Execution } from "../../api/types";
+import type { Execution } from "../../api/types";
 import {
   Card,
   Cluster,
@@ -18,14 +18,17 @@ import { riskMeta } from "../../design/tone";
 import { ContainmentApproveControl } from "../containment/ContainmentApproveControl";
 import { CONTAINMENT_CONTRACT } from "../containment/phases";
 import { ActionArgs } from "./ActionArgs";
-import { Expiry, suggestedBy } from "./approvalBits";
-import { planFromAction, planFromExecution, type ApprovalPlan } from "./approvalPlan";
+import { Expiry } from "./approvalBits";
+import { planFromExecution, type ApprovalPlan } from "./approvalPlan";
 import { PlanTag } from "./PlanTag";
 import { StepApproveControl } from "./StepApproveControl";
 
-/** Where the card's plan comes from. */
-export type ApprovalSource =
-  { kind: "step"; operationId: string; execution: Execution } | { kind: "legacy"; action: Action };
+/** Where the card's plan comes from: one step of an operation. */
+export interface ApprovalSource {
+  kind: "step";
+  operationId: string;
+  execution: Execution;
+}
 
 /** Data later surfaces supply; the card renders only what is present. */
 export interface ApprovalExtras {
@@ -44,12 +47,10 @@ export interface ApprovalCardProps {
   extras?: ApprovalExtras | undefined;
   /** How Approve is drawn; destructive and unknown risk are always danger. */
   emphasis?: "primary" | "secondary";
-  /** No Approve or Deny: for a place that shows the card without deciding. A legacy action never has them. */
+  /** No Approve or Deny: for a place that shows the card without deciding. */
   readOnly?: boolean;
   /** Adds a link to the operation, for lists outside its page. */
   operation?: { id: string; goal: string };
-  /** Legacy only: adds a link to the incident. */
-  incident?: { id: string; title?: string };
 }
 
 const NOTE_TONES: Record<string, Tone> = {
@@ -122,7 +123,7 @@ function Extras({ extras }: { extras: ApprovalExtras }) {
 /**
  * The one approval card: contract, host, target, arguments, risk, expiry, the plan code and
  * its binding, then the decision. Model text is secondary and labelled. It serves operation
- * steps and, read-only, legacy actions; it never approves anything by itself.
+ * steps; it never approves anything by itself.
  */
 export function ApprovalCard({
   source,
@@ -132,12 +133,8 @@ export function ApprovalCard({
   emphasis = "primary",
   readOnly = false,
   operation,
-  incident,
 }: ApprovalCardProps) {
-  const plan =
-    source.kind === "step"
-      ? planFromExecution(source.execution, host)
-      : planFromAction(source.action, host);
+  const plan = planFromExecution(source.execution, host);
   const risk = riskMeta(plan.risk);
   const decide = plan.waiting && !readOnly;
 
@@ -158,10 +155,9 @@ export function ApprovalCard({
             </Cluster>
             <Cluster>
               <StatusPill meta={risk} />
-              <InfoTip title={`${risk.label} risk`} learnMore="concepts/actions.html">
+              <InfoTip title={`${risk.label} risk`} learnMore="concepts/operations.html#approval">
                 {risk.hint}
               </InfoTip>
-              {source.kind === "legacy" && <Tag>Legacy</Tag>}
               {!plan.waiting && <StatusPill meta={plan.stateMeta} />}
             </Cluster>
           </Cluster>
@@ -184,13 +180,6 @@ export function ApprovalCard({
           {extras && <Extras extras={extras} />}
 
           <Cluster>
-            {plan.suggestedBy && plan.createdAt && (
-              <Visible category="P1" id="approval.origin">
-                <Text muted size="sm">
-                  {suggestedBy(plan.suggestedBy)} <RelativeTime at={plan.createdAt} />
-                </Text>
-              </Visible>
-            )}
             {plan.authorizedBy && plan.approvedBy === null && (
               <Text muted size="sm">
                 {plan.authorizedBy}
@@ -208,22 +197,19 @@ export function ApprovalCard({
               </Text>
             )}
             {plan.waiting && <Expiry until={plan.expiresAt} />}
-            <PlanTag planHash={plan.planHash} binding={plan.planBinding} />
+            <PlanTag planHash={plan.planHash} />
             {operation && <Link to={`/operations/${operation.id}`}>{operation.goal}</Link>}
-            {incident && plan.family === "action" && (
-              <Link to={`/incidents/${incident.id}`}>{incident.title ?? "View incident"}</Link>
-            )}
           </Cluster>
 
           <StateNote plan={plan} />
-          {decide && source.kind === "step" && plan.contract === CONTAINMENT_CONTRACT && (
+          {decide && plan.contract === CONTAINMENT_CONTRACT && (
             <ContainmentApproveControl
               plan={plan}
               operationId={source.operationId}
               emphasis={emphasis}
             />
           )}
-          {decide && source.kind === "step" && plan.contract !== CONTAINMENT_CONTRACT && (
+          {decide && plan.contract !== CONTAINMENT_CONTRACT && (
             <StepApproveControl plan={plan} operationId={source.operationId} emphasis={emphasis} />
           )}
         </Stack>

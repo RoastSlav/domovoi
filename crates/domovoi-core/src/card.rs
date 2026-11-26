@@ -2,7 +2,7 @@
 
 use crate::error::ValidationError;
 use crate::host::HostName;
-use crate::id::{ActionId, IncidentId};
+use crate::id::{ExecutionId, IncidentId};
 use crate::severity::Severity;
 use crate::skill::Risk;
 use crate::verdict::Verdict;
@@ -17,8 +17,8 @@ pub const MAX_PLANS: usize = 3;
 /// What one waiting action will do, built from the stored action (never from model text).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CardPlan {
-    /// The action the plan describes.
-    pub action: ActionId,
+    /// The execution the plan describes.
+    pub execution: ExecutionId,
     /// Which skill runs.
     pub skill: String,
     /// Where it runs.
@@ -27,8 +27,7 @@ pub struct CardPlan {
     pub risk: Risk,
     /// Validated arguments, in name order.
     pub args: Vec<(String, String)>,
-    /// The first 8 hex digits of the action's approval-family plan hash: v2 for a new
-    /// action, v1 for a legacy one.
+    /// The first 8 hex digits of the action's approval-family plan hash.
     pub plan_short: String,
     /// When the approval window closes.
     pub expires_at: Timestamp,
@@ -85,28 +84,28 @@ pub enum CardButton {
     Mute1h,
     /// Post the full details in the thread.
     Details,
-    /// Approve a proposed action. Only allowlisted users' presses are honoured.
+    /// Approve a proposed execution. Only allowlisted users' presses are honoured.
     Approve {
         /// The action.
-        action: ActionId,
-        /// Single-use token that expires with the action.
+        execution: ExecutionId,
+        /// Single-use token that expires with the approval window.
         token: String,
         /// The first 6 lowercase hex characters of the plan hash, when the button carried
         /// one. A card from before the upgrade has none and cannot approve.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         plan_prefix: Option<String>,
     },
-    /// Deny a proposed action.
+    /// Deny a proposed execution.
     Deny {
         /// The action.
-        action: ActionId,
-        /// Single-use token that expires with the action.
+        execution: ExecutionId,
+        /// Single-use token that expires with the approval window.
         token: String,
     },
     /// Link to the web UI, used for destructive actions that cannot be approved in chat.
     OpenInWeb {
-        /// The action.
-        action: ActionId,
+        /// The execution.
+        execution: ExecutionId,
     },
 }
 
@@ -180,7 +179,7 @@ mod tests {
 
     fn plan(args: Vec<(&str, &str)>) -> CardPlan {
         CardPlan {
-            action: ActionId::new(),
+            execution: ExecutionId::new(),
             skill: "restart_container".to_owned(),
             host: HostName::parse("nas").unwrap(),
             risk: Risk::Write,

@@ -1,5 +1,5 @@
 import { Icon } from "../design/icons";
-import { badgeMeta, type StatusMeta } from "../design/tone";
+import type { StatusMeta } from "../design/tone";
 import { Tooltip } from "./Tooltip";
 import styles from "./status.module.css";
 
@@ -27,9 +27,4 @@ export function StatusPill({ meta, size = "md" }: { meta: StatusMeta; size?: "sm
       </span>
     </Tooltip>
   );
-}
-
-/** The pill for a chat card's badge: a verdict, a severity or "resolved" in one field. */
-export function BadgePill({ value }: { value: string }) {
-  return <StatusPill meta={badgeMeta(value)} />;
 }

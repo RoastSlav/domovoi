@@ -4,7 +4,6 @@ import { MemoryRouter } from "react-router";
 import { ToastProvider } from "../components";
 import { failure, resetApi, route } from "../test/apiMock";
 import { nas } from "../test/fixtures";
-import { routeSettingsPage, settings } from "../test/settingsFixture";
 import { AppRoutes } from "./routes";
 
 vi.mock("../api/client", () => import("../test/apiMock"));
@@ -25,7 +24,6 @@ beforeEach(() => {
   route("GET /api/v1/overview", () => ({
     incidents_action_needed: 0,
     incidents_open: 0,
-    approvals_waiting: 0,
     hosts_offline: 0,
     hosts_total: 1,
   }));
@@ -114,19 +112,9 @@ test("an_unknown_address_shows_a_not_found_page_inside_the_shell", async () => {
   await waitFor(() => expect(document.title).toBe("Page not found · Domovoi"));
 });
 
-test("an_old_settings_about_link_lands_on_the_merged_about_and_updates_section", async () => {
-  routeSettingsPage();
-  route("GET /api/v1/settings", () => settings());
-  renderApp("/settings/about");
-
-  expect(await screen.findByRole("region", { name: "About and updates" })).toBeVisible();
-  expect(screen.queryByText("No such section")).toBeNull();
-});
-
 test("new_routes_render_their_pages", async () => {
   const page = { items: [], next_cursor: null, as_of_seq: 1 };
   route("GET /api/v1/operations", () => page);
-  route("GET /api/v1/actions", () => page);
   const { unmount } = renderApp("/attention");
   expect(await heading("Attention")).toBeVisible();
   expect(document.title).toBe("Attention · Domovoi");
@@ -137,24 +125,9 @@ test("new_routes_render_their_pages", async () => {
 
 test("operations_routes_render_their_pages", async () => {
   route("GET /api/v1/operations", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
-  route("GET /api/v1/actions", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
   const { unmount } = renderApp("/operations");
   expect(await heading("Operations")).toBeVisible();
   unmount();
   renderApp("/operations/op-1");
   expect(await heading("Operation")).toBeVisible();
-});
-
-test("old_chat_route_redirects_to_the_operator_workspace", async () => {
-  route("GET /api/v1/conversations", () => ({ items: [], next_cursor: null, as_of_seq: 1 }));
-  route("GET /api/v1/settings", () => ({ triage: { enabled: true } }));
-  renderApp("/chat");
-
-  expect(await heading("Operator")).toBeVisible();
-  const nav = screen.getByRole("navigation", { name: "Main", hidden: true });
-  expect(within(nav).getByRole("link", { name: "Operator", hidden: true })).toHaveAttribute(
-    "href",
-    "/operator",
-  );
-  expect(within(nav).queryByRole("link", { name: "Chat", hidden: true })).toBeNull();
 });

@@ -63,7 +63,6 @@ mod interactions;
 #[cfg(test)]
 mod knowledge_api;
 #[cfg(test)]
-mod legacy_retirement;
 #[cfg(test)]
 mod operation_controls;
 #[cfg(test)]
@@ -81,7 +80,6 @@ mod packages_import;
 #[cfg(test)]
 mod permit;
 #[cfg(test)]
-mod plan_binding;
 #[cfg(test)]
 mod policy_api;
 #[cfg(test)]
@@ -113,5 +111,3 @@ mod spa;
 mod sqlite;
 #[cfg(test)]
 mod step_interactions;
-#[cfg(test)]
-mod upgrade_flow;

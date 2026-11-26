@@ -57,7 +57,7 @@ export function OverviewTiles({ overview, hosts }: { hosts: readonly Host[]; ove
   // An older hub sends no attention count: say nothing about it rather than "all clear".
   const needs = overview.attention_total as number | undefined;
   const running = overview.operations_running ?? 0;
-  const waiting = overview.approvals_waiting + (overview.operations_waiting_approval ?? 0);
+  const waiting = overview.operations_waiting_approval ?? 0;
   const fleet = fleetOf(hosts);
   const down = fleet.offline + fleet.never;
   return (

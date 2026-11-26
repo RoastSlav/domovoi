@@ -1,5 +1,4 @@
-import type { Action, Execution, OperationDetail, OperationSummary } from "../api/types";
-import { action } from "./fixtures";
+import type { Execution, OperationDetail, OperationSummary } from "../api/types";
 import failedVerification from "./fixtures/operation-trace/failed-verification-new-cycle.json";
 import outcomeUnknown from "./fixtures/operation-trace/outcome-unknown-paused.json";
 import questionBudget from "./fixtures/operation-trace/question-and-budget-pause.json";
@@ -34,7 +33,6 @@ export function execution(overrides: Partial<Execution> = {}): Execution {
     args: { name: "plex" },
     state: "awaiting_approval",
     plan_hash: PLAN_HASH,
-    plan_binding: "v2",
     risk: "write",
     confirm_required: false,
     expires_at: "2099-01-01T00:00:00Z",
@@ -43,11 +41,6 @@ export function execution(overrides: Partial<Execution> = {}): Execution {
     reason: null,
     ...overrides,
   };
-}
-
-/** An action the hub marked legacy, overridable. */
-export function legacyAction(overrides: Partial<Action> = {}): Action {
-  return action({ legacy: true, ...overrides });
 }
 
 const STATE_OF_OUTCOME: Record<string, string> = {

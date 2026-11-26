@@ -1,4 +1,4 @@
-import type { Action, Execution } from "../api/types";
+import type { Execution } from "../api/types";
 import { Grid, SidePanel, Text } from "../components";
 import { ApprovalCard } from "../features/approvals/ApprovalCard";
 import { Demo, Group } from "./Demo";
@@ -19,7 +19,6 @@ function step(overrides: Partial<Execution>): Execution {
     args: { name: "plex" },
     state: "awaiting_approval",
     plan_hash: HASH,
-    plan_binding: "v2",
     risk: "write",
     confirm_required: false,
     expires_at: new Date(NOW + 45 * 60_000).toISOString(),
@@ -29,24 +28,6 @@ function step(overrides: Partial<Execution>): Execution {
     ...overrides,
   };
 }
-
-const LEGACY_V1: Action = {
-  id: "demo-legacy",
-  incident_id: "demo",
-  host_id: "demo",
-  skill: "restart_container",
-  risk: "write",
-  args: { name: "plex" },
-  status: "proposed",
-  plan_hash: HASH,
-  plan_hash_v1: HASH,
-  plan_binding: "v1",
-  proposed_by: "system:triage",
-  expires_at: new Date(NOW + 45 * 60_000).toISOString(),
-  created_at: new Date(NOW - 15 * 60_000).toISOString(),
-  updated_at: new Date(NOW).toISOString(),
-  legacy: true,
-} as Action;
 
 function Card({
   execution,
@@ -118,11 +99,6 @@ export function OperationDemos() {
           <Card execution={step({ state: "not_run", reason: "Nobody approved it in time." })} />
           <Card execution={step({ state: "unavailable", reason: "The host was offline." })} />
           <Card execution={step({ state: "outcome_unknown", reason: "The agent went away." })} />
-        </Grid>
-      </Demo>
-      <Demo name="ApprovalCard: a classic action keeps its v1 binding label">
-        <Grid min="lg">
-          <ApprovalCard source={{ kind: "legacy", action: LEGACY_V1 }} host="nas-01" />
         </Grid>
       </Demo>
     </Group>

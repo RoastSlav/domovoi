@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, HostRepo, IncidentRepo, LlmError, LlmProvider, LlmRequest,
-    LlmResponse, OperationRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
+    HostRepo, IncidentRepo, LlmError, LlmProvider, LlmRequest, LlmResponse, OperationRepo, Part,
+    Presence, SignalRepo, StopReason, ToolOutput, Usage,
 };
 use domovoi_core::{
-    ActionId, ActionRequest, AgentId, AgentIdentity, CheckKey, Evidence, HostId, HostName,
-    Incident, Severity, Signal, SkillManifest, SkillSummary, SourceKind, TargetKey, TriageOutcome,
+    AgentId, AgentIdentity, CheckKey, Evidence, ExecutionId, HostId, Incident, Severity, Signal,
+    SkillManifest, SkillSummary, SourceKind, TargetKey, TriageOutcome,
 };
 use domovoi_engine::PatternRedactor;
 use domovoi_engine::context::ExperienceSource;
@@ -52,15 +52,11 @@ pub enum Model {
 /// Everything a drill run produced, for scoring and probing.
 pub struct Outcome {
     pub outcome: TriageOutcome,
-    pub incident: Incident,
-    /// The legacy actions; none, since investigations store Execution steps.
-    pub actions: Vec<ActionRequest>,
-    /// What was proposed, from the actions or from the Execution steps.
+    /// What was proposed, from the Execution steps.
     pub proposals: Vec<ProposalView>,
-    pub tokens: BTreeMap<ActionId, String>,
+    pub tokens: BTreeMap<ExecutionId, String>,
     pub requests: Vec<LlmRequest>,
     pub link: Vec<LinkRequest>,
-    pub latest: Option<Signal>,
     /// The `EvidenceRequest` steps of the investigation, in order: tool name and outcome.
     pub evidence_steps: Vec<(String, domovoi_core::StepOutcome)>,
 }
@@ -309,13 +305,12 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         let at = T0 - SignedDuration::from_mins(30 + i64::try_from(n).unwrap());
         open(&store, decoy, at).await;
     }
-    let (incident, first) = open(&store, &drill.setup.incident, T0).await;
-    let mut latest = first;
+    let (incident, _first) = open(&store, &drill.setup.incident, T0).await;
     for later in &drill.setup.signals {
         clock.advance(SignedDuration::from_secs(
             i64::try_from(later.after_secs).unwrap(),
         ));
-        latest = signal(
+        signal(
             &store,
             &incident,
             &drill.setup.incident.check,
@@ -377,7 +372,6 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         signals: store.clone(),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: store.clone(),
         cache: store.clone(),
         usage: store.clone(),
         admission: store.clone(),
@@ -459,10 +453,6 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
             tokens = minted;
         }
     }
-    let actions = ActionRepo::list(&*store, &ActionFilter::default(), &Page::first(100))
-        .await
-        .unwrap()
-        .items;
     let requests = recording.requests.lock().unwrap().clone();
     let mut evidence_steps = Vec::new();
     let proposals = {
@@ -494,18 +484,10 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
     shutdown.cancel();
     Outcome {
         outcome,
-        incident,
-        actions,
         proposals,
         tokens,
         requests,
         link: link.requests(),
-        latest: Some(latest),
         evidence_steps,
     }
-}
-
-/// The drill host's name.
-pub fn host_name() -> HostName {
-    HostName::parse(HOST).unwrap()
 }

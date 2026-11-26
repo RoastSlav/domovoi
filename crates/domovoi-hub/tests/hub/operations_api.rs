@@ -228,7 +228,6 @@ async fn operation_detail_lists_executions_with_the_v2_plan_hash() {
                 .plan_hash
                 .to_string()
         );
-        assert_eq!(shown["plan_binding"], "v2");
         assert_eq!(shown["state"], "awaiting_approval");
         assert!(shown["approval_step"].is_string());
     }

@@ -250,7 +250,7 @@ async fn expiry_never_overwrites_a_step_approval() {
     // The agent still has the run, so a reconcile leaves it running.
     w.link.answer(
         host_id(),
-        ExecutionId::from_step(step).as_action(),
+        ExecutionId::from_step(step),
         ActionAnswer::Running,
     );
     w.queue.close();

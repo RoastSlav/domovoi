@@ -13,6 +13,7 @@ Domovoi is self-hosted on small machines. It needs durable state, full-text sear
 - Queries are runtime-checked (`sqlx::query_as` with explicit row types), not compile-time macros, so building never needs a database or an offline cache. Every query is exercised by an integration test against a temporary database.
 - Migrations are embedded with `sqlx::migrate!` and are append-only once merged (`xtask arch-check --base` enforces this).
 - A `VACUUM INTO` backup runs before migrations and nightly.
+- The schema starts from one baseline migration, and every later change is a new numbered file ([0039](0039-single-baseline-migration.md)).
 
 ## Consequences
 

@@ -1,11 +1,10 @@
 //! Investigate operations: the triage of an incident, run as a durable operation.
 //!
-//! One cycle is a pipeline of four effects, each a thin wrapper over the triage code that
-//! also runs from the queue: `BuildContext` (repeat cache, admission, context bundle),
-//! `CallModel` (provider chain, tool loop, report), `DraftSummary` (proposal checks and the
-//! assessment, plan, execution and notification steps) and `Notify` (the card and the
-//! timeline entry). The whole tool loop of a run stays inside one `CallModel` effect and one
-//! reasoning turn.
+//! One cycle is a pipeline of four effects, each a thin wrapper over the triage code:
+//! `BuildContext` (repeat cache, admission, context bundle), `CallModel` (provider chain,
+//! tool loop, report), `DraftSummary` (proposal checks and the assessment, plan, execution
+//! and notification steps) and `Notify` (the card and the timeline entry). The whole tool
+//! loop of a run stays inside one `CallModel` effect and one reasoning turn.
 //!
 //! Every handler reads steps and the incident from the store and commits through one writer
 //! command that also completes its own effect, so a restart at any point finishes the
@@ -43,7 +42,6 @@ const NOTIFY_ATTEMPTS: u32 = 5;
 const BUILD_ATTEMPTS: u32 = 3;
 
 pub use start::InvestigateError;
-#[allow(unused_imports)]
 pub use turn_output::APPROVAL_POINTER;
 pub(crate) use turn_output::{TurnKind, TurnOutput};
 use waiters::Waiters;
@@ -52,7 +50,7 @@ use waiters::Waiters;
 #[derive(Clone)]
 pub struct InvestigateDeps {
     /// The triage service whose gates, context, provider chain and card an investigation
-    /// reuses. It runs with its queue off.
+    /// reuses.
     pub triage: TriageHandle,
     /// How investigations are paced and what the model may do in them.
     pub settings: InvestigateSettings,

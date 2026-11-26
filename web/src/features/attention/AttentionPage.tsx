@@ -29,7 +29,7 @@ export function AttentionPage() {
   const { inputs } = state;
   const hostNames = inputs.hostNames;
   const rows = state.items.filter((item) => item.kind !== "approval");
-  const approvals = inputs.waitingApproval.length + inputs.proposed.length;
+  const approvals = inputs.waitingApproval.length;
   const nothing = state.allLoaded && state.items.length === 0;
   return (
     <VisibilityPage page="attention">
@@ -60,7 +60,6 @@ export function AttentionPage() {
                   <>
                     <ApprovalGroup
                       operations={inputs.waitingApproval}
-                      actions={inputs.proposed}
                       hostNames={hostNames}
                       limit={shown}
                       emphasis="primary"

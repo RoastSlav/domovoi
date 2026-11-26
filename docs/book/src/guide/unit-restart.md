@@ -50,4 +50,4 @@ A restart that began and did not end well is a failed step, and it counts toward
 
 ## An unknown outcome
 
-If the link breaks after the restart was sent, the step stays unknown: Domovoi cannot tell whether the service restarted. It will not issue another permit for that step. Look at the host, then record what you found with `POST /api/v1/operations/{id}/steps/{step}/resolve-unknown`, which needs your session and your password. The web UI has no button for it yet.
+If the link breaks after the restart was sent, the step stays unknown: Domovoi cannot tell whether the service restarted. It will not issue another permit for that step. Look at the host, then record what you found with `POST /api/v1/operations/{id}/steps/{step}/resolve-unknown`, which needs your session and your password. The web UI has no button for it.

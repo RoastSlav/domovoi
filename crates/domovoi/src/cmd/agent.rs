@@ -152,8 +152,8 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                             }
                         }
                         _ => {
-                            // A legacy `agent_too_old` reject names no protocol pair; the
-                            // stored detail says what happened.
+                            // An `agent_too_old` reject names no protocol pair; the stored
+                            // detail says what happened.
                             let detail = status
                                 .detail
                                 .unwrap_or_else(|| "upgrade the agent, then restart it".to_owned());
@@ -242,7 +242,7 @@ fn boundary_in_effect() -> bool {
 
 /// After an owner command that ran as root, gives the agent account what it wrote in `dir`,
 /// so the unprivileged agent can read it. Does nothing when not root or when the account is
-/// missing (a legacy install).
+/// missing.
 fn hand_over_state(dir: &std::path::Path) -> anyhow::Result<()> {
     if let Some(owner) = domovoi_agent::state_owner::resolve_agent_owner()? {
         let report = domovoi_agent::state_owner::hand_over(dir, owner)?;

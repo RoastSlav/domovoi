@@ -11,6 +11,16 @@ expression: "json!({\n    \"replies\": out, \"digests\": digest_titles, \"audit\
     },
     {
       "actor": "chat:discord:234567890123456789",
+      "kind": "chat.approve",
+      "subject": "execution:<id-3>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
+      "kind": "chat.deny",
+      "subject": "execution:<id-2>"
+    },
+    {
+      "actor": "chat:discord:234567890123456789",
       "kind": "chat.details",
       "subject": "incident:<id-1>"
     },
@@ -49,16 +59,16 @@ expression: "json!({\n    \"replies\": out, \"digests\": digest_titles, \"audit\
     "Daily digest for 2026-10-31"
   ],
   "replies": [
-    "accepted: • **nas**: offline, 1 open incident",
-    "accepted: • **nas**: offline, 1 open incident No profile yet for nas.",
+    "accepted: • **nas**: connected, agent 0.1.0, 1 open incident",
+    "accepted: • **nas**: connected, agent 0.1.0, 1 open incident No profile yet for nas.",
     "rejected: No host nowhere; the hosts are nas",
     "accepted: • `<short>` WARNING disk.usage firing — <https://domovoi.example.net/incidents/<incident>>",
     "accepted: Posted in the thread",
     "accepted: Acknowledged",
-    "rejected: This card is out of date; open the incident in the web UI to approve",
-    "rejected: This card is out of date; open the incident in the web UI to approve",
-    "rejected: This card is out of date; open the incident in the web UI to approve",
-    "rejected: This card is out of date; open the incident in the web UI to approve",
+    "accepted: Approved restart_container",
+    "rejected: This button no longer works",
+    "rejected: Approve this one in the web UI",
+    "accepted: Denied restart_container",
     "accepted: ",
     "accepted: Muted <short> for 4h",
     "accepted: Digest sent",

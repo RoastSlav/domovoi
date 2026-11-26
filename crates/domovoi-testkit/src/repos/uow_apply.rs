@@ -1,12 +1,11 @@
 //! Applying the typed state writes of a transaction to in-memory state.
 
 use domovoi_core::ports::{
-    ActionGuard, AggregateRef, CommitError, CommitReceipt, Expectation, Expected, JournalDraft,
-    Observed, StateWrite, timeline_journal,
+    AggregateRef, CommitError, CommitReceipt, Expectation, Expected, JournalDraft, Observed,
+    StateWrite, timeline_journal,
 };
-use domovoi_core::{ActionRequest, Incident, IncidentStatus, Note};
+use domovoi_core::{Incident, IncidentStatus, Note};
 
-use super::actions::token_taken;
 use super::incidents::second_active;
 use super::{State, set_version, version};
 
@@ -51,7 +50,6 @@ pub(super) fn apply(
             Ok(())
         }
         StateWrite::DiscardPendingIncident { id, expected } => apply_discard(state, *id, *expected),
-        StateWrite::Action { action, expected } => apply_action(state, action, expected),
         StateWrite::Note { note, expected } => apply_note(state, note, *expected, receipt),
         StateWrite::Operation(write) => super::uow_operations::apply(state, write, receipt),
         StateWrite::Policy(write) => super::policy::apply(state, write),
@@ -153,49 +151,6 @@ fn apply_discard(
             *link = None;
         }
     }
-    Ok(())
-}
-
-fn apply_action(
-    state: &mut State,
-    action: &ActionRequest,
-    expected: &ActionGuard,
-) -> Result<(), CommitError> {
-    let aggregate = AggregateRef::action(action.id());
-    let stored = state.actions.get(&action.id()).map(ActionRequest::status);
-    match expected {
-        ActionGuard::New => {
-            if let Some(status) = stored {
-                return Err(conflict(
-                    aggregate,
-                    Expectation::New,
-                    Observed::Status(status.name().to_owned()),
-                ));
-            }
-        }
-        ActionGuard::Status(name) => {
-            let Some(status) = stored else {
-                return Err(conflict(
-                    aggregate,
-                    Expectation::Status(name.clone()),
-                    Observed::Missing,
-                ));
-            };
-            if status.name() != name {
-                return Err(conflict(
-                    aggregate,
-                    Expectation::Status(name.clone()),
-                    Observed::Status(status.name().to_owned()),
-                ));
-            }
-        }
-    }
-    if token_taken(state, action) {
-        return Err(CommitError::Constraint(
-            "chat token already used".to_owned(),
-        ));
-    }
-    state.actions.insert(action.id(), action.clone());
     Ok(())
 }
 

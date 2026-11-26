@@ -4,9 +4,9 @@ use domovoi_core::capability::{
     EffectClass, SkillFloor, builtin::builtin_contracts, skill_contract,
 };
 use domovoi_core::{
-    ActionId, ActionProposal, Advisory, AdvisoryId, AdvisoryKind, Card, CardBadge, CardButton,
-    CardPlan, CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, HostDigest, HostId, HostName,
-    Incident, IncidentEvent, IncidentId, IncidentPolicy, ManifestHash, ReadTool, Risk,
+    ActionProposal, Advisory, AdvisoryId, AdvisoryKind, Card, CardBadge, CardButton, CardPlan,
+    CheckKey, Digest, Evidence, EvidenceRef, EvidenceValue, ExecutionId, HostDigest, HostId,
+    HostName, Incident, IncidentEvent, IncidentId, IncidentPolicy, ManifestHash, ReadTool, Risk,
     ScriptDigest, Severity, Signal, SignalClass, SignalId, SkillName, SkillSummary, SourceKind,
     TargetKey, Trend, TriageReport, Verdict, VerifySpec, apply,
 };
@@ -121,7 +121,8 @@ fn triage_report_json_snapshot() {
 
 #[test]
 fn card_json_snapshot() {
-    let action = ActionId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0004));
+    let execution =
+        ExecutionId::from_uuid(Uuid::from_u128(0x0190_0000_0000_7000_8000_0000_0000_0004));
     let card = Card {
         incident: incident_id(),
         host: HostName::parse("nas").unwrap(),
@@ -137,18 +138,18 @@ fn card_json_snapshot() {
             CardButton::Mute1h,
             CardButton::Details,
             CardButton::Approve {
-                action,
+                execution,
                 token: "tok_test".to_owned(),
                 plan_prefix: None,
             },
             CardButton::Deny {
-                action,
+                execution,
                 token: "tok_test".to_owned(),
             },
-            CardButton::OpenInWeb { action },
+            CardButton::OpenInWeb { execution },
         ],
         plans: vec![CardPlan {
-            action,
+            execution,
             skill: "restart_container".to_owned(),
             host: HostName::parse("nas").unwrap(),
             risk: Risk::Write,

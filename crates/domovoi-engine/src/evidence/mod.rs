@@ -178,7 +178,7 @@ impl Evidence {
     /// what the adapter's own bounds avoid. Availability comes first, so a host that is unknown, absent or
     /// speaks another protocol version always answers as such; a skill that is missing, not
     /// read-only or called with arguments its manifest rejects can only be reported for a
-    /// host that is connected now. Enablement at M1 is structural: [`ReadToolCall`] is a
+    /// host that is connected now. Enablement is structural: [`ReadToolCall`] is a
     /// closed enum, so the tools that exist are the tools that may run, and the one extra
     /// rule is that a read skill must be installed, read-only and given arguments its
     /// manifest accepts. The agent's output is returned verbatim.

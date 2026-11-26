@@ -1,25 +1,19 @@
-# 0026 The hub's use-case layer and its module-edge rules
+# 0026. The hub's use-case layer and its module-edge rules
 
-- Status: accepted
+- Status: Accepted
 - Date: 2026-11-19
-- Extends [0007](0007-human-only-approvals.md) and [0021](0021-plan-hash-v2-and-authorization.md): the
-  services below never mint an approval, they ask `auth/approval.rs` for one.
 
 ## Context
 
-The hub grew two ways in for a person: HTTP handlers and Discord buttons. The chat code reached
-into the HTTP module for its read models (`host_dto`, `summary_of_host`, `system::build`,
-`latest_triage`) and held the whole `ApiState`, so a change to an HTTP type could break chat and
-a command written for one surface was copied for the other. A third surface, the Operator, is
-coming, and it must not copy a third time.
+A person reaches the hub through two surfaces: HTTP handlers and chat buttons. If one surface imports another's read models or holds the whole application state, a change to an HTTP type breaks chat, and a command written for one surface is copied for the next. Each command must have one implementation, and the services that run it must never mint an approval themselves ([0007](0007-human-only-approvals.md), [0021](0021-plan-hash-and-authorization.md)).
 
 ## Decision
 
-- **A use-case layer.** `crate::services` holds plain Rust services: `IncidentService`
-  (acknowledge, mute, unmute, ask, triage again), `ApprovalService` (approve and deny an action),
-  `OperationCommands` (approve and deny a step; cancel, pause, resume and answer an operation),
-  `HostService` and `BriefingService` (what a host and the digest look like). They are built once
-  by the runtime into `Services`.
+- **A use-case layer.** `crate::services` holds plain Rust services such as `IncidentService`
+  (acknowledge, mute, unmute, ask), `OperationCommands` (approve and deny a step; cancel, pause,
+  resume and answer an operation), `HelperTrust`, `PolicyService`, `HostService` and
+  `BriefingService` (what a host and the digest look like). They are built once by the runtime
+  into `Services`.
 - **Three lines for a transport.** A transport authenticates and parses (turning a cookie or a
   button press into a typed request and a `Caller`), calls one service method, and renders the
   answer in its own format. Everything between ("is this allowed, what exactly is written, which
@@ -27,10 +21,7 @@ coming, and it must not copy a third time.
   error enums, never a DTO or an HTTP error, and never spawns a task.
 - **Commands go through a service; reads may stay.** A plain repository read may stay in the
   transport that renders it; a read shared by two transports lives in a service. HTTP-only
-  handlers stay where they are until a second transport needs them: incident list, detail and
-  dismiss, rules, notes, settings, enrollment, revocation, skills and logs of a host, profile
-  get and refresh, follow-up history, the Operator chat, overview, tool usage, updates,
-  authentication, readiness, and every read endpoint of operations, events and snapshots.
+  handlers stay in `api` until a second transport needs them.
 - **`Caller` is the proof of authentication.** It names the person and the surface (a web session
   or an allowlisted chat user). Only a transport builds one, only after its own authentication,
   and only two call sites in the hub may: the session extractor and the chat authorizer
@@ -43,26 +34,25 @@ coming, and it must not copy a third time.
   - `MOD-2`: `services` imports no transport and not `runtime` or `router`.
   - `MOD-3`: a new top-level hub module is a zone or is listed as unzoned, so the rules cannot be
     escaped by adding a directory.
-  - `MOD-4`: a transport names neither `ActionHandle` nor `OperationHandle`.
+  - `MOD-4`: a transport names neither `OperationHandle` nor `PackageHandle`; see [0042](0042-transport-command-handles.md).
   Paths are resolved after `use` renames and `super::` chains, in expressions, types and macro
   bodies; a file that does not parse fails. Test-only code is skipped.
 - **Unconstrained, and why.** `runtime`, `router`, `spa` and `middleware` compose or serve;
   `auth` (outside `interactions`), `agent_server`, `profile`, `digest`, `settings`, `admin`,
-  `selftest`, `capability`, `csp` and `version` are support code a service may use. `capability`
-  is the hub-owned registry, a support module like `profile`, so it is unzoned.
-- **Shared types left the transport.** `AgentAdmin` moved to `agent_server`, the version rule to
-  `crate::version`, and the digest and host-status builders to services, so a service never
+  `selftest`, `capability`, `helper_trust`, `packages`, `policy`, `csp` and `version` are support code a
+  service may use, so they are unzoned.
+- **Shared types live outside the transports.** `AgentAdmin` is in `agent_server`, the version rule
+  in `crate::version`, and the digest and host-status builders in services, so a service never
   needs a transport's helper.
 - **No step-up for operation controls.** Cancelling, pausing, resuming and answering an operation
-  need an owner session and the CSRF header, like approving an offered step. Step-up stays for
-  policy publication, locked rules, capability enable, installation and LLM CLI. `autonomy.resume`
-  is the future global pause switch and is unrelated to resuming one operation.
+  need an owner session and the CSRF header, like approving an offered step. Step-up (the
+  account password again) is for policy publication, locked rules, capability enable,
+  installation, the LLM CLI and the helper pin.
 - **A pause a person asks for has its own reason**, `PauseReason::Manual`, which resumes without
   a budget condition, and an answer to a question is audited as `operation.answered` without the
   text.
-- **Later work plugs in here.** Chat approval of investigation steps already runs through
-  `OperationCommands`; the Operator, knowledge edits, policy publication and package installs add
-  services in `crate::services` and routes in `api`.
+- **New commands plug in here.** A new command is a service method that takes a `&Caller`, plus a
+  route in `api` or a chat interaction that calls it.
 
 ## Consequences
 
@@ -72,5 +62,3 @@ coming, and it must not copy a third time.
   the rule instead of remembering the convention.
 - Changing the zones, the forbidden names or the `Caller` cards takes a new ADR, like every other
   edit of `rules.rs`.
-- The hub's public `ApiDeps`, `ChatDeps` and `InteractionAuthorizer::new` change; their only
-  consumers are the binary, the dev hub example and the tests.

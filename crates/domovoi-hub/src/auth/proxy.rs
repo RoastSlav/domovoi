@@ -22,16 +22,3 @@ pub fn client_ip(peer: SocketAddr, headers: &HeaderMap, trusted: &[IpAddr]) -> I
         .find(|ip| !trusted.contains(ip))
         .unwrap_or(peer)
 }
-
-/// Whether the request reached the hub over HTTPS, by `X-Forwarded-Proto` from a trusted
-/// proxy, or `None` when it cannot tell.
-#[must_use]
-pub fn forwarded_https(peer: SocketAddr, headers: &HeaderMap, trusted: &[IpAddr]) -> Option<bool> {
-    if !trusted.contains(&peer.ip()) {
-        return None;
-    }
-    headers
-        .get("x-forwarded-proto")
-        .and_then(|v| v.to_str().ok())
-        .map(|proto| proto.trim().eq_ignore_ascii_case("https"))
-}

@@ -67,17 +67,6 @@ impl FakeCoverage {
         lock(&self.inner).mode = Mode::Unverifiable(reason);
     }
 
-    /// Switches back to the unavailable mode.
-    pub fn make_unavailable(&self) {
-        lock(&self.inner).mode = Mode::Unavailable;
-    }
-
-    /// Makes `confirmation_current` answer `answer`. Without this it fails closed with
-    /// `NotAvailable`, as the trait's default does.
-    pub fn set_currency(&self, answer: Result<(), UnverifiableReason>) {
-        lock(&self.inner).currency = Some(answer);
-    }
-
     /// The `(host, cidr)` pairs asked about so far.
     #[must_use]
     pub fn calls(&self) -> Vec<(HostId, String)> {

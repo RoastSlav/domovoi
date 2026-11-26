@@ -315,6 +315,6 @@ mod tests {
             assert_eq!(frame["id"], data["seq"]);
             checked += 1;
         }
-        assert_eq!(checked, 12);
+        assert_eq!(checked, 10);
     }
 }

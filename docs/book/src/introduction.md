@@ -11,7 +11,7 @@ It is named after the domovoi, the Slavic household spirit who quietly keeps a h
 
 ## What it is not
 
-- Not a metrics database or dashboard. Keep Grafana, Netdata or Beszel for graphs; Domovoi links to them and exposes its own `/metrics`.
+- Not a metrics database or dashboard. Keep Grafana, Netdata or Beszel for graphs. Domovoi exposes its own `/metrics`.
 - Not an autonomous agent that fixes things on its own. The model proposes; you approve.
 
 ## When to use it

@@ -42,7 +42,7 @@ mutations_per_hour = 0
 | `[platform] allow_write_groups_on_untested` | The per-host switch for write groups on an Untested platform. Off by default; you edit it yourself. It lets `systemd.write` run on an Untested platform. While it is on, the helper logs a warning at every start and reports it, and every restart it allows says so in the audit log. |
 | `[docker] endpoint` | Optional. A `unix:///absolute/path` socket for the Docker read group. A `tcp://` or `http://` value, or a relative path, makes the file invalid: the root helper opens no network connection. Without it the helper tries `/var/run/docker.sock`, then `/run/podman/podman.sock`. |
 | `[smart] devices` | Device patterns for the SMART read group. A device is read only when the whole name matches one pattern; an empty list means no device. The grammar is literal `a-z`, `0-9` and `/` characters plus single-character classes `[a-z]` and `[0-9]`. Any other character (`*`, `?`, `{`, `..`) makes the file invalid. |
-| `[safety]` and `[safety.containment]` | Management networks, protected units and containers and the containment limits. `protected_units` is used: a protected unit is never restarted, whoever asks. `management_cidrs` and the `[safety.containment]` limits (`max_ttl`, `max_active`) are used by the `nft` group. |
+| `[safety]` and `[safety.containment]` | Management networks, protected units and containers and the containment limits. `protected_units` is used: a protected unit is never restarted, whoever asks. The helper always adds the four default units to the list, so removing one from the file does not unprotect it. `management_cidrs` and the `[safety.containment]` limits (`max_ttl`, `max_active`) are used by the `nft` group. |
 | `[nft]` | The firewall table and its limits, described under [Firewall operations](#firewall-operations). |
 | `[systemd] restart_units` | The unit ids `systemd.write` may restart. Empty means none. A unit that is not listed is refused with `target_not_allowlisted` even when the agent and the hub both allow it. |
 | `[limits]` | The request timeout and `mutations_per_hour`, the most restarts the helper accepts in an hour (0 means the helper accepts none). A restart also has a per-unit limit. The counts are kept in the helper's own state file, so they survive a restart of the helper. |
@@ -51,7 +51,7 @@ mutations_per_hour = 0
 
 ### Platform
 
-The helper never trusts a tier a caller claims. `sudo domovoi agent selftest --installer --record` writes the result of the checks to `/var/lib/domovoi-helper/platform.json`, and the helper reads that file. If it is missing, or was written under a different kernel, write groups are refused with `platform_record_missing` or `platform_record_stale`. Nothing is Supported yet; a host whose checks all pass is Untested, and write groups on it need `allow_write_groups_on_untested = true`. The notice shown for an Untested host reads: "This platform has not been release-tested. Skills run here after you acknowledge that; privileged write operations stay off unless you enable them for this host in helper.toml."
+The helper never trusts a tier a caller claims. `sudo domovoi agent selftest --installer --record` writes the result of the checks to `/var/lib/domovoi-helper/platform.json`, and the helper reads that file. If it is missing, or was written under a different kernel, write groups are refused with `platform_record_missing` or `platform_record_stale`. No platform is Supported in this release; a host whose checks all pass is Untested, and write groups on it need `allow_write_groups_on_untested = true`. The notice shown for an Untested host reads: "This platform has not been release-tested. Skills run here after you acknowledge that; privileged write operations stay off unless you enable them for this host in helper.toml."
 
 ## Read operations
 
@@ -90,6 +90,7 @@ A request for a group that is not enabled is answered as disabled. Reads are ref
 ```ini
 [Unit]
 Description=Domovoi helper socket
+After=nftables.service
 
 [Socket]
 ListenStream=/run/domovoi-helper.sock
@@ -109,6 +110,7 @@ WantedBy=sockets.target
 ```ini
 [Unit]
 Description=Domovoi helper (connection %i)
+After=nftables.service
 
 [Service]
 Type=simple
@@ -123,6 +125,7 @@ ProtectSystem=strict
 ReadWritePaths=/var/lib/domovoi-helper
 ProtectHome=yes
 PrivateTmp=yes
+RestrictNamespaces=yes
 # Disks and /dev/kmsg are needed by the read operations (smartctl, dmesg); every other
 # device stays closed. The capability set is the widened baseline of ADR 0036: the
 # privileged rows of deploy/test/identities.sh measure it (decision OD-1 is unmeasured
@@ -150,6 +153,8 @@ TimeoutStopSec=5s
 | `StandardInput=socket`, `StandardOutput=journal`, `StandardError=journal` | The connection is the helper's standard input and carries the requests; its output goes to the journal, not to the connection. |
 | `ExecStart=` outside `/run` | `/run` can be mounted `noexec`, which stops a program there from starting. |
 | `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes` | A read-only system for a root process; `strict` leaves `/home` writable, so `ProtectHome` is needed too. |
+| `RestrictNamespaces=yes` | The long-lived helper never creates a namespace. Only the self-test unit and the drill command do. |
+| `After=nftables.service` | The firewall rules are loaded before the helper answers a block request. |
 | `PrivateDevices=no`, `DevicePolicy=closed`, four `DeviceAllow=` lines | `PrivateDevices=yes` hides the block devices, so `smartctl` would find none. `closed` keeps every other device out of reach except the always-allowed pseudo devices; the four lines give read access to SATA and SCSI disks, NVMe disks and controllers, and SCSI generic nodes. |
 | `ReadWritePaths=/var/lib/domovoi-helper` | The only writable path. If it is missing the unit fails to start, which is why the installer creates it first. |
 | `CapabilityBoundingSet=` (six capabilities), `AmbientCapabilities=` | `CAP_SYS_RAWIO` for SMART commands on SATA and SCSI disks; `CAP_SYS_ADMIN` for NVMe admin commands (the largest single addition); `CAP_SYSLOG` for `dmesg` when `kernel.dmesg_restrict=1`; `CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` so `ss --processes` can name the owner of another user's listener; `CAP_NET_ADMIN` is kept from the first baseline and nothing uses it now. The set is shared by every request and is not narrowed when you turn a group off. It has not been measured on a real host yet. |

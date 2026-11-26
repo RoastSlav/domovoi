@@ -39,23 +39,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/actions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Actions, newest first. */
-        get: operations["list_actions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/advisories": {
         parameters: {
             query?: never;
@@ -97,7 +80,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Checks the audit log: the legacy and the chained history separately. */
+        /** Checks the audit log's hash chain. */
         get: operations["verify_audit"];
         put?: never;
         post?: never;
@@ -2208,63 +2191,6 @@ export interface components {
             /** @description Target pattern with `*` allowed at the ends; null matches any target. */
             target_pattern?: string | null;
         };
-        /** @description An action. */
-        ActionDto: {
-            /** @description Who approved it, if anyone. */
-            approved_by?: string | null;
-            /** @description Arguments by parameter name. */
-            args: {
-                [key: string]: string;
-            };
-            /** @description When it was proposed. */
-            created_at: string;
-            /** @description When the approval window closes. */
-            expires_at: string;
-            /** @description The host it runs on. */
-            host_id: string;
-            /** @description Action id. */
-            id: string;
-            /** @description The incident it is for. */
-            incident_id: string;
-            /**
-             * @description Whether this action belongs to the retired approval path, which survives only as
-             *     read-only history: always true.
-             */
-            legacy: boolean;
-            /** @description Which binding family `plan_hash` belongs to: `v1` or `v2`. */
-            plan_binding: components["schemas"]["PlanBinding"];
-            /**
-             * @description The plan hash of this action's own family: what an approval covers and what the
-             *     dispatch guard re-checks. New actions use v2; a legacy action keeps v1.
-             */
-            plan_hash: string;
-            /** @description The stored legacy v1 plan hash, for audit display. */
-            plan_hash_v1?: string | null;
-            /** @description Who proposed it, for example `system:triage`. */
-            proposed_by: string;
-            /** @description Why it was rejected or failed. */
-            reason?: string | null;
-            /** @description `read`, `write` or `destructive`. */
-            risk: string;
-            /** @description Skill name. */
-            skill: string;
-            /** @description The status name, for example `proposed` or `verified`. */
-            status: string;
-            /** @description When it last changed. */
-            updated_at: string;
-        };
-        /** @description One page of actions, newest first. */
-        ActionPage: {
-            /**
-             * Format: int64
-             * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
-             */
-            as_of_seq: number;
-            /** @description The actions. */
-            items: components["schemas"]["ActionDto"][];
-            /** @description Pass as `cursor` for the next page; absent on the last. */
-            next_cursor?: string | null;
-        };
         /** @description An open advisory. */
         AdvisoryDto: {
             /** @description When it was raised. */
@@ -2326,34 +2252,17 @@ export interface components {
          * @enum {string}
          */
         AttestationStateDto: "verified" | "stale" | "unverified";
-        /** @description The anchor over the history written before the chain. */
+        /** @description The anchor the chain starts from. */
         AuditAnchorDto: {
             /** @description The anchor's own hash, hex. */
             anchor_hash: string;
             /** @description The install this log belongs to. */
             install_id: string;
-            /**
-             * Format: int64
-             * @description How many legacy entries there were.
-             */
-            legacy_count: number;
-            /** @description The digest of the legacy entries, hex. */
-            legacy_digest: string;
-            /**
-             * Format: int64
-             * @description The highest legacy sequence number.
-             */
-            legacy_last_id: number;
         };
         /** @description One page of audit entries, newest first. */
         AuditPageDto: {
             /** @description The entries. */
             items: components["schemas"]["AuditRowDto"][];
-            /**
-             * Format: int64
-             * @description The highest sequence number written before the chain began; 0 on a fresh install.
-             */
-            legacy_last_id: number;
             /** @description Pass as `cursor` for the next page; `null` on the last. */
             next_cursor?: string | null;
         };
@@ -2367,10 +2276,8 @@ export interface components {
             detail: string;
             /** @description Whether `detail` was cut. */
             detail_truncated: boolean;
-            /** @description The entry's hash as 64 lower-case hex characters; `null` on a legacy entry. */
+            /** @description The entry's hash as 64 lower-case hex characters; `null` if the entry lost it. */
             hash?: string | null;
-            /** @description `legacy` (written before the chain) or `chained`. */
-            history: string;
             /** @description What kind of entry it is. */
             kind: string;
             /**
@@ -2383,18 +2290,16 @@ export interface components {
         };
         /** @description The result of checking the audit log. */
         AuditVerificationDto: {
-            /** @description The anchor both parts are judged against. */
+            /** @description The anchor the chain is judged against. */
             anchor: components["schemas"]["AuditAnchorDto"];
-            /** @description The chained part. */
+            /** @description The chain's status. */
             chained: components["schemas"]["ChainedHistoryDto"];
             /** @description When the check finished, RFC 3339. */
             checked_at: string;
             head?: components["schemas"]["HeadDto"] | null;
-            /** @description The legacy part. */
-            legacy: components["schemas"]["LegacyHistoryDto"];
             /**
              * Format: int64
-             * @description How many of the newest chained entries a `recent` check covers.
+             * @description How many of the newest entries a `recent` check covers.
              */
             recent_limit: number;
             /** @description `recent` or `full`. */
@@ -2700,7 +2605,7 @@ export interface components {
             /** @description The covered target names. */
             names: string[];
         };
-        /** @description The chained part of a verification. */
+        /** @description The chain's part of a verification. */
         ChainedHistoryDto: {
             /** @description A stable code for why (`broken`). */
             break_reason?: string | null;
@@ -3145,9 +3050,7 @@ export interface components {
             expires_at: string;
             /** @description The host it runs on. */
             host_id: string;
-            /** @description Always `v2`. */
-            plan_binding: string;
-            /** @description The v2 plan hash a person approves, 64 hex characters. */
+            /** @description The plan hash a person approves, 64 hex characters. */
             plan_hash: string;
             /** @description Why it was refused, not run, unavailable or failed. */
             reason?: string | null;
@@ -3501,8 +3404,6 @@ export interface components {
         };
         /** @description Everything about one incident. */
         IncidentDetail: {
-            /** @description Actions for this incident, newest first. */
-            actions: components["schemas"]["ActionDto"][];
             /**
              * Format: int64
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
@@ -3819,28 +3720,6 @@ export interface components {
              */
             total: number;
         };
-        /** @description The legacy part of a verification. */
-        LegacyHistoryDto: {
-            /**
-             * Format: int64
-             * @description Entries found (`mismatch`).
-             */
-            actual_count?: number | null;
-            /**
-             * Format: int64
-             * @description Entries counted (`verified`, `count_only`).
-             */
-            count?: number | null;
-            /** @description Whether the digest still matched (`mismatch`). */
-            digest_matches?: boolean | null;
-            /**
-             * Format: int64
-             * @description Entries the anchor recorded (`mismatch`).
-             */
-            expected_count?: number | null;
-            /** @description `verified`, `count_only`, `mismatch` or `not_verifiable`. */
-            status: string;
-        };
         /** @description One language model provider. */
         LlmSettings: {
             /** @description `[set]` or `[unset]`. */
@@ -4103,16 +3982,6 @@ export interface components {
         /** @description What needs the operator right now, as counts. Each count stops at 200. */
         OverviewDto: {
             /**
-             * Format: int32
-             * @description Classic actions whose result is unknown.
-             */
-            actions_outcome_unknown: number;
-            /**
-             * Format: int32
-             * @description Actions waiting for a person to approve or deny them.
-             */
-            approvals_waiting: number;
-            /**
              * Format: int64
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
              */
@@ -4351,11 +4220,6 @@ export interface components {
             /** @description The target, for example `plex`. */
             target?: string | null;
         };
-        /**
-         * @description Which plan-hash family an action's displayed hash belongs to.
-         * @enum {string}
-         */
-        PlanBinding: "v1" | "v2";
         /** @description Plan a job: what it would do on each host, without doing anything. */
         PlanRequestDto: {
             /** @description One to sixteen host ids, each once. */
@@ -5154,11 +5018,6 @@ export interface components {
             description: string;
             /** @description Whether the hub may run and suggest this skill on the host. */
             enabled: boolean;
-            /**
-             * @description When the hub last sent this skill to the host's agent, as RFC 3339; absent when it
-             *     never has.
-             */
-            last_used?: string | null;
             /** @description Hash of the full manifest the agent has, as hex. */
             manifest_hash: string;
             /** @description Skill name. */
@@ -5778,69 +5637,6 @@ export interface operations {
             };
         };
     };
-    list_actions: {
-        parameters: {
-            query?: {
-                /** @description Only this status name, for example `proposed`. */
-                status?: string;
-                /** @description Only actions on this host, by name. */
-                host?: string;
-                /**
-                 * @description `true`: only actions that are no longer waiting for approval; `false`: only those
-                 *     that are.
-                 */
-                decided?: boolean;
-                /** @description Only actions that last changed at or after this time, RFC 3339. */
-                since?: string;
-                /** @description The `next_cursor` of the previous page. */
-                cursor?: string;
-                /** @description Page size, 1 to 200. Default 50. */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description One page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActionPage"];
-                };
-            };
-            /** @description Unknown status, or a time that does not parse */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description Not logged in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description No such host */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     list_advisories: {
         parameters: {
             query?: never;
@@ -5873,8 +5669,6 @@ export interface operations {
     list_audit: {
         parameters: {
             query?: {
-                /** @description `legacy` or `chained`: only that part of the history. */
-                history?: string;
                 /** @description Only entries of this exact kind, at most 100 characters. */
                 kind?: string;
                 /** @description Where the previous page ended. */
@@ -5897,7 +5691,7 @@ export interface operations {
                     "application/json": components["schemas"]["AuditPageDto"];
                 };
             };
-            /** @description Unknown history or a kind that is too long */
+            /** @description A kind that is too long */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5921,7 +5715,7 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description `recent` (default) checks the newest chained entries and counts the older ones;
+                 * @description `recent` (default) checks the newest entries;
                  *     `full` checks everything.
                  */
                 scope?: string;

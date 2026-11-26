@@ -1,5 +1,5 @@
 import { ICON_NAMES } from "./icons";
-import { TONES, VOCABULARIES, badgeMeta, incidentBadgeMeta, verdictMeta } from "./tone";
+import { TONES, VOCABULARIES, incidentBadgeMeta, verdictMeta } from "./tone";
 
 describe("tone", () => {
   it.each(VOCABULARIES.flatMap((v) => v.values.map((value) => [v.name, value, v.meta] as const)))(
@@ -42,11 +42,5 @@ describe("tone", () => {
     expect(incidentBadgeMeta({ status: "open", verdict: null, severity: "critical" }).label).toBe(
       "Critical",
     );
-  });
-
-  it("a chat card badge value is a verdict, a severity or resolved", () => {
-    expect(badgeMeta("ACTION_NEEDED").tone).toBe("danger");
-    expect(badgeMeta("warning").label).toBe("Warning");
-    expect(badgeMeta("resolved").label).toBe("Resolved");
   });
 });

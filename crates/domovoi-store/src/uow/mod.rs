@@ -60,10 +60,10 @@ impl UnitOfWork for Store {
         for write in &tx.writes {
             writes::apply(&mut dbtx, write, &mut receipt, &mut mirrors).await?;
         }
-        for (draft, legacy_event_seq) in &mirrors {
+        for (draft, incident_event_seq) in &mirrors {
             receipt
                 .journal_seqs
-                .push(journal::insert(&mut dbtx, draft, Some(*legacy_event_seq)).await?);
+                .push(journal::insert(&mut dbtx, draft, Some(*incident_event_seq)).await?);
         }
         for draft in &tx.journal {
             receipt

@@ -464,7 +464,6 @@ async fn propose_plan_never_stores_anything() {
         .filter(|record| record.step.kind == domovoi_core::StepKind::Execution)
         .count();
     assert_eq!(executions, 0, "no Execution step from a staged plan");
-    assert!(w.actions().await.is_empty(), "no action from a staged plan");
 }
 
 #[tokio::test]
@@ -726,7 +725,6 @@ fn deps_of(w: &World) -> TriageDeps {
         signals: w.store.clone(),
         notes: w.store.clone(),
         hosts: w.store.clone(),
-        actions: w.store.clone(),
         cache: w.store.clone(),
         usage: w.store.clone(),
         admission: w.store.clone(),
@@ -974,7 +972,6 @@ async fn follow_up_and_chat_cannot_propose() {
     let (content, is_error) = results(&requests[1]).remove(0);
     assert!(is_error);
     assert_eq!(content, "error: unknown tool `propose_plan`");
-    assert!(w.actions().await.is_empty(), "no action");
     assert!(
         w.snapshots(&w.incident).await.is_empty(),
         "no operation, no step"

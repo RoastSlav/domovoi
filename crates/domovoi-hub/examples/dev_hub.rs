@@ -1,12 +1,12 @@
 //! A throwaway hub for working on the web UI: the real router over a temporary SQLite store,
-//! a running incident manager and action service, and fake agents for two hosts.
+//! a running incident manager, and fake agents for two hosts.
 //!
 //! ```sh
 //! cargo run -p domovoi-hub --example dev_hub --features embed-ui
 //! ```
 //!
-//! It serves on 127.0.0.1:7420, prints the setup link, and seeds an incident with a
-//! proposed write action and a destructive one, plus a host profile for `nas`. Press Enter
+//! It serves on 127.0.0.1:7420, prints the setup link, and seeds an incident
+//! and a host profile for `nas`. Press Enter
 //! to fire another incident and
 //! watch it arrive live. Without `embed-ui`, run `npm run dev` in `web/` against it.
 
@@ -18,13 +18,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use domovoi_config::{HubConfig, MapEnv};
 use domovoi_core::capability::{ContractIndex, builtin_contracts};
-use domovoi_core::ports::{
-    ActionRepo, Clock, HostRepo, IncidentFilter, IncidentRepo, LinkError, LogLine, Page, Presence,
-    SkillOutput, ToolOutput,
-};
+use domovoi_core::ports::{Clock, HostRepo, LinkError, LogLine, Presence, SkillOutput, ToolOutput};
 use domovoi_core::{
-    ActionRequest, CheckKey, HostId, HostName, Principal, ReadToolCall, Risk, Severity, Signal,
-    SignalClass, SkillSummary, SourceKind, TargetKey,
+    CheckKey, HostId, HostName, ReadToolCall, Risk, Severity, Signal, SignalClass, SkillSummary,
+    SourceKind, TargetKey,
 };
 use domovoi_engine::{EnginePolicy, IncidentManager, ManagerDeps, ManagerHandle, PatternRedactor};
 use domovoi_hub::agent_server::{
@@ -179,6 +176,8 @@ fn config() -> Result<HubConfig> {
         "DISCORD_WEBHOOK_URL",
         "DOMOVOI_ALERTS_TOKEN",
         "DOMOVOI_HEARTBEAT_URL",
+        "DOMOVOI_METRICS_TOKEN",
+        "OLLAMA_API_KEY",
     ]
     .into_iter()
     .fold(MapEnv::new(), |env, name| {
@@ -207,48 +206,6 @@ fn firing(
         Timestamp::now(),
     )
     .with_class(SignalClass::Immediate))
-}
-
-async fn seed_actions(store: &Store) -> Result<()> {
-    let mut found = None;
-    for _ in 0..50 {
-        let page = IncidentRepo::list(
-            store,
-            &IncidentFilter::default(),
-            &Page {
-                cursor: None,
-                limit: 1,
-            },
-        )
-        .await?;
-        if let Some(incident) = page.items.into_iter().next() {
-            found = Some(incident);
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    let Some(incident) = found else {
-        return Err("the seeded incident never opened".into());
-    };
-    for (skill, risk) in [
-        ("restart_container", Risk::Write),
-        ("delete_volume", Risk::Destructive),
-    ] {
-        let summary =
-            manifest(skill, risk)?.summary(domovoi_core::ScriptDigest::of_bytes(b"fixture entry"));
-        let args = summary.validate_args(&BTreeMap::new())?;
-        let action = ActionRequest::propose(
-            &incident,
-            &summary,
-            &args,
-            Some(domovoi_testkit::build::key_fingerprint()),
-            Principal::System("triage".into()),
-            SignedDuration::from_hours(4),
-            Timestamp::now(),
-        )?;
-        ActionRepo::insert(store, &action).await?;
-    }
-    Ok(())
 }
 
 /// What each press of Enter fires, in turn: different hosts, checks and severities, and one
@@ -621,7 +578,6 @@ async fn main() -> Result<()> {
     let deps = ApiDeps {
         incidents: store.clone(),
         signals: store.clone(),
-        actions: store.clone(),
         hosts: store.clone(),
         notes: store.clone(),
         advisories: store.clone(),
@@ -664,7 +620,6 @@ async fn main() -> Result<()> {
             "Disk /srv is 93% full",
         )?])
         .await?;
-    seed_actions(&store).await?;
     let found = HostRepo::get_host(&*store, nas).await?;
     let Some(seeded) = found else {
         return Err("the nas host is missing".into());

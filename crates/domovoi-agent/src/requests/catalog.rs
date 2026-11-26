@@ -10,7 +10,7 @@
 //! why the announced hash moves when a skill appears, disappears or is replaced.
 //!
 //! Every entry's descriptor is `{}`: the hub ignores that field, and an agent that described
-//! its own capability would be describing its own authority, which RW-07 rejects.
+//! its own capability would be describing its own authority, which the hub never accepts.
 //!
 //! Paging is by index over the sorted map, so the same `(page, page_size)` always answers
 //! the same slice and the last page ends with `next_page: None`.

@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use domovoi_core::EffectId;
 use domovoi_core::IncidentId;
 use domovoi_core::ports::{
-    ActionRepo, AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath,
-    EffectDraft, EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
+    AggregateKind, AggregateRef, AuditLog, ClaimToken, CommitError, EffectDeath, EffectDraft,
+    EffectKind, EffectQueue, EffectRead, EffectReschedule, Expected, IncidentRepo,
     IncidentTimelineEntry, JournalFeed, JournalRead, NoteRepo, OperationRepo, PolicyRepo,
     SignalRepo, StateWrite, Transaction, UnitOfWork, VersionedRead,
 };
@@ -50,10 +50,6 @@ impl UowSubject for SqliteSubject {
     }
 
     fn signals(&self) -> &dyn SignalRepo {
-        &self.0
-    }
-
-    fn actions(&self) -> &dyn ActionRepo {
         &self.0
     }
 
@@ -122,8 +118,6 @@ uow_contract_tests! {
     sqlite_second_active_incident_for_a_fingerprint_is_refused_and_rolls_back => second_active_incident_for_a_fingerprint_is_refused_and_rolls_back,
     sqlite_later_failure_rolls_back_earlier_writes_journal_audit_and_effects => later_failure_rolls_back_earlier_writes_journal_audit_and_effects,
     sqlite_repository_writes_advance_versions_like_commits => repository_writes_advance_versions_like_commits,
-    sqlite_action_guard_refuses_a_changed_status => action_guard_refuses_a_changed_status,
-    sqlite_chat_token_hash_must_be_unique_across_actions => chat_token_hash_must_be_unique_across_actions,
     sqlite_incident_event_is_mirrored_into_the_journal_with_its_original_time => incident_event_is_mirrored_into_the_journal_with_its_original_time,
     sqlite_journal_sequence_follows_commit_order => journal_sequence_follows_commit_order,
     sqlite_floor_starts_at_zero_and_wait_after_follows_the_committed_head => floor_starts_at_zero_and_wait_after_follows_the_committed_head,
@@ -165,7 +159,6 @@ uow_contract_tests! {
     sqlite_edge_to_a_missing_step_is_refused => edge_to_a_missing_step_is_refused,
     sqlite_execution_row_needs_an_execution_step_and_is_one_to_one => execution_row_needs_an_execution_step_and_is_one_to_one,
     sqlite_execution_version_guard_refuses_a_stale_write => execution_version_guard_refuses_a_stale_write,
-    sqlite_execution_id_equal_to_an_action_id_is_refused => execution_id_equal_to_an_action_id_is_refused,
     sqlite_execution_round_trips_a_human_approval_exactly => execution_round_trips_a_human_approval_exactly,
     sqlite_snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions => snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions,
     sqlite_dispatched_on_lists_only_running_executions_of_the_host => dispatched_on_lists_only_running_executions_of_the_host,
@@ -193,7 +186,7 @@ uow_contract_tests! {
 }
 
 #[tokio::test]
-async fn timeline_write_stores_legacy_event_seq() {
+async fn timeline_write_stores_incident_event_seq() {
     let fresh = common::Fresh::new().await;
     let host = host("nas").unwrap();
     let open = open_incident(host.id, "disk.smart", Some("/dev/sda")).unwrap();
@@ -212,7 +205,7 @@ async fn timeline_write_stores_legacy_event_seq() {
         .unwrap();
 
     let legacy: (Option<i64>,) =
-        sqlx::query_as("SELECT legacy_event_seq FROM journal WHERE kind = 'incident.timeline'")
+        sqlx::query_as("SELECT incident_event_seq FROM journal WHERE kind = 'incident.timeline'")
             .fetch_one(fresh.store.pool_for_tests())
             .await
             .unwrap();

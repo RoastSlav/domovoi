@@ -118,6 +118,10 @@ These commands change or read the attestation key. They are run by hand as root 
 
 `sudo domovoi helper fingerprint` computes the fingerprint from the private key file and prints it in groups of four with the key id.
 
+### `domovoi helper nft-selftest`, `containment-drill` and `nft-recreate`
+
+All three need root. `nft-selftest` checks, in throwaway network namespaces, that replacing a firewall element never lets a packet through, and stores the result for this kernel, `nft` version and layout. `--if-changed` exits at once when the stored result already matches, and `--interval-only` tests only the interval sets and keeps the stored plain-set verdict. `containment-drill` runs the containment drills in a throwaway namespace and records the result; unattended containment is dispatched only after they pass. `nft-recreate` deletes the helper's own firewall table when no block is live and every block set is empty, so the next request builds it again. The installer and a one-shot unit run the first two. See [Helper](helper.md) and [Blocking a network source](../guide/containment.md).
+
 ### `domovoi skill-runner serve`
 
 ```sh
@@ -125,6 +129,10 @@ domovoi skill-runner serve --skills-dir /etc/domovoi/skills --packages-dir /var/
 ```
 
 The skill runner's socket unit starts this, one process per connection, as `domovoi-skill`. It adopts the connection from standard input, serves one request, and exits. Both directories are absolute and are the ones the unit binds read-only; it reads no config file. It refuses to run when standard input is not a socket, so do not run it by hand. The installer writes the two paths into the unit from `agent.toml`.
+
+### `domovoi agent journal`
+
+`init` creates the agent's durable journal of runs for the first time and refuses if a journal file exists. `reset` archives the existing journal and starts a new epoch. `reset` refuses while the agent owns the journal, so stop the agent first. Each takes `--config` for the agent file.
 
 ## Enrolling agents
 
@@ -197,7 +205,7 @@ domovoi check skills /etc/domovoi/skills
 
 ### `domovoi check run`
 
-Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed or because the agent runs in a container and the check needs journalctl, is reported as `unavailable`. A check that fails for another reason is reported as `error`. The command still exits 0, because the run itself completed.
+Runs every enabled check once on this host and prints what each one saw, plus its digest facts. No hub is needed, and the agent's stored check state is not touched. `--only <check>` runs a single check, and `--json` prints JSON. A check that cannot run here, for example because `smartctl` is not installed or because the agent runs in a container and the check needs journalctl, is reported as `unavailable`. A check that fails for another reason is reported as `error`. The command still exits 0, because the run itself completed. An `--only` name that is not an enabled check exits 1.
 
 ```sh
 domovoi check run --config /etc/domovoi/agent.toml
@@ -206,7 +214,7 @@ domovoi check run --only disk.usage --json
 
 ### `domovoi notify test`
 
-Sends a test card to each enabled chat gateway and a test message to each notifier, with PASS or FAIL for each. It works next to a running hub.
+Sends a test card to each enabled chat gateway and a test message to each notifier, with PASS or FAIL for each. It works next to a running hub. When nothing is configured to notify, it says so and exits 1.
 
 ```sh
 domovoi notify test --config /etc/domovoi/hub.toml
@@ -233,17 +241,16 @@ domovoi digest now --config /etc/domovoi/hub.toml
 
 ### `domovoi audit verify`
 
-Verifies the audit log's hash chain and the anchor that commits to the rows written before the chain existed. Without `--last` it checks the whole history: the legacy digest and every retained chained row. `--last <n>` checks the legacy row count only and the newest n chained rows.
+Verifies the audit log's hash chain from the anchor. Without `--last` it checks every retained row. `--last <n>` checks the newest n rows.
 
-It prints the database it read, then one line for each part:
+It prints the database it read, then one line for the chain:
 
 ```text
 Audit log of /var/lib/domovoi/hub.db
-Legacy history:  verified, 1204 rows (digest matches the anchor)
-Chained history: intact, 311 rows checked, head seq 1515 hash 9f0e00...
+Audit chain: intact, 311 rows checked, head seq 1515 hash 9f0e00...
 ```
 
-It exits 0 when both parts hold, and 1 when a chained row was edited, deleted or inserted, or when the legacy history no longer matches the anchor. Legacy rows that were pruned are reported as `not verifiable` and do not fail the command.
+It exits 0 when the chain holds, and 1 when a row was edited, deleted or inserted.
 
 ```sh
 domovoi audit verify --config /etc/domovoi/hub.toml
@@ -296,7 +303,7 @@ Afterwards, restore `secret.key` and `tls/` from the same time if they were lost
 
 ### `domovoi audit head`
 
-Prints the newest chained audit row's sequence number and hash, or `no chained rows yet` when the chain has not started.
+Prints the newest audit row's sequence number and hash, or `no audit rows yet` when the log is empty.
 
 ```sh
 domovoi audit head --config /etc/domovoi/hub.toml
@@ -305,6 +312,18 @@ domovoi audit head --config /etc/domovoi/hub.toml
 Run it after a backup, or on a schedule, and keep the output off the host. Comparing it with a later run shows whether the newest audit rows were deleted, which the chain alone cannot detect.
 
 ## Other
+
+### `domovoi package import` and `domovoi package list`
+
+`package import <archive> <signature>` stores a signed package archive (`<name>-<version>.tar.zst`) and its detached `.sig.toml` signature in the hub's package store, and `package list` lists what is stored. Both open the hub's database directly, so they need the hub stopped, like the other commands under [Commands that need the hub stopped](#commands-that-need-the-hub-stopped). They take `--config` for the hub file. See [Packages](../guide/packages.md).
+
+### `domovoi openapi`
+
+Prints the hub's OpenAPI document to standard output. It is not listed in `--help`. See the [HTTP API](api.md).
+
+### `domovoi upgrade`
+
+Replaces this binary with a release and prints the units to restart. `--version <tag>` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced and changes nothing. See [Upgrading and uninstalling](../install/upgrading.md).
 
 ### `domovoi version`
 
@@ -348,10 +367,16 @@ scrape_configs:
 | `domovoi_triage_runs_total` | `outcome` | Triage results (`report`, `cached`, `skipped`, `failed`) |
 | `domovoi_llm_tokens_total` | `provider`, `direction` | Model tokens (`input`, `output`) |
 | `domovoi_llm_cost_usd_total` | | Model cost in US dollars, as reported by the provider |
-| `domovoi_actions_total` | `status` | Action status changes |
 | `domovoi_agents_connected` | | Agents with a live session |
 | `domovoi_delivery_failures_total` | `gateway` | Chat deliveries that failed after retries |
 | `domovoi_notify_state_errors_total` | `op` | Notification state reads and writes that failed (`read`, `write`) |
 | `domovoi_event_bus_lagged_total` | `consumer` | Times a consumer fell behind the event bus |
 | `domovoi_incident_flaps_total` | | Incidents that resolved and fired again quickly |
 | `domovoi_backup_last_success_timestamp_seconds` | | When the nightly backup last succeeded |
+| `domovoi_llm_calls_total` | `provider`, `model`, `outcome` | Model calls by result (`ok`, `rate_limited`, `auth`, `timeout`, `transport`, `invalid_response`, `unavailable`, `capability_rejected`) |
+| `domovoi_llm_prompt_bytes` | `provider` | Prompt size in bytes, as a histogram |
+| `domovoi_llm_prompt_trimmed_total` | | Prompts shortened to fit `triage.per_run.prompt_bytes` |
+| `domovoi_llm_admission_rejections_total` | `reason` | Model calls refused before they ran (`budget`, `unpriced`, `hourly`, `unverifiable`) |
+| `domovoi_incident_write_conflicts_total` | | Incident writes that lost a version race and were retried |
+| `domovoi_sse_resets_total` | `reason` | Event-stream `reset` frames sent (`pruned`, `ahead`, `lagged`) |
+| `domovoi_sse_live_dropped_total` | | Live answer frames dropped for a slow client |

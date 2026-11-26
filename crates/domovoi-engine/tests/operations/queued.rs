@@ -8,7 +8,7 @@ use domovoi_core::ports::{
     ToolOutput, Transaction,
 };
 use domovoi_core::{
-    ActionId, Actor, EffectId, OperationId, OperationStatus, StepId, StepIntent, StepKind,
+    Actor, EffectId, IncidentId, OperationId, OperationStatus, StepId, StepIntent, StepKind,
     StepOutcome,
 };
 use domovoi_engine::operations::{NewStep, OperationSettings};
@@ -209,7 +209,7 @@ async fn start_returns_every_claimed_operation_dispatch_effect_to_pending() {
     // More legacy claimed dispatch effects than one read returns, then the operation's own.
     let mut tx = Transaction::new();
     for _ in 0..520 {
-        tx = tx.effect(draft(AggregateRef::action(ActionId::new())));
+        tx = tx.effect(draft(AggregateRef::incident(IncidentId::new())));
     }
     w.uow.commit(tx).await.unwrap();
     let mut ours = Vec::new();

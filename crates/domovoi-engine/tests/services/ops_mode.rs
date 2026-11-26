@@ -139,28 +139,4 @@ impl World {
             .flat_map(|snapshot| from_snapshot(snapshot, &skills))
             .collect()
     }
-
-    /// Stores a legacy `Proposed` action restarting `container` for the world's incident, as
-    /// one left from before investigations. Only tests seed these; nothing creates them.
-    pub async fn seed_legacy_action(&self, container: &str) -> domovoi_core::ActionRequest {
-        let skill = crate::harness::restart_skill();
-        let args =
-            std::collections::BTreeMap::from([("container".to_owned(), container.to_owned())]);
-        let validated = skill.validate_args(&args).expect("valid arguments");
-        let key = domovoi_core::KeyFingerprint::of_public_key(&[7; 32]);
-        let action = domovoi_core::ActionRequest::propose(
-            &self.incident,
-            &skill,
-            &validated,
-            Some(key),
-            domovoi_core::Principal::System("seed".into()),
-            SignedDuration::from_hours(1),
-            self.now(),
-        )
-        .expect("a proposal");
-        domovoi_core::ports::ActionRepo::insert(&*self.store, &action)
-            .await
-            .expect("the action is stored");
-        action
-    }
 }

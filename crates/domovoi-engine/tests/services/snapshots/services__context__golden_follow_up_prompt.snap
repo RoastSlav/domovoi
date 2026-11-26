@@ -22,7 +22,7 @@ Firing signals so far: 1
 from: observed signals of incident:[uuid], observed [time]
 - [time] Firing [warning] nginx is restarting {observed="[time]", used_pct=92.4}
 
-## This incident so far: report, actions and timeline
+## This incident so far: report and timeline
 
 [incident | incident_thread | known] Latest triage report
 from: inferred triage report of incident:[uuid]
@@ -31,10 +31,6 @@ cause: A bad config file, fairly sure.
 verdict: ACTION NEEDED
 summary: The container exits a few seconds after start.
 next step: Fix the config file and restart the container.
-
-[incident | incident_thread | known] Actions of this incident
-from: observed actions of incident:[uuid]
-restart_container container=nginx status: proposed
 
 [incident | incident_thread | known] Timeline of this incident, oldest first
 from: observed timeline of incident:[uuid]

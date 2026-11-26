@@ -6,6 +6,7 @@
 # Install
 
 - [Binary and systemd](install/binary.md)
+- [Unattended install](install/unattended.md)
 - [Docker](install/docker.md)
 - [Container-mode agent](install/container-agent.md)
 - [Upgrading and uninstalling](install/upgrading.md)
@@ -17,7 +18,6 @@
 - [Hub and agents](concepts/hub-and-agent.md)
 - [Signals and incidents](concepts/incidents.md)
 - [Verdicts, cards and threads](concepts/cards.md)
-- [Actions and approvals](concepts/actions.md)
 - [Operations](concepts/operations.md)
 - [Operator](concepts/operator.md)
 - [Capabilities](concepts/capabilities.md)
@@ -35,6 +35,7 @@
 - [LLM providers](guide/llm-providers.md)
 - [Writing skills](guide/skills.md)
 - [Migrating from cron scripts](guide/migrating.md)
+- [Notes](guide/notes.md)
 - [Docker and Podman](guide/containers.md)
 - [Hardening](guide/hardening.md)
 - [Control room, attention and search](guide/control-room.md)

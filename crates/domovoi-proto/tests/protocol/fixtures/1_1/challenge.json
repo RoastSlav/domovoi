@@ -1,9 +1,0 @@
-{
-  "id": "01900000-0000-7000-8000-000000000001",
-  "kind": "challenge",
-  "payload": {
-    "nonce": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
-  },
-  "reply_to": "01900000-0000-7000-8000-000000000002",
-  "v": 1
-}

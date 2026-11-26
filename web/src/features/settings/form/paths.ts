@@ -66,15 +66,6 @@ export function isSecretSet(values: unknown, path: string): boolean {
   return getIn(values, path) === SECRET_SET;
 }
 
-/** The issues for each path. */
-export function issuesByPath(issues: Issue[]): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const issue of issues) {
-    out.set(issue.path, [...(out.get(issue.path) ?? []), issue.message]);
-  }
-  return out;
-}
-
 /**
  * The field paths an issue is about. An issue for a table (`incidents`) covers every field
  * under it; one for a field covers that field. The hub names a field by its dotted path, so

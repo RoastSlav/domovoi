@@ -8,9 +8,11 @@ use domovoi_testkit::RecordingNotifier;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::api_harness::{Api, Reply, api, api_with_notifier, api_with_triage_and_operations};
+use crate::api_harness::{
+    Api, Reply, api, api_with_notifier_and_operations, api_with_triage_and_operations,
+};
 use crate::harness::pump;
-use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed};
+use crate::interactions::{ALLOWED, chat, interaction, press, proposed};
 
 /// Replaces every UUID and every 64-character hex string by `<id-N>` in order of first
 /// appearance, so a snapshot does not depend on generated ids.
@@ -182,12 +184,12 @@ fn text_of(reply: &InteractionReply) -> String {
 #[tokio::test]
 async fn chat_answers_as_before() {
     let notifier = Arc::new(RecordingNotifier::new("webhook"));
-    let a = api_with_notifier(notifier.clone() as Arc<dyn Notifier>).await;
+    let a = api_with_notifier_and_operations(notifier.clone() as Arc<dyn Notifier>).await;
     a.admin().await;
     let c = chat(&a).await;
-    let (write, write_token) = proposed(&a, Risk::Write).await;
-    let (destructive, destructive_token) = proposed(&a, Risk::Destructive).await;
-    let (denied, denied_token) = proposed(&a, Risk::Write).await;
+    let write = proposed(&a, Risk::Write).await;
+    let destructive = proposed(&a, Risk::Destructive).await;
+    let denied = proposed(&a, Risk::Write).await;
     let short = domovoi_chat::discord::ids::short_id(a.incident.id());
     let command = |name: &str, args: &[&str]| InteractionKind::Command {
         name: name.to_owned(),
@@ -204,12 +206,12 @@ async fn chat_answers_as_before() {
         command("incidents", &[]),
         button(CardButton::Details),
         button(CardButton::Ack),
-        button(approve(&write, &write_token)),
-        button(approve(&write, &write_token)),
-        button(approve(&destructive, &destructive_token)),
+        button(write.approve()),
+        button(write.approve()),
+        button(destructive.approve()),
         button(CardButton::Deny {
-            action: denied.id(),
-            token: denied_token,
+            execution: denied.execution_id(),
+            token: denied.token.clone(),
         }),
         InteractionKind::ThreadMessage {
             incident: a.incident.id(),

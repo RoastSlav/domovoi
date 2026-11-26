@@ -18,7 +18,7 @@ use domovoi_core::ports::{
 };
 use domovoi_core::unit::{UnitCall, UnitDispatch, UnitName, UnitOutputs};
 use domovoi_core::{
-    ActionId, AgentSessionId, AuthorizationKind, CapabilityHandoff, CheckKey, ExecutionId, HostId,
+    AgentSessionId, AuthorizationKind, CapabilityHandoff, CheckKey, ExecutionId, HostId,
     JournalEpoch, PackageDispatch, PackageOutputs, PlanHash, ReadToolCall, SkillSummary, StepId,
     TargetKey, TransferAnswer, TransferFrame,
 };
@@ -121,7 +121,7 @@ impl JournalStatus for JournalOf {
     async fn status_batch(
         &self,
         host: HostId,
-        ids: Vec<ActionId>,
+        ids: Vec<ExecutionId>,
         expected_epoch: JournalEpoch,
         deadline: Timestamp,
     ) -> Result<ActionAnswers, LinkError> {
@@ -399,7 +399,7 @@ pub fn contain_caps(link: Arc<dyn AgentLink>) -> ContainCaps {
 }
 
 /// The capability registry is the one place the compiled contracts, the agent's catalogue, hub
-/// enablement, the skill floors and the ceiling meet (RW-10). The engine gets it beside the narrow
+/// enablement, the skill floors and the ceiling meet. The engine gets it beside the narrow
 /// capabilities, never the link itself (ADR 0023).
 pub(super) async fn registry(
     link: &Arc<dyn AgentLink>,

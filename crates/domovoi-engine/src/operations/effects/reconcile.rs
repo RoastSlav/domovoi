@@ -62,7 +62,7 @@ impl EffectHandler for ReconcileHandler {
             let ending = unknown(operation, step, UnknownReason::EpochChanged, held);
             return outcome(settle(shared, ending).await);
         }
-        let wanted = ExecutionId::from_step(step).as_action();
+        let wanted = ExecutionId::from_step(step);
         let deadline = after(shared, shared.settings.recheck_deadline);
         let asked = shared
             .deps

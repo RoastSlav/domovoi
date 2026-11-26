@@ -6,8 +6,8 @@ use domovoi_core::ports::{
     OperationWrite,
 };
 use domovoi_core::{
-    ActionId, ExecutionId, ExecutionRecord, IncidentId, Operation, OperationId, Step, StepEdge,
-    StepId, StepKind, StepOutcome, StepProgress, StepRecord,
+    ExecutionId, ExecutionRecord, IncidentId, Operation, OperationId, Step, StepEdge, StepId,
+    StepKind, StepOutcome, StepProgress, StepRecord,
 };
 
 use super::{State, set_version, version};
@@ -216,12 +216,6 @@ fn apply_execution(
         return Err(refuse(
             "the execution and its step belong to different operations",
         ));
-    }
-    if state
-        .actions
-        .contains_key(&ActionId::from_uuid(execution.step.as_uuid()))
-    {
-        return Err(refuse("execution id is an action id"));
     }
     let stored = state.executions.get(&execution.step).map(|(_, v)| *v);
     let next = match (expected, stored) {

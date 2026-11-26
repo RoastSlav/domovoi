@@ -61,10 +61,10 @@ async fn dispatch_runs_the_skill_under_the_step_id() {
 
     let sent = w.skill_requests();
     assert_eq!(sent.len(), 1, "the agent got exactly one request");
-    assert_eq!(sent[0].action, ExecutionId::from_step(step).as_action());
+    assert_eq!(sent[0].execution, ExecutionId::from_step(step));
     assert_eq!(sent[0].skill.as_str(), "restart_container");
     let skill = restart_skill();
-    let wire = PlanHash::compute(&skill.name, skill.manifest_hash, host_id(), &sent[0].args);
+    let wire = PlanHash::agent_check(&skill.name, skill.manifest_hash, host_id(), &sent[0].args);
     assert_eq!(sent[0].plan_hash, wire, "the wire carries the v1 hash");
     assert_ne!(sent[0].plan_hash, plan, "the approved v2 hash stays on hub");
     let row = &snapshot.execution_of(step).unwrap().value;

@@ -15,9 +15,6 @@ pub enum RuntimeError {
     /// Persisted runtime state could not be read or written.
     #[error(transparent)]
     Store(#[from] domovoi_core::ports::StoreError),
-    /// The open legacy actions could not be retired at start.
-    #[error(transparent)]
-    LegacyDrain(#[from] domovoi_engine::legacy::LegacyDrainError),
     /// The capability registry could not be built.
     #[error(transparent)]
     Registry(#[from] crate::capability::RegistryError),

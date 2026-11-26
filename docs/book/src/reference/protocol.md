@@ -28,7 +28,7 @@ The envelope's `v` is the sender's protocol major. A frame whose `v` is not this
 
 The hub states the rule only once the agent's signature has verified, so a client that does not hold the agent's key cannot leave anything on the Hosts page. It answers `incompatible`. An agent from this release treats that as an idle state rather than a final one: it stays up without reconnecting, logs hourly, and `domovoi agent status` shows what happened until the agent is upgraded and restarted. Agents older than this release exit and are restarted by systemd until they are upgraded.
 
-There are no release-number floors. The wire variant `agent_too_old` is still decodable so frames from older hubs keep working, but the hub no longer sends it.
+There are no release-number floors. The wire variant `agent_too_old` can be decoded but the hub never sends it.
 
 ## Limits
 
@@ -45,8 +45,8 @@ There are no release-number floors. The wire variant `agent_too_old` is still de
 
 ## Enrollment
 
-1. On the hub, `domovoi hub token create <host>` prints a single-use token valid for 15 minutes.
-2. On the host, `domovoi agent enroll --hub <url> --token <token>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
+1. On the hub, `domovoi hub token create <host>` prints a single-use token, valid for 15 minutes unless `--ttl` says otherwise.
+2. On the host, `domovoi agent enroll --hub <url> --token <token> --fingerprint <sha256>` generates an ed25519 key pair and sends `enroll` with the token and the public key.
 3. The hub replies `enrolled` with the agent id, host id and its certificate fingerprint, or `reject` with `bad_token`. The agent checks that the fingerprint matches the certificate it saw on this connection, then pins it.
 
 ## Handshake
@@ -89,11 +89,21 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `digest_facts` | agent → hub | Facts for the daily digest. |
 | `run_tool` | hub → agent | Run one read tool with typed, bounded arguments before a deadline. |
 | `tool_result` | agent → hub | The tool's redacted output, or why it failed. |
-| `run_skill` | hub → agent | Run an approved action's skill: action id, skill, args, plan hash, deadline. |
+| `run_skill` | hub → agent | Run an approved step's skill: execution id, skill, args, plan hash, deadline. |
 | `skill_result` | agent → hub | Exit status, redacted and capped output, duration and argv hash, or why it did not run. |
+| `run_capability` | hub → agent | Run one capability contract on the host (a helper-backed read or write, a package install, a restart, a block): contract, version, typed arguments, execution id, plan hash, authorization and deadline. |
+| `capability_result` | agent → hub | The capability's typed outcome, or why it failed. |
+| `refused` | agent → hub | The agent declined a request before running it: a stable `code`, a short `detail`, and `retry_after` or `scope` for a rate limit. A refusal ends that execution and never ends the session. |
 | `run_check` | hub → agent | Re-run one check now. |
 | `check_result` | agent → hub | One fresh observation per target. |
 | `config_update` | hub → agent | New hub-managed settings, replacing the previous ones. |
+| `agent_status` | agent → hub | What changed on the host since `hello`: the helper's status and public key, the skill runner's status, whether the agent runs as root or in a container, and the hash of its unattended ceiling. The hub answers nothing and keeps the values for the session. |
+| `get_logs` | hub → agent | Ask for the agent's own recent log lines: at most `lines` of them, from `min_level` up, after `offset` lines already received, before a deadline. |
+| `logs` | agent → hub | One chunk of those lines, oldest first. The hub asks again with a larger `offset` until it has the window. |
+| `get_catalog` | hub → agent | Ask for one page (`page`, `page_size` of at most 100) of the agent's capability catalogue. |
+| `catalog_page` | agent → hub | The contracts on that page, each with its id and version, and `next_page` when there are more. |
+| `action_status` | hub → agent | Ask the agent's journal what happened to up to 64 executions, naming the journal epoch the hub believes it is asking about. |
+| `action_status_answers` | agent → hub | The journal's actual epoch and one answer per requested execution, in request order. |
 | `attest_safety` | hub → agent | A challenge: 32 random bytes the helper must sign into a safety report. |
 | `safety_attestation` | agent → hub | The helper's public key, the report bytes and the signature, relayed unchanged. |
 | `transfer_begin` | hub → agent | Start a file transfer for a package archive or signature. |
@@ -113,9 +123,9 @@ On a host with a helper, the hub can ask for a signed report of what the helper 
 "` followed by the report bytes, then parses those same bytes strictly (a report that does not re-render to the identical text is refused) and checks the nonce, the hashes and the generation. Only then is the report accepted. See [How a safety report is trusted](../security.md#helper-attestation).
 4. **Error reply.** When the helper cannot sign, the agent answers with an `error` whose `code` is the helper's own token: `uninitialized`, `key_missing`, `key_corrupt`, `helper_state_permissions` or `lock_unavailable`. A helper that is absent, unreachable or not serving the operation is `helper_unavailable`. These are unsigned hints. The hub records and shows them but gives them no weight: the host stays unverified (`attestation_missing`).
 
-`hello.in_container` and `agent_status.in_container` (wire 1.2, additive) say whether the agent runs in a container. An older agent omits them, which reads as `false`.
+`hello.in_container` and `agent_status.in_container` (wire 1.2) say whether the agent runs in a container. A frame that omits them reads as `false`.
 
-`hello.helper_identity` and `agent_status.helper_identity` are now filled in: `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.
+`hello.helper_identity` and `agent_status.helper_identity` carry `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.
 
 `run_capability` carries `expected_safety`, a closed tagged value the helper compares against what it computes:
 
@@ -126,7 +136,7 @@ The form is strict. A missing tag, an unknown tag, an unknown reason, an extra o
 
 ## Containment
 
-`firewall.block_source` (version 1) and `firewall.list_blocks` (version 1) travel as ordinary `run_capability` requests. Wire 1.2 is unchanged: no frame and no field was added, and the replies are the existing `capability_result`, `refused` and `error` messages and the `action_status` answers.
+`firewall.block_source` (version 1) and `firewall.list_blocks` (version 1) travel as ordinary `run_capability` requests. They use no frame or field of their own; the replies are the existing `capability_result`, `refused` and `error` messages and the `action_status` answers.
 
 A block is three executions, one per phase, each with its own execution id and its own entry in the agent's journal. The `args` hold exactly six keys, all strings:
 
@@ -189,7 +199,7 @@ Each transfer id is fresh for every attempt, and each transfer gets exactly one 
 
 ## Examples
 
-Each example is a complete frame with fixed ids and times.
+Each example is a complete frame with fixed ids and times. The frames match the snapshots that pin the wire format.
 
 ### `enroll`
 
@@ -246,6 +256,27 @@ Each example is a complete frame with fixed ids and times.
       "docker",
       "journal"
     ],
+    "catalog_hash": null,
+    "ceiling_hash": null,
+    "ceiling_summary": null,
+    "checks": [
+      {
+        "enabled": true,
+        "interval_seconds": 300,
+        "key": "disk.usage",
+        "thresholds": {
+          "warn_percent": 85
+        }
+      }
+    ],
+    "docker": {
+      "available": true,
+      "enabled": true,
+      "endpoint": "unix:///run/podman/podman.sock",
+      "engine": "Podman",
+      "locked": false,
+      "problem": null
+    },
     "facts": {
       "arch": "x86_64",
       "boot_id": "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
@@ -256,9 +287,20 @@ Each example is a complete frame with fixed ids and times.
       "mem_total_bytes": 17179869184,
       "os": "Debian GNU/Linux 13"
     },
+    "features": [],
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "in_container": true,
+    "journal_epoch": "01900000-0000-7000-8000-0000000000f0",
     "protocol": {
       "major": 1,
-      "minor": 1
+      "minor": 2
+    },
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
     },
     "skills": [
       {
@@ -266,6 +308,7 @@ Each example is a complete frame with fixed ids and times.
           "container.restart_loop"
         ],
         "description": "Restart one container.",
+        "entry_script_digest": "fc07a55ac3f7c7d7ae2b7117459aa0b7e27421c964467ecd6f59c5c24bd1ad0b",
         "manifest_hash": "abababababababababababababababababababababababababababababababab",
         "name": "restart_container",
         "params": [
@@ -280,7 +323,10 @@ Each example is a complete frame with fixed ids and times.
             "required": true
           }
         ],
-        "risk": "write"
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
       }
     ]
   },
@@ -333,6 +379,7 @@ Each example is a complete frame with fixed ids and times.
           }
         }
       },
+      "docker": false,
       "heartbeat_seconds": 30
     },
     "hub_version": "0.1.0",
@@ -354,7 +401,7 @@ Each example is a complete frame with fixed ids and times.
       "code": "incompatible",
       "hub": {
         "major": 1,
-        "minor": 1
+        "minor": 2
       }
     }
   },
@@ -495,6 +542,50 @@ Each example is a complete frame with fixed ids and times.
 }
 ```
 
+### `get_logs`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "get_logs",
+  "payload": {
+    "deadline": "2023-11-14T22:14:50Z",
+    "lines": 50,
+    "min_level": "info",
+    "offset": 0
+  },
+  "v": 1
+}
+```
+
+### `logs`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "logs",
+  "payload": {
+    "has_more": false,
+    "lines": [
+      {
+        "at": "2023-11-14T22:13:20Z",
+        "level": "warn",
+        "message": "/srv is 97% full",
+        "target": "agent.checks"
+      },
+      {
+        "at": "2023-11-14T22:13:20Z",
+        "level": "error",
+        "message": "agent not connected; retrying in 4s",
+        "target": "agent.link"
+      }
+    ]
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
 ### `run_skill`
 
 ```json
@@ -612,6 +703,7 @@ A successful run:
           }
         }
       },
+      "docker": false,
       "heartbeat_seconds": 30
     }
   },
@@ -640,8 +732,318 @@ A successful run:
   "id": "01900000-0000-7000-8000-000000000001",
   "kind": "unsupported",
   "payload": {
-    "kind": "future_kind"
+    "type": "future_kind"
   },
+  "v": 1
+}
+```
+
+### `agent_status`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "agent_status",
+  "payload": {
+    "ceiling_hash": null,
+    "ceiling_summary": null,
+    "helper_identity": null,
+    "helper_status": {
+      "state": "absent"
+    },
+    "in_container": true,
+    "runs_as_root": true,
+    "skill_runner_status": {
+      "state": "absent"
+    }
+  },
+  "v": 1
+}
+```
+
+### `run_capability`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "container": "plex"
+    },
+    "authorization_kind": "human",
+    "contract": "container.restart",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": null,
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "container:plex",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+A containment request. `expected_safety` is required:
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "source": "203.0.113.9/32"
+    },
+    "authorization_kind": "human",
+    "contract": "firewall.block_source",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": {
+      "boot_id": "5f0c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
+      "config_hash": "0101010101010101010101010101010101010101010101010101010101010101",
+      "fingerprint": "abababababababababababababababababababababababababababababababab",
+      "generation": 7,
+      "route_state_hash": "0202020202020202020202020202020202020202020202020202020202020202",
+      "state": "verified"
+    },
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "host:nas",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+The same request authorized by a person while the helper is unverified:
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "run_capability",
+  "payload": {
+    "args": {
+      "source": "203.0.113.9/32"
+    },
+    "authorization_kind": "human",
+    "contract": "firewall.block_source",
+    "execution_id": "01900000-0000-7000-8000-0000000000f1",
+    "expected_safety": {
+      "reason": "key_not_pinned",
+      "state": "unverified"
+    },
+    "expires_at": "2023-11-14T22:14:50Z",
+    "plan_hash": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "target": "host:nas",
+    "version": 1
+  },
+  "v": 1
+}
+```
+
+### `capability_result`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "capability_result",
+  "payload": {
+    "outcome": {
+      "succeeded": {
+        "outputs": {
+          "previous_state": "running"
+        }
+      }
+    }
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `refused`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "refused",
+  "payload": {
+    "code": "rate_limited",
+    "detail": "too many mutations this hour",
+    "retry_after": 30,
+    "scope": "global"
+  },
+  "v": 1
+}
+```
+
+### `action_status`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "action_status",
+  "payload": {
+    "execution_ids": [
+      "01900000-0000-7000-8000-0000000000f1"
+    ],
+    "expected_epoch": "01900000-0000-7000-8000-0000000000f0"
+  },
+  "v": 1
+}
+```
+
+### `action_status_answers`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "action_status_answers",
+  "payload": {
+    "answers": [
+      {
+        "execution_id": "01900000-0000-7000-8000-0000000000f1",
+        "state": {
+          "finished": {
+            "result": {
+              "outcome": {
+                "succeeded": {
+                  "outputs": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "epoch": "01900000-0000-7000-8000-0000000000f0"
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `get_catalog`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "get_catalog",
+  "payload": {
+    "page": 0,
+    "page_size": 50
+  },
+  "v": 1
+}
+```
+
+### `catalog_page`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "catalog_page",
+  "payload": {
+    "entries": [
+      {
+        "contract": "container.restart",
+        "descriptor": {
+          "family": "container",
+          "verb": "restart"
+        },
+        "version": 1
+      }
+    ],
+    "next_page": null
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `transfer_begin`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_begin",
+  "payload": {
+    "kind": "package_artifact",
+    "sha256": "0404040404040404040404040404040404040404040404040404040404040404",
+    "size": 3,
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_chunk`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_chunk",
+  "payload": {
+    "bytes": "AQID",
+    "seq": 0,
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_end`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_end",
+  "payload": {
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "v": 1
+}
+```
+
+### `transfer_result`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "transfer_result",
+  "payload": {
+    "outcome": "stored",
+    "transfer_id": "01900000-0000-7000-8000-0000000000f1"
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
+  "v": 1
+}
+```
+
+### `attest_safety`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "attest_safety",
+  "payload": {
+    "nonce": "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU="
+  },
+  "v": 1
+}
+```
+
+### `safety_attestation`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "safety_attestation",
+  "payload": {
+    "public_key": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgY=",
+    "report": "ZG9tb3ZvaS1hdHRlc3RhdGlvbg==",
+    "signature": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw=="
+  },
+  "reply_to": "01900000-0000-7000-8000-000000000002",
   "v": 1
 }
 ```

@@ -2,7 +2,6 @@
 //! them.
 
 #[cfg(test)]
-mod actions;
 #[cfg(test)]
 mod audit;
 #[cfg(test)]
@@ -13,6 +12,8 @@ mod audit_inspect;
 mod backup;
 #[cfg(test)]
 mod backup_logging;
+#[cfg(test)]
+mod baseline;
 #[cfg(test)]
 mod commit_cost;
 #[cfg(test)]
@@ -57,5 +58,3 @@ mod restore;
 mod search;
 #[cfg(test)]
 mod uow;
-#[cfg(test)]
-mod upgrade;

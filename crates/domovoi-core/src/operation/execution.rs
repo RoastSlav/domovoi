@@ -29,8 +29,8 @@ pub enum ExecutionError {
     /// The approval named a different plan than the one stored.
     #[error("the plan changed since it was shown")]
     PlanChanged,
-    /// Only a person can authorize this kind of execution (a package change, for now).
-    #[error("only a person can approve this for now")]
+    /// Only a person can authorize this kind of execution (a package change).
+    #[error("only a person can approve this")]
     NotYetSupported,
     /// A policy permit may authorize only a write, or a block that carries a verified safety
     /// identity; this step is neither.

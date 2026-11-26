@@ -172,7 +172,7 @@ pub struct Hello {
     /// Optional features, such as `docker` or `journal`.
     #[serde(default)]
     pub capabilities: Vec<String>,
-    /// Protocol features the agent implements, sorted. Empty until a milestone adds one.
+    /// Protocol features the agent implements, sorted. Empty while the protocol defines no optional feature.
     #[serde(default)]
     pub features: Vec<String>,
     /// The action journal's epoch, so the hub can tell a lost journal from a new one.

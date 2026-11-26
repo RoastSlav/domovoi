@@ -66,8 +66,7 @@ pub struct ErrorMessage {
 
 /// The reply to a frame whose kind the receiver does not know.
 ///
-/// Protocol 1.2 carries the field as `type`; the 1.1 `kind` name is not kept, because there is
-/// no 1.1 peer to accept under the exact-version rule.
+/// The field is carried as `type`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unsupported {
     /// The kind that was not understood.
@@ -77,8 +76,8 @@ pub struct Unsupported {
 
 /// Runtime changes the agent reports after `welcome`.
 ///
-/// The hub answers nothing and records the values for the session. Prompt 25 consumes them;
-/// this milestone only carries them honestly.
+/// The hub answers nothing and records the values for the session; they replace what `welcome`
+/// and `hello` reported.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentStatus {
     /// What the agent knows about the helper now.

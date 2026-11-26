@@ -1,4 +1,4 @@
-import type { Action, Host, IncidentSummary, OperationSummary } from "../api/types";
+import type { Host, IncidentSummary, OperationSummary } from "../api/types";
 import { Stack } from "../components";
 import { attentionItems, TIER_TITLES, type Tier } from "../features/attention/attentionModel";
 import { AttentionRows } from "../features/attention/AttentionRows";
@@ -45,19 +45,8 @@ const INCIDENTS = [
   { id: "i3", title: "A new kind of signal", severity: "mystery", last_firing_at: ago(400) },
 ].map((one) => ({ ...one, host_id: "demo-nas" })) as IncidentSummary[];
 
-const UNKNOWN_ACTION = {
-  id: "a1",
-  incident_id: "i1",
-  host_id: "demo-nas",
-  skill: "restart_container",
-  status: "outcome_unknown",
-  created_at: ago(50),
-} as Action;
-
 const ITEMS = attentionItems({
   incidents: INCIDENTS,
-  proposed: [],
-  unknownActions: [UNKNOWN_ACTION],
   waitingApproval: [],
   waitingUser: [operation("ask", "waiting_user", {})],
   paused: [

@@ -39,7 +39,6 @@ vi.mock("../api/events", async (original) => {
 const QUIET = {
   incidents_action_needed: 0,
   incidents_open: 0,
-  approvals_waiting: 0,
   hosts_offline: 0,
   hosts_total: 1,
 };
@@ -346,7 +345,7 @@ test("host_selector_says_when_hosts_cannot_load_and_retry_loads_them", async () 
 test("approvals_count_follows_the_selected_host", async () => {
   route("GET /api/v1/overview", (init) => ({
     ...QUIET,
-    approvals_waiting: init.params?.query?.host === "nas" ? 2 : 5,
+    operations_waiting_approval: init.params?.query?.host === "nas" ? 2 : 5,
   }));
   renderLayout("/incidents?host=nas");
 

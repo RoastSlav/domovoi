@@ -1,3 +1,5 @@
+//! In-memory triage cache and model usage.
+
 use async_trait::async_trait;
 use domovoi_core::ports::{StoreError, TriageCacheRepo, UsageEntry, UsageRepo, UsageTotal};
 use domovoi_core::{Fingerprint, TriageReport};

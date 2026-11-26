@@ -70,7 +70,6 @@ tower-http = "0.7.1"
 utoipa = { version = "6.0.0", features = ["axum_extras", "uuid", "jiff_0_2"] }
 utoipa-axum = "0.3.0"
 rust-embed = { version = "8.13.0", features = ["mime-guess"] }
-mime_guess = "2.0.5"
 argon2 = "0.6.0"
 rand = "0.10.3"
 hmac = "0.13.0"
@@ -134,6 +133,14 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+# The container smoke test checks how the image is wired, not how fast the binary is, so it
+# skips the link-time optimisation and builds the crates in parallel.
+[profile.smoke]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 1
 
 # Line tables keep backtraces readable while cutting link time and target/ size, which
 # dominate local builds (most of all on Windows).

@@ -1,7 +1,7 @@
 //! What an agent's journal says about a run: the answers a status query returns.
 
 use crate::action::JournalEpoch;
-use crate::id::ActionId;
+use crate::id::ExecutionId;
 
 /// What an agent's journal says about a run id.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,7 +44,7 @@ pub enum UnknownReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionAnswerEntry {
     /// The run the answer is about.
-    pub execution: ActionId,
+    pub execution: ExecutionId,
     /// What the journal knows.
     pub answer: ActionAnswer,
 }

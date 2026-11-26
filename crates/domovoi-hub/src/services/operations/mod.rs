@@ -10,7 +10,7 @@ mod summary;
 use std::sync::Arc;
 
 use domovoi_core::ports::{Clock, OperationRepo, Redactor};
-use domovoi_core::{ActionId, ExecutionId, IncidentId, OperationId, Risk, StepId};
+use domovoi_core::{ExecutionId, IncidentId, OperationId, Risk, StepId};
 use domovoi_engine::operations::{OperationError, OperationHandle};
 
 use crate::agent_server::AgentAdmin;
@@ -50,7 +50,7 @@ pub enum OperationCommandError {
     Operation(OperationError),
 }
 
-/// What a chat button needs to know about the step behind an action id.
+/// What a chat button needs to know about the step behind an execution id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepRef {
     /// The operation.
@@ -88,21 +88,16 @@ impl OperationCommands {
             .ok_or(OperationCommandError::NotEnabled)
     }
 
-    /// The step whose execution id equals `action`, or `None` for a legacy action. Reads
+    /// The step behind `execution`, or `None` when no stored execution has that id. Reads
     /// the stored operations whether or not the service runs.
-    pub async fn find_by_action(
+    pub async fn find_by_execution(
         &self,
-        action: ActionId,
+        execution: ExecutionId,
     ) -> Result<Option<StepRef>, OperationCommandError> {
         let store = |e: domovoi_core::ports::StoreError| {
             OperationCommandError::Operation(OperationError::Store(e.to_string()))
         };
-        let Some(row) = self
-            .repo
-            .execution(ExecutionId::from_action(action))
-            .await
-            .map_err(store)?
-        else {
+        let Some(row) = self.repo.execution(execution).await.map_err(store)? else {
             return Ok(None);
         };
         let record = row.value;

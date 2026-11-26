@@ -170,7 +170,6 @@ async fn proposal_becomes_an_execution_step_with_a_plan_hash() {
         "needs its approval"
     );
     assert!(has(step, turn, EdgeKind::CausedBy), "caused by the turn");
-    assert!(w.actions().await.is_empty(), "no legacy action row");
     assert_eq!(
         w.skill_requests(),
         0,
@@ -296,13 +295,12 @@ async fn notify_mints_one_token_per_chat_capable_step_and_passes_them_to_the_car
             _ => None,
         })
         .unwrap();
-    let (action, token) = tokens.iter().next().unwrap();
+    let (execution, token) = tokens.iter().next().unwrap();
     assert_eq!(token.len(), 64);
-    let stored =
-        OperationRepo::execution(&*w.store, domovoi_core::ExecutionId::from_action(*action))
-            .await
-            .unwrap()
-            .unwrap();
+    let stored = OperationRepo::execution(&*w.store, *execution)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         stored.value.chat_token_hash(),
         Some(&domovoi_engine::chat_token::token_hash(token))

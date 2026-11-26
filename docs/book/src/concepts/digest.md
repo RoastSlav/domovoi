@@ -26,3 +26,8 @@ Advisories are hygiene findings that are worth knowing but not worth waking up f
 | Secret exposed | A secret is listed in `[secrets] exposed`; rotate it, then remove it from the list. |
 | Baseline entry expired | Something expected on a host was gone long enough to leave the baseline. |
 | Agent outdated | An agent is a minor version (or more) behind the hub. |
+| Delivery failing | A chat gateway or notifier took no delivery after every retry. It clears after the next delivery succeeds. |
+| Saved secrets unreadable | A secret saved in the web UI cannot be decrypted, because `secret.key` is missing or differs. Enter the secret again in **Settings**. |
+| Saved settings not applied | A change from the Settings page failed to apply, and the hub went back to the previous settings. It clears after the next successful apply. |
+| Nightly backup failed | The nightly backup failed or did not verify. The newest earlier backup is still in the backups folder. |
+| Background task failed | A background task, such as the re-check after an action, used up its attempts. See [Troubleshooting](../troubleshooting.md#advisories). |

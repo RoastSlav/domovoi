@@ -4,7 +4,7 @@
 |---|---|
 | Branch | `pre-release-cleanup` |
 | Milestone | closing pass, after every implementation prompt |
-| Depends on (must be merged) | every other prompt in the index that is going to ship. Prompts 44–47 are not yet written: if they will land before the first release, run this prompt **after** them. It is a sweep, and it is only worth doing once |
+| Depends on (must be merged) | every other prompt in the index that is going to ship. Prompts 44–47 (helper ADRs, accounts, skill runner, attestation, helper reads, permits and autonomy, containment) are written and add migrations `0020`–`0022` and ADRs `0030`–`0038`: merge every one that ships first, so the baseline, the book and the audit cover them. Prompts 58 and 60 (remove the legacy triage path and the legacy executor) overlap section 3.1: before 3.1, check what they already removed and remove only what is left. It is a sweep, and it is only worth doing once |
 | Produces | no new feature. One new ADR (section 3.5), a single baseline migration, a smaller and truer repository |
 | Suggested model | large for the design calls (3.1–3.5) and the final review; medium for the audits; small for the mechanical comment and doc sweeps. Use subagents, one per area, never two on the same files |
 
@@ -57,7 +57,7 @@ Verify each item; line numbers will have moved.
 - Rule breaks already visible: `#[allow(unused_imports)]` at `crates/domovoi-engine/src/operations/investigate/mod.rs:46` (hard rule 5); `crates/domovoi-proto/src/messages/stream.rs:80` says "Prompt 25 consumes them" (committed files never name prompts).
 - Citations of internal planning documents in committed files, which will dangle once those documents stay out of `main`: `RW-nn`, `D-nn`, `O-nn`, `R-n`, `docs/rework`, `docs/design-pack`. Found in `web/DESIGN.md` (11), `crates/domovoi-core/src/{capability/target.rs,action/authorization.rs,id.rs,…}`, `crates/domovoi-engine/src/targets/mod.rs`, `xtask/src/arch/rules.rs`, `docs/adr/0021`, `0022`, test files and `migrations/0008_agent_protocol_report.sql`. Re-run the grep from 4.10; this list is a sample.
 - Feature gates to confirm still earn their keep: `cfg(feature …)` in `domovoi-checks` (`lib.rs`, `framework/mod.rs`) and `domovoi-hub` (`csp.rs`, `spa.rs`).
-- The 15 migrations `0001`–`0015` exist because the schema grew during the rework (for example `0007_advisories_kind_unchecked`, `0006_unit_of_work` rebuilding tables).
+- The 22 migrations `0001`–`0022` exist because the schema grew during the rework (for example `0007_advisories_kind_unchecked`, `0006_unit_of_work` rebuilding tables).
 
 ## 3. Part A — remove the old app
 
@@ -88,11 +88,12 @@ The chain starts at row 1 of a new database. Remove the legacy digest and anchor
 
 ### 3.5 One baseline migration (needs an ADR)
 
-Replace `0001`–`0015` with a single `0001_init.sql` describing the schema as it is now, with no table rebuild steps, no `unchecked` columns, no columns that only held old data, no triggers for tables that no longer exist.
+Replace `0001`–`0022` with a single `0001_init.sql` describing the schema as it is now, with no table rebuild steps, no `unchecked` columns, no columns that only held old data, no triggers for tables that no longer exist.
 
-- Build it by dumping the schema a fresh database ends up with after all fifteen, then simplify by hand; add a test that compares the new baseline's schema with the pre-change schema minus the tables and columns this prompt deletes (generate that comparison once, in scratch, and record the result in the PR; do not commit the 15 old files).
-- This edits merged migrations, which hard rule 9 and arch-check forbid. That rule exists to protect released databases, and there are none. Write **ADR 0029** (`docs/adr/0029-single-baseline-migration.md`) saying: the rework releases as the first version; the existing history is squashed once; from the first release migrations are immutable. Change the arch-check migration rule in `xtask/src/arch/rules.rs` only as far as the ADR says (for example, the rule compares against the baseline tag of the first release), keep its tests, and add a test that fails if a later edit touches the baseline. This is the only place in the prompt where a rule is allowed to move, and only with the ADR.
+- Build it by dumping the schema a fresh database ends up with after all twenty-two, then simplify by hand; add a test that compares the new baseline's schema with the pre-change schema minus the tables and columns this prompt deletes (generate that comparison once, in scratch, and record the result in the PR; do not commit the 22 old files).
+- This edits merged migrations, which hard rule 9 and arch-check forbid. That rule exists to protect released databases, and there are none. Write **ADR 0039** (`docs/adr/0039-single-baseline-migration.md`) saying: the rework releases as the first version; the existing history is squashed once; from the first release migrations are immutable. Change the arch-check migration rule in `xtask/src/arch/rules.rs` only as far as the ADR says (for example, the rule compares against the baseline tag of the first release), keep its tests, and add a test that fails if a later edit touches the baseline. This is the only place in the prompt where a rule is allowed to move, and only with the ADR.
 - Fresh-database tests (`migrations.rs`, `schema_compat`) are rewritten against the baseline. Development databases made earlier must be recreated; say so in the PR and in `TESTING.md`.
+- The baseline includes the tables from `0016`–`0022` (knowledge, experience search, conversations, install jobs, helper trust, permits and autonomy, containment blocks).
 - Keep `schema_compat` (newer-database refusal), `quick_check`, and pre-migrate backup code: they serve the next version.
 
 ### 3.6 Vocabulary
@@ -145,7 +146,7 @@ For every file touched by the rework (use `git log --stat 224df468~60..HEAD` as 
 
 `docs/book/src` is the product documentation and the only documentation a user reads. Bring it to a state where a new owner can install, configure, operate and troubleshoot Domovoi from it alone. Do this by **using the product**, not only by reading code: build the hub with the UI embedded, start it with the dev hub or a single-box install in WSL, click through every page, run every CLI command, and compare.
 
-1. **Coverage matrix first.** Write (in the PR description, not in the repo) a table of every user-visible thing against the page that documents it, and fill each gap with a page or a section. Walk at least: every top-level web page and its controls (Control Room, incidents, operations and the step timeline and inspector, approvals, hosts, skills, capability center and install wizard, policy editor, simulator and publication report, knowledge pages, conversations/operator panel, visibility profiles, audit, retention, settings, graph if shipped); every `domovoi` CLI command and flag; every configuration section and key; every HTTP route that is public API; every built-in check and its thresholds; skills, manifests and the sandbox; webhooks; Discord setup and every card and button; digest; LLM providers and budgets; agents, enrollment, the package/ceiling/helper concepts as shipped (placeholders for unwritten helper features are labelled as not available yet, once, in one place); backup, restore, retention; metrics and readiness; security model and what is *not* protected; upgrading from this release to the next; Docker, binary, container-agent, Unraid and systemd installs; troubleshooting for the failure modes the code can actually report.
+1. **Coverage matrix first.** Write (in the PR description, not in the repo) a table of every user-visible thing against the page that documents it, and fill each gap with a page or a section. Walk at least: the helper and skill-runner units, permits and autonomy, and containment (`firewall.block_source`) as shipped; every top-level web page and its controls (Control Room, incidents, operations and the step timeline and inspector, approvals, hosts, skills, capability center and install wizard, policy editor, simulator and publication report, knowledge pages, conversations/operator panel, visibility profiles, audit, retention, settings, graph if shipped); every `domovoi` CLI command and flag; every configuration section and key; every HTTP route that is public API; every built-in check and its thresholds; skills, manifests and the sandbox; webhooks; Discord setup and every card and button; digest; LLM providers and budgets; agents, enrollment, the package/ceiling/helper concepts as shipped (placeholders for unwritten helper features are labelled as not available yet, once, in one place); backup, restore, retention; metrics and readiness; security model and what is *not* protected; upgrading from this release to the next; Docker, binary, container-agent, Unraid and systemd installs; troubleshooting for the failure modes the code can actually report.
 2. **Correct.** Every statement, number, default, command line, path, port, file name, error text, button label and screenshot must match the code and the running UI. Copy-paste every command block into a shell and run it. Every config snippet must load. Defaults come from the generated reference (`cargo xtask docs-config`), never typed by hand twice.
 3. **Up to date and without history.** Present tense, no "now", "new", "no longer", "instead of the old". `concepts/actions.md` is mostly about the removed legacy path: fold what is still true into `operations.md`, delete the page, its `SUMMARY.md` entry and every inbound link. `install/upgrading.md` describes upgrading from this release to the next (backup, pre-migrate backup, schema guard, protocol rule, hub then agents), not from the old app.
 4. **Complete structure.** `SUMMARY.md` lists every page once, in a reading order that works for a first-time reader (introduction, quick start, concepts, guides, install, reference, security, troubleshooting, FAQ); no orphan page; no empty or stub page; each concept page says what it is, why it matters and where to configure it; each reference page is exact and complete rather than illustrative. The FAQ answers the questions the other pages raise, not marketing.
@@ -160,7 +161,7 @@ Every file in `docs/adr/` is read in full against the final code and `ARCHITECTU
 - **Rewrite**: the decision is in force but the text describes a design that changed during the rework (for example the single writer, approval rehydration, plan hash and authorization, execution boundary, capability registry, operation aggregate, use-case layer, policy shadow). Rewrite it to the final design, as a clean decision record: context, decision, consequences. No history of how it got there.
 - **Delete**: the decision was replaced, is now obvious from the code, or recorded something that no longer exists (for example any ADR about the removed legacy executor or the retired action writer). Delete the file and fix every link to it. Do not mark an ADR `Superseded`.
 
-When done: **every remaining ADR has status `Accepted`** and none is `Proposed`, `Draft`, `Deprecated` or `Superseded`; `0000-template.md` and `README.md` stay; the README index lists exactly the remaining files with a one-line summary each; numbering gaps from deleted ADRs are fine and are not renumbered (links and arch-check rule citations stay stable), and the README says so in one sentence. Check that each rule id that `xtask/src/arch/rules.rs` cites (R-numbers, INV, EXEC, MOD, CALLER) points to an ADR or to `ARCHITECTURE.md` that still exists. The ADR required for changes to enforced rules (see arch-check "rule changes without an ADR") keeps working. ADR 0029 (section 3.5) is written as a plain decision record: migrations are immutable from the first release and the baseline is the starting point.
+When done: **every remaining ADR has status `Accepted`** and none is `Proposed`, `Draft`, `Deprecated` or `Superseded`; `0000-template.md` and `README.md` stay; the README index lists exactly the remaining files with a one-line summary each; numbering gaps from deleted ADRs are fine and are not renumbered (links and arch-check rule citations stay stable), and the README says so in one sentence. Check that each rule id that `xtask/src/arch/rules.rs` cites (R-numbers, INV, EXEC, MOD, CALLER) points to an ADR or to `ARCHITECTURE.md` that still exists. The ADR required for changes to enforced rules (see arch-check "rule changes without an ADR") keeps working. ADR 0039 (section 3.5) is written as a plain decision record: migrations are immutable from the first release and the baseline is the starting point.
 
 Also confirm the set is complete: any lasting decision the code relies on that has no ADR (for example the single-baseline schema, the use-case layer's `Caller`, the closed meta-tool set, the human-only approval rule, the exact protocol rule, the audit chain, the helper boundary as built) gets one, short, `Accepted`. Do not invent decisions that were never made; ask in the PR about any doubtful one.
 
@@ -178,10 +179,10 @@ Check every file under `examples/` against the final product, and make the folde
 
 Make every document describe **what is true now, in present tense, without history**.
 
-- `ARCHITECTURE.md` (423 lines, one very long bullet per area): rewrite for readability, drop "the queue", "legacy", "any more" and process narration, keep INV, EXEC and MOD rules intact and accurate; check every type name, path, route, rule id and file name against the code; check the crate dependency table against each `Cargo.toml` and against `cargo xtask arch-check`. It must not cite the rework documents.
+- `ARCHITECTURE.md` (one very long bullet per area): rewrite for readability, drop "the queue", "legacy", "any more" and process narration, keep INV, EXEC and MOD rules intact and accurate; check every type name, path, route, rule id and file name against the code; check the crate dependency table against each `Cargo.toml` and against `cargo xtask arch-check`. It must not cite the rework documents.
 - `CONTRIBUTING.md`, `TESTING.md` (every command still works; every path exists; WSL notes are current; test counts and job names match CI), `SECURITY.md`, `web/README.md`, `web/DESIGN.md` (remove the citations of internal ids; kit inventory matches `web/src/components`), `deploy/README.md`, `docs/maintainers/repository-setup.md`, `docs/assets/*.svg` (do they show the current UI?).
 - `CHANGELOG.md` is generated by release-plz: do not hand-edit it unless it names a prompt, a build plan or an agent, in which case reword that line only.
-- `AGENTS.md`: update the command table, hard rules and paths if any changed in this prompt (for example the migration rule after ADR 0029, and the removal of `docs/rework` references, if any). Keep it the only committed file that may name agents and prompts. Remove its mentions of `docs/build-plan` and of prompt-pack workflow only if the prompt pack no longer exists after 4.9; keep the rules every future contributor needs.
+- `AGENTS.md`: update the command table, hard rules and paths if any changed in this prompt (for example the migration rule after ADR 0039, and the removal of `docs/rework` references, if any). Keep it the only committed file that may name agents and prompts. Remove its mentions of `docs/build-plan` and of prompt-pack workflow only if the prompt pack no longer exists after 4.9; keep the rules every future contributor needs.
 
 ### 4.8a The README: rewrite it for people
 
@@ -231,14 +232,14 @@ Last step, only after everything else is committed and green. These documents we
 - New features, new routes, new screens, new dependencies.
 - Wire or protocol changes (no version bump), changes to the approval flow, the policy evaluator, or any security behaviour.
 - Changing what an ADR decided. Reword, merge or delete ADRs only as 4.6 says; a decision the code does not follow is reported, not edited away.
-- Prompts 44–47 (helper ADRs, key enrollment) if they are not merged: do not start them. Where a placeholder for them exists in the UI or docs, leave it and make sure it is labelled honestly.
+- Any of prompts 44–47 that has not merged: do not start it. Where a placeholder for them exists in the UI or docs, leave it and make sure it is labelled honestly.
 - Fixing a bug found along the way: note it in the PR description and open it as a follow-up, unless the cleanup cannot proceed without it.
 
 ## 6. Order of work and commits
 
-1. Branch from the up-to-date base. Run the full local checks once and record the baseline (`cargo xtask ci --fast` on WSL, web checks, `cargo doc`, `cargo insta test --unreferenced=reject`).
+1. Branch from the up-to-date base. Install the tools the checks need if missing (`mdbook`, `actionlint`, `cargo-nextest`, `cargo-insta`, `cargo-machete`). Run the full local checks once and record the baseline (`cargo xtask ci --fast` on WSL, web checks, `cargo doc`, `cargo insta test --unreferenced=reject`).
 2. 3.1 → 3.2 → 3.3 → 3.4 (each: delete, fix compile, delete the tests of the deleted thing, regenerate generated files).
-3. 3.5 baseline migration and ADR 0029.
+3. 3.5 baseline migration and ADR 0039.
 4. 3.6 vocabulary sweep.
 5. 4.1–4.4 audits. Subagents may run the *searches* in parallel; fix in one session so edits do not collide.
 6. 4.5 book, 4.6 ADRs, 4.7 examples, 4.8 other documentation, 4.8a README (last of the docs, so it links to final pages and reuses final screenshots), then 4.10 hygiene greps. Write the book coverage matrix before editing pages.
@@ -250,7 +251,7 @@ Commit one concern per commit (`refactor(engine): remove the legacy action drain
 ## 7. Acceptance criteria
 
 1. No code, schema, endpoint, UI element, test, snapshot or document exists to support data or behaviour from before the rework (3.1–3.6); the greps in 3.6 and 4.6 are clean.
-2. A fresh database is created by exactly one baseline migration; ADR 0029 exists; a test fails if the baseline is edited after the first release.
+2. A fresh database is created by exactly one baseline migration; ADR 0039 exists; a test fails if the baseline is edited after the first release.
 3. The audit chain, plan hash and approval binding have one form each; the invariants INV-1 (human-only approval), the closed `MetaTool` set, the single dispatch site (`EXEC-2`) and `MOD-*`/`CALLER-1` are unchanged and their gates still pass.
 4. `cargo doc` has no warnings; `cargo xtask docs-links` passes; `docs-config` and the OpenAPI/`schema.d.ts` regeneration produce no diff.
 5. No unreferenced snapshot, no `#[ignore]`/skip, no sleep in tests, no new `#[allow]`; the pre-existing `#[allow(unused_imports)]` is gone.
@@ -266,7 +267,7 @@ Commit one concern per commit (`refactor(engine): remove the legacy action drain
 ## 8. Tests required
 
 - `baseline_migration_matches_the_expected_schema` (tables, columns, indexes, triggers; fresh database).
-- `baseline_migration_is_immutable_after_first_release` (arch-check rule test for ADR 0029).
+- `baseline_migration_is_immutable_after_first_release` (arch-check rule test for ADR 0039).
 - `audit_chain_starts_at_the_first_row_of_a_fresh_database` and the existing tamper, truncation and anchor tests, updated.
 - `new_database_has_no_legacy_action_surface` or the equivalent compile-level absence, only if section 3.1 leaves any action type in place.
 - `example_configs_and_skills_load` (hub, agent, each skill).
@@ -325,7 +326,7 @@ These come from `AGENTS.md`, which CI enforces.
   first, and describe the migration by its contents, not its number. Time comes from the `Clock` port;
   tests advance the fake clock from `domovoi-testkit` and never sleep. Secrets are
   `secrecy::SecretString` and are never logged, put into prompts or returned from the API.
-  *(This prompt is the one sanctioned exception to the migration rule, and only as section 3.5 and ADR 0029 describe.)*
+  *(This prompt is the one sanctioned exception to the migration rule, and only as section 3.5 and ADR 0039 describe.)*
 - **Web.** Read `web/DESIGN.md` before touching `web/`. Build only from the kit in
   `web/src/components/`. Use `useActionFeedback` for every mutation and `describeError` for every error
   message, and tokens only for styling.

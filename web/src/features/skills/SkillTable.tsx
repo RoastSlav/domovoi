@@ -4,7 +4,6 @@ import {
   Button,
   Cluster,
   DataTable,
-  RelativeTime,
   StatusPill,
   Switch,
   Tag,
@@ -83,14 +82,6 @@ function columns({
         ) : (
           <Text muted>Any check</Text>
         ),
-    },
-    {
-      key: "last_used",
-      label: "Last used",
-      width: "8rem",
-      hint: `When Domovoi last sent this skill to the agent on ${host}.`,
-      cell: (skill) =>
-        skill.last_used ? <RelativeTime at={skill.last_used} /> : <Text muted>Never</Text>,
     },
     {
       key: "enabled",

@@ -48,14 +48,6 @@ pub(super) async fn apply_execution(
             "the execution and its step belong to different operations",
         ));
     }
-    let action: Option<(i64,)> = sqlx::query_as("SELECT 1 FROM actions WHERE id = ?")
-        .bind(execution.step.to_string())
-        .fetch_optional(&mut *conn)
-        .await
-        .map_err(backend)?;
-    if action.is_some() {
-        return Err(refuse("execution id is an action id"));
-    }
     let stored = execution_version(conn, execution.step).await?;
     match (expected, stored) {
         (ExecutionGuard::New, Some(version)) => Err(conflict(

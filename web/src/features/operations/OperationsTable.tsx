@@ -1,9 +1,7 @@
-import { DataTable, RelativeTime, StatusPill, Tag, Visible, type Column } from "../../components";
-import { actionStatusMeta, operationStatusMeta } from "../../design/tone";
-import type { OperationRow } from "./operationRows";
+import { DataTable, RelativeTime, StatusPill, Visible, type Column } from "../../components";
+import type { OperationSummary } from "../../api/types";
+import { operationStatusMeta } from "../../design/tone";
 import styles from "./operations.module.css";
-
-const LEGACY_HINT = "From before operations. It finishes the classic way and is not converted.";
 
 function Hosts({ hosts }: { hosts: string[] }) {
   if (hosts.length === 0) {
@@ -14,46 +12,36 @@ function Hosts({ hosts }: { hosts: string[] }) {
     : hosts.join(", ");
 }
 
+/** Operations shown in the table, with their hosts by display name. */
+export interface OperationRow {
+  operation: OperationSummary;
+  hosts: string[];
+}
+
 const COLUMNS: Column<OperationRow>[] = [
   {
     key: "goal",
     label: "Operation",
     truncate: "clamp2",
-    tip: (row) => row.goal,
-    cell: (row) => (
-      <span className={styles.goal}>
-        {row.goal}
-        {row.kind === "legacy" && (
-          <Visible category="P1" id="operations.legacy-tag">
-            <Tag hint={LEGACY_HINT}>Legacy</Tag>
-          </Visible>
-        )}
-      </span>
-    ),
+    tip: (row) => row.operation.goal,
+    cell: (row) => <span className={styles.goal}>{row.operation.goal}</span>,
   },
   {
     key: "status",
     label: "Status",
     width: "11rem",
-    cell: (row) => (
-      <StatusPill
-        size="sm"
-        meta={
-          row.kind === "legacy" ? actionStatusMeta(row.status) : operationStatusMeta(row.status)
-        }
-      />
-    ),
+    cell: (row) => <StatusPill size="sm" meta={operationStatusMeta(row.operation.status)} />,
   },
   { key: "hosts", label: "Hosts", width: "10rem", cell: (row) => <Hosts hosts={row.hosts} /> },
   {
     key: "updated",
     label: "Updated",
     width: "8rem",
-    cell: (row) => <RelativeTime at={row.updatedAt} />,
+    cell: (row) => <RelativeTime at={row.operation.updated_at} />,
   },
 ];
 
-/** The merged operations and legacy actions as a table; each row opens its page. */
+/** The operations as a table; each row opens its page. */
 export function OperationsTable({ rows }: { rows: OperationRow[] }) {
   return (
     <Visible category="P0" id="operations.table">
@@ -61,8 +49,8 @@ export function OperationsTable({ rows }: { rows: OperationRow[] }) {
         caption="Operations"
         columns={COLUMNS}
         rows={rows}
-        rowKey={(row) => `${row.kind}:${row.id}`}
-        rowHref={(row) => row.href}
+        rowKey={(row) => row.operation.id}
+        rowHref={(row) => `/operations/${row.operation.id}`}
       />
     </Visible>
   );

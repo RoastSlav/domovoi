@@ -148,19 +148,6 @@ impl HubRuntime {
         let redactor = Arc::new(PatternRedactor::new(secrets));
         let clock = deps.clock;
         let test_executor = deps.process_executor.clone();
-        // The legacy executor is gone: settle every open legacy action before any task
-        // that could write actions or claim effects starts. Each row is its own guarded
-        // transaction, so a store failure stops start-up and the next start resumes where
-        // this one stopped; once nothing is open it is a no-op.
-        domovoi_engine::legacy::drain_legacy_actions(&domovoi_engine::legacy::LegacyDrainDeps {
-            actions: store.clone(),
-            incidents: store.clone(),
-            uow: store.clone(),
-            effects: store.clone(),
-            effect_read: store.clone(),
-            clock: clock.clone(),
-        })
-        .await?;
         adapters::ensure_hub_host(&store, &config, clock.now()).await?;
         let hub_host = adapters::hub_host(&store).await?;
         let capacity = overrides.bus_capacity.unwrap_or(4096).max(1);
@@ -360,7 +347,6 @@ impl HubRuntime {
             ApiDeps {
                 incidents: store.clone(),
                 signals: store.clone(),
-                actions: store.clone(),
                 hosts: store.clone(),
                 notes: store.clone(),
                 advisories: store.clone(),

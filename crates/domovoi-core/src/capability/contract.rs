@@ -52,11 +52,11 @@ pub struct CapabilityContract {
     pub output_limit_bytes: u32,
     /// How to check that the capability worked.
     pub verification: VerificationHint,
-    /// The arguments a host ceiling may constrain (D-18).
+    /// The arguments a host ceiling may constrain.
     pub constrainable_args: Vec<ConstrainableArg>,
     /// Facts that must be known before the policy evaluator may allow it.
     pub safety_facts: Vec<FactId>,
-    /// Where the capability executes (RW-39).
+    /// Where the capability executes.
     pub execution: ExecutionPath,
     /// Where this contract comes from.
     pub source: ContractSource,

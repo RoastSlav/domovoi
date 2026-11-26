@@ -68,14 +68,7 @@ pub struct AgentDeps {
     pub skills: SkillRoute,
 }
 
-impl AgentDeps {
-    /// These deps with the privilege boundary state the binary measured at start.
-    #[must_use]
-    pub fn with_boundary_in_effect(mut self, in_effect: bool) -> Self {
-        self.boundary_in_effect = in_effect;
-        self
-    }
-}
+impl AgentDeps {}
 
 /// A configured agent, ready to run.
 pub struct AgentRuntime {
@@ -281,13 +274,6 @@ impl AgentRuntime {
     #[must_use]
     pub fn with_connector(mut self, connector: Arc<dyn Connector>) -> Self {
         self.connector = connector;
-        self
-    }
-
-    /// Uses `jitter` for reconnect delays instead of random factors.
-    #[must_use]
-    pub fn with_jitter(mut self, jitter: Box<dyn FnMut() -> f64 + Send + Sync>) -> Self {
-        self.jitter = jitter;
         self
     }
 

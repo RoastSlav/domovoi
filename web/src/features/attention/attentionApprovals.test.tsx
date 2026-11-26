@@ -5,7 +5,6 @@ import { applyJournal } from "../../api/journalFrames";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
 import { summary } from "../../test/attentionFixtures";
 import { serveAttention, waitingDetail } from "../../test/attentionRoutes";
-import { action } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { AttentionPage } from "./AttentionPage";
 
@@ -29,7 +28,6 @@ describe("attention approvals", () => {
     serveAttention({
       operations: { waiting_approval: [waiting(0)] },
       details: detailsOf(1),
-      actions: { proposed: [action({ id: "old", skill: "prune_logs" })] },
     });
     open();
 
@@ -40,9 +38,6 @@ describe("attention approvals", () => {
       "href",
       "/operations/op-0",
     );
-    const classic = await screen.findByRole("group", { name: "Action prune_logs" });
-    expect(classic, "a classic action is a read-only card").toBeVisible();
-    expect(within(classic).queryByRole("button", { name: "Approve" })).toBeNull();
   });
 
   it("an_approval_that_cannot_load_says_so_and_keeps_the_other_cards", async () => {

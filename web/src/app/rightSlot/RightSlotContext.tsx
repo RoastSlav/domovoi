@@ -55,11 +55,6 @@ export function useRightSlot(): RightSlotApi {
   return useSlotInternals().api;
 }
 
-/** True while the slot is a modal sheet, so the page behind it is inert. */
-export function useSlotModal(): boolean {
-  return useSlotInternals().layout.mode === "sheet";
-}
-
 /** Owns the slot's state, once, in the shell. */
 export function RightSlotProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(slotReducer, INITIAL_SLOT);

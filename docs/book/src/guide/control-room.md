@@ -8,32 +8,32 @@ The Control room is the first page. It has four tiles, each a link to the list b
 
 | Tile                 | What it counts                                                                                                                                                                                                                                                               |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Needs you            | Everything the attention centre lists, as one number. It sums incident groups that need action, approvals waiting, operations waiting for approval, operations waiting for an answer, paused operations, actions whose result is unknown, and offline or incompatible hosts. |
+| Needs you            | The attention centre's items, as one number. It sums incident groups that need action, operations waiting for approval, operations waiting for an answer, paused operations (including those with an unknown result) and offline or incompatible hosts. It does not count block items (see below). |
 | Running now          | Operations that are running. It opens the Operations page filtered to running.                                                                                                                                                                                               |
-| Waiting for approval | Classic approvals plus operations waiting for approval. Nothing runs until you decide.                                                                                                                                                                                       |
+| Waiting for approval | Operations with a step waiting for approval. Nothing runs until you decide.                                                                                                                                                                                       |
 | Hosts online         | Hosts whose agent is connected now, out of the hosts that have or should have an agent. The hub's own machine is not counted.                                                                                                                                                |
 
 Under the tiles, **Needs you** shows the first five items that are not approvals, **Running now** lists running operations, **Waiting for approval** shows the first three approval cards, and **Hosts** shows only the hosts that need a look, the worst first. A failed source is named in a message with a Retry button; a failure never reads as "nothing needs you".
 
 ## What needs you, and in what order
 
-The attention centre and the "Needs you" list read the same items in one fixed order. The list is sorted by rank, and each rank belongs to an urgency heading.
+The attention centre and the "Needs you" list read the same items in one fixed order. The list is sorted in this order, and each position belongs to an urgency heading.
 
-| Rank | Item                                                                                             | Heading         |
-| ---- | ------------------------------------------------------------------------------------------------ | --------------- |
-| 0    | An operation whose result is unknown                                                             | Act now         |
-| 1    | A classic action whose result is unknown                                                         | Act now         |
-| 2    | An incompatible host                                                                             | Act now         |
-| 3    | A critical incident                                                                              | Act now         |
-| 4    | An offline host                                                                                  | Act now         |
-| 5    | An approval: operations first, the longest waiting first, then classic actions by soonest expiry | Waiting for you |
-| 6    | A question from an operation                                                                     | Waiting for you |
-| 7    | A paused operation                                                                               | Waiting for you |
-| 8    | A host that is expected to be incompatible                                                       | Waiting for you |
-| 9    | A warning incident                                                                               | Worth a look    |
-| 10   | Any other incident                                                                               | Worth a look    |
+| Order | Item                                              | Heading         |
+| ----- | ------------------------------------------------- | --------------- |
+| 1     | An operation whose result is unknown              | Act now         |
+| 2     | Blocks lost on a host (see [Blocking a network source](containment.md)) | Act now |
+| 3     | An incompatible host                              | Act now         |
+| 4     | A critical incident                               | Act now         |
+| 5     | An offline host                                   | Act now         |
+| 6     | An approval, the longest waiting first            | Waiting for you |
+| 7     | A question from an operation                      | Waiting for you |
+| 8     | A paused operation                                | Waiting for you |
+| 9     | A host that is expected to be incompatible        | Waiting for you |
+| 10    | A warning incident, or blocking is off on a host  | Worth a look    |
+| 11    | Any other incident                                | Worth a look    |
 
-Within a rank, the most recent item comes first.
+Within a position, the most recent item comes first.
 
 - **Act now** means something may have happened that you have not confirmed, or a part of your setup cannot do its job. An unknown result may have run on the host: check the host before continuing.
 - **Waiting for you** means Domovoi has stopped until you decide, answer or resume.

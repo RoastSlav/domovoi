@@ -3,11 +3,11 @@
 use domovoi_core::ports::{
     AggregateRef, CommitError, ExecutionGuard, Expectation, Observed, OperationWrite,
 };
-use domovoi_core::{ActionId, ExecutionId, HostId, IncidentId, OperationId, Risk};
+use domovoi_core::{ExecutionId, HostId, IncidentId, OperationId};
 
 use super::super::{ContractError, ContractResult, UowSubject};
 use super::{commit, edge, execution, is_constraint, note, operation, seed};
-use crate::build::{action_with_id, at};
+use crate::build::at;
 
 const EDGE_RULE: &str = "an edge must point to an earlier step of the same operation";
 
@@ -206,44 +206,6 @@ pub async fn execution_version_guard_refuses_a_stale_write(
     )
     .await;
     assert!(matches!(ghost, Err(CommitError::Conflict { .. })));
-    Ok(())
-}
-
-/// An execution row never takes an id a legacy action already has.
-pub async fn execution_id_equal_to_an_action_id_is_refused(
-    subject: &dyn UowSubject,
-) -> ContractResult {
-    let host = HostId::new();
-    let op = operation(host, 1)?;
-    let (run, row) = execution(op.id, 0, host)?;
-    seed(subject, &op, std::slice::from_ref(&run)).await?;
-    let action = action_with_id(
-        ActionId::from_uuid(run.id.as_uuid()),
-        IncidentId::new(),
-        host,
-        Risk::Write,
-    )?;
-    subject.actions().insert(&action).await?;
-
-    let outcome = commit(
-        subject,
-        vec![OperationWrite::Execution {
-            execution: row,
-            expected: ExecutionGuard::New,
-        }],
-    )
-    .await;
-    assert_eq!(
-        outcome,
-        Err(CommitError::Constraint(
-            "execution id is an action id".to_owned()
-        ))
-    );
-    let stored = subject
-        .operations()
-        .execution(ExecutionId::from_step(run.id))
-        .await?;
-    assert_eq!(stored, None);
     Ok(())
 }
 

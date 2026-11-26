@@ -14,9 +14,8 @@ use domovoi_core::ports::{
     UnknownReason,
 };
 use domovoi_core::{
-    ActionId, Actor, BudgetKind, EdgeKind, ExecutionId, FinishOutcome, OperationId,
-    OperationSnapshot, OperationStatus, PauseReason, StepId, StepIntent, StepKind, StepOutcome,
-    build_trace,
+    Actor, BudgetKind, EdgeKind, ExecutionId, FinishOutcome, OperationId, OperationSnapshot,
+    OperationStatus, PauseReason, StepId, StepIntent, StepKind, StepOutcome, build_trace,
 };
 use domovoi_engine::operations::{NewStep, derive_status};
 use domovoi_testkit::approvals;
@@ -70,7 +69,7 @@ enum ReadMode {
 #[derive(Default)]
 struct Script {
     reads: VecDeque<ReadMode>,
-    runs: BTreeMap<ActionId, RunMode>,
+    runs: BTreeMap<ExecutionId, RunMode>,
     checks: VecDeque<bool>,
 }
 
@@ -113,7 +112,7 @@ impl Sim {
         });
         let runs = script.clone();
         w.link.on_skill(move |_, dispatch| {
-            let mode = locked(&runs).runs.get(&dispatch.action).copied();
+            let mode = locked(&runs).runs.get(&dispatch.execution).copied();
             match mode.unwrap_or(RunMode::Works) {
                 RunMode::Works => Ok(ok_output(MARKER)),
                 RunMode::Fails => Ok(failed_output(1)),
@@ -208,7 +207,7 @@ impl Sim {
         else {
             return "execute (refused)";
         };
-        let action = ExecutionId::from_step(step).as_action();
+        let action = ExecutionId::from_step(step);
         locked(&self.script).runs.insert(action, mode);
         if matches!(mode, RunMode::Hangs) {
             // What the agent's journal will say when asked later.
@@ -530,7 +529,7 @@ impl Sim {
         }
         let mut seen = BTreeMap::new();
         for request in self.w.skill_requests() {
-            *seen.entry(request.action).or_insert(0) += 1;
+            *seen.entry(request.execution).or_insert(0) += 1;
         }
         assert!(
             seen.values().all(|count| *count <= 1),

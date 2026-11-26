@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use domovoi_core::ports::JournalRead;
 use jiff::Timestamp;
-use sqlx::migrate::Migrator;
+use sqlx::migrate::{Migration, Migrator};
 use sqlx::sqlite::{
     SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions, SqliteSynchronous,
 };
@@ -135,11 +135,34 @@ impl Store {
     /// An existing database with pending migrations is first copied to
     /// `<backup_dir>/pre-migrate-<time>.db`.
     pub async fn open(path: &Path, options: StoreOptions) -> Result<Self, StoreOpenError> {
+        Self::open_with(path, options, Vec::new()).await
+    }
+
+    /// Opens like [`Store::open`], with `extra` migrations after the embedded ones, so a test
+    /// can stage a schema change that is still pending when the database is opened.
+    #[doc(hidden)]
+    pub async fn open_with_extra_migrations(
+        path: &Path,
+        options: StoreOptions,
+        extra: Vec<Migration>,
+    ) -> Result<Self, StoreOpenError> {
+        Self::open_with(path, options, extra).await
+    }
+
+    async fn open_with(
+        path: &Path,
+        options: StoreOptions,
+        extra: Vec<Migration>,
+    ) -> Result<Self, StoreOpenError> {
         if let Some(dir) = path.parent() {
             create_private_dir(dir)?;
         }
         let existed = path.metadata().is_ok_and(|m| m.len() > 0);
-        let available: Vec<i64> = MIGRATOR.iter().map(|m| m.version).collect();
+        let available: Vec<i64> = MIGRATOR
+            .iter()
+            .chain(extra.iter())
+            .map(|m| m.version)
+            .collect();
         let applied = if existed {
             applied_versions(path).await?
         } else {
@@ -170,7 +193,8 @@ impl Store {
             .execute(&write)
             .await
             .map_err(|_| StoreOpenError::NoFts5)?;
-        let mut migrator = Migrator::with_migrations(MIGRATOR.iter().cloned().collect());
+        let mut migrator =
+            Migrator::with_migrations(MIGRATOR.iter().chain(extra.iter()).cloned().collect());
         migrator.set_ignore_missing(true);
         migrator
             .run(&write)

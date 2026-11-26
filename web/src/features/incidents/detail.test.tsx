@@ -1,7 +1,7 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { action, detail, incident, nas, stubMedia } from "../../test/fixtures";
+import { detail, incident, nas, stubMedia } from "../../test/fixtures";
 import { renderAt } from "../../test/render";
 import { IncidentDetailPage } from "./IncidentDetailPage";
 
@@ -138,10 +138,6 @@ test("acknowledge_is_the_only_primary_button", async () => {
 
   const ack = await screen.findByRole("button", { name: "Acknowledge" });
   expect(ack.className).toMatch(/primary/);
-  const actions = within(screen.getByRole("region", { name: /^Earlier actions/ }));
-  expect(actions.getByText("restart_container")).toBeVisible();
-  expect(actions.getByText("name = web"), "the arguments are visible").toBeVisible();
-  expect(screen.queryByRole("button", { name: "Approve" }), "actions are history").toBeNull();
   expect(screen.getByRole("button", { name: "Dismiss" }).className).not.toMatch(/primary/);
   expect(
     screen
@@ -168,7 +164,6 @@ test("incident_detail_has_two_columns_on_a_wide_screen", async () => {
 
   const side = await screen.findByRole("complementary", { name: "Actions and history" });
   expect(side.parentElement).toHaveAttribute("data-columns", "2");
-  expect(within(side).getByRole("region", { name: /^Earlier actions/ })).toBeVisible();
   expect(within(side).getByRole("region", { name: "Timeline" })).toBeVisible();
   expect(
     within(side).queryByRole("region", { name: "Chat" }),
@@ -188,7 +183,7 @@ test("incident_detail_is_one_column_on_a_narrow_screen", async () => {
     slot.getAttribute("data-slot"),
   );
   expect(slots, "every part is a slot the stylesheet orders on a phone").toEqual(
-    expect.arrayContaining(["going", "earlier", "evidence", "chat", "tools", "timeline"]),
+    expect.arrayContaining(["going", "evidence", "chat", "tools", "timeline"]),
   );
 });
 test("resolved_incident_shows_resolved_and_keeps_what_triage_said", async () => {
@@ -349,15 +344,12 @@ test("the_sentence_about_read_tools_is_behind_the_headings_info_button", async (
   expect(screen.getByText(sentence)).toBeVisible();
 });
 test("incident_detail_says_nothing_was_used_yet", async () => {
-  route("GET /api/v1/incidents/{id}", () => ({ ...detail(), actions: [] }));
+  route("GET /api/v1/incidents/{id}", () => detail());
   open();
 
   const used = await screen.findByRole("region", { name: "Skills and tools used" });
   expect(within(used).getByText("Nothing used yet.")).toBeVisible();
   expect(within(used).queryByRole("button", { name: /calls/ })).toBeNull();
-  expect(
-    within(screen.getByRole("region", { name: "Actions" })).getByText(/^No earlier actions\./),
-  ).toBeVisible();
 });
 test("the_main_actions_say_what_they_do_and_what_they_do_not", async () => {
   route("GET /api/v1/incidents/{id}", () => detail());
@@ -686,16 +678,4 @@ test("dismiss_is_offered_only_after_the_incident_is_confirmed", async () => {
     screen.queryByRole("button", { name: "Dismiss" }),
     "dismissing a pending incident is refused, so the page offers no refusal",
   ).toBeNull();
-});
-
-test("an_action_that_finishes_while_the_page_is_open_is_announced", async () => {
-  const d = detail();
-  let status = "dispatched";
-  route("GET /api/v1/incidents/{id}", () => ({ ...d, actions: [action({ status })] }));
-  const { client } = open();
-
-  expect(await screen.findByText("Running on nas. Waiting for the result…")).toBeVisible();
-  status = "succeeded";
-  void client.invalidateQueries({ queryKey: ["incidents"] });
-  expect(await screen.findByText("restart_container succeeded on nas")).toBeVisible();
 });

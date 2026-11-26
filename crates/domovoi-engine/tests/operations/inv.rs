@@ -307,7 +307,6 @@ pub async fn inv(setup: InvSetup) -> Inv {
         signals: store.clone(),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: store.clone(),
         cache: store.clone(),
         usage: store.clone(),
         admission: store.clone(),

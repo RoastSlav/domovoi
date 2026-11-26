@@ -9,8 +9,8 @@ use domovoi_core::ports::{
     LinkError, Transaction, UnknownReason,
 };
 use domovoi_core::{
-    ActionId, EffectId, ExecutionId, OperationId, OperationSnapshot, OperationStatus, PauseReason,
-    Risk, SkillSummary, StepId, StepKind, StepOutcome, VerifySpec,
+    EffectId, ExecutionId, OperationId, OperationSnapshot, OperationStatus, PauseReason, Risk,
+    SkillSummary, StepId, StepKind, StepOutcome, VerifySpec,
 };
 use domovoi_engine::operations::OperationSettings;
 use domovoi_testkit::link::LinkRequest;
@@ -33,7 +33,7 @@ async fn dispatched_without_an_answer(w: &World) -> (OperationId, StepId) {
 /// What the journal says about `step`'s run.
 fn answer(w: &World, step: StepId, answer: ActionAnswer) {
     w.link
-        .answer(host_id(), ExecutionId::from_step(step).as_action(), answer);
+        .answer(host_id(), ExecutionId::from_step(step), answer);
 }
 
 /// The deadlines of every status query so far.
@@ -440,11 +440,11 @@ async fn outcome_unknown_is_not_the_loop_guard() {
 /// Reconciles a dispatched run whose journal answers with `entries` (ids are the run's own
 /// or foreign ones) and returns the world, operation and step.
 async fn reconcile_with(
-    entries: impl Fn(ActionId) -> Vec<(ActionId, ActionAnswer)> + Send + Sync + 'static,
+    entries: impl Fn(ExecutionId) -> Vec<(ExecutionId, ActionAnswer)> + Send + Sync + 'static,
 ) -> (World, OperationId, StepId) {
     let mut w = world().await;
     let (op, step) = dispatched_without_an_answer(&w).await;
-    let wanted = ExecutionId::from_step(step).as_action();
+    let wanted = ExecutionId::from_step(step);
     w.link.on_action_status(move |_, _, epoch| {
         Ok(ActionAnswers {
             epoch,
@@ -468,7 +468,7 @@ fn finished(succeeded: bool) -> ActionAnswer {
 #[tokio::test]
 async fn contradictory_or_unasked_answers_settle_nothing() {
     // An answer for a run nobody asked about is ignored: the step keeps waiting.
-    let foreign = ExecutionId::from_step(StepId::new()).as_action();
+    let foreign = ExecutionId::from_step(StepId::new());
     let (w, op, step) = reconcile_with(move |_| vec![(foreign, finished(true))]).await;
     let before = status_deadlines(&w).len();
     w.until(op, |_| status_deadlines(&w).len() > before + 1)

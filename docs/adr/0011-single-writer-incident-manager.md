@@ -5,24 +5,20 @@
 
 ## Context
 
-Signals, triage results, acks, button presses, action results and timers all change incidents concurrently. Races here cause duplicate messages, lost resolutions and double-dispatched actions.
+Signals, triage results, acks, button presses, operation results and timers all change incidents concurrently. Races here cause duplicate messages, lost resolutions and double-dispatched work.
 
 ## Decision
 
-- The incident manager is one tokio task that owns all incident state transitions. Everything else sends it commands over an `mpsc` channel.
-- It applies a command, persists the result, then publishes a `DomainEvent` on a `broadcast` bus. Consumers (dispatcher, SSE, triage queue) react to events and never mutate incidents directly.
-- Commands carry the data they need; the manager does no slow I/O besides the store.
+- The incident manager is one tokio task that owns every incident state transition. Everything else sends it commands over an `mpsc` channel.
+- Each command is one `UnitOfWork` commit: the signal, the incident row, its timeline entries and the mirrored journal rows land together or not at all. The manager then publishes a `DomainEvent` on a `broadcast` bus. Consumers (dispatcher, SSE, investigations) react to events and never mutate incidents directly.
+- Each incident is read through `VersionedRead`, which returns body and version together. A write names the version it read. A conflict reloads the incident and decides once more; a second conflict fails the command and publishes nothing.
+- The manager does no slow I/O besides the store.
 
 ## Consequences
 
-- Transition logic is a pure function `(state, command, now) -> (state, events)` tested exhaustively with the fake clock.
-- Throughput is bounded by one task, which is ample for homelab volumes (hundreds of signals per minute).
+- Transition logic is a pure function `(state, command, now) -> (state, events)`, tested exhaustively with the fake clock.
+- Throughput is bounded by one task, which is ample for homelab volumes.
 
 ## Alternatives considered
 
-- Database row locking per incident: harder to test, spreads logic across handlers.
-
-## Update
-
-- A command's writes are now one `UnitOfWork` commit rather than a sequence of repository calls, so a signal, an incident row, its timeline entries and the mirrored journal rows land together or not at all.
-- Each incident the manager may write is read through `VersionedRead`, which returns body and version together. An incident write names the version it read; a conflict reloads the aggregate and decides once more, and a second conflict fails the command without publishing anything.
+- Database row locking per incident: harder to test, and it spreads logic across handlers.

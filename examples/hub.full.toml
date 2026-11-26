@@ -47,29 +47,71 @@ model = "claude-sonnet-5-5"
 # fallback_models = ["claude-haiku-4-5"]
 # API key; required for anthropic.
 api_key = { env = "ANTHROPIC_API_KEY" }
+# API base URL: optional for anthropic, required for openai_compatible (example).
+# base_url = "https://api.anthropic.com"
+# The longest one model call may take in total, even while it keeps streaming.
+call_deadline = "5m"
+# The longest the model may stay silent; the clock restarts with every streamed token.
+timeout = "2m"
 # Prices used for the monthly budget, in US dollars per million tokens (example; optional).
 price = { input_per_mtok_usd = 3.0, output_per_mtok_usd = 15.0 }
 
+# With kind = "cli" the provider is a local command-line tool instead (example; optional).
+# preset = "claude" or "codex" supplies the right arguments. command is the absolute path
+# of the program to run instead of the preset's default; args, when not empty, replace the
+# preset's arguments.
+# [llm.primary.cli]
+# preset = "claude"
+# command = "/usr/local/bin/claude"
+# args = []
+
+# A local server that speaks the OpenAI chat API as the fallback (example; optional).
 [llm.secondary]
-# A local command-line tool as the fallback (example; optional).
-kind = "cli"
-# preset = "claude" or "codex" supplies the right arguments. command overrides the
-# program path (absolute); args, when not empty, replace the preset's arguments.
-cli = { preset = "claude", command = "/usr/local/bin/claude", args = [] }
+kind = "openai_compatible"
+# Required for openai_compatible.
+base_url = "http://ollama.lan:11434/v1"
+model = "llama3.1"
+# Optional for a local server; keep it in an environment variable or a file.
+api_key = { env = "OLLAMA_API_KEY" }
+# Fallback models of the same provider (example; optional).
+# fallback_models = ["llama3.2"]
+call_deadline = "5m"
+timeout = "2m"
+# Local models usually cost nothing; set prices to count them against the budget (optional).
+price = { input_per_mtok_usd = 0.0, output_per_mtok_usd = 0.0 }
+
+# The secondary can be a local CLI as well, with the same keys as [llm.primary.cli].
+# [llm.secondary.cli]
+# preset = "codex"
+# command = "/usr/local/bin/codex"
+# args = []
 
 [triage]
 # Whether new incidents are triaged automatically (default false). Needs [llm.primary].
 enabled = true
 # Triage runs at the same time.
 concurrency = 2
-# Limits for a single run: tool calls, wall-clock seconds and output tokens.
-per_run = { tool_calls = 15, seconds = 90, output_tokens = 2000 }
 # Runs started per hour at most.
 per_hour_runs = 6
 # Spending cap per calendar month in US dollars (example; optional, default no cap).
 monthly_budget_usd = 20.0
 # Days a triage report is reused when the evidence has not changed.
 cache_days = 7
+# Runs of each hour kept free for incident triage: questions and chat may not use the last
+# ones. Must be less than per_hour_runs (default: 2, or one fewer when per_hour_runs is smaller).
+reserved_for_incidents = 2
+
+[triage.per_run]
+# Output tokens per model turn.
+output_tokens = 2000
+# Wall-clock seconds per run.
+seconds = 90
+# Tool calls per run.
+tool_calls = 15
+# Largest prompt sent in one model call, in bytes.
+prompt_bytes = 131072
+# Output tokens one run may ask for in total (optional; default: derived from the limits above).
+# total_tokens = 40000
 
 [incidents]
 # Consecutive failing runs before an incident opens.
@@ -150,8 +192,96 @@ interval = "1m"
 dir = "/var/lib/domovoi/backups"
 # Backups kept.
 keep = 7
+# Backups taken before a database migration that are kept.
+keep_pre_migrate = 3
 
 [secrets]
 # Names of secrets you know were exposed; each raises an advisory until you rotate the
 # secret and remove its name here (default: none).
 exposed = []
+
+[metrics]
+# Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`. Without it,
+# only a logged-in web session can read /metrics (optional).
+token = { env = "DOMOVOI_METRICS_TOKEN" }
+
+[updates]
+# Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the request.
+check = true
+
+# The operation service: durable multi-step investigations with per-step approvals. Read
+# once at start, so a change needs a restart.
+[orchestration]
+# Investigate new incidents as operations. false switches off automatic investigation
+# (alert cards still go out) and the operation service.
+enabled = true
+# Operations that may be running, waiting or paused at once; the rest queue.
+max_running = 4
+# How long a proposed action waits for a person to approve it. At most "7d".
+approval_ttl = "24h"
+# How long a question waits for an answer.
+question_timeout = "24h"
+# How long an approved action waits for its host's agent to come back.
+agent_wait_limit = "30m"
+# Runs of one skill on one host allowed per hour before the loop guard refuses the next.
+loop_guard_per_hour = 3
+
+# Limits an operation starts with.
+[orchestration.budgets]
+cycles = 3
+evidence_requests = 40
+executions = 5
+model_turns = 20
+tokens = 200000
+wall_time = "72h"
+# Model cost in millionths of a currency unit (optional, default no limit).
+# cost_micros = 5000000
+
+# Policy rules the hub evaluates. Nothing runs unattended unless a published rule allows it
+# and the agent's own [unattended] ceiling covers it.
+[policy]
+# Record, for every Execution step, what the active policy and its shadow rules would decide.
+shadow = false
+# How long a policy permit stays valid, capped by the step's own approval window.
+permit_ttl = "5m"
+# Permits issued per rolling hour, all rules together. 0 means no permit is ever issued.
+max_permits_per_hour = 12
+# Failed or unknown results of permit-authorized steps that suspend a rule within the window.
+circuit_failures = 2
+circuit_window = "24h"
+
+# Signed agent packages (optional; off by default). Importing and installing always needs
+# a person's approval.
+[packages]
+enabled = false
+# Largest archive accepted on import, in bytes.
+max_artifact_bytes = 20971520
+# Most bytes of archives the hub keeps.
+max_store_bytes = 536870912
+# Most archives the hub keeps.
+max_artifacts = 64
+# How long a person's approval to install stays valid.
+approval_window = "10m"
+# Days finished install jobs are kept.
+job_history_days = 180
+# Key ids (16 lowercase hex characters) whose packages are never accepted.
+revoked = []
+
+# Keys whose signatures the hub accepts on import; each key id is the first 16 hex characters
+# of the SHA-256 of the raw public key. Read from the file only (example; repeat for more).
+# [[packages.owner_keys]]
+# id = "0123456789abcdef"
+# label = "release signing key"
+# public_key = "<the Ed25519 public key, 32 bytes in padded base64>"
+
+# How long each kind of raw data is kept, in days.
+[retention]
+signals_days = 30
+incident_timeline_days = 90
+conversations_days = 180
+notifications_days = 30
+resolved_advisories_days = 30
+triage_cache_days = 90
+retracted_facts_days = 30
+execution_outputs_days = 30
+operation_journal_days = 180

@@ -33,7 +33,7 @@ pub fn parse_ceiling(summary: Option<&str>) -> CeilingParse {
     }
 }
 
-/// Whether the ceiling covers this contract id (exact ids only, D-18).
+/// Whether the ceiling covers this contract id (exact ids only).
 #[must_use]
 pub fn covers(ceiling: &CeilingSummary, contract: &ContractId) -> bool {
     ceiling

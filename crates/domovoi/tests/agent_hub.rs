@@ -246,7 +246,7 @@ use std::collections::BTreeMap;
 
 use common::{agent, connected, hub, signals, t0};
 use domovoi_core::ports::{AgentLink, LinkError, SkillDispatch};
-use domovoi_core::{ActionId, HostId, PlanHash, ReadToolCall, Risk, SkillName};
+use domovoi_core::{ExecutionId, HostId, PlanHash, ReadToolCall, Risk, SkillName};
 use jiff::SignedDuration;
 
 #[cfg(target_os = "linux")]
@@ -315,8 +315,8 @@ async fn run_skill_reaches_agent_and_plan_mismatch_is_reported() {
     };
     // Approved for a different host, so the agent's own plan hash cannot match.
     let dispatch = SkillDispatch {
-        action: ActionId::new(),
-        plan_hash: PlanHash::compute(&skill, manifest_hash, HostId::new(), &validated),
+        execution: ExecutionId::new(),
+        plan_hash: PlanHash::agent_check(&skill, manifest_hash, HostId::new(), &validated),
         skill,
         args: validated,
     };

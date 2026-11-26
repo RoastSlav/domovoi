@@ -36,7 +36,7 @@ import { lookup, type HostConnection, type IncidentGroup, type StatusMeta } from
  */
 
 export { TONES } from "./status";
-export { chainStatusMeta, legacyStatusMeta } from "./auditVocab";
+export { chainStatusMeta } from "./auditVocab";
 export { blockPhaseMeta, drillsStateMeta, gateStateMeta } from "./containmentVocab";
 export { attestationStateMeta, helperKeyStateMeta } from "./helperVocab";
 export {
@@ -257,17 +257,6 @@ export function incidentBadgeMeta(
     return INCIDENT_STATUSES.resolved;
   }
   return incident.verdict ? verdictMeta(incident.verdict) : severityMeta(incident.severity);
-}
-
-/**
- * How a badge value of unknown vocabulary is shown: the chat card sends a verdict, a
- * severity or "resolved" in one field.
- */
-export function badgeMeta(value: string): StatusMeta {
-  if (value === "resolved") {
-    return INCIDENT_STATUSES.resolved;
-  }
-  return Object.hasOwn(VERDICTS, value) ? verdictMeta(value) : severityMeta(value);
 }
 
 /** How the effective status of a fact or relation is shown. */

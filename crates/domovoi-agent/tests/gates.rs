@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use common::{Fixture, install};
 use domovoi_agent::requests::run_skill;
-use domovoi_core::{ActionId, PlanHash, Risk, SkillName};
+use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
 use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome};
 use domovoi_testkit::build::T0;
 use jiff::SignedDuration;
@@ -49,8 +49,8 @@ async fn hub_cannot_run_skill_not_in_local_catalog() {
             continue;
         };
         let request = RunSkill {
-            action_id: ActionId::new(),
-            plan_hash: PlanHash::compute(
+            action_id: ExecutionId::new(),
+            plan_hash: PlanHash::agent_check(
                 &skill,
                 pushed.manifest_hash(),
                 fixture.host_id,
@@ -90,13 +90,13 @@ async fn plan_hash_mismatch_never_executes() {
     let mut changed = loaded.manifest().clone();
     changed.description = "edited after approval".to_owned();
     let wrong = [
-        PlanHash::compute(&skill, loaded.manifest_hash(), other_host, &validated),
-        PlanHash::compute(&skill, loaded.manifest_hash(), fixture.host_id, &other_args),
-        PlanHash::compute(&skill, changed.manifest_hash(), fixture.host_id, &validated),
+        PlanHash::agent_check(&skill, loaded.manifest_hash(), other_host, &validated),
+        PlanHash::agent_check(&skill, loaded.manifest_hash(), fixture.host_id, &other_args),
+        PlanHash::agent_check(&skill, changed.manifest_hash(), fixture.host_id, &validated),
     ];
     for plan_hash in wrong {
         let request = RunSkill {
-            action_id: ActionId::new(),
+            action_id: ExecutionId::new(),
             skill: skill.clone(),
             args: args(),
             plan_hash,
@@ -110,7 +110,7 @@ async fn plan_hash_mismatch_never_executes() {
     assert!(fixture.exec.calls().is_empty(), "the runner was called");
 }
 
-/// RW-26: the hub cannot add a trusted key. A package signed by a key the owner never
+/// The hub cannot add a trusted key. A package signed by a key the owner never
 /// listed is refused, a request that carries a key is malformed, and the key set has no
 /// way to change after construction.
 #[cfg(target_os = "linux")]
@@ -269,7 +269,7 @@ async fn package_skills_are_not_runnable_before_the_skill_runner() {
     assert!(rig.ctx.catalog.get(&skill).is_none());
     assert!(rig.ctx.catalog.summaries().is_empty());
     let request = RunSkill {
-        action_id: ActionId::new(),
+        action_id: ExecutionId::new(),
         skill,
         args: BTreeMap::new(),
         plan_hash: "01".repeat(32).parse::<PlanHash>().unwrap(),

@@ -14,8 +14,6 @@ const V1_NAMES = [
   "incident_muted",
   "incident_unmuted",
   "triage_completed",
-  "action_changed",
-  "action_blocked",
 ];
 
 function fixtureFrame(name: string): JournalFrame {
@@ -38,7 +36,7 @@ function raw(seq: number, type = "incident"): JournalFrame {
 }
 
 test("fixture_frames_parse", () => {
-  expect(journal.length).toBeGreaterThanOrEqual(12);
+  expect(journal.length).toBeGreaterThanOrEqual(10);
   for (const entry of journal) {
     expect(parseJournalFrame(entry.data), entry.name).toBeDefined();
     expect(parseJournalFrame(JSON.stringify(entry.data)), entry.name).toBeDefined();
@@ -56,9 +54,6 @@ test("journal_frames_cover_every_v1_event", async () => {
     expect(keys, name).toContainEqual(["incidents", "list"]);
     expect(keys, name).toContainEqual(["incidents", "detail", INCIDENT]);
     expect(keys, name).toContainEqual(["overview"]);
-    if (frame.aggregate_type === "action") {
-      expect(keys, name).toContainEqual(["actions"]);
-    }
   }
 });
 

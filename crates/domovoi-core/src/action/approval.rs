@@ -22,10 +22,11 @@ impl PlanHash {
 
     /// SHA-256 over `"plan:v1\n{skill}\n{manifest_hash}\n{host_id}\n{canonical args}"`.
     ///
-    /// This is the legacy family. New actions are approved under v2; a stored action whose
-    /// `plan_hash_v2` is `NULL` keeps this hash for its whole life.
+    /// The hash the hub sends with a skill run and the agent recomputes from its own copy of
+    /// the skill, so it can refuse a run whose arguments or manifest differ from what the hub
+    /// named. It is not the hash an approval binds; that is [`PlanHash::compute`].
     #[must_use]
-    pub fn compute(
+    pub fn agent_check(
         skill: &SkillName,
         manifest: ManifestHash,
         host: HostId,

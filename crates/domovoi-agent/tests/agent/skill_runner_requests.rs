@@ -13,7 +13,7 @@ use domovoi_agent::skill_runner::SkillRoute;
 use domovoi_config::{AgentConfig, MapEnv};
 use domovoi_core::ports::ProcessOutput;
 use domovoi_core::skill_runner::RunnerReply;
-use domovoi_core::{ActionId, PlanHash, Risk, SkillName};
+use domovoi_core::{ExecutionId, PlanHash, Risk, SkillName};
 use domovoi_proto::messages::SkillRunnerStatus;
 use domovoi_proto::messages::{RunSkill, SkillFailureCode, SkillOutcome, ToolFailureCode};
 use domovoi_testkit::build::T0;
@@ -42,10 +42,10 @@ fn run_request(ctx: &domovoi_agent::requests::RequestCtx) -> RunSkill {
     let skill = ctx.catalog.get(&reader()).unwrap();
     let validated = skill.manifest().validate_args(&args()).unwrap();
     RunSkill {
-        action_id: ActionId::new(),
+        action_id: ExecutionId::new(),
         skill: reader(),
         args: args(),
-        plan_hash: PlanHash::compute(&reader(), skill.manifest_hash(), ctx.host_id, &validated),
+        plan_hash: PlanHash::agent_check(&reader(), skill.manifest_hash(), ctx.host_id, &validated),
         deadline: T0 + SignedDuration::from_mins(1),
     }
 }
@@ -160,10 +160,10 @@ async fn mutating_skill_is_still_refused_before_the_route() {
     let skill = ctx.catalog.get(&name).unwrap();
     let validated = skill.manifest().validate_args(&args()).unwrap();
     let request = RunSkill {
-        action_id: ActionId::new(),
+        action_id: ExecutionId::new(),
         skill: name.clone(),
         args: args(),
-        plan_hash: PlanHash::compute(&name, skill.manifest_hash(), ctx.host_id, &validated),
+        plan_hash: PlanHash::agent_check(&name, skill.manifest_hash(), ctx.host_id, &validated),
         deadline: T0 + SignedDuration::from_mins(1),
     };
     let (code, _) = failure(run_skill(&ctx, &request).await);

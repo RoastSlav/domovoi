@@ -1,8 +1,8 @@
-//! Resolving a target name to the canonical identity a plan binds (RW-34).
+//! Resolving a target name to the canonical identity a plan binds.
 //!
 //! A plan hash binds the identity, so a resolution must be exact and never optimistic: a host
 //! identity carries the fingerprint of its enrolled agent key, a container identity carries the
-//! full container id, and a unit has no identity at all in this milestone (R-8 is open).
+//! full container id, and a unit has no canonical identity at all.
 //!
 //! Every read goes through the one read boundary, [`Evidence::collect_evidence`], because the
 //! agent's `docker_ps` and `docker_inspect` are reads like any other: this module never reaches
@@ -274,10 +274,4 @@ impl TargetResolver for TargetService {
             card,
         })
     }
-}
-
-/// The host a query reads, for the callers that hold only the query.
-#[must_use]
-pub fn query_host(query: &TargetQuery) -> HostId {
-    query.host()
 }

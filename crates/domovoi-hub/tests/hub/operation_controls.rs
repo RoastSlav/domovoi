@@ -365,24 +365,24 @@ async fn openapi_lists_the_four_control_routes() {
 }
 
 #[tokio::test]
-async fn find_by_action_returns_none_for_a_legacy_action_and_the_step_for_an_execution() {
+async fn find_by_execution_returns_none_for_an_unknown_id_and_the_step_for_an_execution() {
     let a = api_with_operations().await;
     let op = a.create_operation("restart plex", true).await;
     let step = a.propose_restart(op).await;
     let found = a
         .services
         .operations
-        .find_by_action(domovoi_core::ExecutionId::from_step(step).as_action())
+        .find_by_execution(domovoi_core::ExecutionId::from_step(step))
         .await
         .unwrap()
         .expect("an execution");
     assert_eq!((found.operation, found.step), (op, step));
     assert_eq!(found.incidents, vec![a.incident.id()]);
-    let legacy = a
+    let unknown = a
         .services
         .operations
-        .find_by_action(domovoi_core::ActionId::new())
+        .find_by_execution(domovoi_core::ExecutionId::new())
         .await
         .unwrap();
-    assert!(legacy.is_none());
+    assert!(unknown.is_none());
 }

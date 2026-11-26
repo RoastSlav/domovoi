@@ -50,7 +50,7 @@ mod parity;
 #[cfg(test)]
 mod parity_limits;
 #[cfg(test)]
-mod plan_binding;
+mod plan_hash;
 #[cfg(test)]
 mod profile;
 #[cfg(test)]

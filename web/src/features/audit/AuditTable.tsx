@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useAuditRows, type AuditHistoryName } from "../../api/hooks/audit";
+import { useAuditRows } from "../../api/hooks/audit";
 import type { AuditRow } from "../../api/types";
 import {
   Button,
@@ -13,23 +13,11 @@ import styles from "./audit.module.css";
 import { auditColumns } from "./auditColumns";
 import { EntryDialog } from "./EntryDialog";
 
-const EMPTY = {
-  chained: ["No chained entries yet", "New entries appear here as Domovoi records them."],
-  legacy: ["No entries from before the chain", "This install started with the chain."],
-} as const;
-
-/** One part of the history: its entries, load more, and the entry dialog. */
-export function AuditTable({
-  history,
-  firstBroken,
-}: {
-  firstBroken: number | undefined;
-  history: AuditHistoryName;
-}) {
-  const rows = useAuditRows(history);
+/** The audit entries, load more, and the entry dialog. */
+export function AuditTable({ firstBroken }: { firstBroken: number | undefined }) {
+  const rows = useAuditRows();
   const [open, setOpen] = useState<AuditRow | undefined>(undefined);
   const columns = useMemo(() => auditColumns(firstBroken, setOpen), [firstBroken]);
-  const [title, body] = EMPTY[history];
   const all = useMemo(() => rows.data?.pages.flatMap((page) => page.items) ?? [], [rows.data]);
   return (
     <>
@@ -39,14 +27,14 @@ export function AuditTable({
         loading={<Skeleton shape="rows" count={5} />}
         isEmpty={(items) => items.length === 0}
         empty={
-          <EmptyState icon="info" title={title}>
-            {body}
+          <EmptyState icon="info" title="No entries yet">
+            New entries appear here as Domovoi records them.
           </EmptyState>
         }
       >
         {(items) => (
           <DataTable
-            caption={history === "chained" ? "Chained audit entries" : "Legacy audit entries"}
+            caption="Audit entries"
             columns={columns}
             rows={items}
             rowKey={(row) => String(row.seq)}

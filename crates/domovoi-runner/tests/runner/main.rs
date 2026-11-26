@@ -6,6 +6,9 @@
 mod catalog;
 #[cfg(test)]
 #[cfg(target_os = "linux")]
+mod examples;
+#[cfg(test)]
+#[cfg(target_os = "linux")]
 mod exec;
 #[cfg(test)]
 #[cfg(target_os = "linux")]

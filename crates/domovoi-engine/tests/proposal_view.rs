@@ -1,7 +1,7 @@
-//! What a triage run proposed, seen the same way whether it became an `ActionRequest` or an
-//! Execution step of an investigation, so one scorer and one set of probes judge both.
+//! What a triage run proposed, seen as the Execution steps of an investigation, so one
+//! scorer and one set of probes judge it.
 //!
-//! Included by the test binaries that compare the two paths.
+//! Included by the test binaries that score proposals.
 
 use std::collections::BTreeMap;
 

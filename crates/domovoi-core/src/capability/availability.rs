@@ -59,8 +59,8 @@ pub enum NotAllowedOnHost {
     CeilingAbsent,
     /// A ceiling exists but has no entry for this exact contract id.
     CeilingEntryMissing,
-    /// The agent's local risk allowlist does not cover the effect class. Defined for the
-    /// wire field that does not exist yet; never produced in this milestone.
+    /// The agent's local risk allowlist does not cover the effect class. Defined for a
+    /// wire field the agent does not send, so it is never produced.
     AllowRisk,
 }
 

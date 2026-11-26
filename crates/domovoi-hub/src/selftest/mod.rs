@@ -285,7 +285,7 @@ async fn wait_for_triage(
 ) -> Outcome {
     let outcome = wait_for(clock, events, TRIAGE_WAIT, |event| match &event.kind {
         EventKind::TriageCompleted { outcome, .. } if event.incident.id() == incident => {
-            Some(outcome.clone())
+            Some((**outcome).clone())
         }
         _ => None,
     })

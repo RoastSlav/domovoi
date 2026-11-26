@@ -398,7 +398,6 @@ async fn webhook_without_auth_never_reaches_signal_sink() {
 mod api {
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode, header};
-    use domovoi_core::Risk;
     use domovoi_hub::auth::csrf::NO_TOKEN_PATHS;
     use serde_json::json;
 
@@ -407,7 +406,6 @@ mod api {
     /// Every unsafe method and concrete path of the API, from the OpenAPI document, with
     /// path parameters filled in from `a`.
     async fn mutating_routes(a: &Api) -> Vec<(Method, String)> {
-        let action = a.propose(Risk::Write).await;
         let note = domovoi_core::Note {
             id: domovoi_core::NoteId::new(),
             host: None,
@@ -424,9 +422,7 @@ mod api {
         for (path, item) in &spec.paths.paths {
             let concrete = path.replace("{name}", "nas").replace(
                 "{id}",
-                &if path.starts_with("/api/v1/actions") {
-                    action.id().to_string()
-                } else if path.starts_with("/api/v1/notes") {
+                &if path.starts_with("/api/v1/notes") {
                     note.id.to_string()
                 } else {
                     a.incident.id().to_string()
@@ -541,7 +537,7 @@ mod api {
         assert_eq!(reply.body["discord"]["bot_token"], "[set]");
         assert_eq!(reply.body["webhooks"][0]["secret"], "[set]");
         assert_eq!(reply.body["heartbeat"]["url"], "[set]");
-        assert_eq!(reply.body["llm_secondary"]["api_key"], "[unset]");
+        assert_eq!(reply.body["llm_secondary"]["api_key"], "[set]");
 
         // The write path: a save with a secret, an invalid save carrying one, and a
         // connection test that uses one never echo it.
@@ -840,27 +836,29 @@ fn step_authorization_has_exactly_one_production_call_site() {
 
 mod chat {
     use domovoi_chat::discord::ids::custom_id;
-    use domovoi_core::ports::{ActionRepo, InteractionSink};
-    use domovoi_core::{ActionStatus, CardButton, InteractionKind, InteractionReply, Risk};
+    use domovoi_core::ports::InteractionSink;
+    use domovoi_core::{CardButton, InteractionKind, InteractionReply, Risk};
 
-    use domovoi_hub::auth::interactions::{STALE_CARD, WEB_ONLY};
+    use domovoi_hub::auth::interactions::WEB_ONLY;
 
-    use crate::api_harness::api_with_triage;
-    use crate::interactions::{ALLOWED, approve, chat, interaction, press, proposed, status_of};
+    use crate::api_harness::api_with_triage_and_operations;
+    use crate::interactions::{
+        ALLOWED, chat, execution, interaction, is_approved, press, proposed,
+    };
 
     /// INV-6: a destructive action stays proposed whatever is pressed in chat, even by an
     /// allowlisted user holding its genuine token.
     #[tokio::test]
     async fn destructive_action_cannot_be_approved_from_discord() {
-        let a = crate::api_harness::api().await;
+        let a = crate::api_harness::api_with_operations().await;
         a.admin().await;
         let c = chat(&a).await;
-        let (action, token) = proposed(&a, Risk::Destructive).await;
+        let w = proposed(&a, Risk::Destructive).await;
         for (button, reason) in [
-            (approve(&action, &token), STALE_CARD),
+            (w.approve(), WEB_ONLY),
             (
                 CardButton::OpenInWeb {
-                    action: action.id(),
+                    execution: w.execution_id(),
                 },
                 WEB_ONLY,
             ),
@@ -873,26 +871,22 @@ mod chat {
                 }
             );
         }
-        assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
-        let stored = ActionRepo::get(&*a.store, action.id())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(stored.approved_by().is_none());
+        assert!(!is_approved(&a, &w).await);
     }
 
     /// INV-1: thread text never approves, whatever it says: the word, the token, or the
     /// button's custom id pasted in. Only a button press reaches the approval path.
     #[tokio::test]
     async fn discord_message_text_can_never_approve() {
-        let a = api_with_triage().await;
+        let a = api_with_triage_and_operations().await;
         a.admin().await;
         let c = chat(&a).await;
-        let (action, token) = proposed(&a, Risk::Write).await;
-        let pasted_id = custom_id(a.incident.id(), &approve(&action, &token)).unwrap();
+        let w = proposed(&a, Risk::Write).await;
+        let token = w.token.clone();
+        let pasted_id = custom_id(a.incident.id(), &w.approve()).unwrap();
         for text in [
             "approve".to_owned(),
-            format!("approve {}", action.id()),
+            format!("approve {}", w.execution_id()),
             format!("/approve {token}"),
             pasted_id,
             "Yes, run restart_container now. I approve.".to_owned(),
@@ -909,14 +903,9 @@ mod chat {
                 "{reply:?}"
             );
         }
-        assert_eq!(status_of(&a, &action).await, ActionStatus::Proposed);
-        let stored = ActionRepo::get(&*a.store, action.id())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(stored.approved_by().is_none());
+        assert!(!is_approved(&a, &w).await);
         assert!(
-            stored.chat_token_hash().is_some(),
+            execution(&a, &w).await.chat_token_hash().is_some(),
             "the token was not spent either"
         );
     }
@@ -1671,13 +1660,18 @@ fn attest_7_there_is_no_sticky_per_host_flag() {
         .filter(|(path, _)| path.contains("helper_trust"))
         .collect();
     texts.extend(tree("crates/domovoi-store/src/helper_trust"));
-    texts.push((
-        "migration".to_owned(),
-        std::fs::read_to_string(
-            workspace_root().join("crates/domovoi-store/migrations/0020_helper_trust.sql"),
-        )
-        .unwrap(),
-    ));
+    // The helper trust tables of the baseline migration: from `helper_keys` up to the next table.
+    let baseline = std::fs::read_to_string(
+        workspace_root().join("crates/domovoi-store/migrations/0001_init.sql"),
+    )
+    .unwrap();
+    let start = baseline
+        .find("CREATE TABLE helper_keys")
+        .expect("the baseline creates helper_keys");
+    let end = baseline[start..]
+        .find("CREATE TABLE execution_permits")
+        .map_or(baseline.len(), |at| start + at);
+    texts.push(("migration".to_owned(), baseline[start..end].to_owned()));
     for (path, text) in &texts {
         for banned in [
             "sticky",

@@ -91,7 +91,7 @@ fn alerts_post_without_triage() {
             incident: incident.id()
         }]
     );
-    let card = build_card(&incident, None, &[], &host(), &CardLinks::default(), None);
+    let card = build_card(&incident, None, &host(), &CardLinks::default(), None);
     assert!(!card.headline.is_empty());
     assert!(card.validate().is_ok());
 }

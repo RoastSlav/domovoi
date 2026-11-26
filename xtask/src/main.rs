@@ -10,6 +10,7 @@
 
 #![allow(clippy::print_stdout, clippy::print_stderr, clippy::disallowed_methods)]
 
+mod adr_index;
 mod ci;
 mod docs_config;
 mod docs_links;
@@ -57,7 +58,7 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
-    /// Check every link, anchor and page in the book.
+    /// Check every link, anchor and page in the book, and that every decision record is accepted and listed.
     DocsLinks,
 }
 
@@ -69,7 +70,10 @@ fn main() -> anyhow::Result<()> {
         Command::Ci { fast, web } => ci::run(&root, fast, web),
         Command::Openapi { check } => openapi::run(&root, check),
         Command::DocsConfig { check } => docs_config::run(&root, check),
-        Command::DocsLinks => docs_links::run(&root),
+        Command::DocsLinks => {
+            docs_links::run(&root)?;
+            adr_index::run(&root)
+        }
     }
 }
 

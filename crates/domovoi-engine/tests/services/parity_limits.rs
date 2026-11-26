@@ -322,7 +322,7 @@ async fn nothing_runs_without_a_human() {
 }
 
 #[tokio::test]
-async fn an_investigation_keeps_a_step_and_creates_no_action() {
+async fn an_investigation_keeps_a_step() {
     let w = world(setup()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
     w.primary.push_text(report_json(
@@ -331,11 +331,9 @@ async fn an_investigation_keeps_a_step_and_creates_no_action() {
     ));
     let outcome = w.run().await;
     assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
-    let operations = w.operations().await.len();
-    let actions = w.actions().await.len();
     assert_eq!(
-        (operations, actions),
-        (1, 0),
+        w.operations().await.len(),
+        1,
         "an investigation keeps a step"
     );
 }

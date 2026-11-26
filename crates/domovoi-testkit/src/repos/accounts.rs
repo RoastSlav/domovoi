@@ -1,3 +1,5 @@
+//! In-memory users, sessions and settings.
+
 use async_trait::async_trait;
 use domovoi_core::ports::{SessionRepo, SettingsRepo, StoreError, UserRepo};
 use domovoi_core::{Session, User, UserId};

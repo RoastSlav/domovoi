@@ -30,8 +30,8 @@ pub use operations::{ExecutionGuard, OperationWrite, SummaryFieldWrite};
 pub use permit::{PermitWrite, UnknownResolution};
 pub use topic::{Topic, TopicError, TopicSet, topics_of};
 pub use transaction::{
-    ActionGuard, AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected,
-    Observed, StateWrite, Transaction, Versioned,
+    AggregateKind, AggregateRef, CommitError, CommitReceipt, Expectation, Expected, Observed,
+    StateWrite, Transaction, Versioned,
 };
 
 use async_trait::async_trait;

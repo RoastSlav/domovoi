@@ -1,8 +1,7 @@
 #!/bin/sh
 # Tests the three-identities layout with real accounts, real directories and real systemd
-# units: the installer, the root helper behind its socket, the self-test and the identity
-# migration. Run it as root on a throwaway machine with systemd as PID 1 (a virtual
-# machine, not a container: the helper unit needs a real systemd and mount namespaces). It
+# units: the installer, the root helper behind its socket and the self-test. Run it as root
+# on a throwaway machine with systemd as PID 1 (a virtual machine, not a container: the helper unit needs a real systemd and mount namespaces). It
 # creates and deletes accounts, owners, modes and units.
 #
 #   sudo env DOMOVOI_PRIVILEGED_TESTS=1 DOMOVOI_BIN=$PWD/target/debug/domovoi \
@@ -16,7 +15,7 @@
 # fails when a probe object or one of the real names is left over.
 #
 # It needs: python3, curl, tar, sha256sum, useradd, userdel, groupadd, groupdel, runuser,
-# script (to answer the migration's question on a terminal), systemctl and journalctl.
+# systemctl and journalctl.
 set -eu
 
 if [ "${DOMOVOI_PRIVILEGED_TESTS:-}" != "1" ]; then
@@ -34,7 +33,7 @@ if [ -z "$bin_arg" ] || [ ! -x "$bin_arg" ]; then
     exit 2
 fi
 bin_src="$(cd "$(dirname "$bin_arg")" && pwd)/$(basename "$bin_arg")"
-for tool in python3 curl tar sha256sum useradd userdel groupadd groupdel gpasswd runuser script systemctl journalctl; do
+for tool in python3 curl tar sha256sum useradd userdel groupadd groupdel gpasswd runuser systemctl journalctl; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "$tool is needed" >&2
         exit 2
@@ -268,23 +267,7 @@ export DOMOVOI_RELEASE_BASE="http://127.0.0.1:$port"
 run_install() {
     sh "$installer" "$@" >"$work/out" 2>&1
 }
-# The migration asks on /dev/tty, so it runs on a pseudo terminal that is fed the answer.
-run_install_tty() {
-    printf '%s\n' "$1" | script -qec "sh '$installer' --role agent --version $tag --migrate-identity" /dev/null >"$work/out" 2>&1
-}
 installed_bin=/usr/local/bin/domovoi
-
-legacy_unit_text() { sh "$installer" --print-unit agent-legacy; }
-
-# A host that still runs the agent as root, as today's installer leaves it.
-make_legacy_host() {
-    install -d -m 0750 -o root -g root /etc/domovoi /etc/domovoi/skills
-    install -d -m 0700 -o root -g root /var/lib/domovoi-agent
-    mkdir -p /usr/local/bin /etc/systemd/system
-    install -m 0755 "$bin_src" "$installed_bin"
-    legacy_unit_text | sed "s|/usr/local/bin/domovoi|$installed_bin|" >/etc/systemd/system/domovoi-agent.service
-    systemctl daemon-reload
-}
 
 #
 # Part 1: an existing account is verified and never modified.
@@ -710,138 +693,15 @@ row_end $?
 wipe_host
 
 #
-# Part 3: a host that still runs the agent as root, the migration and its rollback.
+# Part 3: options of the removed identity migration are rejected.
 #
-make_legacy_host
-
-row_begin legacy_upgrade_keeps_the_root_agent_and_prints_the_label
+row_begin migrate_identity_is_an_unknown_option
 (
     set -e
-    before="$(facts /etc/domovoi) $(facts /etc/domovoi/skills) $(facts /var/lib/domovoi-agent)"
-    if run_install --role agent --version "$tag"; then :; else
-        show_out
-        die "the upgrade failed"
-    fi
-    grep -q 'privilege boundary not in effect' "$work/out" || die "the notice is not printed"
-    grep -q 'sudo sh install.sh --role agent --migrate-identity' "$work/out" || die "the migration command is not printed"
-    expect_eq "paths are unchanged" "$(facts /etc/domovoi) $(facts /etc/domovoi/skills) $(facts /var/lib/domovoi-agent)" "$before"
-    if id domovoi-agent >/dev/null 2>&1 || id domovoi-skill >/dev/null 2>&1; then die "an account was created"; fi
-    [ ! -e /var/lib/domovoi-helper ] || die "the helper directory was created"
-    [ ! -e /etc/domovoi/helper.toml ] || die "helper.toml was written"
-    [ ! -e /etc/systemd/system/domovoi-helper.socket ] || die "the helper socket unit was installed"
-    legacy_unit_text | sed "s|/usr/local/bin/domovoi|$installed_bin|" | cmp -s - /etc/systemd/system/domovoi-agent.service || die "the agent unit changed"
-)
-row_end $?
-
-row_begin migrate_identity_refuses_when_a_dropin_sets_the_user
-(
-    set -e
-    trap 'rm -rf /etc/systemd/system/domovoi-agent.service.d; systemctl daemon-reload' EXIT
-    mkdir -p /etc/systemd/system/domovoi-agent.service.d
-    printf '[Service]\nUser=nobody\n' >/etc/systemd/system/domovoi-agent.service.d/user.conf
-    systemctl daemon-reload
-    if run_install --role agent --version "$tag" --migrate-identity; then
-        show_out
-        die "the migration should have been refused"
-    fi
-    grep -q 'user.conf' "$work/out" || die "the drop-in is not named"
-    expect_eq "state directory owner" "$(owner_of /var/lib/domovoi-agent)" "root:root"
-    if id domovoi-agent >/dev/null 2>&1; then die "an account was created"; fi
-)
-row_end $?
-
-row_begin migrate_identity_refuses_when_the_hub_is_installed
-(
-    set -e
-    trap 'rm -f /etc/domovoi/hub.toml' EXIT
-    printf '[hub]\n' >/etc/domovoi/hub.toml
-    if run_install --role agent --version "$tag" --migrate-identity; then
-        show_out
-        die "the migration should have been refused"
-    fi
-    grep -q 'hub is installed' "$work/out" || die "the hub is not named as the reason"
-    expect_eq "/etc/domovoi owner" "$(owner_of /etc/domovoi)" "root:root"
-)
-row_end $?
-
-row_begin migrate_identity_needs_the_typed_word
-(
-    set -e
-    if run_install_tty no; then
-        die "the migration ran without the typed word"
-    fi
-    grep -q 'not confirmed' "$work/out" || die "the refusal is not explained"
-    expect_eq "state directory owner" "$(owner_of /var/lib/domovoi-agent)" "root:root"
-    if id domovoi-agent >/dev/null 2>&1; then die "an account was created"; fi
-)
-row_end $?
-
-row_begin migrate_identity_rolls_back_when_selftest_fails
-(
-    set -e
-    trap 'rm -rf /etc/systemd/system/domovoi-helper.socket.d; systemctl daemon-reload' EXIT
-    mkdir -p /etc/systemd/system/domovoi-helper.socket.d
-    printf '[Socket]\nListenStream=/dev/null/x.sock\n' >/etc/systemd/system/domovoi-helper.socket.d/zz-fail.conf
-    systemctl daemon-reload
-    if run_install_tty migrate; then
-        show_out
-        die "the migration should have failed and rolled back"
-    fi
-    grep -q 'rolled back' "$work/out" || die "the rollback is not reported"
-    legacy_unit_text | sed "s|/usr/local/bin/domovoi|$installed_bin|" | cmp -s - /etc/systemd/system/domovoi-agent.service || die "the legacy unit was not restored"
-    expect_eq "state directory owner" "$(facts /var/lib/domovoi-agent)" "700 root:root"
-    expect_eq "/etc/domovoi" "$(facts /etc/domovoi)" "750 root:root"
-    if systemctl is-active --quiet domovoi-helper.socket; then die "the helper socket is still active"; fi
-    ls -d /etc/domovoi/identity-migration.rolled-back-* >/dev/null 2>&1 || die "the migration record is gone"
-)
-row_end $?
-
-row_begin migrate_identity_converts_a_legacy_install
-(
-    set -e
-    printf '[agent]\nhost_name = "legacy"\nhub_url = "wss://hub.example:7421"\n' >/etc/domovoi/agent.toml
-    chmod 0640 /etc/domovoi/agent.toml
-    printf 'identity\n' >/var/lib/domovoi-agent/identity.json
-    # A legacy host has no packages directory; the rolled-back run left an empty one.
-    rm -rf /var/lib/domovoi-packages
-    mkdir -p /var/lib/domovoi-packages
-    printf 'package\n' >/var/lib/domovoi-packages/file
-    if run_install_tty migrate; then :; else
-        show_out
-        die "the migration failed"
-    fi
-    expect_eq "/etc/domovoi" "$(facts /etc/domovoi)" "750 root:domovoi-agent"
-    expect_eq "/etc/domovoi/skills" "$(facts /etc/domovoi/skills)" "755 root:root"
-    expect_eq "agent.toml" "$(facts /etc/domovoi/agent.toml)" "644 root:root"
-    expect_eq "/var/lib/domovoi-agent" "$(facts /var/lib/domovoi-agent)" "700 domovoi-agent:domovoi-agent"
-    expect_eq "a file in the state directory" "$(owner_of /var/lib/domovoi-agent/identity.json)" "domovoi-agent:domovoi-agent"
-    expect_eq "a file in the packages directory" "$(owner_of /var/lib/domovoi-packages/file)" "domovoi-agent:domovoi-agent"
-    cmp -s /etc/systemd/system/domovoi-agent.service "$root/deploy/systemd/domovoi-agent.service" || die "the agent unit was not replaced"
-    expect_eq "the unit's user" "$(systemctl show -p User --value domovoi-agent.service)" "domovoi-agent"
-    [ -f /etc/domovoi/identity-migration/legacy-domovoi-agent.service ] || die "the legacy unit was not saved"
-    [ -s /etc/domovoi/identity-migration/owners ] || die "the owners were not recorded"
-    systemctl is-active --quiet domovoi-helper.socket || die "the helper socket is not active"
-    "$installed_bin" agent selftest --installer >"$work/selftest.out" 2>&1 || true
-    grep -q '^ST-01 pass' "$work/selftest.out" || die "ST-01 does not pass after the migration"
-    grep -q '^ST-02 pass' "$work/selftest.out" || die "ST-02 does not pass after the migration"
-)
-row_end $?
-
-row_begin rollback_identity_restores_the_legacy_unit_and_owners
-(
-    set -e
-    if run_install --rollback-identity; then :; else
-        show_out
-        die "the rollback failed"
-    fi
-    legacy_unit_text | sed "s|/usr/local/bin/domovoi|$installed_bin|" | cmp -s - /etc/systemd/system/domovoi-agent.service || die "the legacy unit was not restored"
-    expect_eq "/etc/domovoi" "$(facts /etc/domovoi)" "750 root:root"
-    expect_eq "/etc/domovoi/skills" "$(facts /etc/domovoi/skills)" "750 root:root"
-    expect_eq "agent.toml" "$(facts /etc/domovoi/agent.toml)" "640 root:root"
-    expect_eq "/var/lib/domovoi-agent" "$(facts /var/lib/domovoi-agent)" "700 root:root"
-    expect_eq "a file in the state directory" "$(owner_of /var/lib/domovoi-agent/identity.json)" "root:root"
-    if systemctl is-active --quiet domovoi-helper.socket; then die "the helper socket is still active"; fi
-    ls -d /etc/domovoi/identity-migration.rolled-back-* >/dev/null 2>&1 || die "the migration record is gone"
+    if run_install --role agent --version "$tag" --migrate-identity; then die "--migrate-identity was accepted"; fi
+    grep -q 'unknown option: --migrate-identity' "$work/out" || die "the option was not reported as unknown"
+    if run_install --rollback-identity; then die "--rollback-identity was accepted"; fi
+    grep -q 'unknown option: --rollback-identity' "$work/out" || die "the option was not reported as unknown"
 )
 row_end $?
 

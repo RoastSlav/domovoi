@@ -34,8 +34,7 @@ pub use reads::{
 };
 pub use structure::{
     edge_across_operations_is_refused, edge_to_a_later_or_equal_ordinal_is_refused,
-    edge_to_a_missing_step_is_refused, execution_id_equal_to_an_action_id_is_refused,
-    execution_row_needs_an_execution_step_and_is_one_to_one,
+    edge_to_a_missing_step_is_refused, execution_row_needs_an_execution_step_and_is_one_to_one,
     execution_version_guard_refuses_a_stale_write, incident_link_is_idempotent,
     step_ordinals_are_dense_and_unique_within_an_operation,
 };

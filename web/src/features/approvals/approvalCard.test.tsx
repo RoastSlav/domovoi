@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import type { Execution } from "../../api/types";
 import { calls, failure, resetApi, route } from "../../test/apiMock";
-import { action } from "../../test/fixtures";
 import { execution, PLAN_HASH } from "../../test/operationFixtures";
 import { renderAt } from "../../test/render";
 import { ApprovalCard, type ApprovalCardProps } from "./ApprovalCard";
@@ -41,7 +40,6 @@ describe("step approval card", () => {
     expect(within(card).getByText("name = plex")).toBeVisible();
     expect(within(card).getByText(/Expires in/)).toBeVisible();
     expect(within(card).getByText(`Plan ${PLAN_HASH.slice(0, 8)}`)).toBeVisible();
-    expect(within(card).getByText("v2")).toBeVisible();
   });
 
   it("step_approve_asks_first_and_sends_the_plan_hash_it_showed", async () => {
@@ -244,15 +242,6 @@ describe("step approval card", () => {
     expect(screen.getByText("Reversible")).toBeVisible();
     expect(screen.getByText("Policy: needs approval (rule r1)")).toBeVisible();
     expect(screen.getByText("The agent refused it")).toBeVisible();
-  });
-
-  it("legacy_card_keeps_its_output_and_v1_label", () => {
-    renderAt(
-      "/",
-      "/",
-      <ApprovalCard source={{ kind: "legacy", action: action({ plan_binding: "v1" }) }} />,
-    );
-    expect(screen.getByText("v1 binding")).toBeVisible();
   });
 
   it("a_card_with_an_operation_link_links_to_the_operation", () => {

@@ -1,7 +1,7 @@
 //! How the agent's journal answers become the engine's [`ActionAnswers`].
 
-use domovoi_core::ActionId;
 use domovoi_core::ContractId;
+use domovoi_core::ExecutionId;
 use domovoi_core::JournalEpoch;
 use domovoi_core::capability::{CatalogImplementation, ContractVersion};
 use domovoi_core::ports::{ActionAnswer, ActionAnswerEntry, ActionAnswers, UnknownReason};
@@ -26,7 +26,7 @@ pub(super) fn answers_from(
             .answers
             .into_iter()
             .map(|answer| ActionAnswerEntry {
-                execution: ActionId::from_uuid(answer.execution_id),
+                execution: ExecutionId::from_uuid(answer.execution_id),
                 answer: answer_from(answer.state, authoritative_absence),
             })
             .collect(),
@@ -89,7 +89,7 @@ pub(super) const MAX_CATALOG_PAGE: u32 = 100;
 /// One wire entry as the core type, or why its id or version is unreadable.
 ///
 /// The descriptor is ignored on purpose: it is opaque at the wire layer, and deriving a
-/// contract from it would let an agent define its own authority (RW-07).
+/// contract from it would let an agent define its own authority.
 pub(super) fn implementation_of(entry: CatalogEntry) -> Result<CatalogImplementation, String> {
     let contract = ContractId::parse(&entry.contract)
         .map_err(|err| format!("{:?}: {}", entry.contract, err))?;

@@ -38,7 +38,7 @@ Yes. Every setting can come from `hub.toml` and environment variables, and the w
 
 ## Is there Telegram, Matrix or email?
 
-Not yet. Discord is the chat in v0.1. Other chats and notifiers plug in as new adapters later.
+No. Discord is the only chat platform. Other chats and notifiers are separate adapters that can be added without changing the rest.
 
 ## How do I know triage is any good?
 

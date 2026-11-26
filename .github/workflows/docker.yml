@@ -1,14 +1,26 @@
 name: Container smoke test
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "docker/**"
+      - ".dockerignore"
+      - "Cargo.lock"
+      - ".github/workflows/docker.yml"
   pull_request:
     paths:
       - "Dockerfile"
       - "docker/**"
-      - "deploy/**"
       - ".dockerignore"
+      - "Cargo.lock"
       - ".github/workflows/docker.yml"
   workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -27,8 +39,11 @@ jobs:
           push: false
           load: true
           tags: domovoi:ci
-          # Web dependencies and the web build stay cached while their inputs are unchanged; the Rust
-          # layer rebuilds whenever any source file changes.
+          # The build checks how the image is wired, not how fast the binary is: no LTO. The
+          # compiled dependencies and the web dependencies are cached layers; the workspace
+          # crates and the web build rerun on a source change.
+          build-args: |
+            PROFILE=smoke
           cache-from: type=gha,scope=hub-image
           cache-to: type=gha,scope=hub-image,mode=max
       - name: version

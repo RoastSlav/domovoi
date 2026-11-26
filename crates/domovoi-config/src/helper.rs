@@ -30,7 +30,7 @@ pub const FRESH_INSTALL_GROUPS: [HelperGroup; 6] = [
 #[serde(deny_unknown_fields)]
 pub struct HelperConfig {
     /// Operation groups to enable. Empty or absent means the fresh-install set. Write groups
-    /// are accepted and ignored until their milestones ship.
+    /// are accepted in the file but no write operation is served yet.
     #[serde(default, deserialize_with = "parse_groups")]
     pub groups: Vec<HelperGroup>,
     /// Per-host platform decisions.
@@ -39,7 +39,7 @@ pub struct HelperConfig {
     /// Which disks `smart.read` may query.
     #[serde(default)]
     pub smart: SmartSection,
-    /// Exclusions and containment limits; parsed here, interpreted by later milestones.
+    /// Exclusions and containment limits; parsed here, and read by the helper's safety checks.
     #[serde(default)]
     pub safety: SafetySection,
     /// Rate and time limits.

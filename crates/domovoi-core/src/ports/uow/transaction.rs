@@ -3,12 +3,11 @@
 use std::fmt;
 
 use crate::id::{
-    ActionId, ConversationId, EffectId, IncidentId, InstallJobId, NoteId, OperationId,
-    PolicyVersionId,
+    ConversationId, EffectId, IncidentId, InstallJobId, NoteId, OperationId, PolicyVersionId,
 };
 use crate::policy_store::PolicyWrite;
 use crate::ports::repos::IncidentTimelineEntry;
-use crate::{ActionRequest, Incident, Note, Signal};
+use crate::{Incident, Note, Signal};
 
 use super::{
     AuditDraft, ContainmentWrite, ConversationWrite, EffectCancel, EffectCompletion, EffectDeath,
@@ -21,8 +20,6 @@ use super::{
 pub enum AggregateKind {
     /// An incident.
     Incident,
-    /// An action request.
-    Action,
     /// A runbook note.
     Note,
     /// An operation.
@@ -46,9 +43,9 @@ pub enum AggregateKind {
 }
 
 impl AggregateKind {
-    /// The aggregates the incident and action services own. The legacy effect runner claims
+    /// The aggregates the incident and note services own. The legacy effect runner claims
     /// only these, so it never touches an operation's effects.
-    pub const LEGACY: [Self; 3] = [Self::Incident, Self::Action, Self::Note];
+    pub const LEGACY: [Self; 2] = [Self::Incident, Self::Note];
 
     /// Stable lowercase name stored in the database, for example `"incident"` or
     /// `"install_job"`.
@@ -56,7 +53,6 @@ impl AggregateKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Incident => "incident",
-            Self::Action => "action",
             Self::Note => "note",
             Self::Operation => "operation",
             Self::Policy => "policy",
@@ -75,7 +71,6 @@ impl AggregateKind {
     pub fn parse(text: &str) -> Option<Self> {
         match text {
             "incident" => Some(Self::Incident),
-            "action" => Some(Self::Action),
             "note" => Some(Self::Note),
             "operation" => Some(Self::Operation),
             "policy" => Some(Self::Policy),
@@ -106,15 +101,6 @@ impl AggregateRef {
     pub fn incident(id: IncidentId) -> Self {
         Self {
             kind: AggregateKind::Incident,
-            id: id.to_string(),
-        }
-    }
-
-    /// An action reference.
-    #[must_use]
-    pub fn action(id: ActionId) -> Self {
-        Self {
-            kind: AggregateKind::Action,
             id: id.to_string(),
         }
     }
@@ -220,24 +206,6 @@ impl From<Expected> for Expectation {
     }
 }
 
-/// What an action write expects to find; actions are guarded by their status name.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ActionGuard {
-    /// No action with this id exists yet.
-    New,
-    /// The stored action has this status name, for example `"proposed"`.
-    Status(String),
-}
-
-impl From<ActionGuard> for Expectation {
-    fn from(value: ActionGuard) -> Self {
-        match value {
-            ActionGuard::New => Self::New,
-            ActionGuard::Status(status) => Self::Status(status),
-        }
-    }
-}
-
 /// The expectation recorded in a conflict.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expectation {
@@ -245,7 +213,7 @@ pub enum Expectation {
     New,
     /// The write expected this version.
     Version(u64),
-    /// The write expected this action status name.
+    /// The write expected this status name.
     Status(String),
 }
 
@@ -256,7 +224,7 @@ pub enum Observed {
     Missing,
     /// The stored row is at this version.
     Version(u64),
-    /// The stored action has this status name.
+    /// The stored row has this status name.
     Status(String),
 }
 
@@ -272,7 +240,7 @@ pub struct Versioned<T> {
 /// One typed state change.
 ///
 /// Each variant is meant to be built only by the writer that owns the aggregate: the incident
-/// manager for incidents and their signals, the action writer for actions, the note writer
+/// manager for incidents and their signals, the note writer
 /// for notes, and the operation writer for operations. The unit of work applies whatever it is given; it does not decide ownership.
 #[derive(Debug, Clone)]
 pub enum StateWrite {
@@ -298,13 +266,6 @@ pub enum StateWrite {
         id: IncidentId,
         /// The version the caller read.
         expected: u64,
-    },
-    /// Inserts (`ActionGuard::New`) or replaces an action whose stored status is as guarded.
-    Action {
-        /// The action to store.
-        action: ActionRequest,
-        /// What the stored action must look like.
-        expected: ActionGuard,
     },
     /// Inserts (`Expected::New`) or replaces (`Expected::Version(n)`) a note.
     Note {

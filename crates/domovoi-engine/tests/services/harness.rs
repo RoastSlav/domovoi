@@ -4,13 +4,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    ActionFilter, ActionRepo, Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse,
-    NoteRepo, Page, Part, Presence, SignalRepo, StopReason, ToolOutput, Usage,
+    Clock, HostRepo, IncidentTimelineEntry, LlmProvider, LlmResponse, NoteRepo, Part, Presence,
+    SignalRepo, StopReason, ToolOutput, Usage,
 };
 use domovoi_core::{
-    ActionRequest, AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note,
-    NoteId, ParamKind, ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind,
-    TargetKey,
+    AgentIdentity, CheckKey, Evidence, EvidenceValue, HostId, Incident, Note, NoteId, ParamKind,
+    ParamName, ParamSpec, Risk, Severity, Signal, SkillSummary, SourceKind, TargetKey,
 };
 use domovoi_engine::context::ExperienceSource;
 use domovoi_engine::operations::{
@@ -54,8 +53,6 @@ pub struct Setup {
     pub store_delay: Option<std::time::Duration>,
     /// A signal repository to use instead of the store's, for read failures.
     pub signals: Option<Arc<dyn SignalRepo>>,
-    /// An action repository to use instead of the store's, for read failures.
-    pub actions: Option<Arc<dyn ActionRepo>>,
     /// Extra context sources registered with the triage service.
     pub extra_context: Vec<Arc<dyn domovoi_core::ports::ContextSource>>,
     /// Whether the experience source is also registered as a context source, as the hub does.
@@ -75,7 +72,6 @@ impl Default for Setup {
             admission: None,
             store_delay: None,
             signals: None,
-            actions: None,
             extra_context: Vec::new(),
             with_experience: false,
         }
@@ -278,7 +274,6 @@ pub async fn world_over(setup: Setup, store: Arc<InMemoryStore>) -> World {
         signals: setup.signals.clone().unwrap_or_else(|| store.clone()),
         notes: store.clone(),
         hosts: store.clone(),
-        actions: setup.actions.clone().unwrap_or_else(|| store.clone()),
         cache: store.clone(),
         usage: setup.usage.clone().unwrap_or_else(|| store.clone()),
         admission: setup.admission.clone().unwrap_or_else(|| store.clone()),
@@ -404,7 +399,6 @@ impl World {
             signals: self.store.clone(),
             notes: self.store.clone(),
             hosts: self.store.clone(),
-            actions: self.store.clone(),
             cache: self.store.clone(),
             usage: self.usage.clone(),
             admission: self.admission.clone(),
@@ -453,7 +447,7 @@ impl World {
     }
 
     /// The plain chat tokens of the last `TriageCompleted` event.
-    pub fn tokens(&mut self) -> BTreeMap<domovoi_core::ActionId, String> {
+    pub fn tokens(&mut self) -> BTreeMap<domovoi_core::ExecutionId, String> {
         self.drain()
             .into_iter()
             .filter_map(|e| match e.kind {
@@ -462,13 +456,6 @@ impl World {
             })
             .next_back()
             .unwrap_or_default()
-    }
-
-    pub async fn actions(&self) -> Vec<ActionRequest> {
-        ActionRepo::list(&*self.store, &ActionFilter::default(), &Page::first(100))
-            .await
-            .unwrap()
-            .items
     }
 
     pub async fn note(&self, title: &str, body: &str) {

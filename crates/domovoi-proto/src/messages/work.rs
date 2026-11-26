@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use domovoi_core::ports::{CheckRecheck, LogLine, SkillDispatch, SkillOutput, ToolOutput};
 use domovoi_core::{
-    ActionId, CheckKey, Evidence, PlanHash, ReadToolCall, SignalStatus, SkillName, TargetKey,
+    CheckKey, Evidence, ExecutionId, PlanHash, ReadToolCall, SignalStatus, SkillName, TargetKey,
 };
 use jiff::Timestamp;
 
@@ -119,7 +119,7 @@ pub enum ToolFailureCode {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct RunSkill {
     /// The action being executed.
-    pub action_id: ActionId,
+    pub action_id: ExecutionId,
     /// The skill to run.
     pub skill: SkillName,
     /// Raw argument values, validated again by the agent.
@@ -135,7 +135,7 @@ impl RunSkill {
     #[must_use]
     pub fn from_dispatch(dispatch: &SkillDispatch, deadline: Timestamp) -> Self {
         Self {
-            action_id: dispatch.action,
+            action_id: dispatch.execution,
             skill: dispatch.skill.clone(),
             args: dispatch.args.to_map(),
             plan_hash: dispatch.plan_hash,

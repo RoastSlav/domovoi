@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use domovoi_core::ports::{ActionFilter, IncidentFilter, Page};
+use domovoi_core::ports::IncidentFilter;
 use domovoi_core::{
     AckRule, AckRuleId, Incident, IncidentGroup, IncidentId, IncidentStatus, Severity,
     TargetPattern, TriageOutcome,
@@ -13,9 +13,8 @@ use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
 use super::dto::{
-    ActionDto, AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage,
-    IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
-    TriageStateDto,
+    AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage, IncidentQuery,
+    IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody, busy};
 use super::operation_errors::{command, operation_error};
@@ -132,15 +131,6 @@ pub(super) async fn detail(
         _ => None,
     };
     let triage = outcome.as_ref().map(TriageStateDto::from);
-    let filter = ActionFilter {
-        incident: Some(incident.id()),
-        ..ActionFilter::default()
-    };
-    let actions = deps
-        .actions
-        .list(&filter, &Page::first(MAX_ACTIONS))
-        .await?
-        .items;
     let latest = deps
         .signals
         .list_for_incident(incident.id(), 1)
@@ -157,7 +147,6 @@ pub(super) async fn detail(
     let card = build_card(
         &incident,
         report.as_ref(),
-        &actions,
         &host.name,
         &CardLinks {
             steps,
@@ -172,15 +161,11 @@ pub(super) async fn detail(
         triage,
         card: CardDto::from(&card),
         timeline: timeline.iter().map(TimelineEntryDto::from).collect(),
-        actions: actions.iter().map(ActionDto::from).collect(),
         operations: super::operations::for_incident(&state, incident.id()).await?,
         tools_used: tool_usage(&timeline),
         as_of_seq,
     }))
 }
-
-/// The most actions shown on an incident.
-const MAX_ACTIONS: u16 = 50;
 
 /// Acknowledges an incident.
 #[utoipa::path(

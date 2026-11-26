@@ -38,7 +38,7 @@ pub enum Principal {
 pub enum Presence {
     /// The path must exist.
     Required,
-    /// The path may be absent (a later milestone creates it); when present it must match.
+    /// The path may be absent (the install creates it later); when present it must match.
     IfPresent,
 }
 

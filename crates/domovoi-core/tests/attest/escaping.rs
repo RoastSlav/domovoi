@@ -1,4 +1,4 @@
-//! The field codec and the selector's inner escaping (decision D-46).
+//! The field codec and the selector's inner escaping.
 
 use domovoi_core::attest::{
     EncodeError, Family, Rule, Selector, check_ifname, decode_field, encode_field, is_literal,

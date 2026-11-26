@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Action, Host, IncidentSummary, OperationSummary } from "../../api/types";
+import type { Host, IncidentSummary, OperationSummary } from "../../api/types";
 import { summary } from "../../test/attentionFixtures";
 import { nas } from "../../test/fixtures";
 import {
@@ -32,8 +32,6 @@ function part<T>(
 function parts(over: Partial<SourcesParts> = {}): SourcesParts {
   return {
     incidents: part<IncidentSummary>("incidents"),
-    proposed: part<Action>("approvals"),
-    unknownActions: part<Action>("unknown results"),
     waitingApproval: part<OperationSummary>("operations waiting for approval"),
     waitingUser: part<OperationSummary>("operations waiting for an answer"),
     paused: part<OperationSummary>("paused operations"),

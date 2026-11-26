@@ -357,7 +357,7 @@ impl Journal {
                 }
                 ProcessLookup::Gone => {
                     // The leader has already exited. Only a persisted group-leader identity
-                    // can authorize a signal; a legacy record without one stays unresolved.
+                    // can authorize a signal; a record without one stays unresolved.
                     if execution.pgid == 0
                         || execution.pgid != execution.pid
                         || execution.session == 0

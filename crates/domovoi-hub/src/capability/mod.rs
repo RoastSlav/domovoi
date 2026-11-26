@@ -7,7 +7,7 @@
 //! into one read-only view, the `CapabilityRegistry` port the engine and the API consume.
 //!
 //! The registry never evaluates policy, never approves and never dispatches: it answers
-//! "is this contract here, and enabled" only (RW-10). Enforcing enablement at the final
+//! "is this contract here, and enabled" only. Enforcing enablement at the final
 //! boundary stays with the engine (`collect_evidence`, `execute`), which asks
 //! [`Enablement::is_disabled`] through the registry.
 
@@ -17,7 +17,6 @@ mod enablement;
 mod floors;
 mod host;
 mod host_rules;
-mod inventory;
 mod registry;
 
 pub use catalogue::CatalogueCache;
@@ -27,5 +26,4 @@ pub use ceiling::{
 pub use enablement::{DISABLED_REASON, Enablement, host_skills_key};
 pub use floors::{FloorWriteError, Floors, host_floors_key};
 pub use host::HostCapabilities;
-pub use inventory::{ContainerRef, InventoryError, parse_inspect_id, parse_ps};
 pub use registry::{HubRegistry, RegistryDeps, RegistryError};
