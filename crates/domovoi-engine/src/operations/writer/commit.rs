@@ -333,8 +333,16 @@ pub(crate) async fn release(shared: &OpShared, held: Held, err: &OperationError)
         }
         _ => return,
     };
-    if let Err(err) = shared.deps.uow.commit(tx).await {
-        tracing::warn!(%err, effect = %held.effect, "could not release a held effect");
+    match shared.deps.uow.commit(tx).await {
+        Ok(_) => {}
+        // The operation closed (a cancel or a retry that replaced it) while the handler was
+        // still working; the effect was already cancelled, so there is nothing to release.
+        Err(CommitError::StaleEffect { .. }) => {
+            tracing::debug!(effect = %held.effect, "a held effect was already settled");
+        }
+        Err(err) => {
+            tracing::warn!(%err, effect = %held.effect, "could not release a held effect");
+        }
     }
 }
 

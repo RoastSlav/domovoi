@@ -4,7 +4,7 @@ use crate::id::{ExecutionId, IncidentId, StepId};
 use crate::ports::uow::Versioned;
 
 use super::aggregate::Operation;
-use super::edge::StepEdge;
+use super::edge::{EdgeKind, StepEdge};
 use super::execution::ExecutionRecord;
 use super::status::WaitKind;
 use super::step::{StepKind, StepOutcome, StepRecord};
@@ -43,6 +43,22 @@ impl OperationSnapshot {
             .find(|row| row.value.execution == execution)
     }
 
+    /// Whether the reasoning turn `turn` was proposed after a turn that failed or was skipped,
+    /// which is how a retry waits for its due time.
+    fn is_parked_retry(&self, turn: StepId) -> bool {
+        self.edges
+            .iter()
+            .filter(|edge| edge.kind == EdgeKind::CausedBy && edge.from == turn)
+            .filter_map(|edge| self.steps.iter().find(|record| record.step.id == edge.to))
+            .any(|cause| {
+                cause.step.kind == StepKind::ReasoningTurn
+                    && matches!(
+                        cause.progress.outcome,
+                        StepOutcome::Failed | StepOutcome::NotRun
+                    )
+            })
+    }
+
     /// Steps that are pending or running, in ordinal order.
     pub fn open_steps(&self) -> impl Iterator<Item = &StepRecord> {
         self.steps
@@ -62,6 +78,13 @@ impl OperationSnapshot {
             let wait = match record.step.kind {
                 // A question that was started is still waiting for its answer.
                 StepKind::Question if !outcome.is_final() => WaitKind::User,
+                // A turn that follows a failed or skipped one is a retry the operation parked:
+                // it is proposed at once and does its work when its due time comes.
+                StepKind::ReasoningTurn
+                    if !outcome.is_final() && self.is_parked_retry(record.step.id) =>
+                {
+                    WaitKind::Timer
+                }
                 _ if !pending => continue,
                 StepKind::Approval => WaitKind::Approval,
                 StepKind::Execution => {

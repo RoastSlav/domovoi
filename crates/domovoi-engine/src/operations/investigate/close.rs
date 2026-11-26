@@ -6,6 +6,7 @@ use domovoi_core::{
 };
 
 use super::plumbing::cut as cut_chars;
+use super::turn_output::caused_by;
 
 use super::super::OperationHandle;
 
@@ -58,6 +59,28 @@ pub(crate) fn close_decision(snapshot: &OperationSnapshot) -> Option<(FinishOutc
         return None;
     }
     let reason = turn.progress.reason.clone().unwrap_or_default();
+    // A report that was delivered is not a success when the action it led to failed or may
+    // not have run: the operation says so instead of showing success beside a failed step.
+    if turn.progress.outcome == StepOutcome::Succeeded
+        && let Some(action) = caused_by(snapshot, turn.step.id, StepKind::Execution)
+            .into_iter()
+            .find(|record| {
+                matches!(
+                    record.progress.outcome,
+                    StepOutcome::Failed | StepOutcome::OutcomeUnknown
+                )
+            })
+    {
+        let why = action
+            .progress
+            .reason
+            .clone()
+            .unwrap_or_else(|| action.progress.outcome.as_str().to_owned());
+        return Some((
+            FinishOutcome::Failed,
+            cut_chars(&format!("action failed: {why}"), 200),
+        ));
+    }
     Some(match turn.progress.outcome {
         StepOutcome::Succeeded => (FinishOutcome::Succeeded, "report delivered".to_owned()),
         StepOutcome::NotRun => (
@@ -252,6 +275,50 @@ mod tests {
                 Some((FinishOutcome::Failed, text.to_owned()))
             );
         }
+    }
+
+    #[test]
+    fn a_failed_or_unknown_action_closes_the_investigation_failed() {
+        for outcome in [StepOutcome::Failed, StepOutcome::OutcomeUnknown] {
+            let mut snap = running();
+            let t = turn(&mut snap, StepOutcome::Succeeded);
+            notification(&mut snap, t, StepOutcome::Succeeded);
+            let action = add(
+                &mut snap,
+                StepIntent::Assessment {
+                    text: "restart".to_owned(),
+                },
+                outcome,
+            );
+            // The test intent is a stand-in: the step is stored as a child of the turn.
+            let record = snap.steps.iter_mut().find(|r| r.step.id == action).unwrap();
+            record.step.kind = StepKind::Execution;
+            record.step.parent = Some(t);
+            let (finish, summary) = close_decision(&snap).expect("it closes");
+            assert_eq!(finish, FinishOutcome::Failed);
+            assert_eq!(summary, "action failed: because");
+        }
+    }
+
+    #[test]
+    fn a_denied_action_does_not_fail_the_investigation() {
+        let mut snap = running();
+        let t = turn(&mut snap, StepOutcome::Succeeded);
+        notification(&mut snap, t, StepOutcome::Succeeded);
+        let action = add(
+            &mut snap,
+            StepIntent::Assessment {
+                text: "restart".to_owned(),
+            },
+            StepOutcome::Refused,
+        );
+        let record = snap.steps.iter_mut().find(|r| r.step.id == action).unwrap();
+        record.step.kind = StepKind::Execution;
+        record.step.parent = Some(t);
+        assert_eq!(
+            close_decision(&snap),
+            Some((FinishOutcome::Succeeded, "report delivered".to_owned()))
+        );
     }
 
     #[test]

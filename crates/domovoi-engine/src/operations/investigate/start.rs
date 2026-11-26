@@ -28,6 +28,10 @@ const CONTEXT_REFS: [&str; 7] = [
     "skills",
 ];
 
+/// The extra part name on the first turn of an investigation a person asked for. Such a run is
+/// not retried on its own after it fails or is skipped: it ends, and the person sees why.
+pub(crate) const MANUAL_REF: &str = "requested";
+
 /// Why `investigate_and_wait` did not return an outcome.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum InvestigateError {
@@ -49,6 +53,7 @@ pub enum InvestigateError {
 pub(crate) fn seed_for(
     incident: &Incident,
     fresh: bool,
+    manual: bool,
     redactor: &dyn Redactor,
     defaults: &BudgetLimits,
 ) -> OperationSeed {
@@ -82,7 +87,11 @@ pub(crate) fn seed_for(
             phase: "investigate".to_owned(),
             parent: None,
             intent: StepIntent::ReasoningTurn {
-                context_refs: CONTEXT_REFS.iter().map(|part| (*part).to_owned()).collect(),
+                context_refs: CONTEXT_REFS
+                    .iter()
+                    .chain(manual.then_some(&MANUAL_REF))
+                    .map(|part| (*part).to_owned())
+                    .collect(),
             },
         }],
         effects: vec![(
@@ -101,7 +110,7 @@ impl OperationHandle {
         incident: &Incident,
         fresh: bool,
     ) -> Result<OperationId, OperationError> {
-        self.start_investigation(incident, fresh, false)
+        self.start_investigation(incident, fresh, false, false)
             .await
             .map(|(id, _)| id)
     }
@@ -114,11 +123,33 @@ impl OperationHandle {
         incident: &Incident,
         fresh: bool,
     ) -> Result<TriageOutcome, InvestigateError> {
+        self.wait_for_outcome(incident, fresh, false).await
+    }
+
+    /// `investigate_and_wait` for a run a person asked for: it does not retry by itself. When
+    /// the run is skipped or fails, the operation ends `failed` with the cause.
+    pub async fn investigate_on_request_and_wait(
+        &self,
+        incident: &Incident,
+        fresh: bool,
+    ) -> Result<TriageOutcome, InvestigateError> {
+        self.wait_for_outcome(incident, fresh, true).await
+    }
+
+    async fn wait_for_outcome(
+        &self,
+        incident: &Incident,
+        fresh: bool,
+        manual: bool,
+    ) -> Result<TriageOutcome, InvestigateError> {
         let runtime = self.runtime()?;
         // Registered before the operation exists, so an outcome attached at once is not
         // missed.
         let (ticket, outcome) = runtime.waiters.register(incident.id());
-        let (id, created) = match self.start_investigation(incident, fresh, true).await {
+        let (id, created) = match self
+            .start_investigation(incident, fresh, true, manual)
+            .await
+        {
             Ok(started) => started,
             Err(err) => {
                 runtime.waiters.forget(incident.id(), ticket);
@@ -161,6 +192,7 @@ impl OperationHandle {
         incident: &Incident,
         fresh: bool,
         supersede_parked: bool,
+        manual: bool,
     ) -> Result<(OperationId, bool), OperationError> {
         let runtime = self.runtime()?;
         let _one_at_a_time = runtime.start_lock.lock().await;
@@ -189,6 +221,7 @@ impl OperationHandle {
         let seed = seed_for(
             incident,
             fresh,
+            manual,
             self.shared.deps.redactor.as_ref(),
             &self.shared.settings.budgets,
         );

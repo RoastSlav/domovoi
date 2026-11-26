@@ -130,6 +130,15 @@ impl EffectHandler for Notify {
                 error: "the turn has no outcome to attach".to_owned(),
             };
         };
+        // The cause comes first; when the turn parked a retry, its time and attempt follow.
+        if let Some(note) = effect.payload.get("retry_note").and_then(|n| n.as_str()) {
+            match &mut outcome {
+                TriageOutcome::Failed { reason } | TriageOutcome::Skipped { reason } => {
+                    *reason = format!("{reason}; {note}");
+                }
+                _ => {}
+            }
+        }
         let incident = match incident_of(&runtime, &snapshot).await {
             Ok(Some(incident)) => incident,
             Ok(None) => return finish(shared, held).await,

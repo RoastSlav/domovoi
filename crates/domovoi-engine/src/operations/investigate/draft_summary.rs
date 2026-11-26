@@ -16,6 +16,7 @@ use super::plumbing::cut as cut_chars;
 use super::plumbing::{
     claim, conclude, end_operation, handle_of, incident_of, latest_turn, runtime, step_of,
 };
+use super::start::MANUAL_REF;
 use super::turn_output::{TurnKind, TurnOutput, caused_by, output_of};
 use super::{BUILD_ATTEMPTS, NOTIFY_ATTEMPTS};
 use crate::effects::{EffectHandler, EffectOutcome};
@@ -174,7 +175,9 @@ impl EffectHandler for DraftSummary {
         }
 
         let mut successors = Vec::new();
+        let mut retry_note = None;
         if let Some(due) = retry_due(&snapshot, &turn, &output, shared, triage) {
+            retry_note = retry_text(&snapshot, &output, due);
             let cycle = turn.step.cycle;
             if latest_turn(&snapshot, None)
                 .is_none_or(|latest| latest.step.ordinal <= turn.step.ordinal)
@@ -212,7 +215,14 @@ impl EffectHandler for DraftSummary {
                 Some(format!("build:{operation}:{cycle}:retry:{turn_id}")),
             ));
         }
-        successors.push(notify(shared, operation, turn_id, effect, &dropped));
+        successors.push(notify(
+            shared,
+            operation,
+            turn_id,
+            effect,
+            &dropped,
+            retry_note.as_deref(),
+        ));
         conclude(shared, held, operation, None, successors).await
     }
 }
@@ -227,6 +237,13 @@ fn retry_due(
     shared: &OpShared,
     triage: &crate::triage::Shared,
 ) -> Option<jiff::Timestamp> {
+    // A person asked for this run: it ends with its reason instead of retrying by itself.
+    if matches!(output.kind, TurnKind::Failed | TurnKind::Skipped)
+        && matches!(&turn.step.intent, StepIntent::ReasoningTurn { context_refs }
+            if context_refs.iter().any(|part| part == MANUAL_REF))
+    {
+        return None;
+    }
     match output.kind {
         TurnKind::Failed => {
             let failed = snapshot
@@ -246,6 +263,40 @@ fn retry_due(
     }
 }
 
+/// The sentence that follows the cause of a failed or skipped turn when a retry is parked:
+/// when it is due and, for a failure, which attempt it is. A skipped turn whose own reason
+/// already names the time says nothing more.
+fn retry_text(
+    snapshot: &OperationSnapshot,
+    output: &TurnOutput,
+    due: jiff::Timestamp,
+) -> Option<String> {
+    let at = due.strftime("%H:%M UTC");
+    match output.kind {
+        TurnKind::Failed => {
+            let failed = snapshot
+                .steps
+                .iter()
+                .filter(|record| record.step.kind == StepKind::ReasoningTurn)
+                .filter(|record| record.progress.outcome == StepOutcome::Failed)
+                .count();
+            Some(format!(
+                "will retry at {at}, attempt {} of {}",
+                failed + 1,
+                FAILED_RETRY_LIMIT + 1
+            ))
+        }
+        TurnKind::Skipped => {
+            let named = output
+                .reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("tries again"));
+            (!named).then(|| format!("will retry at {at}"))
+        }
+        _ => None,
+    }
+}
+
 /// The `notify` effect that attaches the outcome.
 fn notify(
     shared: &OpShared,
@@ -253,6 +304,7 @@ fn notify(
     turn: StepId,
     draft: &EffectRecord,
     dropped: &[String],
+    retry_note: Option<&str>,
 ) -> EffectSpec {
     let tools = draft
         .payload
@@ -267,6 +319,7 @@ fn notify(
             "step": turn.to_string(),
             "tools": tools,
             "dropped": dropped,
+            "retry_note": retry_note,
         }),
         after(shared, jiff::SignedDuration::ZERO),
         NOTIFY_ATTEMPTS,

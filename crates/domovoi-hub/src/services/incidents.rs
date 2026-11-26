@@ -106,7 +106,10 @@ impl IncidentService {
             .as_ref()
             .ok_or(RetriageError::OperationsOff)?;
         tracing::debug!(user = %caller.user(), incident = %incident.id(), fresh, "retriage");
-        match operations.investigate_and_wait(incident, fresh).await {
+        match operations
+            .investigate_on_request_and_wait(incident, fresh)
+            .await
+        {
             Ok(outcome) => Ok(Retriaged::Outcome(Box::new(outcome))),
             Err(InvestigateError::AlreadyRunning(_)) => Err(RetriageError::AlreadyRunning),
             Err(InvestigateError::TimedOut(_)) => Ok(Retriaged::StillRunning),

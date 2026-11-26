@@ -61,7 +61,10 @@ pub fn shape(outcome: &TriageOutcome) -> Value {
             json!({"cached": serde_json::to_value(plain_report(report)).unwrap()})
         }
         TriageOutcome::Skipped { reason } => json!({"skipped": reason}),
-        TriageOutcome::Failed { reason } => json!({"failed": reason}),
+        // The parked retry's time follows the cause and did not exist on the legacy path.
+        TriageOutcome::Failed { reason } => json!({
+            "failed": reason.split_once("; will retry at ").map_or(reason.as_str(), |(cause, _)| cause)
+        }),
     }
 }
 

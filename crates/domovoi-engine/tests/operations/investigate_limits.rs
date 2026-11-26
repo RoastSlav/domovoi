@@ -276,3 +276,66 @@ async fn manual_run_replaces_a_parked_retry_instead_of_answering_already_running
     assert_eq!(old.operation.status, OperationStatus::Cancelled);
     assert_eq!(w.llm.requests().len(), 1, "the hourly limit still holds");
 }
+
+#[tokio::test]
+async fn parked_retry_shows_waiting_timer_and_states_the_cause_first() {
+    let w = inv(hourly(1)).await;
+    take_the_slot(&w).await;
+    let op = w.start().await;
+    until_skipped(&w, op).await;
+    w.until(op, |s| !of_kind(s, StepKind::Notification).is_empty())
+        .await;
+    w.settle().await;
+    let snapshot = w.load(op).await;
+    assert_eq!(
+        snapshot.operation.status,
+        OperationStatus::WaitingTimer,
+        "a parked retry is a wait, not a run in progress"
+    );
+    let notification = of_kind(&snapshot, StepKind::Notification)[0];
+    let text = notification.progress.summary.clone().unwrap_or_default();
+    assert!(
+        text.starts_with("the limit of 1 triage runs per hour is reached"),
+        "the cause comes first: {text}"
+    );
+}
+
+#[tokio::test]
+async fn failed_run_states_the_cause_then_the_retry() {
+    let w = inv(hourly(10)).await;
+    w.llm
+        .push_err(LlmError::Unavailable("model unreachable".to_owned()));
+    let op = w.start().await;
+    w.until(op, |s| !of_kind(s, StepKind::Notification).is_empty())
+        .await;
+    w.settle().await;
+    let snapshot = w.load(op).await;
+    assert_eq!(snapshot.operation.status, OperationStatus::WaitingTimer);
+    let text = of_kind(&snapshot, StepKind::Notification)[0]
+        .progress
+        .summary
+        .clone()
+        .unwrap_or_default();
+    assert!(text.contains("model unreachable"), "{text}");
+    assert!(text.contains("will retry at"), "{text}");
+    assert!(text.contains("attempt 2 of 4"), "{text}");
+}
+
+#[tokio::test]
+async fn manual_run_that_is_skipped_ends_failed_without_a_retry() {
+    let w = inv(hourly(1)).await;
+    take_the_slot(&w).await;
+    let (ops, incident) = (w.ops.clone(), w.incident.clone());
+    let waiting =
+        tokio::spawn(async move { ops.investigate_on_request_and_wait(&incident, false).await });
+    w.settle().await;
+    let _ = waiting.await;
+    let op = w.operations_of(&w.incident).await[0].id;
+    let snapshot = w.until_closed(op).await;
+    assert_eq!(snapshot.operation.status, OperationStatus::Failed);
+    assert!(
+        retries(&w, op).await.is_empty(),
+        "a run a person asked for does not retry by itself"
+    );
+    assert_eq!(w.count(&w.incident, "triage.skipped").await, 1);
+}

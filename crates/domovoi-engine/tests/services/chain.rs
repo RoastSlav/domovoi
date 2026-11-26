@@ -76,7 +76,10 @@ fn provider_reason(result: Result<String, TriageError>) -> String {
 
 fn failed_reason(outcome: TriageOutcome) -> String {
     match outcome {
-        TriageOutcome::Failed { reason } => reason,
+        // The cause is what the chain returned; the parked retry's time follows it.
+        TriageOutcome::Failed { reason } => reason
+            .split_once("; will retry at ")
+            .map_or(reason.clone(), |(cause, _)| cause.to_owned()),
         other => panic!("not a failure: {other:?}"),
     }
 }

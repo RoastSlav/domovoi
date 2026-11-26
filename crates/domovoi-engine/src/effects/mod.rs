@@ -48,7 +48,9 @@ pub trait EffectHandler: Send + Sync {
 /// How the runner claims work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EffectSettings {
-    /// How long a claim is held before another runner may reclaim it.
+    /// How long a claim is held before another runner may reclaim it. It must outlast the
+    /// longest handler: a model call runs the whole tool loop, where one provider call may
+    /// take its own five-minute deadline.
     pub lease: SignedDuration,
     /// How often the runner looks for due work when nothing nudges it.
     pub poll: SignedDuration,
@@ -59,7 +61,7 @@ pub struct EffectSettings {
 impl Default for EffectSettings {
     fn default() -> Self {
         Self {
-            lease: SignedDuration::from_mins(5),
+            lease: SignedDuration::from_mins(15),
             poll: SignedDuration::from_secs(5),
             batch: 16,
         }

@@ -106,6 +106,7 @@ With `[orchestration] enabled = true` (the default) and `[triage] enabled = true
 - The result is an assessment, a plan and a notification step, and the card.
 - When the model needs something only you know, it can ask you a question. The investigation then waits for your answer, shown on the Operations page, and continues with it; if nobody answers within `question_timeout`, it continues and says that no answer arrived. It asks at most twice, and never while it has a plan staged.
 - Each action the model proposes, and that passes the checks, is an **Execution** step with a plan hash that a person approves on the operation. A proposal that does not pass is listed in the report under "Proposals not offered".
+- When a triage run fails or is skipped (the model is unreachable, a limit is reached), the operation shows **waiting for a timer** and its report says why first, then when it will retry and which attempt that is. A run you start by hand does not retry by itself: it ends **failed** with the cause. An operation also ends **failed**, not succeeded, when the action it led to failed or may not have run.
 - An investigation closes itself when nothing is left to do. It stays open while a proposed step waits for a person, while a retry is pending, and while it is paused.
 - When the hourly limit is reached the run is skipped with a note and tried again once an hour slot frees; a failed run is tried again after an hour, up to three failed runs.
 
