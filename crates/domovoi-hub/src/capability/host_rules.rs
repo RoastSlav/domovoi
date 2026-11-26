@@ -9,7 +9,8 @@ use domovoi_core::ports::{HelperState, HostWords, RunnerState};
 
 use super::ceiling::{CeilingParse, covers, parse_ceiling};
 
-/// Row 11: whether the agent's ceiling covers a non-`Read` contract.
+/// Row 11: whether the agent's ceiling covers a non-`Read` compiled contract. Skills are
+/// not gated here: they run only on a person's approval.
 pub(super) fn ceiling_allows(
     contract: &CapabilityContract,
     words: &HostWords,

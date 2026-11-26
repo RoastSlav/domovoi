@@ -1533,3 +1533,23 @@ async fn container_agent_read_contracts_are_unchanged() {
         Availability::Available
     );
 }
+
+#[tokio::test]
+async fn write_skill_is_available_without_a_ceiling() {
+    // A skill runs on a person's approval; the unattended ceiling cannot name `skill.*`.
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.link.set_skills(
+        fixture.host_id(),
+        vec![summary("restart_unit", Risk::Write)],
+    );
+    fixture.complete(&[("skill.restart_unit", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+
+    assert_eq!(
+        fixture.skill_state("restart_unit").await,
+        Availability::Available
+    );
+}

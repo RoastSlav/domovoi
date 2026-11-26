@@ -30,7 +30,7 @@ use super::ceiling::{CeilingReport, ceiling_of};
 use super::enablement::Enablement;
 use super::floors::{FloorWriteError, Floors};
 use super::host::HostCapabilities;
-use super::host_rules::{ceiling_allows, host_allows, runner_refusal};
+use super::host_rules::{host_allows, runner_refusal};
 
 /// The pieces the registry is built from, in the order they can be built without a cycle.
 pub struct RegistryDeps {
@@ -311,12 +311,10 @@ impl HubRegistry {
                 reason: UnavailableReason::CatalogueInconsistent,
             };
         }
-        // Row 11: the host's ceiling.
-        if built.effect != EffectClass::Read
-            && let Err(state) = ceiling_allows(&built, &seen.words)
-        {
-            return state;
-        }
+        // Row 11 does not apply to skills: a skill runs only on a person's approval (ADR 0037
+        // section 2), the ceiling gates what may run without one, and the agent never reads it
+        // for a skill. Gating here refused every approved write skill, because the agent
+        // config cannot name a `skill.*` ceiling entry.
         // Row 12: where a skill would actually run.
         match runner_refusal(&seen.words) {
             Some(reason) => Availability::Unavailable { reason },
