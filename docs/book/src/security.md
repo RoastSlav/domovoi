@@ -71,6 +71,7 @@ The residual risk is the helper unit. One shared unit serves every request, so e
 
 Two things are reported separately:
 
+- **Container agents.** A container agent has no helper and no skill runner; it only reads. The hub labels it `container_agent` and refuses write capabilities on it with `agent_in_container`.
 - **Privilege boundary.** In effect only when the agent runs as `domovoi-agent` with exactly its own group and `systemd-journal`. Otherwise the host is labelled "privilege boundary not in effect" and gets no unattended execution. A root agent from an earlier install, a container agent and the single-process mode are all in this state.
 - **Platform tier.** `domovoi agent selftest` runs the isolation checks on the host itself and sorts it into Supported, Untested or Blocked. A check that did not run never counts as a pass. **No platform is Supported yet:** nothing has been release-tested. A host whose checks all pass is Untested; any failed or missing required check makes it Blocked. Skills are refused on a Blocked host. Privileged write operations stay off on an Untested host unless you set `allow_write_groups_on_untested` for that host in [`helper.toml`](reference/helper.md#platform).
 

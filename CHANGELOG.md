@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- *(agent)* a container agent reports that it runs in a container; the hub labels it `container_agent` and refuses helper and skill-runner capabilities with `agent_in_container`
+
 ## [0.0.10](https://github.com/RoastSlav/domovoi/compare/v0.0.9...v0.0.10) - 2026-11-12
 
 ### Added
