@@ -7,9 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use domovoi_config::{ConfigIssue, load_hub_layered};
+use domovoi_core::User;
 use domovoi_core::ports::{AuditEvent, AuditLog, Clock, ProcessExecutor, SettingsRepo, StoreError};
-use domovoi_core::{CheckKey, Host, User};
-use domovoi_proto::messages::{CheckInfo, CheckOverride};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 use secrecy::ExposeSecret;
@@ -20,8 +19,7 @@ use super::apply::{ApplyRequest, ConfigSources, applied, restore_previous};
 use super::crypto::{CryptoError, SecretKey};
 use super::patch::{self, Change, SecretOp, is_sensitive};
 use super::stored::{
-    CONFIG, LAST_APPLY, PREVIOUS, SECRET_PREFIX, StoredDoc, StoredState, host_checks_key,
-    sealed_value, toml_to_json,
+    CONFIG, LAST_APPLY, PREVIOUS, SECRET_PREFIX, StoredDoc, StoredState, sealed_value, toml_to_json,
 };
 use crate::agent_server::AgentServer;
 use crate::auth::{AuthError, AuthState};
@@ -103,17 +101,6 @@ pub struct View {
     pub issues: Vec<ConfigIssue>,
     /// How the last apply went, if any.
     pub last_apply: Option<Value>,
-}
-
-/// A host's checks: what its agent reported and what the UI overrides.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostChecks {
-    /// Whether the agent is connected now.
-    pub connected: bool,
-    /// What the agent reported at its last handshake, while it is connected.
-    pub reported: Vec<CheckInfo>,
-    /// The overrides saved for the host.
-    pub overrides: BTreeMap<CheckKey, CheckOverride>,
 }
 
 /// What the service is built from.
@@ -386,52 +373,6 @@ impl SettingsService {
                 Err(SettingsError::ApplyFailed(why))
             }
         }
-    }
-
-    /// A host's reported checks and saved overrides.
-    pub async fn host_checks(&self, host: &Host) -> Result<HostChecks, SettingsError> {
-        let deps = self.deps();
-        let reported = deps.agents.reported_checks(host.id);
-        Ok(HostChecks {
-            connected: reported.is_some(),
-            reported: reported.unwrap_or_default(),
-            overrides: crate::agent_server::stored_overrides(&*deps.store, host.name.as_str())
-                .await,
-        })
-    }
-
-    /// Saves a host's check overrides and sends them to its agent. Returns whether the
-    /// agent got them now; otherwise it gets them at its next handshake. No restart.
-    pub async fn set_host_checks(
-        &self,
-        user: &User,
-        host: &Host,
-        overrides: BTreeMap<CheckKey, CheckOverride>,
-    ) -> Result<bool, SettingsError> {
-        let mut issues = Vec::new();
-        for (key, item) in &overrides {
-            if item.interval_seconds == Some(0) {
-                issues.push(ConfigIssue::error(
-                    format!("{key}.interval_seconds"),
-                    "must be at least 1 second",
-                ));
-            }
-        }
-        if !issues.is_empty() {
-            return Err(SettingsError::Invalid(issues));
-        }
-        let deps = self.deps();
-        let value = serde_json::to_value(&overrides)
-            .map_err(|e| SettingsError::Unavailable(e.to_string()))?;
-        SettingsRepo::set(&*deps.store, &host_checks_key(host.name.as_str()), &value).await?;
-        self.audit(
-            user,
-            "settings.host_checks",
-            &format!("host:{}", host.name),
-            json!({ "overrides": value }),
-        )
-        .await;
-        Ok(deps.agents.push_settings(host.id).await)
     }
 
     /// Admits one connection test for the session `session`, or says how long to wait.
