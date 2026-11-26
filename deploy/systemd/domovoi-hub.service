@@ -1,4 +1,5 @@
-# The Domovoi hub. Installed by install.sh; start it with
+# The Domovoi hub. Installed by install.sh, which enables and starts it and prints the setup
+# link once. Without the installer (or with --no-start) start it with
 #   systemctl enable --now domovoi-hub
 # then open the setup link it prints once: journalctl -u domovoi-hub | grep setup
 #

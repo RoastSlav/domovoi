@@ -536,6 +536,10 @@ check "systemd: --no-start installs" test "$(hub_rc --no-start --public-url http
 check "systemd: --no-start starts nothing" sh -c "! grep -qE 'enable --now|restart' '$work/systemctl.log'"
 check "systemd: --no-start still prints the manual steps" grep -q "systemctl enable --now domovoi-hub" "$work/out"
 check "systemd: --no-start probed nothing" test ! -e "$work/readyz.log"
+check "systemd: --no-start without an admin points at the setup link" grep -q "journalctl -u domovoi-hub | grep setup" "$work/out"
+hub_reset
+check "systemd: --no-start with an admin installs" test "$(hub_rc --no-start --public-url https://domovoi.example --admin-password-file "$adminpw")" = 0
+check "systemd: --no-start with an admin asks to open the address, not for a setup link" sh -c "grep -q 'Open https://domovoi.example and sign in as admin' '$work/out' && ! grep -q 'grep setup' '$work/out'"
 check "systemd: --no-start still wrote hub.env" grep -qx 'DOMOVOI_WEB__PUBLIC_URL=https://domovoi.example' /etc/domovoi/hub.env
 
 # A hub that never becomes ready: exit 40 with the journal; the token is hidden.
@@ -860,6 +864,7 @@ check "both: the dry run succeeds" test "$(agent_rc --role both --bind loopback 
 check "both: the dry run lists the token and the enrollment" sh -c "grep -q 'stop the hub, make a 15 minute enrollment token for nas' '$work/out' && grep -q 'domovoi agent enroll --hub wss://127.0.0.1:7421 --name nas' '$work/out'"
 check "both: the dry run ran nothing" sh -c "! grep -qE 'agent enroll|token create|systemctl' '$out_dir/calls.log'"
 check "both: --no-start is refused" test "$(agent_rc --role both --no-start)" = 2
+check "help says --role both refuses --no-start" sh -c "sh '$installer' --help | tr '\\n' ' ' | grep -Eq 'role both +refuses it'"
 
 # A hub database from before 0.1.0 is not upgraded.
 release v0.0.9 ""
@@ -1020,6 +1025,7 @@ check "uninstall: the drop-in is kept without --purge" test -f /etc/systemd/syst
 check "uninstall: unrelated files are untouched" unrelated_ok
 check "uninstall: the summary names what was kept" sh -c "grep -q 'kept on purpose' '$work/out' && grep -q '/etc/domovoi' '$work/out' && grep -q '/var/lib/domovoi-agent' '$work/out' && grep -q 'account domovoi-agent' '$work/out' && grep -q 'account domovoi-skill' '$work/out'"
 check "uninstall: the summary says --purge deletes what was kept" grep -q -- "--purge deletes" "$work/out"
+check "uninstall: the text summary prints the purge command" grep -q "sudo sh install.sh --uninstall --purge" "$work/out"
 check "uninstall: a second run finds nothing to remove and exits 10" test "$(un_rc --uninstall --yes)" = 10
 check "uninstall: that run says the data and accounts are still there" grep -q "nothing to uninstall.*still there" "$work/err"
 

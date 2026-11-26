@@ -83,9 +83,10 @@ Options:
   --prefix DIR         where the binary goes, as DIR/bin/domovoi (default: /usr/local);
                        an absolute path
   --no-service         install only the binary and examples: no user, directories or unit
-  --no-start           with --role hub: install the unit but do not start the hub. Without it
-                       a hub on a systemd host is enabled, started, and waited for until
-                       GET /readyz answers; an upgrade restarts a hub that was running
+  --no-start           with --role hub: install the unit but do not start the hub; --role both
+                       refuses it. Without it a hub on a systemd host is enabled, started,
+                       and waited for until GET /readyz answers; an upgrade restarts a hub
+                       that was running
   --public-url URL     with --role hub: the exact address people open, such as
                        https://domovoi.lan or http://192.168.1.50:7420 (writes
                        DOMOVOI_WEB__PUBLIC_URL to /etc/domovoi/hub.env)
@@ -130,7 +131,8 @@ Options:
                        install would create or change, and exit 0 without changing anything
                        or downloading the archive (the latest version is still looked up)
   --json               machine mode: stdout carries only JSON lines, one per step event and
-                       one final {"event":"result",...} object; the text goes to the log file
+                       one final {"event":"result",...} object; the text goes to the log file.
+                       The result's "plan" list is filled only on a --dry-run
   --quiet              print errors and the final summary only
   --verbose            print the details of each step
   --force-downgrade    allow installing an older version than the one found
@@ -402,7 +404,8 @@ emit_result() { # OK CODE
 
 hub_unit() {
     cat <<'EOF'
-# The Domovoi hub. Installed by install.sh; start it with
+# The Domovoi hub. Installed by install.sh, which enables and starts it and prints the setup
+# link once. Without the installer (or with --no-start) start it with
 #   systemctl enable --now domovoi-hub
 # then open the setup link it prints once: journalctl -u domovoi-hub | grep setup
 #
@@ -1783,7 +1786,7 @@ run_uninstall() {
         while IFS= read -r uk_line; do
             say_always "  $uk_line"
         done <"$tmp/kept"
-        record_next "sudo sh install.sh --uninstall --purge    # also deletes the configuration, the data and the accounts the installer created"
+        ns "sudo sh install.sh --uninstall --purge    # also deletes the configuration, the data and the accounts the installer created"
     fi
     if [ "$un_helper" -eq 1 ]; then
         say_always ""
@@ -3637,7 +3640,11 @@ if [ "$reset_pending" -eq 1 ]; then
     ns "mv $hub_data_dir $hub_data_dir.before-0.1.0"
     ns "install -d -m 0750 -o domovoi -g domovoi $hub_data_dir"
     ns "systemctl enable --now domovoi-hub"
-    ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    if [ "$admin_created" -eq 1 ]; then
+        ns "Open $(user_web_url) and sign in as admin with the password you supplied"
+    else
+        ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    fi
     if [ "$role" = "both" ]; then
         ns "Run this installer again with --role both: it enrolls the agent of this machine"
     fi
@@ -3651,8 +3658,12 @@ elif [ "$role" = "both" ] && [ "$upgrade" -eq 1 ]; then
 elif [ "$upgrade" -eq 1 ]; then
     ns "systemctl restart domovoi-$role    # runs the new binary; config and data are kept"
 elif [ "$hub_part" -eq 1 ]; then
-    ns "systemctl enable --now domovoi-hub"
-    ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    ns "systemctl enable --now domovoi-hub    # the hub is not running yet"
+    if [ "$admin_created" -eq 1 ]; then
+        ns "Open $(user_web_url) and sign in as admin with the password you supplied"
+    else
+        ns "journalctl -u domovoi-hub | grep setup     # open this link to create the admin account"
+    fi
     ns "sudo -u domovoi $bin selftest --offline    # optional: checks the pipeline end to end"
     say_always ""
     say_always "No config file is needed: everything is set in the web UI."
