@@ -48,6 +48,7 @@ expression: "pretty(&message, reply)"
     "helper_status": {
       "state": "absent"
     },
+    "in_container": true,
     "journal_epoch": "01900000-0000-7000-8000-0000000000f0",
     "protocol": {
       "major": 1,

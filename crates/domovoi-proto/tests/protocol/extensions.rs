@@ -40,6 +40,7 @@ fn hello_1_2_round_trips_with_every_extension() {
     assert!(payload.ceiling_hash.is_none());
     assert!(payload.ceiling_summary.is_none());
     assert!(payload.runs_as_root);
+    assert!(payload.in_container);
     assert!(!payload.journal_epoch.is_nil());
 
     let frame = encode(&hello, request_id(2), None).expect("encodable");
@@ -59,6 +60,7 @@ fn agent_status_round_trips_with_every_extension() {
             version: "1".to_owned(),
         },
         runs_as_root: true,
+        in_container: true,
         ceiling_hash: Some(Sha256Bytes([8; 32])),
         ceiling_summary: Some("read and write below 90%".to_owned()),
     });
