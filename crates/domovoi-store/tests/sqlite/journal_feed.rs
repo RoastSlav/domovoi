@@ -20,7 +20,7 @@ async fn fresh(dir: &Path) -> Store {
 }
 
 /// `seq, aggregate_type, aggregate_id, kind, payload_v, payload, actor, occurred_at,
-/// legacy_event_seq`.
+/// incident_event_seq`.
 type Copied = (
     i64,
     String,
@@ -36,7 +36,7 @@ type Copied = (
 async fn journal_rows(store: &Store) -> Vec<Copied> {
     sqlx::query_as(
         "SELECT seq, aggregate_type, aggregate_id, kind, payload_v, payload, actor, occurred_at, \
-         legacy_event_seq FROM journal ORDER BY seq",
+         incident_event_seq FROM journal ORDER BY seq",
     )
     .fetch_all(store.pool_for_tests())
     .await

@@ -35,7 +35,7 @@ index install_targets_job on install_job_targets
 index install_targets_one_active_per_host on install_job_targets
 index install_targets_status on install_job_targets
 index journal_aggregate on journal
-index journal_legacy_event on journal
+index journal_incident_event on journal
 index journal_occurred on journal
 index llm_admission_started on llm_admission
 index llm_usage_at on llm_usage
@@ -100,7 +100,7 @@ table incidents: id TEXT pk not null, fingerprint TEXT not null, host_id TEXT no
 table incidents_fts: title , summary_text 
 table install_job_targets: id TEXT pk not null, job_id TEXT not null, host_id TEXT not null, attempt INTEGER not null, execution_id TEXT not null, status TEXT not null, plan_hash TEXT not null, approved_by TEXT not null, approval_channel TEXT not null, approved_at INTEGER not null, approval_session_ref TEXT, approval_client TEXT not null, authorization_kind TEXT not null, expires_at INTEGER not null, artifact_transfer TEXT, signature_transfer TEXT, dispatched_session TEXT, dispatched_epoch TEXT, failure_code TEXT, failure_message TEXT, outputs TEXT, outputs_confirmed INTEGER not null, queued_at INTEGER not null, started_at INTEGER, finished_at INTEGER, version INTEGER not null
 table install_jobs: id TEXT pk not null, kind TEXT not null, name TEXT not null, version TEXT not null, archive_sha256 TEXT, key_id TEXT, requested_by TEXT not null, created_at INTEGER not null, job_plan_hash TEXT not null
-table journal: seq INTEGER pk, aggregate_type TEXT not null, aggregate_id TEXT not null, kind TEXT not null, payload_v INTEGER not null, payload TEXT not null, actor TEXT not null, occurred_at INTEGER not null, legacy_event_seq INTEGER
+table journal: seq INTEGER pk, aggregate_type TEXT not null, aggregate_id TEXT not null, kind TEXT not null, payload_v INTEGER not null, payload TEXT not null, actor TEXT not null, occurred_at INTEGER not null, incident_event_seq INTEGER
 table journal_floor: id INTEGER pk, pruned_through_seq INTEGER not null
 table llm_admission: id INTEGER pk, purpose TEXT not null, started_at INTEGER not null
 table llm_usage: id INTEGER pk, provider TEXT not null, model TEXT, outcome TEXT not null, tokens_in INTEGER not null, tokens_out INTEGER not null, cost_micros INTEGER, usage_source TEXT, latency_ms INTEGER, at INTEGER not null

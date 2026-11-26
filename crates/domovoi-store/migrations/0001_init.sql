@@ -211,13 +211,13 @@ CREATE TABLE journal (
     payload          TEXT    NOT NULL,
     actor            TEXT    NOT NULL,
     occurred_at      INTEGER NOT NULL,
-    -- incident_events.seq this row mirrors during the dual-write period; NULL otherwise.
-    legacy_event_seq INTEGER
+    -- incident_events.seq this row mirrors; NULL for rows that mirror no incident event.
+    incident_event_seq INTEGER
 ) STRICT;
 CREATE INDEX journal_aggregate ON journal (aggregate_type, aggregate_id, seq);
 CREATE INDEX journal_occurred  ON journal (occurred_at);
-CREATE UNIQUE INDEX journal_legacy_event ON journal (legacy_event_seq)
-    WHERE legacy_event_seq IS NOT NULL;
+CREATE UNIQUE INDEX journal_incident_event ON journal (incident_event_seq)
+    WHERE incident_event_seq IS NOT NULL;
 CREATE TABLE effects (
     seq              INTEGER PRIMARY KEY AUTOINCREMENT,
     id               TEXT    NOT NULL UNIQUE,

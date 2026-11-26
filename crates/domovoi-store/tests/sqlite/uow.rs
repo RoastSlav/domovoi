@@ -186,7 +186,7 @@ uow_contract_tests! {
 }
 
 #[tokio::test]
-async fn timeline_write_stores_legacy_event_seq() {
+async fn timeline_write_stores_incident_event_seq() {
     let fresh = common::Fresh::new().await;
     let host = host("nas").unwrap();
     let open = open_incident(host.id, "disk.smart", Some("/dev/sda")).unwrap();
@@ -205,7 +205,7 @@ async fn timeline_write_stores_legacy_event_seq() {
         .unwrap();
 
     let legacy: (Option<i64>,) =
-        sqlx::query_as("SELECT legacy_event_seq FROM journal WHERE kind = 'incident.timeline'")
+        sqlx::query_as("SELECT incident_event_seq FROM journal WHERE kind = 'incident.timeline'")
             .fetch_one(fresh.store.pool_for_tests())
             .await
             .unwrap();
