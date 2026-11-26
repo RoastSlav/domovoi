@@ -56,3 +56,4 @@ Numbers are never reused, and gaps are intentional: they are where an ADR was re
 | [0039](0039-single-baseline-migration.md) | Start from a single baseline migration; migrations are immutable from the first release |
 | [0040](0040-closed-model-tool-set.md) | The model is offered a closed set of tools |
 | [0041](0041-audit-chain.md) | The audit log is a hash chain |
+| [0042](0042-transport-command-handles.md) | Transports may not name the operation or package command handles |

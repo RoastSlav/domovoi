@@ -162,9 +162,9 @@ fn a_new_top_level_module_must_be_declared() {
 
 #[test]
 fn a_transport_naming_a_command_handle_is_refused() {
-    let in_type = "struct S {\n    h: ActionHandle,\n}\n";
-    let in_path = "fn f() {\n    let _ = domovoi_engine::ActionHandle::new();\n}\n";
-    let in_macro = "fn g() {\n    let _ = format!(\"{}\", ActionHandle::NAME);\n}\n";
+    let in_type = "struct S {\n    h: PackageHandle,\n}\n";
+    let in_path = "fn f() {\n    let _ = domovoi_engine::PackageHandle::new();\n}\n";
+    let in_macro = "fn g() {\n    let _ = format!(\"{}\", PackageHandle::NAME);\n}\n";
     for text in [in_type, in_path, in_macro] {
         let violations = check(&[(HTTP, text)]);
         assert!(has(&violations, "MOD-4"), "{text}: {violations:#?}");

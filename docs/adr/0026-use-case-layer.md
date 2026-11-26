@@ -34,7 +34,7 @@ A person reaches the hub through two surfaces: HTTP handlers and chat buttons. I
   - `MOD-2`: `services` imports no transport and not `runtime` or `router`.
   - `MOD-3`: a new top-level hub module is a zone or is listed as unzoned, so the rules cannot be
     escaped by adding a directory.
-  - `MOD-4`: a transport names neither `ActionHandle` nor `OperationHandle`.
+  - `MOD-4`: a transport names neither `OperationHandle` nor `PackageHandle`; see [0042](0042-transport-command-handles.md).
   Paths are resolved after `use` renames and `super::` chains, in expressions, types and macro
   bodies; a file that does not parse fails. Test-only code is skipped.
 - **Unconstrained, and why.** `runtime`, `router`, `spa` and `middleware` compose or serve;

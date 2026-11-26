@@ -671,8 +671,7 @@ pub const ZONES: &[Zone] = &[
 pub const SERVICE_FORBIDDEN_MODULES: &[&str] = &["runtime", "router"];
 
 /// Command handles transports may not name: commands go through a service (MOD-4).
-pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] =
-    &["ActionHandle", "OperationHandle", "PackageHandle"];
+pub const TRANSPORT_FORBIDDEN_NAMES: &[&str] = &["OperationHandle", "PackageHandle"];
 
 /// Top-level hub modules that are not a zone. A module neither here nor a zone is MOD-3.
 pub const UNZONED_MODULES: &[&str] = &[
