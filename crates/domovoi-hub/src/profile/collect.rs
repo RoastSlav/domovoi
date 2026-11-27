@@ -163,6 +163,8 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         .agents
         .facts(host.id)
         .ok_or(ProfileError::NotConnected)?;
+    // Taken before the reads, so a change while they run leads to another collection.
+    let basis = super::basis(deps, host.id).await;
     let overview = ask(deps, host.id, ReadToolCall::HostOverview).await;
     let docker = ask(deps, host.id, ReadToolCall::DockerPs { all: true }).await;
     let ports = ask(deps, host.id, ReadToolCall::ListeningPorts).await;
@@ -235,5 +237,6 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         checks: checks_of(deps.agents.checks(host.id)),
         sections,
         changes: vec![],
+        basis,
     })
 }

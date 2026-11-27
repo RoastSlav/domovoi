@@ -77,6 +77,17 @@ impl AgentServer {
         self.inner.registry.docker(host)
     }
 
+    /// What identifies the host's live agent and what it can do now, the hub's own choice
+    /// about its container runtime included; empty while offline.
+    pub async fn host_basis(&self, host: HostId) -> BTreeMap<String, String> {
+        let Some(mut basis) = self.inner.registry.runtime_basis(host) else {
+            return BTreeMap::new();
+        };
+        let choice = agent_settings(&self.inner, host).await.docker;
+        basis.insert("Docker choice".to_owned(), format!("{choice:?}"));
+        basis
+    }
+
     /// The checks the host's agent reported when it connected; `None` while offline.
     #[must_use]
     pub fn reported_checks(&self, host: HostId) -> Option<Vec<CheckInfo>> {

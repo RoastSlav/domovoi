@@ -41,6 +41,7 @@ pub(crate) async fn run_session(
         agent: agent.agent,
         since: inner.deps.clock.now(),
         version: hello.agent_version,
+        build: hello.agent_build,
         facts: *hello.facts,
         skills: hello.skills,
         package_skills: hello.package_skills,

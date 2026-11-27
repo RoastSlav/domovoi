@@ -91,7 +91,9 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 boundary_in_effect(),
             )
             .await?;
-            let agent = AgentRuntime::new(config, deps).await?;
+            let agent = AgentRuntime::new(config, deps)
+                .await?
+                .with_build(env!("DOMOVOI_GIT_COMMIT"));
             agent.run(init::shutdown_on_signals()).await?;
             Ok(ExitCode::SUCCESS)
         }

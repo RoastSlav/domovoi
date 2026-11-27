@@ -89,6 +89,8 @@ pub struct AgentRuntime {
     transfer_policy: Option<(bool, u64)>,
     /// Whether the agent runs in a container, detected once at start.
     in_container: bool,
+    /// The build named in `hello`.
+    build: Option<String>,
 }
 
 /// The container policy from `[containers]`.
@@ -257,6 +259,7 @@ impl AgentRuntime {
             None => None,
         };
         Ok(Self {
+            build: None,
             effective,
             check_infos,
             identity,
@@ -276,6 +279,14 @@ impl AgentRuntime {
                 .as_ref()
                 .map(|section| (section.allow_install, section.limits.compressed_bytes)),
         })
+    }
+
+    /// Names the build in `hello`, so the hub can tell two builds of one release apart.
+    /// `unknown` and an empty name are no name.
+    #[must_use]
+    pub fn with_build(mut self, build: &str) -> Self {
+        self.build = Some(build.to_owned()).filter(|b| !b.is_empty() && b != "unknown");
+        self
     }
 
     /// Uses `connector` instead of dialling the hub over TLS, as single-box mode does with
@@ -312,6 +323,7 @@ impl AgentRuntime {
             None
         };
         let extensions = HelloExtensions {
+            agent_build: self.build,
             journal_epoch: self.journal.epoch(),
             runs_as_root: runs_as_root(),
             in_container: self.in_container,

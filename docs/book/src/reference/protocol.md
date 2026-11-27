@@ -124,6 +124,8 @@ On a host with a helper, the hub can ask for a signed report of what the helper 
 "` followed by the report bytes, then parses those same bytes strictly (a report that does not re-render to the identical text is refused) and checks the nonce, the hashes and the generation. Only then is the report accepted. See [How a safety report is trusted](../security.md#helper-attestation).
 4. **Error reply.** When the helper cannot sign, the agent answers with an `error` whose `code` is the helper's own token: `uninitialized`, `key_missing`, `key_corrupt`, `helper_state_permissions` or `lock_unavailable`. A helper that is absent, unreachable or not serving the operation is `helper_unavailable`. These are unsigned hints. The hub records and shows them but gives them no weight: the host stays unverified (`attestation_missing`).
 
+`hello.agent_build` names the build the agent runs (its git commit); two builds of one release differ there, so the hub collects the host profile again after a binary is swapped. It is absent from older agents and from builds that do not know their commit.
+
 `hello.in_container` and `agent_status.in_container` (wire 1.2) say whether the agent runs in a container. A frame that omits them reads as `false`.
 
 `hello.helper_identity` and `agent_status.helper_identity` carry `{ "public_key": <base64 of 32 bytes> }` while the helper has a key, and absent otherwise. The agent never sends a fingerprint or key id; the hub computes the fingerprint (SHA-256 of the 32 key bytes) itself.

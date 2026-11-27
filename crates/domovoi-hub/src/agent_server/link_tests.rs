@@ -108,6 +108,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
         identity: AgentSessionId::new(),
         agent: AgentId::new(),
         since: T0,
+        build: None,
         version: "0.1.0".to_owned(),
         facts: HostFacts {
             hostname: "nas".to_owned(),

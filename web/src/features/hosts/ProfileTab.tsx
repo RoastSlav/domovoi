@@ -61,8 +61,8 @@ function NoProfile({ connected }: { connected: boolean }) {
 
 /**
  * What this machine looks like while it behaves normally, as the hub collected it. The hub
- * checks every minute and collects when there is none, when the agent version or machine
- * facts changed, or a week has passed; the button collects one now. Polls only until a
+ * checks every minute and collects when there is none, when the agent, the machine or
+ * what the agent can do changed, or a week has passed; the button collects one now. Polls only until a
  * profile exists.
  */
 export function ProfileTab({ host, connected }: { host: string; connected: boolean }) {
@@ -94,7 +94,8 @@ export function ProfileTab({ host, connected }: { host: string; connected: boole
           <InfoTip title="Profile">
             What this machine looks like when things are normal: its services, containers, ports and
             hardware. Triage compares an incident against it. The hub checks every minute and
-            collects a new one when there is none, when the machine changed or a week has passed.
+            collects a new one when there is none, when the agent, the machine or what the agent can do
+            changed, or a week has passed.
           </InfoTip>
         </Cluster>
         <Cluster gap={3}>

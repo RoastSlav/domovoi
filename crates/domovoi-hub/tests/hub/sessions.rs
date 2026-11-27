@@ -716,3 +716,46 @@ async fn a_skills_update_keeps_the_session_and_the_requests_in_flight() {
     agent.send(result, Some(request.id)).await;
     assert_eq!(guard(call).await.unwrap().unwrap().text, "done");
 }
+
+/// 31: what the hub compares a stored profile against changes with the agent's identity,
+/// its helper and its skills, on one session or across sessions.
+#[tokio::test]
+async fn the_runtime_basis_follows_identity_helper_and_skills() {
+    let hub = Hub::start().await;
+    let (ident, mut agent) = online(&hub, "nas").await;
+    let first = hub.server.host_basis(ident.host).await;
+    let status = AgentStatus {
+        helper_status: HelperStatus::Ok {
+            ops: vec!["unit.restart".to_owned()],
+        },
+        helper_identity: None,
+        skill_runner_status: SkillRunnerStatus::Absent,
+        runs_as_root: false,
+        in_container: false,
+        ceiling_hash: None,
+        ceiling_summary: None,
+    };
+    agent.send(Message::AgentStatus(status), None).await;
+    agent
+        .send(
+            Message::SkillsUpdate(SkillsUpdate {
+                skills: Vec::new(),
+                package_skills: Vec::new(),
+                catalog_hash: Some(domovoi_proto::Sha256Bytes([9; 32])),
+            }),
+            None,
+        )
+        .await;
+    agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert!(matches!(agent.expect().await.message, Message::Pong(_)));
+    let second = hub.server.host_basis(ident.host).await;
+    assert_ne!(first["helper"], second["helper"]);
+    assert_ne!(first["agent capabilities"], second["agent capabilities"]);
+    assert_eq!(first["agent identity"], second["agent identity"]);
+
+    let replaced = enroll(&hub, "nas").await;
+    let mut again = FakeAgent::connect(hub.addr).await;
+    again.authenticate(&replaced).await;
+    let third = hub.server.host_basis(replaced.host).await;
+    assert_ne!(first["agent identity"], third["agent identity"]);
+}

@@ -18,8 +18,8 @@ use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
 use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
-    ContainerLine, HostProfile, ProfileDeps, ProfileError, STALE_AFTER, needs_refresh, note_text,
-    profile_key, refresh, spawn, stored,
+    ContainerLine, HostProfile, ProfileDeps, ProfileError, STALE_AFTER, basis, needs_refresh,
+    note_text, profile_key, refresh, spawn, stored,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::FakeCapabilityRegistry;
@@ -1048,42 +1048,68 @@ async fn a_secret_the_tool_printed_never_reaches_the_note() {
 async fn an_unchanged_recent_profile_is_left_as_it_is() {
     let a = api().await;
     seed(&a, "0.6.0");
-    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
-    let same = handshake(a.now());
-    assert!(
-        !(needs_refresh(&profile, same, "0.6.0", a.now())),
-        "nothing changed"
-    );
+    let deps = profile_deps(&a);
+    let profile = refresh(&deps, &a.nas).await.unwrap();
+    let now = basis(&deps, a.nas.id).await;
+    let due =
+        |facts: HostFacts, version: &str| needs_refresh(&profile, &facts, version, &now, a.now());
+    assert_eq!(due(handshake(a.now()), "0.6.0"), None, "nothing changed");
     let updated = HostFacts {
         kernel: "6.13.0".to_owned(),
         ..handshake(a.now())
     };
-    assert!(
-        needs_refresh(&profile, updated, "0.6.0", a.now()),
-        "the machine was updated"
-    );
+    assert!(due(updated, "0.6.0").is_some(), "the machine was updated");
     let memory = HostFacts {
         mem_total_bytes: 68_719_476_736,
         ..handshake(a.now())
     };
     assert!(
-        needs_refresh(&profile, memory, "0.6.0", a.now()),
+        due(memory, "0.6.0").is_some(),
         "the machine got more memory"
     );
     assert!(
-        needs_refresh(&profile, handshake(a.now()), "0.7.0", a.now()),
+        due(handshake(a.now()), "0.7.0").is_some(),
         "the agent was replaced"
     );
+}
+
+/// 31: the same machine and version, but another agent or other abilities: the stored
+/// profile describes a state that is gone.
+#[tokio::test]
+async fn a_change_in_what_the_agent_can_do_makes_the_profile_due() {
+    let a = api().await;
+    seed(&a, "0.6.0");
+    let deps = profile_deps(&a);
+    let profile = refresh(&deps, &a.nas).await.unwrap();
+    let due = async |profile: &HostProfile| {
+        let now = basis(&deps, a.nas.id).await;
+        needs_refresh(profile, &handshake(a.now()), "0.6.0", &now, a.now())
+    };
+    a.link.set_skills(a.nas.id, announced_skills());
+    assert_eq!(due(&profile).await.as_deref(), Some("changed: skills"));
+
+    let profile = refresh(&deps, &a.nas).await.unwrap();
+    a.link.set_checks(a.nas.id, Vec::new());
+    assert_eq!(due(&profile).await.as_deref(), Some("changed: checks"));
+
+    // A profile an older hub stored says nothing about what it was collected under.
+    let old = HostProfile {
+        basis: Default::default(),
+        ..refresh(&deps, &a.nas).await.unwrap()
+    };
+    assert!(due(&old).await.is_some());
 }
 
 #[tokio::test]
 async fn a_profile_a_week_old_is_collected_again() {
     let a = api().await;
     seed(&a, "0.6.0");
-    let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
+    let deps = profile_deps(&a);
+    let profile = refresh(&deps, &a.nas).await.unwrap();
     a.advance(STALE_AFTER);
+    let now = basis(&deps, a.nas.id).await;
     assert!(
-        needs_refresh(&profile, handshake(a.now()), "0.6.0", a.now()),
+        needs_refresh(&profile, &handshake(a.now()), "0.6.0", &now, a.now()).is_some(),
         "even while nothing changed the profile is a week old",
     );
 }

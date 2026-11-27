@@ -87,6 +87,7 @@ pub async fn run_agent(
     let deps = production::deps(&config, executor, clock, redactor, Some(logs))?;
     let agent = AgentRuntime::new(config, deps)
         .await?
+        .with_build(env!("DOMOVOI_GIT_COMMIT"))
         .with_connector(Arc::new(LocalConnector { current }));
     tracing::info!("local agent started");
     agent.run(shutdown).await?;

@@ -375,6 +375,80 @@ impl Registry {
             .map(|l| l.docker.clone())
     }
 
+    /// What identifies the agent of the live session and what it can do, each under the
+    /// name a log can say changed. The runtime parts are the latest `agent_status`, else
+    /// `hello`. Reasons in words are left out: only a change of state counts. `None` while
+    /// offline.
+    pub fn runtime_basis(&self, host: HostId) -> Option<BTreeMap<String, String>> {
+        let hosts = self.lock();
+        let live = hosts.get(&host)?.live.as_ref()?;
+        let status = live.agent_status.as_ref();
+        let helper = status.map_or(&live.helper_status, |s| &s.helper_status);
+        let runner = status.map_or(&live.skill_runner_status, |s| &s.skill_runner_status);
+        let helper_key = status.map_or(live.helper_identity, |s| {
+            s.helper_identity
+                .as_ref()
+                .map(|identity| *identity.public_key.as_bytes())
+        });
+        let ceiling = status.map_or_else(
+            || live.ceiling_hash.clone(),
+            |s| s.ceiling_hash.map(|hash| hex::encode(hash.as_bytes())),
+        );
+        let helper = match helper {
+            HelperStatus::Absent => "absent".to_owned(),
+            HelperStatus::Error { .. } => "error".to_owned(),
+            HelperStatus::Ok { ops } => {
+                let mut ops = ops.clone();
+                ops.sort();
+                format!("ok: {}", ops.join(", "))
+            }
+        };
+        let runner = match runner {
+            SkillRunnerStatus::Absent => "absent".to_owned(),
+            SkillRunnerStatus::Unsupported { .. } => "unsupported".to_owned(),
+            SkillRunnerStatus::Error { .. } => "error".to_owned(),
+            SkillRunnerStatus::Ok { version } => format!("ok {version}"),
+        };
+        let docker = live.docker.as_ref().map_or_else(
+            || "not reported".to_owned(),
+            |d| {
+                format!(
+                    "engine {:?}, available {}, enabled {}",
+                    d.engine, d.available, d.enabled
+                )
+            },
+        );
+        let words = [
+            ("agent identity", live.agent.to_string()),
+            ("agent build", live.build.clone().unwrap_or_default()),
+            (
+                "agent capabilities",
+                format!(
+                    "catalogue {}, root {}, container {}, ceiling {}",
+                    live.catalog_hash.as_deref().unwrap_or("none"),
+                    status.map_or(live.runs_as_root, |s| s.runs_as_root),
+                    live.in_container,
+                    ceiling.as_deref().unwrap_or("none"),
+                ),
+            ),
+            ("Docker", docker),
+            (
+                "helper",
+                format!(
+                    "{helper}, key {}",
+                    helper_key.map_or_else(|| "none".to_owned(), hex::encode)
+                ),
+            ),
+            ("skill runner", runner),
+        ];
+        Some(
+            words
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value))
+                .collect(),
+        )
+    }
+
     /// Sends `message` to the host's agent without waiting for an answer. False when the
     /// agent is offline or its queue is full.
     pub fn push(&self, host: HostId, message: &Message) -> bool {

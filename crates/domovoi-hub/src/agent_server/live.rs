@@ -31,6 +31,8 @@ pub(crate) struct Live {
     pub agent: AgentId,
     pub since: Timestamp,
     pub version: String,
+    /// `hello.agent_build`.
+    pub build: Option<String>,
     /// What the agent said about its machine, kept so the hub can profile the host.
     pub facts: HostFacts,
     pub skills: Vec<SkillSummary>,

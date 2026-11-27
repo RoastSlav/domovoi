@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use domovoi_core::ports::{LinkError, LogLine, Presence};
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
+use std::collections::BTreeMap;
 
 use super::{AgentServer, AgentServerError, EnrollmentInvite, PackageReport};
 
@@ -20,6 +21,12 @@ pub trait AgentAdmin: Send + Sync {
     /// What `host`'s agent said about its machine when it connected; `None` when it never
     /// completed a handshake.
     fn facts(&self, host: HostId) -> Option<HostFacts>;
+    /// What identifies `host`'s live agent and what it can do now, each under a name; a
+    /// changed value means a stored host profile describes another state. Empty while
+    /// offline.
+    async fn runtime_basis(&self, _host: HostId) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
     /// The checks `host`'s agent left on, as its own config set them.
     fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
@@ -91,6 +98,10 @@ impl AgentAdmin for AgentServer {
         enabled: bool,
     ) {
         AgentServer::note_package_enabled(self, host, package, version, enabled).await;
+    }
+
+    async fn runtime_basis(&self, host: HostId) -> BTreeMap<String, String> {
+        self.host_basis(host).await
     }
 
     fn in_container(&self, host: HostId) -> bool {

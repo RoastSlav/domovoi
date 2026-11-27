@@ -124,6 +124,7 @@ pub fn hello_with_features(
 /// A hello saying the agent runs release `version`, for the minimum-release rule.
 pub fn hello_running(agent: AgentId, protocol: ProtocolVersion, version: &str) -> Message {
     Message::Hello(Hello {
+        agent_build: None,
         agent_id: agent,
         protocol,
         agent_version: version.to_owned(),

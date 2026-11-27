@@ -20,6 +20,8 @@ use crate::identity::Identity;
 /// Values the agent adds to `hello` beyond facts and catalogues.
 #[derive(Debug, Clone)]
 pub struct HelloExtensions {
+    /// The build this agent runs; `None` when it does not know.
+    pub agent_build: Option<String>,
     /// Protocol features the agent implements.
     ///
     /// This build advertises none. In particular it does not advertise
@@ -49,6 +51,7 @@ pub struct HelloExtensions {
 impl Default for HelloExtensions {
     fn default() -> Self {
         Self {
+            agent_build: None,
             features: Vec::new(),
             journal_epoch: Uuid::nil(),
             catalog_hash: None,
@@ -193,6 +196,7 @@ pub async fn handshake(
         agent_id: identity.agent_id,
         protocol: PROTOCOL_VERSION,
         agent_version: release.to_owned(),
+        agent_build: announce.extensions.agent_build.clone(),
         facts: Box::new(announce.facts),
         capabilities: Vec::new(),
         features: announce.extensions.features.clone(),

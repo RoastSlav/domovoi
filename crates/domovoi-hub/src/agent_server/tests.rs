@@ -109,6 +109,7 @@ async fn world() -> (AgentServer, HostId, AgentId, SigningKey) {
 
 fn hello(agent: AgentId) -> Message {
     Message::Hello(Hello {
+        agent_build: None,
         agent_id: agent,
         protocol: PROTOCOL_VERSION,
         agent_version: "0.1.0".to_owned(),

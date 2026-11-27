@@ -10,14 +10,16 @@
 //! stored in an agent. Each refresh also records what came, went or changed since the stored
 //! profile, so the page can show what is new since the machine was last normal.
 //! [`spawn`] runs the minute scheduler that collects one host per
-//! tick when it has no profile yet, its agent version or machine facts changed, or the
-//! stored profile is a week old.
+//! tick when it has no profile yet, when the agent (identity, build or version), the machine
+//! facts, what the agent can do (skills, checks, container runtime, helper, skill runner)
+//! changed, or the stored profile is a week old.
 
 pub mod backfill;
 pub mod collect;
 pub mod diff;
 pub(crate) mod render;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
@@ -71,6 +73,10 @@ pub struct HostProfile {
     /// and the model can tell what is new since the machine was last normal.
     #[serde(default)]
     pub changes: Vec<String>,
+    /// What the agent was and could do when this was collected (see [`basis`]). Empty in a
+    /// profile an older hub stored, which is therefore collected again.
+    #[serde(default)]
+    pub basis: BTreeMap<String, String>,
 }
 
 /// The machine facts a profile keeps.
@@ -188,28 +194,58 @@ pub async fn stored(deps: &ProfileDeps, host: HostId) -> Result<Option<HostProfi
     Ok(value.and_then(|value| serde_json::from_value(value).ok()))
 }
 
-/// Whether the stored profile must be collected again.
+/// What a profile of `host` depends on beside its machine facts, each part under the name
+/// the log gives when it changed.
+pub async fn basis(deps: &ProfileDeps, host: HostId) -> BTreeMap<String, String> {
+    let mut basis = deps.agents.runtime_basis(host).await;
+    let mut skills: Vec<String> = deps
+        .capabilities
+        .enabled_skills(host)
+        .iter()
+        .map(|skill| format!("{} {}", skill.name, skill.manifest_hash))
+        .collect();
+    skills.sort();
+    basis.insert("skills".to_owned(), skills.join(", "));
+    basis.insert(
+        "checks".to_owned(),
+        collect::checks_of(deps.agents.checks(host)).join(", "),
+    );
+    basis
+}
+
+/// Why the stored profile must be collected again, or `None` while it still describes the
+/// host.
 pub fn needs_refresh(
     profile: &HostProfile,
-    facts: HostFacts,
+    facts: &HostFacts,
     version: &str,
+    basis: &BTreeMap<String, String>,
     now: Timestamp,
-) -> bool {
+) -> Option<String> {
     if profile.agent_version != version {
-        return true;
+        return Some("the agent version changed".to_owned());
     }
-    if profile.facts.os != facts.os || profile.facts.kernel != facts.kernel {
-        return true;
-    }
-    if profile.facts.mem_total_bytes != facts.mem_total_bytes
+    if profile.facts.hostname != facts.hostname
+        || profile.facts.os != facts.os
+        || profile.facts.kernel != facts.kernel
+        || profile.facts.mem_total_bytes != facts.mem_total_bytes
         || profile.facts.cpu_count != facts.cpu_count
     {
-        return true;
+        return Some("the machine facts changed".to_owned());
     }
-    profile
+    let changed: Vec<&str> = basis
+        .iter()
+        .filter(|(name, value)| profile.basis.get(*name) != Some(*value))
+        .map(|(name, _)| name.as_str())
+        .collect();
+    if !changed.is_empty() {
+        return Some(format!("changed: {}", changed.join(", ")));
+    }
+    let week_old = profile
         .collected_at
         .checked_add(STALE_AFTER)
-        .map_or(true, |due| now >= due)
+        .map_or(true, |due| now >= due);
+    week_old.then(|| "the profile is a week old".to_owned())
 }
 
 /// The note text of `profile`, rendered as the hub writes it, so the API and the note
@@ -259,16 +295,21 @@ pub(crate) async fn tick(deps: &ProfileDeps) {
         }
     };
     for host in hosts {
-        let needs = match due(deps, &host).await {
-            Ok(needs) => needs,
+        let why = match due(deps, &host).await {
+            Ok(why) => why,
             Err(err) => {
                 tracing::debug!(%err, host = host.name.as_str(), "could not tell whether the host needs a profile");
                 continue;
             }
         };
-        if !needs {
+        let Some(why) = why else {
             continue;
-        }
+        };
+        tracing::info!(
+            host = host.name.as_str(),
+            why,
+            "collecting the host profile"
+        );
         if let Err(err) = refresh(deps, &host).await {
             tracing::warn!(%err, host = host.name.as_str(), "could not collect the host profile");
             continue;
@@ -277,22 +318,23 @@ pub(crate) async fn tick(deps: &ProfileDeps) {
     }
 }
 
-/// Whether `host` has a connected agent whose profile should be collected again.
-async fn due(deps: &ProfileDeps, host: &Host) -> Result<bool, ProfileError> {
+/// Why the profile of `host`, whose agent is connected, should be collected now.
+async fn due(deps: &ProfileDeps, host: &Host) -> Result<Option<String>, ProfileError> {
     let version = match deps.catalog.presence(host.id) {
         Presence::Connected { version, .. } => version,
-        Presence::Disconnected { .. } => return Ok(false),
+        Presence::Disconnected { .. } => return Ok(None),
     };
     let facts = match deps.agents.facts(host.id) {
         Some(facts) => facts,
-        None => return Ok(false),
+        None => return Ok(None),
     };
     let previous = stored(deps, host.id).await?;
-    let needs = match previous {
-        None => true,
-        Some(profile) => needs_refresh(&profile, facts, &version, deps.clock.now()),
+    let Some(profile) = previous else {
+        return Ok(Some("the host has no profile yet".to_owned()));
     };
-    Ok(needs)
+    let basis = basis(deps, host.id).await;
+    let now = deps.clock.now();
+    Ok(needs_refresh(&profile, &facts, &version, &basis, now))
 }
 
 /// Moves what older hubs kept as a note into the profile's own store, once at start: removes the

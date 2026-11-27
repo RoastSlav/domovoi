@@ -166,6 +166,11 @@ pub struct Hello {
     pub protocol: ProtocolVersion,
     /// The agent's version.
     pub agent_version: String,
+    /// The build the agent runs, such as a git commit. Two builds of one release differ
+    /// here, so the hub can tell a swapped binary. Absent from older agents and from builds
+    /// that do not know their commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_build: Option<String>,
     /// Facts about the host. Boxed to keep the shared `Message` enum small; the wire shape is
     /// unchanged.
     pub facts: Box<HostFacts>,

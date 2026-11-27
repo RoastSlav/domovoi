@@ -137,6 +137,7 @@ pub fn all() -> Vec<Message> {
             agent_id: agent_id(),
             protocol: PROTOCOL_VERSION,
             agent_version: "0.1.0".to_owned(),
+            agent_build: None,
             facts: Box::new(facts()),
             capabilities: vec!["docker".to_owned(), "journal".to_owned()],
             features: Vec::new(),
