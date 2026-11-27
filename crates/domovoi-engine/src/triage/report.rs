@@ -56,6 +56,10 @@ no tool result in its report ties it to a recorded action, so it needs a person.
 /// something that happened; the model may call it expected or fixed only when its evidence
 /// cites a tool that ran. Otherwise the verdict becomes `MONITOR` and `details` says why.
 /// Returns whether the verdict was changed.
+///
+/// The evidence must have a value and come from a tool that can say something about a login,
+/// a listener or a `sudo` use: a container list or a disk report cannot tie one to a recorded
+/// action, whatever it returned.
 pub(crate) fn guard_security_verdict(
     check: &str,
     report: &mut TriageReport,
@@ -67,8 +71,13 @@ pub(crate) fn guard_security_verdict(
         return false;
     }
     let tied = report.evidence.iter().any(|item| {
-        used.iter()
-            .any(|tool| !tool.failed && !tool.refused && item.source.contains(&tool.tool))
+        !item.value.trim().is_empty()
+            && used.iter().any(|tool| {
+                !tool.failed
+                    && !tool.refused
+                    && relevant_to_security(&tool.tool)
+                    && item.source.contains(&tool.tool)
+            })
     });
     if tied {
         return false;
@@ -80,6 +89,12 @@ pub(crate) fn guard_security_verdict(
         format!("{NOT_VERIFIED}\n\n{}", report.details)
     };
     true
+}
+
+/// Whether a tool's output can speak about a security event. Container, disk and overview
+/// reads cannot.
+fn relevant_to_security(tool: &str) -> bool {
+    !(tool.starts_with("docker_") || matches!(tool, "smart_report" | "host_overview"))
 }
 
 fn strip_fences(text: &str) -> &str {
@@ -149,6 +164,18 @@ mod guard_tests {
         let used = [tool("journal", false)];
         assert!(!guard_security_verdict("security.ssh_login", &mut r, &used));
         assert_eq!(r.verdict, Verdict::Expected);
+    }
+
+    #[test]
+    fn a_tool_that_cannot_speak_about_the_event_or_an_empty_value_is_no_evidence() {
+        let mut r = report(Verdict::Expected, "docker_ps");
+        let used = [tool("docker_ps", false)];
+        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        let mut r = report(Verdict::Expected, "journal");
+        r.evidence[0].value = "  ".to_owned();
+        let used = [tool("journal", false)];
+        assert!(guard_security_verdict("security.ssh_login", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::Monitor);
     }
 
     #[test]
