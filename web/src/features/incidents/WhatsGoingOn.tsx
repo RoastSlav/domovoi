@@ -41,14 +41,18 @@ const OPEN_STATES = [
   "paused",
 ] as const;
 
-/** What an investigation that is still open is doing, in a sentence; `undefined` when none is open. */
-export function investigationState(detail: IncidentDetail): string | undefined {
-  const open = (detail.operations ?? []).find(
+/** The status of the investigation that is still open, if one is. */
+function openStatus(detail: IncidentDetail) {
+  return (detail.operations ?? []).find(
     (operation) =>
       operation.kind === "investigate" &&
       (OPEN_STATES as readonly string[]).includes(operation.status),
-  );
-  switch (open?.status) {
+  )?.status;
+}
+
+/** What an investigation that is still open is doing, in a sentence; `undefined` when none is open. */
+export function investigationState(detail: IncidentDetail): string | undefined {
+  switch (openStatus(detail)) {
     case undefined:
       return undefined;
     case "queued":
@@ -150,8 +154,11 @@ export function WhatsGoingOn({
       </Card>
     );
   }
-  // A failure older than the investigation that is open now is not the news: the open one is.
-  const stale = state?.kind === "failed" && working !== undefined && !retry.isPending;
+  // The open investigation is the news, not an earlier failure, nor a skip once it asks.
+  const asking = openStatus(detail) === "waiting_user";
+  const stale =
+    (state?.kind === "failed" ? working !== undefined : state?.kind === "skipped" && asking) &&
+    !retry.isPending;
   if (!said && !stale && (state?.kind === "skipped" || state?.kind === "failed")) {
     return (
       <Stack gap={2}>
@@ -174,7 +181,7 @@ export function WhatsGoingOn({
             {working ? (
               <>
                 {working}
-                {stale && state?.reason
+                {stale && state?.reason && openStatus(detail) === "waiting_timer"
                   ? ` The attempt before failed: ${sentence(state.reason)}`
                   : ""}
               </>
@@ -187,7 +194,7 @@ export function WhatsGoingOn({
               "Triage has not run for this incident."
             )}
           </Text>
-          {again("secondary")}
+          {!asking && again("secondary")}
         </Cluster>
         {failure}
       </Card>

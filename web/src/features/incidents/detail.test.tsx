@@ -454,26 +454,27 @@ test("triage_that_failed_shows_the_reason_and_retry", async () => {
   });
   expect(screen.queryByText("Triage finished"), "a failure is not a success toast").toBeNull();
 });
+/** An investigation of the incident that is still open, in `status`. */
+const openInvestigation = (status: string) => ({
+  id: "op-new",
+  kind: "investigate",
+  goal: "find out why nginx fails",
+  status,
+  waiting_for: [],
+  cycle: 0,
+  incidents: ["inc-1"],
+  hosts: [nas.id],
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+});
+
 test("a_failed_banner_is_hidden_while_a_newer_investigation_is_open", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({
     ...d,
     report: null,
     triage: { kind: "failed", reason: "the model is not available" },
-    operations: [
-      {
-        id: "op-new",
-        kind: "investigate",
-        goal: "find out why nginx fails",
-        status: "waiting_user",
-        waiting_for: ["user"],
-        cycle: 0,
-        incidents: ["inc-1"],
-        hosts: [nas.id],
-        created_at: "2026-01-01T00:00:00Z",
-        updated_at: "2026-01-01T00:00:00Z",
-      },
-    ],
+    operations: [openInvestigation("waiting_user")],
   }));
   open();
 
@@ -481,7 +482,43 @@ test("a_failed_banner_is_hidden_while_a_newer_investigation_is_open", async () =
     0,
   );
   expect(screen.queryByText("Triage failed")).toBeNull();
-  expect(screen.getByText(/The attempt before failed: The model is not available/)).toBeVisible();
+  expect(
+    screen.queryByText(/model is not available/i),
+    "nothing old above the question",
+  ).toBeNull();
+  expect(screen.queryByRole("button", { name: /triage/i })).toBeNull();
+});
+
+test("a_skipped_banner_is_hidden_while_a_question_is_pending", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: null,
+    triage: { kind: "skipped", reason: "too many incidents waiting for triage" },
+    operations: [openInvestigation("waiting_user")],
+  }));
+  open();
+
+  expect((await screen.findAllByText(/Triage is waiting for your answer/)).length).toBeGreaterThan(
+    0,
+  );
+  expect(screen.queryByText("Triage was skipped")).toBeNull();
+});
+
+test("a_parked_retry_still_says_why_it_waits", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: null,
+    triage: { kind: "failed", reason: "the model is not available" },
+    operations: [openInvestigation("waiting_timer")],
+  }));
+  open();
+
+  expect(
+    await screen.findByText(/The attempt before failed: The model is not available/),
+  ).toBeVisible();
+  expect(screen.queryByText("Triage failed")).toBeNull();
 });
 
 test("triage_that_was_skipped_says_why", async () => {
