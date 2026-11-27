@@ -41,3 +41,7 @@ To stop trusting a helper altogether, unpin it (password required). Containment 
 | `confirmation_stale` | You confirmed a management path earlier and the helper's configuration or routes have since changed, or the confirmation is over 30 days old. Confirm it again. |
 
 A status can change from one report to the next. The hub follows the latest outcome: a bad answer revokes at once, and the next good one restores.
+
+## Retracting a management path
+
+Retracting a management path does not need your password. It only removes the path from use, and the action is logged. Accepting and confirming a path do need the password.

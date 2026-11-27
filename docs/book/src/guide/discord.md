@@ -53,6 +53,8 @@ allowed_user_ids = [234567890123456789]
 webhook_url = { env = "DISCORD_WEBHOOK_URL" }
 ```
 
+One hub uses one bot. Do not put the same bot token in two hubs: both would answer the same buttons and threads.
+
 Set `[web] public_url` too. Card titles link to the incident's page in the web UI, and the bot reads that link to know which incident a thread is about.
 
 Without `webhook_url`, the bot posts the daily digest and the `/digest` command's digest in `channel_id`. With `webhook_url`, digests and the quiet-hours summary go to the webhook's channel instead. Only one of them carries these messages, so nothing is posted twice, and the bot does not repost a digest the webhook failed to deliver.
