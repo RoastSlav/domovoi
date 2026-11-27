@@ -63,7 +63,9 @@ function HostPaths({ data, host }: { data: ManagementPaths; host: string }) {
           <EmptyState icon="server" title="No management paths yet">
             <p>
               Add the networks you manage this host from. Until then unattended containment stays
-              blocked.
+              blocked. To confirm one, the helper must report it: run{" "}
+              <code>sudo domovoi helper fingerprint</code> on the host, then paste the result in the
+              helper settings.
             </p>
           </EmptyState>
         ) : (

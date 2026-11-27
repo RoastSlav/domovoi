@@ -156,7 +156,7 @@ impl TriageReport {
             found.push("next_step repeats the problem");
         }
         let step = self.next_step.trim_start();
-        if step.starts_with("sudo ") || step.starts_with('$') || step.starts_with("systemctl ") {
+        if step.starts_with("sudo ") || step.starts_with('$') {
             found.push("next_step is a shell command");
         }
         found

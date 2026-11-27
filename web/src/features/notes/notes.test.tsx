@@ -207,6 +207,10 @@ test("notes_page_marks_generated_notes_rather_than_their_hub_tags", async () => 
     { ...note("gp", "nas"), tags: ["generated", "host-profile"] },
   ]);
   renderAt("/notes", "/notes", <NotesPage />);
+  const first = await screen.findByRole("table", { name: "Notes" });
+  expect(within(first).queryByText("Generated"), "hidden until asked for").toBeNull();
+  expect(within(first).getByText("Backups")).toBeVisible();
+  await userEvent.click(screen.getByRole("checkbox", { name: /Show generated notes/ }));
   const list = await screen.findByRole("table", { name: "Notes" });
   expect(within(list).getByText("Generated")).toBeVisible();
   expect(within(list).queryByText("host-profile")).toBeNull();

@@ -2415,6 +2415,58 @@ expression: spec
         ],
         "type": "object"
       },
+      "ExpectedSignalDto": {
+        "description": "One event a known condition explained.",
+        "properties": {
+          "check": {
+            "description": "The check that reported it.",
+            "type": "string"
+          },
+          "host": {
+            "description": "The host's name.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The signal's id.",
+            "type": "string"
+          },
+          "observed_at": {
+            "description": "When the check observed it, RFC 3339.",
+            "type": "string"
+          },
+          "rule_id": {
+            "description": "The known condition that explained it.",
+            "type": "string"
+          },
+          "rule_note": {
+            "description": "The reason that condition gives, when it still exists.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "description": "What the check said.",
+            "type": "string"
+          },
+          "target": {
+            "description": "What it was about, such as `tcp:0.0.0.0:22`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "host",
+          "check",
+          "summary",
+          "observed_at",
+          "rule_id"
+        ],
+        "type": "object"
+      },
       "ExperienceItemDto": {
         "description": "One search hit.",
         "properties": {
@@ -9940,6 +9992,72 @@ expression: spec
         "summary": "Committed journal rows as server-sent events.",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/expected-signals": {
+      "get": {
+        "operationId": "list_expected_signals",
+        "parameters": [
+          {
+            "description": "Only this host, by name.",
+            "in": "query",
+            "name": "host",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many rows to return, 1 to 500. Default 100.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExpectedSignalDto"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Signals a known condition explained, newest first"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unknown host"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          }
+        },
+        "summary": "Events that known conditions explained, newest first. They are history: no incident,\nnotification or triage was made for them.",
+        "tags": [
+          "incidents"
         ]
       }
     },

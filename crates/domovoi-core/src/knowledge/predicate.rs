@@ -335,6 +335,18 @@ mod tests {
                 ValueError::BadCidr,
             ),
             (
+                ManagementPath,
+                host(),
+                json!({"cidr": "0.0.0.0/0"}),
+                ValueError::CoversEverything,
+            ),
+            (
+                TrustedCidr,
+                host(),
+                json!({"cidr": "::/0"}),
+                ValueError::CoversEverything,
+            ),
+            (
                 NeverRestart,
                 host(),
                 json!(true),

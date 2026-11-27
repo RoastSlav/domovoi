@@ -22,6 +22,10 @@ pub enum ValueError {
     /// A CIDR does not parse.
     #[error("the value is not a valid address range")]
     BadCidr,
+    /// A range with no prefix (`0.0.0.0/0`, `::/0`) names every address, so it is no path
+    /// and no trust boundary at all.
+    #[error("a range that covers every address cannot be used here: name the network")]
+    CoversEverything,
     /// A timestamp is not RFC 3339 UTC.
     #[error("the value is not a valid timestamp")]
     BadTimestamp,
@@ -135,6 +139,9 @@ pub(super) fn cidr_object(value: &Value) -> Result<Value, ValueError> {
     let map = object(value, &["cidr"], &[])?;
     let raw = map["cidr"].as_str().ok_or(ValueError::WrongType)?;
     let canonical = canonical_cidr(raw).ok_or(ValueError::BadCidr)?;
+    if canonical.ends_with("/0") {
+        return Err(ValueError::CoversEverything);
+    }
     Ok(serde_json::json!({ "cidr": canonical }))
 }
 

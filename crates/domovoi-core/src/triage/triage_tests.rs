@@ -150,7 +150,7 @@ fn a_report_whose_fields_each_do_their_own_job_has_no_problems() {
 fn repeated_fields_and_shell_commands_in_next_step_are_named() {
     let mut r = report();
     r.cause = r.summary.clone();
-    r.next_step = "sudo systemctl restart plex".to_owned();
+    r.next_step = "sudo run the fix by hand".to_owned();
     let problems = r.field_problems();
     assert!(problems.contains(&"cause repeats summary"), "{problems:?}");
     assert!(

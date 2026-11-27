@@ -67,7 +67,9 @@ impl fmt::Display for KnowledgeError {
             Self::NotLive { status } => write!(f, "the fact is {}", status.as_str()),
             Self::NotOwnerFact => f.write_str("accept the path first"),
             Self::UseConfirmation => f.write_str("confirm the path instead"),
-            Self::PathUncovered => f.write_str("the helper does not cover this path"),
+            Self::PathUncovered => f.write_str(
+                "the helper does not cover this path: add this network to management_cidrs in /etc/domovoi/helper.toml on the host and restart the helper",
+            ),
             Self::CoverageUnverifiable(reason) => f.write_str(reason.describe()),
             Self::DuplicateEntity => f.write_str("an entity with this name exists"),
             Self::EntityInUse => f.write_str("something still refers to this entity"),
@@ -102,5 +104,17 @@ impl From<CommitError> for KnowledgeError {
             CommitError::Conflict { .. } | CommitError::Constraint(_) => Self::Conflict,
             other => Self::Store(StoreError::Backend(other.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod uncovered_text {
+    use super::KnowledgeError;
+
+    #[test]
+    fn an_uncovered_path_says_where_to_add_it() {
+        let text = KnowledgeError::PathUncovered.to_string();
+        assert!(text.contains("management_cidrs"), "{text}");
+        assert!(text.contains("/etc/domovoi/helper.toml"), "{text}");
     }
 }

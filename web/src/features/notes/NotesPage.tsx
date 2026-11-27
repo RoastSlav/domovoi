@@ -3,6 +3,7 @@ import { useNoteSearch, useNotes } from "../../api/hooks/notes";
 import { useSelectedHost } from "../../app/HostContext";
 import {
   Button,
+  Checkbox,
   EmptyState,
   LinkButton,
   PageHeader,
@@ -19,14 +20,19 @@ import styles from "./notes.module.css";
 /** How long typing must pause before a search runs. */
 export const SEARCH_DEBOUNCE_MS = 300;
 
+/** Machine-written notes (host profiles) are the hub's records, not the person's notes. */
+const isGenerated = (note: { tags: readonly string[] }) => note.tags.includes("generated");
+
 function SearchResults({
   q,
   host,
   onClear,
+  generated,
 }: {
   host: string | undefined;
   onClear: () => void;
   q: string;
+  generated: boolean;
 }) {
   const hits = useNoteSearch(q, host);
   return (
@@ -34,7 +40,7 @@ function SearchResults({
       query={hits}
       context="search the notes"
       loading={<Skeleton shape="rows" count={4} />}
-      isEmpty={(data) => data.length === 0}
+      isEmpty={(data) => data.filter((hit) => generated || !isGenerated(hit.note)).length === 0}
       empty={
         <EmptyState
           icon="search"
@@ -49,28 +55,35 @@ function SearchResults({
         <NotesTable
           caption="Search results"
           query={q}
-          rows={data.map((hit) => ({ note: hit.note, excerpt: hit.snippet }))}
+          rows={data
+            .filter((hit) => generated || !isGenerated(hit.note))
+            .map((hit) => ({ note: hit.note, excerpt: hit.snippet }))}
         />
       )}
     </QueryBoundary>
   );
 }
 
-function NoteList({ host }: { host: string | undefined }) {
+function NoteList({ host, generated }: { host: string | undefined; generated: boolean }) {
   const notes = useNotes(host);
   return (
     <QueryBoundary
       query={notes}
       context="load notes"
       loading={<Skeleton shape="rows" count={5} />}
-      isEmpty={(data) => data.length === 0}
+      isEmpty={(data) => data.filter((note) => generated || !isGenerated(note)).length === 0}
       empty={
         <EmptyState icon="note" title="No notes here yet">
           <p>Write one, or import a folder of Markdown runbooks.</p>
         </EmptyState>
       }
     >
-      {(data) => <NotesTable caption="Notes" rows={listRows(data)} />}
+      {(data) => (
+        <NotesTable
+          caption="Notes"
+          rows={listRows(data.filter((note) => generated || !isGenerated(note)))}
+        />
+      )}
     </QueryBoundary>
   );
 }
@@ -86,6 +99,7 @@ export function NotesPage() {
   // Emptying the box goes back to the list at once; only typing waits.
   const settled = query.trim() === "" ? "" : debounced;
   const [importing, setImporting] = useState(false);
+  const [generated, setGenerated] = useState(false);
 
   const setHost = (next: string) => setPick({ base: selected, host: next });
 
@@ -121,11 +135,17 @@ export function NotesPage() {
           />
         </div>
         <HostScope bare label="Notes about" value={host ?? ""} onChange={setHost} />
+        <Checkbox
+          label="Show generated notes"
+          hint="Host profiles the hub wrote. Yours are always shown."
+          checked={generated}
+          onChange={setGenerated}
+        />
       </div>
       {settled ? (
-        <SearchResults q={settled} host={host} onClear={() => setQuery("")} />
+        <SearchResults q={settled} host={host} generated={generated} onClear={() => setQuery("")} />
       ) : (
-        <NoteList host={host} />
+        <NoteList host={host} generated={generated} />
       )}
       {importing && <ImportDialog host={host} onClose={() => setImporting(false)} />}
     </>

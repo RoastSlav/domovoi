@@ -195,7 +195,10 @@ test("confirming_with_coverage_available_asks_for_the_password_and_sends_version
 });
 
 test.each([
-  ["the helper does not cover this path", "the helper does not cover this path"],
+  [
+    "the helper does not cover this path: add this network to management_cidrs in /etc/domovoi/helper.toml on the host and restart the helper",
+    "the helper does not cover this path: add this network to management_cidrs in /etc/domovoi/helper.toml on the host and restart the helper",
+  ],
   ["someone changed it meanwhile; reload and try again", "someone changed it meanwhile"],
 ])(
   "a_confirm_conflict_shows_the_hubs_sentence_inside_the_prompt: %s",
