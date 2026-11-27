@@ -58,8 +58,18 @@ pub const SYSTEM_PROMPT: &str = include_str!("../../prompts/triage_system.md");
 /// Consecutive failed runs that mark triage as degraded.
 pub const DEGRADED_AFTER: u32 = 3;
 
-/// How long a failed triage waits before it runs again.
-pub const FAILED_RETRY: jiff::SignedDuration = jiff::SignedDuration::from_hours(1);
+/// How long a failed triage waits before it runs again, by number of failed turns so far:
+/// a few minutes first (a flaky model comes back fast), then longer.
+pub fn failed_retry_after(failed_turns: usize) -> jiff::SignedDuration {
+    match failed_turns {
+        0 => jiff::SignedDuration::from_mins(3),
+        1 => jiff::SignedDuration::from_mins(15),
+        _ => jiff::SignedDuration::from_hours(1),
+    }
+}
+
+/// How long a turn that could not reach the model waits for the next try.
+pub const UNREACHABLE_RETRY: jiff::SignedDuration = jiff::SignedDuration::from_mins(3);
 
 /// Consecutive failed runs after which one incident stops retrying. The limit is per
 /// incident, so a success elsewhere does not refresh it.
@@ -331,5 +341,18 @@ impl TriageHandle {
             Err(err) => return Err(TriageError::Store(err.to_string())),
         };
         Ok(since_clear(&timeline))
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn the_first_retry_comes_within_minutes_and_later_ones_back_off() {
+        assert!(failed_retry_after(0) <= jiff::SignedDuration::from_mins(5));
+        assert!(failed_retry_after(1) > failed_retry_after(0));
+        assert!(failed_retry_after(2) > failed_retry_after(1));
+        assert!(UNREACHABLE_RETRY <= jiff::SignedDuration::from_mins(5));
     }
 }

@@ -589,7 +589,10 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
 
     // The second opening lasts ten minutes.
     w.clock.advance(SignedDuration::from_mins(11));
-    w.primary.push_text(report());
+    // The first failures of earlier incidents retry after a few minutes and take answers too.
+    for _ in 0..4 {
+        w.primary.push_text(report());
+    }
     let fifth = another(&w, "mongo").await;
     assert!(matches!(w.run_on(&fifth).await, TriageOutcome::Report(_)));
     assert!(AdvisoryRepo::list_open(&*w.store).await.unwrap().is_empty());

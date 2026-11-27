@@ -24,7 +24,7 @@ use crate::operations::decide::{EffectSpec, NewEdge, NewStep};
 use crate::operations::effects::{Address, address, after, finish, load, spec, unreadable};
 use crate::operations::writer::{Held, OpShared};
 use crate::triage::run::limits;
-use crate::triage::{FAILED_RETRY, FAILED_RETRY_LIMIT};
+use crate::triage::{FAILED_RETRY_LIMIT, UNREACHABLE_RETRY, failed_retry_after};
 
 /// The handler of `draft_summary` effects.
 pub(super) struct DraftSummary {
@@ -228,7 +228,7 @@ impl EffectHandler for DraftSummary {
 }
 
 /// When the retry this turn earns is due, or `None` when it earns none: a failed turn retries
-/// after `FAILED_RETRY` unless the streak is degraded or the limit of failed turns is reached,
+/// after `failed_retry_after` unless the streak is degraded or the limit of failed turns is reached,
 /// and a skipped turn retries at the time it names.
 fn retry_due(
     snapshot: &OperationSnapshot,
@@ -249,7 +249,7 @@ fn retry_due(
         // for the breaker's next probe however many turns failed, and never ends `failed`.
         TurnKind::Failed if output.unreachable => {
             let probe = limits(triage).down_until;
-            let soon = after(shared, FAILED_RETRY);
+            let soon = after(shared, UNREACHABLE_RETRY);
             Some(probe.map_or(soon, |at| at.max(soon)))
         }
         TurnKind::Failed => {
@@ -260,7 +260,7 @@ fn retry_due(
                 .filter(|record| record.progress.outcome == StepOutcome::Failed)
                 .count();
             (!limits(triage).degraded && failed < FAILED_RETRY_LIMIT)
-                .then(|| after(shared, FAILED_RETRY))
+                .then(|| after(shared, failed_retry_after(failed)))
         }
         TurnKind::Skipped => output.retry_at,
         _ => {
