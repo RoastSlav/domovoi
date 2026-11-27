@@ -180,6 +180,8 @@ The agent advertises these capabilities when `[packages]` is set in its config. 
 | --- | --- | --- |
 | `agent.package.install` | `package`, `version`, `artifact_transfer`, `signature_transfer` | `package`, `version`, `key_id`, `archive_sha256`, `installed_at`, `skills`, `replaced_version`, `already_installed`, `signer_updated`, `enabled` (always `"false"`), `privilege_boundary` |
 | `agent.package.uninstall` | `package`, `version` | `package`, `version`, `removed`, `privilege_boundary` |
+| `agent.package.enable` | `package`, `version` | `package`, `version`, `enabled`, `changed`, `tree_sha256` |
+| `agent.package.disable` | `package`, `version` | `package`, `version`, `enabled`, `changed`, `tree_sha256` |
 | `agent.package.list` | none | `count`, `install_allowed`, `privilege_boundary`, `packages` (a JSON array) |
 
 `artifact_transfer` and `signature_transfer` refer to the archive and signature transfers sent before the call.

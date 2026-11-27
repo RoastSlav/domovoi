@@ -269,12 +269,55 @@ test("installed_list_is_display_only_and_says_when_it_was_last_checked", async (
   expect(screen.getByText("Isolated")).toBeVisible();
   expect(screen.getByText(/Last checked/)).toBeVisible();
   expect(
-    screen.getByText("Stored files only: the skills of a package cannot be switched on yet."),
+    screen.getByText(
+      "Installing stores files only. A package's skills run after a person enables them here.",
+    ),
   ).toBeVisible();
   expect(screen.getByRole("link", { name: "Remove…" })).toHaveAttribute(
     "href",
     "/capabilities/install?kind=uninstall&package=nginx-tools&version=1.2.0&host=nas",
   );
+});
+
+test("a_stored_package_shows_skills_off_with_the_reason_and_enable_asks_password_and_name", async () => {
+  const user = userEvent.setup();
+  stub();
+  route("GET /api/v1/hosts/{name}/packages", () => ({
+    host_id: "host-nas",
+    observed_at: T0,
+    entries: [
+      hostPackage({
+        skills_enabled: false,
+        skills_off_reason: "the package is stored but not enabled",
+      }),
+    ],
+    install_allowed: true,
+  }));
+  route("PUT /api/v1/hosts/{name}/packages/{package}/skills", () => ({
+    name: "nginx-tools",
+    version: "1.2.0",
+    enabled: true,
+    changed: true,
+    plan_hash: "c".repeat(64),
+  }));
+  show("/capabilities?tab=packages&host=nas");
+  expect(await screen.findByText("Skills off")).toBeVisible();
+  expect(screen.getByText("the package is stored but not enabled")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Enable skills…" }));
+  const dialog = await screen.findByRole("dialog");
+  const confirm = within(dialog).getByRole("button", { name: "Enable" });
+  expect(confirm).toHaveAttribute("aria-disabled", "true");
+  await user.type(within(dialog).getByLabelText("Your password"), "secret");
+  await user.type(within(dialog).getByRole("textbox"), "nginx-tools");
+  await user.click(within(dialog).getByRole("button", { name: "Enable" }));
+  await waitFor(() =>
+    expect(
+      calls.some((c) => c.route === "PUT /api/v1/hosts/{name}/packages/{package}/skills"),
+    ).toBe(true),
+  );
+  const put = calls.find((c) => c.route === "PUT /api/v1/hosts/{name}/packages/{package}/skills");
+  expect(JSON.stringify(put?.init)).toContain("nginx-tools");
+  expect(JSON.stringify(put?.init)).toContain("secret");
 });
 
 test("installed_list_asks_for_a_host_under_all_hosts", async () => {

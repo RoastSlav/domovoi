@@ -41,6 +41,8 @@ function skill(name: string, risk: string, enabled = true): Skill {
     description: `Does ${name}`,
     applies_to: [],
     manifest_hash: "abc",
+    available: true,
+    unavailable_reason: null,
     params: [],
     timeout_secs: 30,
   };

@@ -66,6 +66,7 @@ export type JobPage = Schemas["JobPageDto"];
 export type HostPackages = Schemas["HostPackagesDto"];
 /** One package a host holds. */
 export type HostPackage = Schemas["HostPackageDto"];
+export type PackageSkillsAnswer = Schemas["PackageSkillsDto"];
 /** A note. */
 export type Note = Schemas["NoteDto"];
 /** Creating or replacing a note. */

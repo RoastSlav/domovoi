@@ -17,6 +17,8 @@ const skill = (name: string, risk: string, extra = {}) => ({
   timeout_secs: 60,
   enabled: true,
   manifest_hash: "f".repeat(64),
+  available: true,
+  unavailable_reason: null,
   ...extra,
 });
 
@@ -410,5 +412,29 @@ test("a_skill_cannot_be_switched_on_where_no_runner_can_run_it", async () => {
   expect(screen.getByRole("switch", { name: "Enable df_report" })).not.toHaveAttribute(
     "aria-disabled",
     "true",
+  );
+});
+
+test("a_stored_package_skill_is_listed_off_with_the_reason_and_a_way_to_enable_it", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("nginx_reload", "unknown", {
+      enabled: false,
+      available: false,
+      unavailable_reason: "the package is stored but not enabled",
+      package: "nginx-tools",
+      package_version: "1.2.0",
+    }),
+  ]);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+  await screen.findByText("nginx_reload");
+  expect(screen.getByText("Package nginx-tools")).toBeVisible();
+  expect(screen.getByRole("switch", { name: /Enable nginx_reload/ })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  expect(screen.getByRole("link", { name: "Enable package…" })).toHaveAttribute(
+    "href",
+    "/capabilities?tab=packages&host=nas",
   );
 });

@@ -53,7 +53,7 @@ export const INSTALL_TARGET_STATUSES: Table<InstallTargetStatus> = {
     label: "Stored (skills off)",
     tone: "success",
     icon: "check-circle",
-    hint: "The host's agent confirmed the package files are stored and verified. Its skills are not active and cannot be switched on yet.",
+    hint: "The host's agent confirmed the package files are stored and verified. Its skills are not active until a person enables them on the host's Packages tab.",
   },
   failed: {
     label: "Failed",
@@ -93,7 +93,7 @@ export const INSTALL_JOB_STATUSES: Table<InstallJobStatus> = {
     label: "Stored, skills not active",
     tone: "success",
     icon: "check-circle",
-    hint: "Every host stored the package. Storing does not enable anything: the package's skills cannot be switched on yet.",
+    hint: "Every host stored the package. Storing does not enable anything: the package's skills stay off until a person enables them.",
   },
   failed: {
     label: "Failed",
@@ -115,7 +115,7 @@ export const HOST_PACKAGE_STATUSES: Table<HostPackageStatus> = {
     label: "Stored (skills off)",
     tone: "success",
     icon: "check-circle",
-    hint: "The host holds verified files for this package. Its skills are not active and cannot be switched on yet.",
+    hint: "The host holds verified files for this package. Its skills are not active until a person enables them on the host's Packages tab.",
   },
   disabled_untrusted_key: {
     label: "Signed by an untrusted key",

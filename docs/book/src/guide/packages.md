@@ -140,7 +140,18 @@ The hub never retries a target on its own after the request has been sent.
 
 ## Installing does not enable
 
-After a successful install, the package is on disk but not enabled. Its skills do not appear for the triage agent, and nothing in the package runs. No step in the hub enables a package yet, so a package that installed is **stored, not active**: the job page says "Stored, skills not active", each host shows "Stored (skills off)", and the install wizard says so before you confirm. An enable step (password, the package name typed again, a signature re-check and an audit entry) is planned as its own feature.
+After a successful install, the package is on disk but not enabled. Nothing in the package runs, and its skills are listed on the host's Skills page as **Disabled**, with the reason ("the package is stored but not enabled"). The job page says "Stored, skills not active" and each host shows "Stored (skills off)".
+
+## Enabling and disabling a package's skills
+
+A person enables a package per host, from the host's installed list on the Packages tab ("Enable skills…"). The dialog asks for your password and the package name typed out. Then:
+
+1. The hub sends `agent.package.enable` with a plan hash bound to the host, the package and the version. A chat message, a model or a policy rule cannot send it.
+2. The agent checks that the signer is still trusted and that the files on disk have the same tree digest the agent recorded when it installed them. If either fails it refuses, and the dialog shows its words (`tree_changed`, `untrusted_key`). A package installed by an older agent has no recorded digest and must be installed again.
+3. The agent writes the decision to its own state (`.enabled.toml` in `packages_dir`, mode 0600) and announces the skills again. They then appear on the Skills page like any other skill and follow the same rules: read, write and destructive skills keep their approvals, and a write skill is available only where a write skill can run at all. The decision survives an agent restart.
+4. The hub writes an audit row `package.enabled` (or `package.disabled`, or `package.enable_refused` with the agent's reason) with your name, the host, the package, the version and the plan hash.
+
+Each time the skills are listed or run, the agent checks the files and the signer again. A changed tree, a missing file or a revoked key switches the skills off by itself and the page says why. An owner skill with the same name always wins. Disabling takes effect at once and keeps the files; uninstalling also forgets the decision.
 
 ## Keeping records
 

@@ -38,7 +38,7 @@ The hub offers and relays packages; the agent decides. The hub checks an import 
 
 - Only a signed-in person can start an install or an uninstall. It needs your password, and the package name typed again. A chat message, a model or a background task cannot start one.
 - The plan you approved must still match when the job starts. A host that changed since then is refused, not installed.
-- Installing does not enable or run anything. The package's skills stay off until a later step enables them, and that step does not exist yet.
+- Installing does not enable or run anything. The package's skills stay off until a person enables them on that host: the password again, the package name typed again, a check by the agent that the files are still exactly what was installed, and an audit entry (`package.enabled`, with the plan hash). The agent keeps the decision, so a restored hub cannot enable anything. A changed tree or a signer that is no longer trusted switches the skills off again, with the reason.
 - If the hub loses track of an install after sending it, it asks the agent what happened and does not send it again on its own.
 
 See [Packages](guide/packages.md) for the workflow and what each outcome means.

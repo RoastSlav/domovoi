@@ -4,6 +4,7 @@ import {
   Button,
   Cluster,
   DataTable,
+  LinkButton,
   StatusPill,
   Switch,
   Tag,
@@ -54,6 +55,7 @@ function columns({
             </Text>
           </Button>
           {!skill.enabled && <Tag>Disabled</Tag>}
+          {skill.package && <Tag>{`Package ${skill.package}`}</Tag>}
           {tags?.(skill)}
         </Cluster>
       ),
@@ -95,12 +97,24 @@ function columns({
       width: "6rem",
       hint: `A disabled skill stays on ${host} but Domovoi never runs or suggests it.`,
       cell: (skill) => (
-        <Switch
-          label={<span className="visually-hidden">{`Enable ${skill.name}`}</span>}
-          checked={skill.enabled}
-          {...(!skill.enabled && enableBlocked ? { disabledReason: enableBlocked } : {})}
-          onChange={(enabled) => onToggle(skill, enabled)}
-        />
+        <Cluster gap={2}>
+          <Switch
+            label={<span className="visually-hidden">{`Enable ${skill.name}`}</span>}
+            checked={skill.enabled}
+            {...(!skill.enabled && (skill.unavailable_reason ?? enableBlocked)
+              ? { disabledReason: skill.unavailable_reason ?? enableBlocked }
+              : {})}
+            onChange={(enabled) => onToggle(skill, enabled)}
+          />
+          {skill.package && !skill.available && (
+            <LinkButton
+              size="sm"
+              to={`/capabilities?tab=packages&host=${encodeURIComponent(host)}`}
+            >
+              Enable package…
+            </LinkButton>
+          )}
+        </Cluster>
       ),
     },
   ];

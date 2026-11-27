@@ -67,7 +67,7 @@ test("wizard_walks_package_hosts_review_confirm_to_the_job_page", async () => {
 
   expect(await screen.findByText("Plan a1b2c3d4")).toBeVisible();
   expect(screen.getByText("nas")).toBeVisible();
-  expect(screen.getByText(/Its skills cannot be switched on yet/)).toBeVisible();
+  expect(screen.getByText(/Its skills stay off until a person enables them/)).toBeVisible();
   const dialog = await openDialog(user);
   expect(within(dialog).getByText(/Install nginx-tools 1.2.0 on 1 host\?/)).toBeVisible();
   await authorize(user, dialog);
@@ -232,7 +232,7 @@ test("review_shows_the_full_fingerprint_only_as_collapsed_detail_in_standard", a
   expect(await screen.findByText("Plan a1b2c3d4")).toBeVisible();
   expect(screen.getByRole("button", { name: /Package fingerprint/ })).toBeVisible();
   expect(screen.queryByLabelText("Package digest")).toBeNull();
-  expect(screen.getByText(/Its skills cannot be switched on yet/)).toBeVisible();
+  expect(screen.getByText(/Its skills stay off until a person enables them/)).toBeVisible();
 });
 
 test("authorize_needs_password_and_typed_package_name", async () => {

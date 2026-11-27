@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useHostPackages, useRefreshHostPackages } from "../../api/hooks/hostPackages";
 import { useHosts } from "../../api/hooks/hosts";
 import type { HostPackage } from "../../api/types";
@@ -22,9 +23,13 @@ import {
 import { hostPackageStatusMeta, keyStateMeta, privilegeBoundaryMeta } from "../../design/tone";
 import { ChooseHost } from "../skills/ChooseHost";
 import { installOffText, removeHref } from "./InstalledRows";
+import { PackageSkillsDialog } from "./PackageSkillsDialog";
 import styles from "./packages.module.css";
 
-function columns(host: string): Column<HostPackage>[] {
+function columns(
+  host: string,
+  onSkills: (pkg: HostPackage, enable: boolean) => void,
+): Column<HostPackage>[] {
   return [
     {
       key: "package",
@@ -50,6 +55,54 @@ function columns(host: string): Column<HostPackage>[] {
       cell: (pkg) => (
         <span {...visibilityAttrs("P0", "packages.installed.status")}>
           <StatusPill meta={privilegeBoundaryMeta(pkg.privilege_boundary)} />
+        </span>
+      ),
+    },
+    {
+      key: "skills",
+      label: "Skills",
+      cell: (pkg) => (
+        <span {...visibilityAttrs("P0", "packages.installed.status")}>
+          {pkg.skills_enabled === undefined ? (
+            <Text muted size="sm">
+              Not reported
+            </Text>
+          ) : pkg.skills_enabled ? (
+            <Stack gap={1}>
+              <StatusPill
+                size="sm"
+                meta={{
+                  label: "Skills on",
+                  tone: "success",
+                  icon: "check-circle",
+                  hint: "A person enabled this package's skills and the agent verified its files.",
+                }}
+              />
+              <Button size="sm" onClick={() => onSkills(pkg, false)}>
+                Disable skills…
+              </Button>
+            </Stack>
+          ) : (
+            <Stack gap={1}>
+              <StatusPill
+                size="sm"
+                meta={{
+                  label: "Skills off",
+                  tone: "neutral",
+                  icon: "pause",
+                  hint: "The package is stored; its skills cannot run until a person enables them.",
+                }}
+              />
+              {pkg.skills_off_reason && (
+                <Text muted size="sm">
+                  {pkg.skills_off_reason}
+                </Text>
+              )}
+              <Button size="sm" onClick={() => onSkills(pkg, true)}>
+                Enable skills…
+              </Button>
+            </Stack>
+          )}
         </span>
       ),
     },
@@ -87,6 +140,7 @@ function HostInstalled({ hostId, host }: { host: string; hostId: string }) {
     errorDisplay: "inline",
     success: `Checked ${host}`,
   });
+  const [asking, setAsking] = useState<{ enable: boolean; pkg: HostPackage } | undefined>();
   const observed = installed.data?.observed_at;
   return (
     <Stack gap={3}>
@@ -135,16 +189,26 @@ function HostInstalled({ hostId, host }: { host: string; hostId: string }) {
             )}
             <DataTable
               caption={`Packages installed on ${host}`}
-              columns={columns(host)}
+              columns={columns(host, (pkg, enable) => setAsking({ pkg, enable }))}
               rows={answer.entries}
               rowKey={(pkg) => `${pkg.name}@${pkg.version}`}
             />
             <Text muted size="sm" block>
-              Stored files only: the skills of a package cannot be switched on yet.
+              Installing stores files only. A package's skills run after a person enables them here.
             </Text>
           </Stack>
         )}
       </QueryBoundary>
+      {asking && (
+        <PackageSkillsDialog
+          host={host}
+          hostId={hostId}
+          name={asking.pkg.name}
+          version={asking.pkg.version}
+          enable={asking.enable}
+          onClose={() => setAsking(undefined)}
+        />
+      )}
     </Stack>
   );
 }

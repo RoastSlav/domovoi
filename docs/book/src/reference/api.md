@@ -519,6 +519,7 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | `/api/v1/hosts/{name}/packages` | The packages the hub last saw installed on host `name`. |
+| PUT | `/api/v1/hosts/{name}/packages/{package}/skills` | Lets the skills of a package stored on host `name` run, or stops them. Needs the password and the package name typed out; the agent re-checks the files; audited as `package.enabled`, `package.disabled` or `package.enable_refused`. |
 | POST | `/api/v1/hosts/{name}/packages/refresh` | Asks host `name`'s agent which packages it has and replaces what the hub holds with the answer. Needs the agent connected. |
 | GET | `/api/v1/packages` | Every imported package. |
 | POST | `/api/v1/packages/import` | Imports a signed package: the archive and its detached signature file as one multipart form with the fields `archive` and `signature`. The hub checks the signature file, the archive's digest and the signing key, then stores the archive under its digest. It never opens the archive. No password is asked for: importing installs nothing. |
