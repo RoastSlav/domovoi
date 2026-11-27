@@ -22,6 +22,7 @@ mod presence;
 mod probes;
 mod registry;
 mod registry_state;
+mod retire;
 mod session;
 mod settings;
 #[cfg(test)]

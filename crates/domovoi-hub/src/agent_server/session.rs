@@ -227,14 +227,7 @@ async fn handle(
                     tracing::warn!(%host, %err, key = fact.key, "could not record a fact");
                 }
             }
-            // Keys the agent's checks stopped reporting are kept as history and shown as
-            // "no longer reported".
-            let at = inner.deps.clock.now();
-            for key in &digest.retired {
-                if let Err(err) = inner.deps.facts.retire(host, key, at).await {
-                    tracing::warn!(%host, %err, key, "could not retire a fact");
-                }
-            }
+            super::retire::apply(inner, host, &digest).await;
             Ok(())
         }
         Message::Ping(_) => {

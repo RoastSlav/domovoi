@@ -32,6 +32,41 @@ fn signal(host: HostId, check: &str) -> Signal {
     )
 }
 
+/// Facts stored before an agent restart are never named as retired by the new process, so the
+/// hub finds them in the next digest.
+#[tokio::test]
+async fn facts_a_digest_no_longer_carries_are_marked_as_no_longer_reported() {
+    let hub = Hub::start().await;
+    let (ident, mut agent) = online(&hub, "nas").await;
+    let fact = |key: &str, ago: i64| DigestFact {
+        host: ident.host,
+        key: key.to_owned(),
+        label: key.to_owned(),
+        value: FactValue::Number(1.0),
+        unit: None,
+        observed_at: t0() - SignedDuration::from_hours(ago),
+    };
+    for old in [
+        fact("disk./boot.free_gib", 6),
+        fact("disk./.free_gib", 6),
+        // Its check sends nothing: it may have failed since the restart, so it stays.
+        fact("smart.sda.temperature_c", 6),
+        fact("memory.available_gib", 6),
+    ] {
+        hub.store.record(&old).await.unwrap();
+    }
+    let digest = DigestFacts {
+        facts: vec![fact("disk./.free_gib", 0)],
+        retired: Vec::new(),
+    };
+    agent.send(Message::DigestFacts(digest), None).await;
+    let ping = agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert_eq!(agent.expect().await.reply_to, Some(ping));
+    let retired = hub.store.retired(ident.host).await.unwrap();
+    let keys: Vec<&str> = retired.iter().map(|(key, _)| key.as_str()).collect();
+    assert_eq!(keys, ["disk./boot.free_gib"]);
+}
+
 #[tokio::test]
 async fn signals_are_submitted_and_acknowledged_and_facts_recorded() {
     let hub = Hub::start().await;
