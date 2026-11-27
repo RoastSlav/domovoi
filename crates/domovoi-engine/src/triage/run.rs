@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_core::meta::PlanStepInput;
 use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, Part, Role};
-use domovoi_core::triage::is_security_check;
+use domovoi_core::triage::{is_security_check, neutral_question, question_asserts_a_claim};
 use domovoi_core::{Incident, IncidentId, ReadToolCall, SkillSummary, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
@@ -171,6 +171,8 @@ pub(crate) struct Generated {
     pub(crate) dropped: Vec<String>,
     /// True when the run failed because no provider could be reached.
     pub(crate) unreachable: bool,
+    /// The model's question about a security event that was replaced by a neutral one, redacted.
+    pub(crate) refused_question: Option<String>,
 }
 
 /// Runs the provider chain over `bundle` under the run's budgets, within `scope`, and
@@ -193,6 +195,7 @@ pub(crate) async fn generate(
     };
     let mut plan = Vec::new();
     let mut dropped = Vec::new();
+    let mut refused_question = None;
     let result = match run_chain(shared, &mut state, &attempt).await {
         Ok(output) => {
             plan = output.plan.into_iter().map(|step| step.input).collect();
@@ -220,7 +223,11 @@ pub(crate) async fn generate(
                     }
                     Ok(GeneratedEnd::Report(report))
                 }
-                LoopEnd::Asked(question) => Ok(GeneratedEnd::Asked(question)),
+                LoopEnd::Asked(question) => {
+                    let (question, refused) = guard_question(shared, incident, question).await;
+                    refused_question = refused;
+                    Ok(GeneratedEnd::Asked(question))
+                }
             }
         }
         Err(reasons) => Err(deps.redactor.redact(&reasons.join("; "))),
@@ -233,7 +240,47 @@ pub(crate) async fn generate(
         plan,
         dropped,
         unreachable: state.unreachable,
+        refused_question,
     }
+}
+
+/// What a person is asked about a security event. A question that asserts a benign cause,
+/// blames Domovoi without a record that supports it (`recorded`), or proposes weaker
+/// authentication is not put to the person: it is replaced by a neutral question written in
+/// code, and the model's question is returned second, to be logged and kept with the turn.
+/// Questions about other checks pass unchanged.
+pub(crate) fn refuse_question(
+    check: &domovoi_core::CheckKey,
+    title: &str,
+    question: String,
+    recorded: bool,
+) -> (String, Option<String>) {
+    if !is_security_check(check) || !question_asserts_a_claim(&question, recorded) {
+        return (question, None);
+    }
+    (neutral_question(title), Some(question))
+}
+
+/// [`refuse_question`] for `incident`, with the record lookup and the log line.
+async fn guard_question(
+    shared: &Shared,
+    incident: &Incident,
+    question: String,
+) -> (String, Option<String>) {
+    let recorded = attribution::recorded_action(shared, incident)
+        .await
+        .is_some();
+    let (question, refused) =
+        refuse_question(incident.check(), incident.title(), question, recorded);
+    if let Some(refused) = &refused {
+        tracing::warn!(
+            incident = %incident.id(),
+            refused = %refused,
+            "a model's question about a security event asserted a cause or proposed weaker \
+             authentication; a neutral question is asked instead"
+        );
+    }
+    (shared.deps.redactor.redact(&question), refused)
 }
 
 /// One investigation run over the provider chain: the incident, the context bundle and the

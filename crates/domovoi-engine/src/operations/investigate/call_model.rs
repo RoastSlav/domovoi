@@ -168,6 +168,7 @@ impl EffectHandler for CallModel {
                 let summary = short(&question);
                 let mut output = TurnOutput::of(TurnKind::Asked);
                 output.question = Some(question);
+                output.rejected_question = generated.refused_question;
                 Conclusion {
                     step: turn,
                     outcome: StepOutcome::Succeeded,

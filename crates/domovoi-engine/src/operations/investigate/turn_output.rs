@@ -58,6 +58,11 @@ pub(crate) struct TurnOutput {
     /// The question put to the owner, for `asked`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) question: Option<String>,
+    /// The model's question about a security event that was not asked because it asserted a
+    /// cause, blamed Domovoi without a record or proposed weaker authentication; `question`
+    /// holds the neutral question that was asked instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) rejected_question: Option<String>,
     /// The steps the model staged, as it wrote them, for `report`; at most three.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) plan: Vec<PlanStepInput>,
@@ -79,6 +84,7 @@ impl TurnOutput {
             retry_at: None,
             dropped: Vec::new(),
             question: None,
+            rejected_question: None,
             plan: Vec::new(),
             unreachable: false,
         }

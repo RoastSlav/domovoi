@@ -297,6 +297,7 @@ mod attribution_tests {
 
     use super::*;
     use crate::triage::agent::ToolUse;
+    use crate::triage::run::refuse_question;
 
     const RECORD: &str = "operation 0190-aa: unit.restart unit=nginx.service, dispatched 2026-11-27T10:00:00Z, settled 2026-11-27T10:01:00Z";
 
@@ -376,6 +377,51 @@ mod attribution_tests {
             assert!(guard(&mut r), "{text}");
             assert_eq!(r.verdict, Verdict::ActionNeeded);
         }
+    }
+
+    const ASKED: &str = "Is the Domovoi agent running as user kuker and making periodic sudo calls as part of its automated operations? If so, would you like to configure NOPASSWD to eliminate these expected authentication failures?";
+
+    fn check(key: &str) -> CheckKey {
+        CheckKey::parse(key).unwrap()
+    }
+
+    #[test]
+    fn a_leading_question_about_a_security_event_is_replaced_by_a_neutral_one() {
+        let (asked, refused) = refuse_question(
+            &check("security.sudo_failure"),
+            "failed sudo authentication for kuker",
+            ASKED.to_owned(),
+            false,
+        );
+        assert_eq!(refused.as_deref(), Some(ASKED), "the model's text is kept");
+        assert!(asked.contains("Was this you"), "{asked}");
+        for word in ["NOPASSWD", "Domovoi", "agent", "expected"] {
+            assert!(!asked.contains(word), "{word} in {asked}");
+        }
+    }
+
+    #[test]
+    fn a_question_naming_domovoi_passes_only_with_a_record() {
+        let q = "Did the Domovoi restart of nginx at 10:00 cause this?";
+        let sudo = check("security.sudo_failure");
+        assert!(refuse_question(&sudo, "t", q.to_owned(), false).1.is_some());
+        assert_eq!(refuse_question(&sudo, "t", q.to_owned(), true).1, None);
+        // A record never lets a question assert a benign cause or loosen authentication.
+        let bad = "Is this routine? Should I allow NOPASSWD?";
+        assert!(
+            refuse_question(&sudo, "t", bad.to_owned(), true)
+                .1
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_neutral_question_and_other_checks_are_asked_as_written() {
+        let sudo = check("security.sudo_failure");
+        let q = "Was this you? Did you mistype your password around 10:00?";
+        assert_eq!(refuse_question(&sudo, "t", q.to_owned(), false).1, None);
+        let disk = check("disk.free");
+        assert_eq!(refuse_question(&disk, "t", ASKED.to_owned(), false).1, None);
     }
 }
 

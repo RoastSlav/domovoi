@@ -48,6 +48,9 @@ const BENIGN: &[&str] = &[
     "expected behavior",
     "expected behaviour",
     "expected activity",
+    "expected failure",
+    "expected authentication",
+    "expected error",
     "is expected",
     "are expected",
     "was expected",
@@ -169,4 +172,23 @@ impl TriageReport {
         self.withhold(Verdict::ActionNeeded, NOT_ESTABLISHED, title);
         true
     }
+}
+
+/// Whether a question to a person about a security event asserts a benign cause, blames
+/// Domovoi (unless `recorded`: the engine found a record of an action) or proposes weaker
+/// authentication. The same phrases as for a report.
+#[must_use]
+pub fn question_asserts_a_claim(question: &str, recorded: bool) -> bool {
+    says(question, BENIGN)
+        || (!recorded && says(question, ATTRIBUTION))
+        || says(question, LOOSENING)
+}
+
+/// The question that replaces a refused one: neutral, written by code, with no cause in it.
+#[must_use]
+pub fn neutral_question(title: &str) -> String {
+    format!(
+        "A security event was recorded: {title}. Was this you, or someone you know? If so, \
+         what were you doing, and from where? If you do not know, say so."
+    )
 }

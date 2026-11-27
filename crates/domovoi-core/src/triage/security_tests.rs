@@ -200,3 +200,23 @@ fn a_stored_report_that_names_a_recorded_action_is_not_withheld_when_shown_again
     assert!(bare.cap_security(&check("security.sudo_failure"), TITLE));
     assert_eq!(bare.cause, "Not established.");
 }
+
+#[test]
+fn a_question_asserting_a_cause_is_detected_by_the_same_phrases() {
+    use crate::triage::question_asserts_a_claim;
+    assert!(question_asserts_a_claim(
+        "Is this the agent's periodic check?",
+        false
+    ));
+    assert!(!question_asserts_a_claim(
+        "Is this the agent's periodic check?",
+        true
+    ));
+    assert!(question_asserts_a_claim("Is this a routine login?", true));
+    assert!(question_asserts_a_claim("May I set NOPASSWD?", true));
+    assert!(!question_asserts_a_claim("Was this you?", false));
+    assert!(!question_asserts_a_claim(
+        "Was this an unexpected login?",
+        false
+    ));
+}
