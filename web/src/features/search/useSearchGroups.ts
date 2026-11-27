@@ -159,7 +159,9 @@ export function useSearchGroups(q: string): SearchGroups {
   const facts = useFactSearch({ q }, active);
   const rules = useAckRules(active);
   const expected = useExpectedSignals(undefined, active);
-  const profiles = useProfiles(active ? (hosts.data ?? []).map((host) => host.name) : []);
+  // Only hosts the hub says have a profile are asked for one: the rest would answer 404.
+  const profiled = (hosts.data ?? []).filter((host) => host.profile_collected_at);
+  const profiles = useProfiles(active ? profiled.map((host) => host.name) : []);
 
   const failed = lists.find((list) => list.isError);
   const waiting = lists.some((list) => list.isPending || list.data === undefined);
@@ -211,10 +213,10 @@ export function useSearchGroups(q: string): SearchGroups {
       active,
       {
         data: profiles.data,
-        error: undefined,
-        isError: false,
-        isPending: profiles.isPending,
-        refetch: () => undefined,
+        error: hosts.error,
+        isError: hosts.isError,
+        isPending: hosts.isPending || profiles.isPending,
+        refetch: () => void hosts.refetch(),
       },
       (all) =>
         all.flatMap((entry) => {

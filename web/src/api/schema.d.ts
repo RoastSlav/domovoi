@@ -3436,6 +3436,11 @@ export interface components {
             open_incidents: number;
             /** @description Whether the connected agent is older than the hub. */
             outdated: boolean;
+            /**
+             * @description When the host's profile was collected; absent while the hub has none, and then
+             *     `GET /api/v1/hosts/{name}/profile` answers 404.
+             */
+            profile_collected_at?: string | null;
             /** @description `compatible`, `incompatible`, `expected_incompatible` or `unknown`. */
             protocol_state: string;
             /** @description The protocol the agent last reported, such as `1.1`; absent when it never did. */

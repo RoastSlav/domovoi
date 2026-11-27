@@ -45,7 +45,18 @@ pub(crate) async fn host_dto(
     host: &domovoi_core::Host,
 ) -> Result<HostDto, ApiError> {
     let status = state.services().hosts.status(host).await?;
+    let profile_collected_at = match &state.deps.profiles {
+        Some(profiles) => match crate::profile::stored(profiles, host.id).await {
+            Ok(found) => found.map(|profile| profile.collected_at.to_string()),
+            Err(err) => {
+                tracing::warn!(%err, host = host.name.as_str(), "could not read the host profile");
+                None
+            }
+        },
+        None => None,
+    };
     Ok(HostDto {
+        profile_collected_at,
         id: status.id.to_string(),
         name: status.name.to_string(),
         kind: kind(status.kind, status.in_container).to_owned(),

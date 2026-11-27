@@ -12287,6 +12287,13 @@
             "type": "boolean",
             "description": "Whether the connected agent is older than the hub."
           },
+          "profile_collected_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the host's profile was collected; absent while the hub has none, and then\n`GET /api/v1/hosts/{name}/profile` answers 404."
+          },
           "protocol_state": {
             "type": "string",
             "description": "`compatible`, `incompatible`, `expected_incompatible` or `unknown`."

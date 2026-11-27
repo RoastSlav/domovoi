@@ -410,7 +410,7 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 
 | Method | Path | What it does |
 | --- | --- | --- |
-| GET | `/api/v1/hosts` | Every host with its agent's presence, sorted by name. |
+| GET | `/api/v1/hosts` | Every host with its agent's presence, sorted by name. `profile_collected_at` says when a host's profile was collected; it is absent while there is none. |
 | GET | `/api/v1/hosts/{name}` | Host `name` with its agent and the latest value of each digest fact from the last day. |
 | GET | `/api/v1/hosts/{name}/capabilities` | The capability inventory of host `name`. |
 | GET | `/api/v1/hosts/{name}/ceiling` | The unattended limits host `name` reported. Read only. |

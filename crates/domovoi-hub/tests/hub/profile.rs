@@ -1114,6 +1114,42 @@ async fn a_profile_a_week_old_is_collected_again() {
     );
 }
 
+/// 55: the host list says which hosts have a profile, so a page asks only for those.
+#[tokio::test]
+async fn the_host_list_says_which_hosts_have_a_profile() {
+    let a = api().await;
+    let login = a.admin().await;
+    seed(&a, "0.6.0");
+    let listed = a.get("/api/v1/hosts", &login).await;
+    let nas = |body: &serde_json::Value| {
+        body.as_array()
+            .unwrap()
+            .iter()
+            .find(|host| host["name"] == "nas")
+            .unwrap()
+            .clone()
+    };
+    assert!(
+        nas(&listed.body)["profile_collected_at"].is_null(),
+        "{}",
+        listed.text
+    );
+    let missing = a.get("/api/v1/hosts/nas/profile", &login).await;
+    assert_eq!(missing.status, axum::http::StatusCode::NOT_FOUND);
+
+    let posted = a
+        .post("/api/v1/hosts/nas/profile", &login, serde_json::json!({}))
+        .await;
+    assert_eq!(posted.status, axum::http::StatusCode::OK, "{}", posted.text);
+    let listed = a.get("/api/v1/hosts", &login).await;
+    assert_eq!(
+        nas(&listed.body)["profile_collected_at"],
+        posted.body["collected_at"],
+        "{}",
+        listed.text
+    );
+}
+
 #[tokio::test]
 async fn the_minute_task_collects_a_host_that_has_no_profile() {
     let a = api().await;

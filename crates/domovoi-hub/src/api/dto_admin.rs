@@ -77,6 +77,9 @@ pub struct HostDto {
     pub incompatible_since: Option<String>,
     /// Incidents not yet resolved (pending, open, acked or muted), counted up to 200.
     pub open_incidents: u32,
+    /// When the host's profile was collected; absent while the hub has none, and then
+    /// `GET /api/v1/hosts/{name}/profile` answers 404.
+    pub profile_collected_at: Option<String>,
 }
 
 /// One digest fact about a host.

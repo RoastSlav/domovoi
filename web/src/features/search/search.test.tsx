@@ -384,7 +384,10 @@ test("expected_events_are_searchable_with_the_reason_they_were_fine", async () =
 });
 
 test("a_host_profile_is_found_by_a_word_in_it_and_is_not_a_note", async () => {
-  serve({ profile: "# Host profile: nas\n\nDebian GNU/Linux 13 on x86_64\nkernel 6.12.0" });
+  serve({
+    hosts: [{ ...nas, profile_collected_at: T0 }],
+    profile: "# Host profile: nas\n\nDebian GNU/Linux 13 on x86_64\nkernel 6.12.0",
+  });
   view("/search?q=debian");
   expect(await screen.findByRole("heading", { name: "Host profiles" })).toBeVisible();
   const group = screen.getByRole("heading", { name: "Host profiles" }).closest("section");
@@ -393,4 +396,22 @@ test("a_host_profile_is_found_by_a_word_in_it_and_is_not_a_note", async () => {
   expect(
     screen.queryByRole("heading", { name: "Notes" })?.closest("section"),
   ).not.toHaveTextContent("Debian");
+});
+
+test("only_hosts_that_have_a_profile_are_asked_for_one", async () => {
+  serve({
+    hosts: [
+      { ...nas, profile_collected_at: T0 },
+      { ...nas, id: "host-new", name: "never-connected", profile_collected_at: null },
+    ],
+    profile: "Debian GNU/Linux 13",
+  });
+  view("/search?q=debian");
+  const group = (await screen.findByRole("heading", { name: "Host profiles" })).closest("section");
+  expect(await within(group as HTMLElement).findByRole("link", { name: "nas" })).toBeVisible();
+
+  const wanted = asked("/api/v1/hosts/{name}/profile").map(
+    (call) => (call.init.params?.path as { name: string }).name,
+  );
+  expect(wanted).toEqual(["nas"]);
 });
