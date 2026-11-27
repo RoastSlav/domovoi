@@ -360,7 +360,7 @@ impl ReadToolCall {
                         None => None,
                         Some(text) if JOURNAL_PRIORITIES.contains(&text.as_str()) => Some(text),
                         Some(_) => {
-                            return Err(c.fail(&format!(
+                            return Err(c.fail(format!(
                                 "priority must be one of {}",
                                 JOURNAL_PRIORITIES.join(", ")
                             )));
