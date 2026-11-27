@@ -350,7 +350,7 @@ pub(crate) async fn ask(
 /// (`list_capabilities`, `describe_capability`, `request_evidence`), answered through
 /// [`super::meta`] within the run budget; once it is spent the model is told to answer and
 /// further calls are not run. Every call the model makes while it may still call tools is
-/// pushed onto `used`; calls in the response after it was told to answer are ignored.
+/// pushed onto `used`, and what each host read came to onto `reads`; calls in the response after it was told to answer are ignored.
 ///
 /// Answers come from [`ask`], so an incomplete turn is never accepted, kept or acted on.
 pub(crate) async fn converse(
@@ -359,6 +359,7 @@ pub(crate) async fn converse(
     brief: Brief<'_>,
     messages: &mut Vec<LlmMessage>,
     used: &mut Vec<ToolUse>,
+    reads: &mut Vec<meta::EvidenceRecord>,
     run: &mut RunBudget,
 ) -> Result<String, LlmError> {
     let ctx = meta::Ctx {
@@ -368,7 +369,7 @@ pub(crate) async fn converse(
         scope: brief.scope,
         skills: brief.skills,
     };
-    meta::converse_read(&ctx, messages, used, run).await
+    meta::converse_read(&ctx, messages, used, reads, run).await
 }
 
 #[cfg(test)]

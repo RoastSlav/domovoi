@@ -238,6 +238,7 @@ pub(crate) async fn converse_read(
     ctx: &Ctx<'_>,
     messages: &mut Vec<LlmMessage>,
     used: &mut Vec<ToolUse>,
+    evidence: &mut Vec<EvidenceRecord>,
     run: &mut RunBudget,
 ) -> Result<String, LlmError> {
     let shared = ctx.shared;
@@ -247,8 +248,8 @@ pub(crate) async fn converse_read(
     } else {
         Vec::new()
     };
-    // Reads in a conversation are not recorded as evidence steps: there is no operation.
-    let mut evidence: Vec<EvidenceRecord> = Vec::new();
+    // Reads in a conversation are not stored as evidence steps: there is no operation. The
+    // caller keeps them to check what the answer states.
     loop {
         let response = match agent::ask(
             shared,
@@ -294,7 +295,7 @@ pub(crate) async fn converse_read(
                 &name,
                 input,
                 used,
-                &mut evidence,
+                evidence,
                 run.deadline(),
             )
             .await;

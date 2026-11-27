@@ -9,7 +9,7 @@ use domovoi_core::ports::{AnswerSink, Clock, LiveEvent, LivePublisher, Redactor,
 use domovoi_core::{ConversationId, MessageId, ReadTool, TurnId};
 use jiff::{SignedDuration, Timestamp};
 
-use crate::triage::MAX_ANSWER_CHARS;
+use crate::triage::{MAX_ANSWER_CHARS, before_claim};
 
 /// The shortest time between two text snapshots of one attempt.
 pub const LIVE_MIN_INTERVAL: SignedDuration = SignedDuration::from_millis(100);
@@ -130,7 +130,9 @@ impl AnswerSink for TurnSink {
             self.restart(&mut state);
         }
         state.raw.push_str(fragment);
+        // A claim that something is missing waits for the finished answer's review.
         let released = releasable(&state.raw, self.redactor.as_ref());
+        let released = before_claim(&released).to_owned();
         if !released.starts_with(&state.sent) {
             // Redaction rewrote text that was already shown: the client starts over now.
             state.attempt += 1;

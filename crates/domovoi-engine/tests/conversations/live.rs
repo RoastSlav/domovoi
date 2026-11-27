@@ -211,3 +211,20 @@ async fn a_turn_streams_only_safe_text_through_the_service() {
         }
     }
 }
+
+/// 42: a claim that something is missing is not shown while the answer is being written; the
+/// finished answer decides how it may be said.
+#[test]
+fn a_claim_that_something_is_missing_never_reaches_a_live_frame() {
+    let f = fixture();
+    f.sink.attempt_started();
+    f.sink.text("Looked. iproute2 is ");
+    f.step();
+    f.sink.text("not installed here. Install it. ");
+    f.step();
+    f.sink.text("Done. ");
+    for (_, text) in f.texts() {
+        assert!(!text.contains("not installed"), "shown: {text}");
+    }
+    assert_eq!(f.texts().last().unwrap().1, "Looked. ");
+}

@@ -14,6 +14,7 @@ use domovoi_core::context::{
 };
 use domovoi_core::experience::{
     ExperienceQuery, ExperienceScope, NarrativeField, ResolutionSummary, SimilarQuery,
+    SummarySource,
 };
 use domovoi_core::ports::{
     Clock, ContextSource, ExperienceRead, HostRepo, IncidentRepo, OperationRepo, Redactor,
@@ -300,7 +301,12 @@ fn title_of(summary: &ResolutionSummary) -> String {
 fn narrative_line(label: &str, field: Option<&NarrativeField>) -> Option<String> {
     let field = field?;
     let text: String = field.text.chars().take(NARRATIVE_CHARS).collect();
-    Some(format!("{label} [{}]: {text}", field.source.as_str()))
+    // A model's narrative is a draft from that day, never a finding about the host now.
+    let source = match field.source {
+        SummarySource::Model => "old model draft, not evidence about now",
+        _ => field.source.as_str(),
+    };
+    Some(format!("{label} [{source}]: {text}"))
 }
 
 fn body_of(summary: &ResolutionSummary, host_names: Option<&BTreeMap<HostId, String>>) -> String {

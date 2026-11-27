@@ -3,7 +3,7 @@ use domovoi_core::{TriageOutcome, UserId};
 use domovoi_engine::triage::MAX_ANSWER_CHARS;
 use serde_json::json;
 
-use crate::harness::{Setup, host_id, report, restart_skill, world};
+use crate::harness::{Setup, host_id, read_calls, report, restart_skill, results, world};
 
 /// Every text the model was shown in one request, in order.
 fn shown(req: &LlmRequest) -> String {
@@ -360,20 +360,61 @@ async fn triage_service_without_a_queue_answers_questions_and_chat() {
     assert!(w.operations().await.is_empty(), "no investigation started");
 }
 
-/// An answer that says something is not installed, with no `host_binary` result behind it,
-/// is marked unverified in code.
+/// 42: an answer that says something is not installed, with no `host_binary` result behind
+/// it, does not lead with the claim; the model is first asked to check.
 #[tokio::test]
-async fn an_unbacked_claim_that_something_is_missing_is_marked_unverified() {
+async fn an_unbacked_claim_that_something_is_missing_never_leads_the_answer() {
     let w = world(Setup::default()).await;
-    w.primary
-        .push_text("The ip package is not recorded by dpkg.");
+    let claim = "It failed because iproute2 is not installed.";
+    w.primary.push_text(claim);
+    w.primary.push_text(claim);
     let chat = w
         .triage
-        .chat(Some(host_id()), "One host.", &Vec::new(), "Is ip there?")
+        .chat(
+            Some(host_id()),
+            "One host.",
+            &Vec::new(),
+            "Why did it fail?",
+        )
         .await
         .unwrap();
     assert!(
-        chat.ends_with(domovoi_engine::triage::UNVERIFIED_ABSENCE_FOOTER),
+        chat.starts_with(domovoi_engine::triage::UNVERIFIED_LEAD),
         "{chat}"
+    );
+    let (before, after) = chat
+        .split_once(domovoi_engine::triage::DRAFT_HEADING)
+        .unwrap();
+    assert!(!before.contains("is not installed"), "{chat}");
+    assert!(after.contains(claim), "{chat}");
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2, "one prompt to check");
+    assert!(shown(&requests[1]).contains("host_binary"));
+}
+
+/// 42: a Docker read that names a systemd unit is refused and points to the journal.
+#[tokio::test]
+async fn a_docker_read_of_a_systemd_unit_is_refused() {
+    let w = world(Setup::default()).await;
+    w.primary.push_ok(read_calls(&[(
+        "a",
+        "docker_logs",
+        json!({"container": "domovoi-helper-selftest.service"}),
+    )]));
+    w.primary.push_text("I did not check.");
+    w.triage
+        .chat(
+            Some(host_id()),
+            "One host.",
+            &Vec::new(),
+            "Why did it fail?",
+        )
+        .await
+        .unwrap();
+    let answered = results(&w.primary.requests()[1]);
+    assert!(answered[0].1, "an error result: {answered:?}");
+    assert!(
+        answered[0].0.contains("is a systemd unit, not a container"),
+        "{answered:?}"
     );
 }

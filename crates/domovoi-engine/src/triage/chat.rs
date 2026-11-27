@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{AnswerSink, LlmMessage, LlmProvider, Part, Redactor, Role};
-use domovoi_core::{HostId, ReadToolCall, SkillSummary};
+use domovoi_core::{HostId, ReadTool, ReadToolCall, SkillSummary};
 use jiff::Timestamp;
 
 use super::admission::{Purpose, Refusal, admit, unpriced_text};
@@ -13,7 +13,7 @@ use super::agent::ToolUse;
 use super::chain::{Attempt, AttemptError, ChainState, run_chain, thread_messages};
 use super::followup::{MAX_ANSWER_CHARS, clip, provider_failure};
 use super::tools::{Scope, cut, run};
-use super::{Shared, TriageError, agent, context};
+use super::{Shared, TriageError, agent, claims, context};
 
 /// Instructions for answering a question about the operator's servers in general.
 pub const CHAT_PROMPT: &str = concat!(
@@ -25,7 +25,11 @@ propose or approve actions. Answer briefly and specifically, in plain prose or s
 markdown: never reply with a JSON object or a tool-result schema. State only what a tool result \
 or the question shows. When the question asks for the current state of the host (containers, services, logs, \
 ports, a program), call the matching read tool first and answer from its result: never answer \
-\"I could use\" a tool you have. Say \"I did not check\" only when no tool applies or the tool \
+\"I could use\" a tool you have. Before you say a program or package is missing or not \
+installed, check it with request_evidence tool \"host_binary\"; without that result say you do \
+not know. Past experience is an old record whose causes are old model drafts: it is not evidence \
+about the host now, so never repeat its cause unless a read of this turn shows it. A name \
+ending in .service or .timer is a systemd unit: read it with the journal, not a docker tool. Say \"I did not check\" only when no tool applies or the tool \
 failed, and then say which; never guess it from memory.",
     "
 
@@ -154,13 +158,13 @@ struct ChatAttempt<'a> {
 
 #[async_trait]
 impl Attempt for ChatAttempt<'_> {
-    type Output = String;
+    type Output = Reply;
 
     async fn attempt(
         &self,
         provider: &Arc<dyn LlmProvider>,
         state: &mut ChainState,
-    ) -> Result<String, AttemptError> {
+    ) -> Result<Reply, AttemptError> {
         let shared = self.shared;
         // With a chosen host and a provider that cannot call tools, put that host's read
         // output in front of the question: incident triage does the same for its
@@ -191,12 +195,13 @@ impl Attempt for ChatAttempt<'_> {
                     brief(),
                     &mut messages,
                     &mut state.used,
+                    &mut state.evidence,
                     &mut state.run,
                 )
                 .await?;
                 // A model that names a tool it has instead of calling it gets one prompt to
                 // run it, so a live question is never answered with an offer.
-                if state.used.is_empty() && offers_instead_of_running(&first) {
+                let answered = if state.used.is_empty() && offers_instead_of_running(&first) {
                     messages.push(LlmMessage {
                         role: Role::Assistant,
                         parts: vec![Part::Text(first)],
@@ -211,11 +216,41 @@ impl Attempt for ChatAttempt<'_> {
                         brief(),
                         &mut messages,
                         &mut state.used,
+                        &mut state.evidence,
                         &mut state.run,
                     )
                     .await?
                 } else {
                     first
+                };
+                // An absence claim nothing shows gets one prompt to check it. A failed
+                // second turn keeps the first answer, which is reviewed like any other.
+                let unchecked = !claims::review(&answered, &state.evidence, true).is_clean();
+                if unchecked {
+                    messages.push(LlmMessage {
+                        role: Role::Assistant,
+                        parts: vec![Part::Text(answered.clone())],
+                    });
+                    messages.push(LlmMessage {
+                        role: Role::User,
+                        parts: vec![Part::Text(CHECK_NUDGE.to_owned())],
+                    });
+                    let second = agent::converse(
+                        shared,
+                        provider,
+                        brief(),
+                        &mut messages,
+                        &mut state.used,
+                        &mut state.evidence,
+                        &mut state.run,
+                    )
+                    .await;
+                    match second {
+                        Ok(second) if !second.trim().is_empty() => second,
+                        _ => answered,
+                    }
+                } else {
+                    answered
                 }
             }
             _ => {
@@ -233,12 +268,34 @@ impl Attempt for ChatAttempt<'_> {
                 agent::text_of(&response.parts)
             }
         };
-        Ok(answer)
+        Ok(Reply {
+            text: answer,
+            prefetched: gathered.is_some(),
+        })
     }
 }
 
 /// Sent once when the model offered to use a tool instead of using it.
 const NUDGE: &str = "Run the tool you named now, then answer from its result.";
+
+/// Whether some read of the host's present state succeeded. Records of the past (earlier
+/// incidents, notes, experience) and capability listings are not one.
+fn read_the_host(used: &[ToolUse]) -> bool {
+    used.iter().any(|call| {
+        !call.failed
+            && !call.refused
+            && ReadTool::from_name(&call.tool).is_some_and(|tool| {
+                !matches!(tool, ReadTool::IncidentHistory | ReadTool::NotesSearch)
+            })
+    })
+}
+
+/// One provider's answer.
+struct Reply {
+    text: String,
+    /// Whether the host's read output was put in front of the question.
+    prefetched: bool,
+}
 
 /// Whether `answer` offers a read tool ("I could use `request_evidence`") that it did not call.
 fn offers_instead_of_running(answer: &str) -> bool {
@@ -258,24 +315,10 @@ fn offers_instead_of_running(answer: &str) -> bool {
 /// Appended to an answer that used no tool.
 pub const NO_TOOL_FOOTER: &str = "\n\nNo tool ran for this answer. It comes from what Domovoi already had (earlier drafts, notes and the overview), not from reading the host now.";
 
-/// Appended to an answer that says something is missing or not installed when no successful
-/// `host_binary` call backs it: the model may not state what no tool result says.
-pub const UNVERIFIED_ABSENCE_FOOTER: &str = "\n\nNot verified: this answer says something is missing or not installed, but no `host_binary` result in this turn shows it. Treat that part as unchecked.";
-
-/// Whether `answer` says a program or package is missing, not installed or not recorded.
-fn claims_absence(answer: &str) -> bool {
-    let lower = answer.to_lowercase();
-    [
-        "not installed",
-        "isn't installed",
-        "is missing",
-        "not recorded by",
-        "not present",
-        "is absent",
-    ]
-    .iter()
-    .any(|phrase| lower.contains(phrase))
-}
+/// Sent once when the answer says something is missing that no read of this turn shows.
+const CHECK_NUDGE: &str = "Your answer says something is missing or not installed, but no \
+`host_binary` result in this turn shows it. Call request_evidence with tool \"host_binary\" for \
+that program now, then answer again from its result. If you cannot check it, say you do not know.";
 
 /// An answer that is a bare JSON object (a model that copied a tool-result shape instead of
 /// writing prose) as readable lines, one `key: value` each. Prose is returned unchanged.
@@ -395,27 +438,23 @@ pub(crate) async fn answer_with(
         Some(sink) => ChainState::streaming(shared, sink),
         None => ChainState::new(shared),
     };
-    let answer = run_chain(shared, &mut state, &attempt)
+    let reply = run_chain(shared, &mut state, &attempt)
         .await
         .map_err(|reasons| provider_failure(deps.redactor.as_ref(), &reasons))?;
     let mut text = clip(
         deps.redactor
-            .redact(&plain_answer(answer.as_str()))
+            .redact(&plain_answer(reply.text.as_str()))
             .as_str(),
         MAX_ANSWER_CHARS,
     );
-    // Set in code, so the model cannot leave it out: an answer without a tool is not a read
-    // of the host.
+    // Set in code, so the model cannot override it: what no read of this turn shows is not
+    // stated first. A cause is judged only for a chosen host, which could have been read.
+    let read_host = host.is_none() || reply.prefetched || read_the_host(&state.used);
+    text = claims::review(&text, &state.evidence, read_host).apply(text);
+    text = clip(&text, MAX_ANSWER_CHARS);
+    // An answer without a tool is not a read of the host.
     if state.used.is_empty() {
         text.push_str(NO_TOOL_FOOTER);
-    }
-    if claims_absence(&text)
-        && !state
-            .used
-            .iter()
-            .any(|u| u.tool == "host_binary" && !u.failed)
-    {
-        text.push_str(UNVERIFIED_ABSENCE_FOOTER);
     }
     Ok(ChatAnswer {
         text,

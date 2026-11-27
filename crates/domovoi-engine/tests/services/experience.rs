@@ -224,9 +224,18 @@ async fn search_results_carry_operation_id_date_verified_and_field_sources() {
     assert!(text.contains(&format!("operation: {op}")), "{text}");
     assert!(text.contains("ended: "), "{text}");
     assert!(text.contains("verified: yes"), "{text}");
-    assert!(text.contains("problem [model]: the disk is full"), "{text}");
-    assert!(text.contains("cause [model]: logs grew"), "{text}");
-    assert!(text.contains("fix [model]: rotate logs"), "{text}");
+    assert!(
+        text.contains("problem [old model draft, not evidence about now]: the disk is full"),
+        "{text}"
+    );
+    assert!(
+        text.contains("cause [old model draft, not evidence about now]: logs grew"),
+        "{text}"
+    );
+    assert!(
+        text.contains("fix [old model draft, not evidence about now]: rotate logs"),
+        "{text}"
+    );
 }
 
 #[tokio::test]

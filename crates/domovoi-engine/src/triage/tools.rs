@@ -198,6 +198,11 @@ async fn execute(
     call: ReadToolCall,
     run_deadline: Timestamp,
 ) -> Result<String, EvidenceClass> {
+    if let Some(unit) = unit_asked_of_docker(&call) {
+        return Err(EvidenceClass::Refused(format!(
+            "`{unit}` is a systemd unit, not a container: read it with the journal tool and unit \"{unit}\""
+        )));
+    }
     match &call {
         ReadToolCall::IncidentHistory { limit } => {
             let filter = IncidentFilter {
@@ -251,6 +256,26 @@ async fn execute(
         }
         _ => agent(deps, scope, call, run_deadline).await,
     }
+}
+
+/// The endings systemd gives its unit names.
+const UNIT_SUFFIXES: [&str; 7] = [
+    ".service", ".timer", ".socket", ".mount", ".target", ".path", ".slice",
+];
+
+/// The systemd unit a Docker read names as its container, if it does.
+fn unit_asked_of_docker(call: &ReadToolCall) -> Option<&str> {
+    let container = match call {
+        ReadToolCall::DockerLogs { container, .. } | ReadToolCall::DockerInspect { container } => {
+            Some(container)
+        }
+        ReadToolCall::DockerEvents { container, .. } => container.as_ref(),
+        _ => None,
+    }?;
+    UNIT_SUFFIXES
+        .iter()
+        .any(|suffix| container.ends_with(suffix))
+        .then_some(container.as_str())
 }
 
 /// How an evidence boundary error is classed: not there is unavailable, a wrong request is

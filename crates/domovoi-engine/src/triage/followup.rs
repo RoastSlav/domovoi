@@ -135,6 +135,7 @@ impl Attempt for FollowUpAttempt<'_> {
             },
             &mut messages,
             &mut state.used,
+            &mut state.evidence,
             &mut state.run,
         )
         .await?;

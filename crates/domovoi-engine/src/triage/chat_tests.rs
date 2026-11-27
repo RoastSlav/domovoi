@@ -1,8 +1,6 @@
 //! Tests for the Operator chat helpers.
 
-use super::{
-    CHAT_PROMPT, ChatRole, ChatTurn, MAX_TURNS, TURN_BYTES, claims_absence, cut, remembered,
-};
+use super::{CHAT_PROMPT, ChatRole, ChatTurn, MAX_TURNS, TURN_BYTES, cut, remembered};
 
 #[test]
 fn a_bare_json_answer_becomes_readable_lines() {
@@ -10,13 +8,6 @@ fn a_bare_json_answer_becomes_readable_lines() {
     assert_eq!(text, "- cause: ip missing\n- next step: check");
     assert_eq!(super::plain_answer("Plain prose."), "Plain prose.");
     assert_eq!(super::plain_answer("[1, 2]"), "[1, 2]");
-}
-
-#[test]
-fn a_claim_that_something_is_missing_is_recognised() {
-    assert!(claims_absence("The ip package is not recorded by dpkg."));
-    assert!(claims_absence("iproute2 is not installed"));
-    assert!(!claims_absence("The unit failed at 10:00."));
 }
 
 #[test]
