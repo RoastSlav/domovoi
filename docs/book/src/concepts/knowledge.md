@@ -98,4 +98,4 @@ A line at the top says whether unattended containment is blocked on the host and
 
 ## Host profiles and facts
 
-A host's profile is a generated note (see [Hub and agents](hub-and-agent.md)). Its machine description (host name, operating system, kernel, architecture, CPU count and memory) is also recorded as a `discovered` `host_platform` fact whose evidence is `note:<id>`, and the note is labelled `superseded-by-facts`. Containers, ports and skills stay in the note, because they are inventory rather than knowledge.
+A host's profile is the hub's own record, not a note (see [Hub and agents](hub-and-agent.md)). Its machine description (host name, operating system, kernel, architecture, CPU count and memory) is also recorded as a `discovered` `host_platform` fact. Containers, ports and skills stay in the profile, because they are inventory rather than knowledge.

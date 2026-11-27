@@ -19,7 +19,6 @@ let agent = "0.6.0";
 function profileBody() {
   return {
     collected_at: collected,
-    note: "note-nas",
     markdown: [
       `# Host profile: nas`,
       "",
@@ -97,13 +96,10 @@ function show(connected = true) {
   renderAt("/hosts/nas", "/hosts/:name", <ProfileTab host="nas" connected={connected} />);
 }
 
-test("profile_tab_shows_its_age_and_links_its_generated_note", async () => {
+test("profile_tab_shows_its_age_and_has_no_note_link", async () => {
   show();
   expect(await screen.findByText(/^Collected/)).toBeVisible();
-  expect(screen.getByRole("link", { name: "Profile note" })).toHaveAttribute(
-    "href",
-    "/notes/note-nas",
-  );
+  expect(screen.queryByRole("link", { name: "Profile note" })).toBeNull();
   expect(await screen.findByText("0.6.0")).toBeVisible();
 });
 

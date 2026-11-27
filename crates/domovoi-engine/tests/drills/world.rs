@@ -372,6 +372,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         acks: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
+        settings: store.clone(),
         hosts: store.clone(),
         cache: store.clone(),
         usage: store.clone(),

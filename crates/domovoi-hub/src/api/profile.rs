@@ -1,8 +1,8 @@
 //! The profile of a host: what its machine looks like while it behaves normally, and
 //! asking its agent for a new one now.
 //!
-//! The text shown here is the note the hub wrote, so triage and the person reading the
-//! profile see the same thing. A host with no profile yet answers 404: the profile task
+//! The text shown here is the text the hub stores for triage, so triage and the person
+//! reading the profile see the same thing. A host with no profile yet answers 404: the profile task
 //! collects one on its next tick, and the UI says so rather than showing an empty page.
 
 use domovoi_core::Host;
@@ -35,7 +35,6 @@ fn profile_error(err: ProfileError) -> ApiError {
 fn profile_dto(host: &Host, profile: &HostProfile) -> ProfileDto {
     ProfileDto {
         collected_at: profile.collected_at.to_string(),
-        note: profile.note.map(|id| id.to_string()),
         markdown: note_text(host, profile),
         sections: profile
             .sections

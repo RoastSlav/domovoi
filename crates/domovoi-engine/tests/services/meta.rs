@@ -725,6 +725,7 @@ fn deps_of(w: &World) -> TriageDeps {
         acks: w.store.clone(),
         signals: w.store.clone(),
         notes: w.store.clone(),
+        settings: w.store.clone(),
         hosts: w.store.clone(),
         cache: w.store.clone(),
         usage: w.store.clone(),

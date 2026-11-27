@@ -30,8 +30,8 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{
     AckRepo, AdmissionRepo, AdvisoryRepo, AnswerSink, CapabilityRegistry, Clock, ContextSource,
-    HostRepo, IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver,
-    TriageCacheRepo, UsageRepo,
+    HostRepo, IncidentRepo, LlmProvider, NoteRepo, Redactor, SettingsRepo, SignalRepo,
+    TargetResolver, TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
@@ -142,6 +142,8 @@ pub struct TriageDeps {
     pub signals: Arc<dyn SignalRepo>,
     /// Host notes.
     pub notes: Arc<dyn NoteRepo>,
+    /// Settings, read only: the stored text of each host profile.
+    pub settings: Arc<dyn SettingsRepo>,
     /// Enrolled hosts and their agent keys, for the v2 plan target.
     pub hosts: Arc<dyn HostRepo>,
     /// Reports reused for repeat incidents.

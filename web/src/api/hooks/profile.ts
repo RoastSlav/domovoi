@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
 import { call, type Profile } from "../types";
@@ -26,5 +26,23 @@ export function useRefreshProfile(name: string) {
     mutationFn: (host: string) =>
       call<Profile>(api.POST("/api/v1/hosts/{name}/profile", { params: { path: { name: host } } })),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.hostProfile(name) }),
+  });
+}
+
+/** The profile text of each host in `names` that has one; a host without a profile is left out. */
+export function useProfiles(names: string[]) {
+  return useQueries({
+    queries: names.map((name) => ({
+      queryKey: keys.hostProfile(name),
+      queryFn: () =>
+        call<Profile>(api.GET("/api/v1/hosts/{name}/profile", { params: { path: { name } } })),
+      retry: false,
+    })),
+    combine: (results) => ({
+      isPending: results.some((result) => result.isPending),
+      data: results.flatMap((result, i) =>
+        result.data ? [{ host: names[i] ?? "", markdown: result.data.markdown }] : [],
+      ),
+    }),
   });
 }

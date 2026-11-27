@@ -18,8 +18,8 @@ use domovoi_engine::{Evidence, HostCatalog, PatternRedactor};
 use domovoi_hub::capability::{HubRegistry, RegistryDeps};
 use domovoi_hub::profile::diff::{MAX_CHANGES, changes, recent_changes};
 use domovoi_hub::profile::{
-    ContainerLine, GENERATED_TAG, HostProfile, PROFILE_TAG, ProfileDeps, ProfileError, STALE_AFTER,
-    needs_refresh, note_text, profile_key, refresh, spawn, stored,
+    ContainerLine, HostProfile, ProfileDeps, ProfileError, STALE_AFTER, needs_refresh, note_text,
+    profile_key, refresh, spawn, stored,
 };
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 use domovoi_testkit::FakeCapabilityRegistry;
@@ -583,20 +583,12 @@ async fn the_generated_note_names_the_machine_the_tools_described() {
     assert!(body.contains("## Details"), "{}", body);
     assert!(body.contains("## Summary"), "{}", body);
     let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
-    assert_eq!(notes.len(), 1, "the hub wrote one note for the host");
-    assert_eq!(
-        notes[0].body_markdown, body,
-        "triage reads what the API shows"
-    );
-    assert_eq!(notes[0].title, "Host profile: nas");
-    assert!(
-        notes[0].tags.iter().any(|tag| tag == PROFILE_TAG),
-        "grouped with the other profiles"
-    );
-    assert!(
-        notes[0].tags.iter().any(|tag| tag == GENERATED_TAG),
-        "shown as generated in the UI"
-    );
+    assert!(notes.is_empty(), "a profile is never a note: {notes:?}");
+    let text = SettingsRepo::get(&*a.store, &domovoi_core::profile_text_key(a.nas.id))
+        .await
+        .unwrap()
+        .expect("triage reads the stored text");
+    assert_eq!(text["markdown"], body, "triage reads what the API shows");
 }
 
 #[tokio::test]
@@ -905,10 +897,13 @@ async fn the_note_shows_what_changed_since_the_last_refresh() {
     let body = note_text(&a.nas, &second);
     assert!(body.contains("## Recent changes"), "{}", body);
     assert!(body.contains("cpu count changed from 4 to 8"), "{}", body);
-    let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
+    let text = SettingsRepo::get(&*a.store, &domovoi_core::profile_text_key(a.nas.id))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        notes[0].body_markdown, body,
-        "the stored note shows the change too"
+        text["markdown"], body,
+        "the stored text shows the change too"
     );
 }
 
@@ -927,21 +922,19 @@ async fn the_profile_keeps_only_the_twenty_newest_change_lines() {
 }
 
 #[tokio::test]
-async fn refreshing_the_note_replaces_it_instead_of_adding_another() {
+async fn refreshing_the_profile_replaces_its_text_and_adds_no_note() {
     let a = api().await;
     seed(&a, "0.6.0");
     let deps = profile_deps(&a);
-    let first = refresh(&deps, &a.nas).await.unwrap();
+    refresh(&deps, &a.nas).await.unwrap();
     let second = refresh(&deps, &a.nas).await.unwrap();
-    assert_eq!(first.note, second.note, "the same note is updated in place");
     let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
-    assert_eq!(notes.len(), 1, "the profile note is never duplicated");
-    assert_eq!(notes[0].id, first.note.unwrap());
-    assert_eq!(
-        notes[0].body_markdown,
-        note_text(&a.nas, &second),
-        "the note on disk matches the profile just collected",
-    );
+    assert!(notes.is_empty(), "no profile note is ever created");
+    let text = SettingsRepo::get(&*a.store, &domovoi_core::profile_text_key(a.nas.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(text["markdown"], note_text(&a.nas, &second));
 }
 
 #[tokio::test]
@@ -1031,10 +1024,13 @@ async fn a_secret_the_tool_printed_never_reaches_the_note() {
         !body.contains("hunter2"),
         "the secret is gone from every copy",
     );
-    let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
+    let text = SettingsRepo::get(&*a.store, &domovoi_core::profile_text_key(a.nas.id))
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
-        !notes[0].body_markdown.contains("hunter2"),
-        "the stored note is clean too"
+        !text.to_string().contains("hunter2"),
+        "the stored text is clean too"
     );
     let kept = SettingsRepo::get(&*a.store, &profile_key(a.nas.id))
         .await
@@ -1104,7 +1100,7 @@ async fn the_minute_task_collects_a_host_that_has_no_profile() {
         "the task collected the missing profile on its first tick"
     );
     let notes = NoteRepo::list(&*a.store, Some(a.nas.id)).await.unwrap();
-    assert_eq!(notes.len(), 1, "and wrote its note");
+    assert!(notes.is_empty(), "and wrote no note");
 }
 
 #[tokio::test]
@@ -1204,7 +1200,7 @@ async fn asking_the_hub_for_a_profile_now_answers_with_a_fresh_one() {
         4,
         "the tools that answered"
     );
-    assert!(!refreshed.body["note"].is_null(), "and the note it wrote");
+    assert!(refreshed.body["note"].is_null(), "and no note is written");
     let shown = a.get("/api/v1/hosts/nas/profile", &login).await;
     assert_eq!(shown.status, StatusCode::OK, "{}", shown.text);
     assert!(

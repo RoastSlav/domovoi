@@ -12,6 +12,7 @@ import { ActiveOperationsGroup } from "./groups/ActiveOperationsGroup";
 import { ExpectedGroup } from "./groups/ExpectedGroup";
 import { FactsGroup } from "./groups/FactsGroup";
 import { HostsGroup } from "./groups/HostsGroup";
+import { ProfilesGroup } from "./groups/ProfilesGroup";
 import { KnownConditionsGroup } from "./groups/KnownConditionsGroup";
 import { IncidentsGroup } from "./groups/IncidentsGroup";
 import { NotesGroup } from "./groups/NotesGroup";
@@ -33,6 +34,7 @@ export function SearchPage() {
     groups.facts,
     groups.hosts,
     groups.expected,
+    groups.profiles,
   ];
   const settled = asked && states.every((s) => s.status === "ready" || s.status === "error");
   const failed = states.some((s) => s.status === "error");
@@ -71,6 +73,7 @@ export function SearchPage() {
             <HostsGroup q={q} state={groups.hosts} />
             <KnownConditionsGroup q={q} state={groups.rules} />
             <ExpectedGroup q={q} state={groups.expected} />
+            <ProfilesGroup q={q} state={groups.profiles} />
             <Visible category="P0" id="search.status">
               {settled && failed && (
                 <InlineMessage tone="warning" title="Some sources could not be searched">

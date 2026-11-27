@@ -14,6 +14,7 @@ import { useHostNames, useHosts } from "../../api/hooks/hosts";
 import { useAckRules, useExpectedSignals } from "../../api/hooks/rules";
 import { useIncidents } from "../../api/hooks/incidents";
 import { useNoteSearch } from "../../api/hooks/notes";
+import { useProfiles } from "../../api/hooks/profile";
 import { useOperations } from "../../api/hooks/operations";
 import { matchesAll, words } from "./matching";
 
@@ -33,11 +34,27 @@ export const SEARCH_GROUPS = [
   { id: "hosts", label: "Hosts", matched: "browser" },
   { id: "rules", label: "Known conditions", matched: "browser" },
   { id: "expected", label: "Expected events", matched: "browser" },
+  { id: "profiles", label: "Host profiles", matched: "browser" },
 ] as const satisfies readonly {
-  id: "incidents" | "operations" | "past" | "notes" | "facts" | "hosts" | "rules" | "expected";
+  id:
+    | "incidents"
+    | "operations"
+    | "past"
+    | "notes"
+    | "facts"
+    | "hosts"
+    | "rules"
+    | "expected"
+    | "profiles";
   label: string;
   matched: "hub" | "browser";
 }[];
+
+/** One host whose profile matched the search, with the first line that did. */
+export interface ProfileHit {
+  host: string;
+  line: string;
+}
 
 /** What one group has so far. `total` is how many items matched; `items` are all of them. */
 export interface GroupState<T> {
@@ -60,6 +77,7 @@ export interface SearchGroups {
   operations: GroupState<OperationSummary>;
   rules: GroupState<AckRule>;
   expected: GroupState<ExpectedSignal>;
+  profiles: GroupState<ProfileHit>;
   past: GroupState<PastHit>;
 }
 
@@ -141,6 +159,7 @@ export function useSearchGroups(q: string): SearchGroups {
   const facts = useFactSearch({ q }, active);
   const rules = useAckRules(active);
   const expected = useExpectedSignals(undefined, active);
+  const profiles = useProfiles(active ? (hosts.data ?? []).map((host) => host.name) : []);
 
   const failed = lists.find((list) => list.isError);
   const waiting = lists.some((list) => list.isPending || list.data === undefined);
@@ -187,6 +206,26 @@ export function useSearchGroups(q: string): SearchGroups {
           wanted,
         ),
       ),
+    ),
+    profiles: stateOf(
+      active,
+      {
+        data: profiles.data,
+        error: undefined,
+        isError: false,
+        isPending: profiles.isPending,
+        refetch: () => undefined,
+      },
+      (all) =>
+        all.flatMap((entry) => {
+          if (!matchesAll(entry.markdown, wanted)) {
+            return [];
+          }
+          const line =
+            entry.markdown.split("\n").find((text) => matchesAll(text, wanted.slice(0, 1))) ?? "";
+          return [{ host: entry.host, line: line.trim() }];
+        }),
+      "Hosts that have no profile yet are not searched.",
     ),
     hosts: stateOf(active, hosts, (data) => data.filter((host) => matchesAll(host.name, wanted))),
   };

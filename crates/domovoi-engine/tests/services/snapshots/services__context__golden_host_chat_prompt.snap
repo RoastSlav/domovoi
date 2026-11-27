@@ -7,7 +7,7 @@ The NAS and the pi.
 ## Host profile (the normal state of this host)
 
 [host | profile | known] Host profile (the normal state of this host)
-from: observed note:[uuid], observed [time]
+from: observed host profile, observed [time]
 # Host profile: nas
 
 ## Summary

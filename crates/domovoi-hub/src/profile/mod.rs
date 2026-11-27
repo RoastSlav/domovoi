@@ -4,11 +4,11 @@
 //! containers, listening ports, the read skills it installed and the checks its agent
 //! leaves on, plus the raw tool output behind that. The hub collects one by asking its
 //! agent to run read tools (see `collect`) and keeps it on the
-//! hub only: as JSON under `host.<host id>.profile` in [`SettingsRepo`], and as a [`Note`]
-//! tagged `generated` so a note search can find it when its words match. Nothing
-//! like it is stored in an agent, and the note is replaced on every refresh, so writing
-//! in it is pointless. Each refresh also records what came, went or changed since the
-//! stored profile, so the note can show what is new since the machine was last normal.
+//! hub only: as JSON under `host.<host id>.profile` in [`SettingsRepo`], plus its rendered
+//! text under `host.<host id>.profile_text` for triage. It is not a note: a person's notes
+//! stay theirs, and the profile has its own page and its own search group. Nothing like it is
+//! stored in an agent. Each refresh also records what came, went or changed since the stored
+//! profile, so the page can show what is new since the machine was last normal.
 //! [`spawn`] runs the minute scheduler that collects one host per
 //! tick when it has no profile yet, its agent version or machine facts changed, or the
 //! stored profile is a week old.
@@ -23,7 +23,7 @@ use std::sync::Arc;
 use domovoi_core::ports::{
     Clock, HostRepo, NoteRepo, Presence, Redactor, SettingsRepo, StoreError,
 };
-use domovoi_core::{Host, HostId, Note, NoteId};
+use domovoi_core::{Host, HostId};
 use domovoi_engine::{Evidence, HostCatalog};
 use domovoi_proto::messages::HostFacts;
 use jiff::SignedDuration;
@@ -35,11 +35,12 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_server::AgentAdmin;
 use crate::runtime::every::every;
 
-/// The tag that marks the profile's note as written by the hub, shown as "Generated".
-pub const GENERATED_TAG: &str = "generated";
+/// The tag older hubs put on the note they wrote from a profile, with [`PROFILE_TAG`]. Such
+/// notes are removed at start; nothing writes them any more.
+const LEGACY_GENERATED_TAG: &str = "generated";
 
-/// The tag that groups the profile notes of every host.
-pub const PROFILE_TAG: &str = "host-profile";
+/// The second tag of those older notes.
+const LEGACY_PROFILE_TAG: &str = "host-profile";
 
 /// How often the profile task looks for a host to refresh.
 pub const TICK: SignedDuration = SignedDuration::from_mins(1);
@@ -70,8 +71,6 @@ pub struct HostProfile {
     /// and the model can tell what is new since the machine was last normal.
     #[serde(default)]
     pub changes: Vec<String>,
-    /// The generated note that carries this profile's text, reused on refreshes.
-    pub note: Option<NoteId>,
 }
 
 /// The machine facts a profile keeps.
@@ -220,35 +219,22 @@ pub fn note_text(host: &Host, profile: &HostProfile) -> String {
     render::markdown(host, profile)
 }
 
-/// Collects a profile for `host`, writes its note and saves it. The changes since the
-/// profile stored before are kept as dated lines, newest first, so the note can show
-/// what is new on the machine.
+/// Collects a profile for `host` and saves it with its text. The changes since the profile
+/// stored before are kept as dated lines, newest first, so the page can show what is new on
+/// the machine.
 pub async fn refresh(deps: &ProfileDeps, host: &Host) -> Result<HostProfile, ProfileError> {
     let previous = stored(deps, host.id).await?;
     let mut profile = collect::collect(deps, host).await?;
     profile.changes = diff::recent_changes(&previous, profile.collected_at, &profile);
-    let id = previous
-        .and_then(|earlier| earlier.note)
-        .unwrap_or(NoteId::new());
-    profile.note = Some(id);
-    let mut tags: Vec<String> = [PROFILE_TAG, GENERATED_TAG]
-        .iter()
-        .map(|tag| tag.to_string())
-        .collect();
-    let mut body = render::markdown(host, &profile);
-    if deps.knowledge.is_some() {
-        tags.push(backfill::SUPERSEDED_TAG.to_owned());
-        body = backfill::label_superseded(&body);
-    }
-    let note = Note {
-        id,
-        host: Some(host.id),
-        title: format!("Host profile: {}", host.name),
-        body_markdown: body,
-        tags,
-        updated_at: profile.collected_at,
-    };
-    deps.notes.upsert(&note).await?;
+    // The text triage reads is kept beside the profile, not as a note: a person's notes stay
+    // theirs.
+    let body = render::markdown(host, &profile);
+    deps.settings
+        .set(
+            &domovoi_core::profile_text_key(host.id),
+            &json!({ "markdown": body, "collected_at": profile.collected_at }),
+        )
+        .await?;
     deps.settings
         .set(&profile_key(host.id), &json!(profile))
         .await?;
@@ -309,11 +295,68 @@ async fn due(deps: &ProfileDeps, host: &Host) -> Result<bool, ProfileError> {
     Ok(needs)
 }
 
+/// Moves what older hubs kept as a note into the profile's own store, once at start: removes the
+/// generated `Host profile: <name>` note of every host, and writes the stored text triage reads
+/// for each host that has a profile but no text yet. Safe to run again.
+pub async fn migrate(deps: &ProfileDeps) {
+    let hosts = match deps.hosts.list_hosts().await {
+        Ok(hosts) => hosts,
+        Err(err) => {
+            tracing::warn!(%err, "could not list the hosts to move host profiles for");
+            return;
+        }
+    };
+    for host in hosts {
+        match deps.notes.list(Some(host.id)).await {
+            Ok(notes) => {
+                for note in notes.into_iter().filter(|note| {
+                    [LEGACY_GENERATED_TAG, LEGACY_PROFILE_TAG]
+                        .iter()
+                        .all(|tag| note.tags.iter().any(|t| t == tag))
+                }) {
+                    match deps.notes.delete(note.id).await {
+                        Ok(()) => tracing::info!(
+                            host = host.name.as_str(),
+                            "removed the generated host profile note; the profile has its own page"
+                        ),
+                        Err(err) => {
+                            tracing::warn!(%err, "could not remove a generated profile note")
+                        }
+                    }
+                }
+            }
+            Err(err) => tracing::warn!(%err, "could not list notes to remove generated profiles"),
+        }
+        let text_key = domovoi_core::profile_text_key(host.id);
+        let has_text = matches!(deps.settings.get(&text_key).await, Ok(Some(_)));
+        if has_text {
+            continue;
+        }
+        if let Ok(Some(profile)) = stored(deps, host.id).await {
+            let body = render::markdown(&host, &profile);
+            if let Err(err) = deps
+                .settings
+                .set(
+                    &text_key,
+                    &json!({ "markdown": body, "collected_at": profile.collected_at }),
+                )
+                .await
+            {
+                tracing::warn!(%err, "could not store the host profile text");
+            }
+        }
+    }
+}
+
 /// The profile task: every minute, refresh at most one host that needs it.
 pub fn spawn(deps: ProfileDeps, shutdown: CancellationToken) -> JoinHandle<()> {
     let clock = deps.clock.clone();
-    tokio::spawn(every(clock, TICK, shutdown, move || {
-        let deps = deps.clone();
-        async move { tick(&deps).await }
-    }))
+    tokio::spawn(async move {
+        migrate(&deps).await;
+        every(clock, TICK, shutdown, move || {
+            let deps = deps.clone();
+            async move { tick(&deps).await }
+        })
+        .await;
+    })
 }

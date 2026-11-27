@@ -1,4 +1,3 @@
-import { Link } from "react-router";
 import { useProfile, useRefreshProfile } from "../../api/hooks/profile";
 import { ApiFailure, type Profile } from "../../api/types";
 import {
@@ -99,7 +98,6 @@ export function ProfileTab({ host, connected }: { host: string; connected: boole
           </InfoTip>
         </Cluster>
         <Cluster gap={3}>
-          {seen.note && <Link to={`/notes/${seen.note}`}>Profile note</Link>}
           {connected && (
             <Button icon="refresh" onClick={() => refresh.mutate(host)} loading={refresh.isPending}>
               Refresh

@@ -46,6 +46,7 @@ interface Serve {
   past?: unknown;
   rules?: unknown;
   expected?: unknown;
+  profile?: string;
 }
 
 function serve(options: Serve = {}) {
@@ -62,6 +63,11 @@ function serve(options: Serve = {}) {
   );
   route("GET /api/v1/ack-rules", () => options.rules ?? []);
   route("GET /api/v1/expected-signals", () => options.expected ?? []);
+  route("GET /api/v1/hosts/{name}/profile", () =>
+    options.profile === undefined
+      ? failure(404, "not_found", "no profile yet")
+      : { collected_at: T0, markdown: options.profile, sections: [] },
+  );
   route("GET /api/v1/notes/search", () => options.notes ?? []);
   route("GET /api/v1/knowledge/facts", () => options.facts ?? { items: [], next_cursor: null });
 }
@@ -94,13 +100,14 @@ test("search_groups_run_for_a_query_and_show_their_headings_and_the_scope_senten
     "Hosts",
     "Known conditions",
     "Expected events",
+    "Host profiles",
   ]) {
     expect(await screen.findByRole("heading", { name })).toBeVisible();
   }
   expect(
     screen.getByText(
-      "Searches incidents, active operations, past operations, notes, facts, hosts, known conditions and expected events. " +
-        "Active operations and hosts and known conditions and expected events are matched here against complete lists; the rest are " +
+      "Searches incidents, active operations, past operations, notes, facts, hosts, known conditions, expected events and host profiles. " +
+        "Active operations and hosts and known conditions and expected events and host profiles are matched here against complete lists; the rest are " +
         "searched by the hub.",
     ),
   ).toBeVisible();
@@ -316,7 +323,7 @@ test("no_match_anywhere_says_nothing_found_only_when_every_group_succeeded", asy
   view("/search?q=zzzz");
   expect(await screen.findByText("Nothing found")).toBeVisible();
   expect(screen.getByText("Nothing matches “zzzz” in the sources above.")).toBeVisible();
-  expect(screen.getAllByText(/match\./)).toHaveLength(8);
+  expect(screen.getAllByText(/match\./)).toHaveLength(9);
 });
 
 test("nothing_found_waits_while_a_group_is_still_loading", async () => {
@@ -374,4 +381,16 @@ test("expected_events_are_searchable_with_the_reason_they_were_fine", async () =
   view("/search?q=listener");
   expect(await screen.findByText(/ssh is meant to listen/)).toBeVisible();
   expect(screen.getByRole("heading", { name: "Expected events" })).toBeVisible();
+});
+
+test("a_host_profile_is_found_by_a_word_in_it_and_is_not_a_note", async () => {
+  serve({ profile: "# Host profile: nas\n\nDebian GNU/Linux 13 on x86_64\nkernel 6.12.0" });
+  view("/search?q=debian");
+  expect(await screen.findByRole("heading", { name: "Host profiles" })).toBeVisible();
+  const group = screen.getByRole("heading", { name: "Host profiles" }).closest("section");
+  expect(await within(group as HTMLElement).findByRole("link", { name: "nas" })).toBeVisible();
+  expect(group).toHaveTextContent("Debian GNU/Linux 13 on x86_64");
+  expect(
+    screen.queryByRole("heading", { name: "Notes" })?.closest("section"),
+  ).not.toHaveTextContent("Debian");
 });

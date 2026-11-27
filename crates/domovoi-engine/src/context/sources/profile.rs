@@ -1,4 +1,5 @@
-//! The normal state of the host, from the profile note the hub generates.
+//! The normal state of the host, from the profile text the hub keeps in its settings. It is
+//! not a note: a person's notes stay theirs.
 
 use async_trait::async_trait;
 use domovoi_core::context::{
@@ -10,10 +11,12 @@ use jiff::SignedDuration;
 use super::{Maker, Spec, host_of};
 use crate::triage::TriageDeps;
 
-/// The tag the hub puts on the note it generates from the host profile, so the model reads
-/// it and never sees the raw tool output again. The hub owns this string; the engine copies
-/// it because it cannot see the hub.
-pub(super) const PROFILE_TAG: &str = "host-profile";
+/// What the hub stores under [`domovoi_core::profile_text_key`].
+#[derive(serde::Deserialize)]
+struct StoredText {
+    markdown: String,
+    collected_at: jiff::Timestamp,
+}
 
 /// The generated note puts the raw tool output after this heading, and only the part before
 /// it is sent: the summary and the recent changes.
@@ -77,35 +80,38 @@ impl ContextSource for ProfileSource {
         if maker.expired(now) {
             return maker.gap_batch("timed out");
         }
-        let Ok(notes) = self.deps.notes.list(Some(host_of(query))).await else {
-            return maker.gap_batch("the host profile could not be read");
+        let stored = match self
+            .deps
+            .settings
+            .get(&domovoi_core::profile_text_key(host_of(query)))
+            .await
+        {
+            Ok(stored) => stored,
+            Err(_) => return maker.gap_batch("the host profile could not be read"),
         };
-        // `list` returns the most recently updated note first.
-        let Some(note) = notes
-            .iter()
-            .find(|note| note.tags.iter().any(|tag| tag == PROFILE_TAG))
+        let Some(text) = stored.and_then(|value| serde_json::from_value::<StoredText>(value).ok())
         else {
             return ContextBatch::default();
         };
         let stale = now
             .checked_sub(STALE_AFTER)
-            .is_ok_and(|limit| note.updated_at <= limit);
+            .is_ok_and(|limit| text.collected_at <= limit);
         let status = if stale {
             ItemStatus::Stale {
-                observed_at: note.updated_at,
+                observed_at: text.collected_at,
             }
         } else {
             ItemStatus::Known
         };
         ContextBatch {
             items: vec![maker.item(Spec {
-                key: &note.id.to_string(),
+                key: "profile",
                 title: "Host profile (the normal state of this host)",
-                body: &note_summary(note.body_markdown.trim_end()),
+                body: &note_summary(text.markdown.trim_end()),
                 status,
                 origin: Origin::Observed,
-                reference: &format!("note:{}", note.id),
-                observed_at: Some(note.updated_at),
+                reference: "host profile",
+                observed_at: Some(text.collected_at),
             })],
             gaps: Vec::new(),
         }

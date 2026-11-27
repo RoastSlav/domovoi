@@ -108,6 +108,7 @@ async fn run(setup: Setup) -> Reported {
         acks: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
+        settings: store.clone(),
         hosts: store.clone(),
         cache: store.clone(),
         usage: store.clone(),

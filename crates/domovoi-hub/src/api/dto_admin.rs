@@ -328,9 +328,7 @@ pub struct ProfileSectionDto {
 pub struct ProfileDto {
     /// When the collection started.
     pub collected_at: String,
-    /// The generated note carrying this profile, so the UI can link to it.
-    pub note: Option<String>,
-    /// The note text: the summary, then every tool output.
+    /// The profile text: the summary, then every tool output.
     pub markdown: String,
     /// One entry per tool output, in the order the tools ran.
     pub sections: Vec<ProfileSectionDto>,

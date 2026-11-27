@@ -7,7 +7,6 @@ use domovoi_core::context::{
 };
 use domovoi_core::ports::ContextSource;
 
-use super::profile::PROFILE_TAG;
 use super::{Maker, Spec, incident_of};
 use crate::triage::TriageDeps;
 
@@ -74,7 +73,6 @@ impl ContextSource for NotesSource {
         let shown = usize::from(query.limit).min(NOTES);
         let items = hits
             .iter()
-            .filter(|h| !h.note.tags.iter().any(|tag| tag == PROFILE_TAG))
             .take(shown)
             .map(|h| {
                 maker.item(Spec {

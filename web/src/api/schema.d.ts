@@ -4491,10 +4491,8 @@ export interface components {
         ProfileDto: {
             /** @description When the collection started. */
             collected_at: string;
-            /** @description The note text: the summary, then every tool output. */
+            /** @description The profile text: the summary, then every tool output. */
             markdown: string;
-            /** @description The generated note carrying this profile, so the UI can link to it. */
-            note?: string | null;
             /** @description One entry per tool output, in the order the tools ran. */
             sections: components["schemas"]["ProfileSectionDto"][];
         };

@@ -76,6 +76,7 @@ pub use history::EntityHistory;
 pub use host::{
     AgentIdentity, AgentReport, AuthenticatedReport, Host, HostKind, HostName, KeyFingerprint,
     ProtocolParseError, REPORT_REFRESH, ReportOutcome, ReportedProtocol, host_target_text,
+    profile_text_key,
 };
 pub use id::{
     AckRuleId, AdvisoryId, AgentId, AgentSessionId, ConversationId, EffectId, EntityId,

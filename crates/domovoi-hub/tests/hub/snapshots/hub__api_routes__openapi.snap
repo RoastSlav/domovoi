@@ -5955,15 +5955,8 @@ expression: spec
             "type": "string"
           },
           "markdown": {
-            "description": "The note text: the summary, then every tool output.",
+            "description": "The profile text: the summary, then every tool output.",
             "type": "string"
-          },
-          "note": {
-            "description": "The generated note carrying this profile, so the UI can link to it.",
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "sections": {
             "description": "One entry per tool output, in the order the tools ran.",

@@ -14910,14 +14910,7 @@
           },
           "markdown": {
             "type": "string",
-            "description": "The note text: the summary, then every tool output."
-          },
-          "note": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The generated note carrying this profile, so the UI can link to it."
+            "description": "The profile text: the summary, then every tool output."
           },
           "sections": {
             "type": "array",

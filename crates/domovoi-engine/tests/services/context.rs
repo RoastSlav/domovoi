@@ -7,13 +7,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_core::context::{ContextLayer, ContextSelector, ContextSourceId};
 use domovoi_core::ports::{
-    ContextSource, EffectKind, EffectRead, EffectStatus, IncidentRepo, LinkError, LlmRequest,
-    NoteRepo, Part, Presence, SignalRepo, ToolOutput,
+    ContextSource, EffectKind, EffectRead, EffectStatus, IncidentRepo, LinkError, LlmRequest, Part,
+    Presence, SettingsRepo, SignalRepo, ToolOutput,
 };
 use domovoi_core::{
-    CheckKey, HostId, Incident, IncidentEvent, IncidentPolicy, Note, NoteId, ReadToolCall, Risk,
-    Severity, Signal, SignalClass, SkillSummary, SourceKind, TargetKey, TriageOutcome, UserId,
-    apply,
+    CheckKey, HostId, Incident, IncidentEvent, IncidentPolicy, ReadToolCall, Risk, Severity,
+    Signal, SignalClass, SkillSummary, SourceKind, TargetKey, TriageOutcome, UserId, apply,
 };
 use domovoi_engine::context::CONTEXT_GUIDE;
 use domovoi_engine::triage::{
@@ -29,9 +28,6 @@ use jiff::Timestamp;
 use crate::harness::{
     SECRET, Setup, World, host_id, read_calls, report, restart_skill, seen, world,
 };
-
-/// The tag the hub puts on the note it generates from the host profile.
-const PROFILE_TAG: &str = "host-profile";
 
 /// The closing section that names what a cap left out.
 const LEFT_OUT: &str = "## Context left out to fit the size limit";
@@ -138,16 +134,15 @@ fn disconnect(w: &World) {
         .set_presence(host_id(), Presence::Disconnected { last_seen: None });
 }
 
-/// A note carrying the profile tag, updated at `at`.
-fn profile_note(body: &str, at: Timestamp) -> Note {
-    Note {
-        id: NoteId::new(),
-        host: Some(host_id()),
-        title: "Host profile: nas".to_owned(),
-        body_markdown: body.to_owned(),
-        tags: vec![PROFILE_TAG.to_owned(), "generated".to_owned()],
-        updated_at: at,
-    }
+/// Stores the profile text the hub keeps for the host, collected at `at`.
+async fn put_profile(w: &World, body: &str, at: Timestamp) {
+    SettingsRepo::set(
+        &*w.store,
+        &domovoi_core::profile_text_key(host_id()),
+        &serde_json::json!({ "markdown": body, "collected_at": at }),
+    )
+    .await
+    .expect("stored");
 }
 
 /// A resolved `docker.container` incident on nginx for `host`, titled `summary`.
@@ -280,9 +275,7 @@ async fn the_profile_item_turns_stale_after_eight_days() {
         "uptime: raw tool output that never reaches the model",
     ]
     .join("\n");
-    NoteRepo::upsert(&*w.store, &profile_note(&body, T0))
-        .await
-        .expect("stored");
+    put_profile(&w, &body, T0).await;
 
     w.clock.advance(SignedDuration::from_hours(7 * 24));
     w.primary.push_text("Fresh enough.");
@@ -340,12 +333,7 @@ async fn a_missing_profile_note_renders_none() {
 #[tokio::test]
 async fn notes_are_declared_by_a_person_and_exclude_the_profile() {
     let w = world(Setup::default()).await;
-    NoteRepo::upsert(
-        &*w.store,
-        &profile_note("docker container nginx profile summary", T0),
-    )
-    .await
-    .expect("stored");
+    put_profile(&w, "docker container nginx profile summary", T0).await;
     for title in ["one", "two", "three"] {
         w.note(
             &format!("nginx runbook {title}"),
@@ -628,9 +616,7 @@ async fn the_search_text_is_cut_to_200_characters_and_redacted() {
 #[tokio::test]
 async fn the_investigation_prompt_is_layered_in_order() {
     let w = world(Setup::default()).await;
-    NoteRepo::upsert(&*w.store, &profile_note("a quiet host", T0))
-        .await
-        .expect("stored");
+    put_profile(&w, "a quiet host", T0).await;
     w.note("nginx runbook", "docker container nginx runbook")
         .await;
     resolved(&w, host_id(), "nginx restarted after a config change").await;
@@ -664,21 +650,14 @@ fn stable(text: &str) -> String {
     times.replace_all(&text, "[time]").into_owned()
 }
 
-/// The profile note every golden prompt shares.
-fn golden_profile() -> Note {
-    profile_note(
-        "# Host profile: nas\n\n## Summary\n\nDebian GNU/Linux 13, 4 logical CPUs, 32 GiB memory\n\n## Details\n\nraw output",
-        T0,
-    )
-}
+/// The profile text every golden prompt shares.
+const GOLDEN_PROFILE: &str = "# Host profile: nas\n\n## Summary\n\nDebian GNU/Linux 13, 4 logical CPUs, 32 GiB memory\n\n## Details\n\nraw output";
 
 #[tokio::test]
 async fn golden_investigation_prompt() {
     let w = world(Setup::default()).await;
     w.link.set_skills(host_id(), vec![restart_skill()]);
-    NoteRepo::upsert(&*w.store, &golden_profile())
-        .await
-        .expect("stored");
+    put_profile(&w, GOLDEN_PROFILE, T0).await;
     w.note(
         "nginx runbook",
         "docker container nginx: restart it after a config change",
@@ -726,9 +705,7 @@ async fn golden_host_chat_prompt() {
         host_id(),
         vec![read_skill_with("Reports the disk usage of every mount.")],
     );
-    NoteRepo::upsert(&*w.store, &golden_profile())
-        .await
-        .expect("stored");
+    put_profile(&w, GOLDEN_PROFILE, T0).await;
     w.primary.push_text("The disks look fine.");
     w.triage
         .chat(
@@ -802,15 +779,12 @@ async fn an_extra_source_is_asked_and_labelled() {
 
 /// Large notes, signals and a profile, enough to overflow every cap.
 async fn crowd(w: &World) {
-    NoteRepo::upsert(
-        &*w.store,
-        &profile_note(
-            &format!("## Summary\n\n{}", "profile line. ".repeat(900)),
-            T0,
-        ),
+    put_profile(
+        w,
+        &format!("## Summary\n\n{}", "profile line. ".repeat(900)),
+        T0,
     )
-    .await
-    .expect("stored");
+    .await;
     for index in 0..5 {
         w.note(
             &format!("nginx runbook {index}"),

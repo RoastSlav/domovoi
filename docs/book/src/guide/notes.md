@@ -6,7 +6,7 @@ Notes are your runbooks, in Markdown, kept in the hub. Domovoi uses them in two 
 
 A note has a title, a Markdown body and tags. It is either **global** or about one host. The Notes page follows the host chosen in the top bar: it starts on that host's notes, and a global note applies everywhere. A note can be up to 256 KiB.
 
-Domovoi writes one kind of note itself: the generated profile of each host, titled `Host profile: <name>` and tagged `generated` (see [Hub and agents](../concepts/hub-and-agent.md)). It is for reading, and the next profile refresh replaces its text.
+Domovoi writes no notes itself. The generated profile of each host is kept apart from your notes (see [Hub and agents](../concepts/hub-and-agent.md)) and is searched in its own Search group.
 
 ## Writing, searching and importing
 

@@ -152,6 +152,13 @@ pub fn host_target_text(host: HostId, key: &KeyFingerprint) -> String {
     format!("host:{host}/{key}")
 }
 
+/// The settings key under which the hub keeps the text of `host`'s profile for triage, as
+/// `{"markdown": ..., "collected_at": ...}`. The hub writes it; the engine reads it.
+#[must_use]
+pub fn profile_text_key(host: HostId) -> String {
+    format!("host.{host}.profile_text")
+}
+
 /// How often a report is refreshed without writing anything but its timestamp.
 pub const REPORT_REFRESH: SignedDuration = SignedDuration::from_hours(1);
 
