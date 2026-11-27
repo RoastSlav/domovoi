@@ -97,14 +97,16 @@ async fn set_password_creates_the_admin_then_updates_it() {
         admin
             .set_password(None, "correct horse battery")
             .await
-            .unwrap(),
+            .unwrap()
+            .username,
         "admin"
     );
     assert_eq!(
         admin
             .set_password(None, "another long password")
             .await
-            .unwrap(),
+            .unwrap()
+            .username,
         "admin"
     );
     let user = admin.store.first_user().await.unwrap().unwrap();
@@ -275,4 +277,57 @@ async fn a_restore_leaves_an_audit_row_in_the_restored_history() {
         .items;
     assert_eq!(rows.len(), 1);
     store.close().await;
+}
+
+#[tokio::test]
+async fn set_password_ends_every_session_of_the_account_and_says_how_many() {
+    use domovoi_core::Session;
+    use domovoi_core::ports::SessionRepo;
+
+    let dir = tempfile::tempdir().unwrap();
+    let admin = OfflineAdmin::open(config(dir.path()), clock())
+        .await
+        .unwrap();
+    admin
+        .set_password(None, "correct horse battery")
+        .await
+        .unwrap();
+    let user = admin.store.first_user().await.unwrap().unwrap();
+    let now = admin.clock.now();
+    let mut hashes = Vec::new();
+    for n in 0..2u8 {
+        let session = Session {
+            token_hash: [n + 1; 32],
+            user: user.id,
+            csrf_hash: [9; 32],
+            created_at: now,
+            expires_at: now.checked_add(SignedDuration::from_hours(24)).unwrap(),
+        };
+        SessionRepo::create(&*admin.store, &session).await.unwrap();
+        hashes.push(session.token_hash);
+    }
+    let done = admin
+        .set_password(None, "another long password")
+        .await
+        .unwrap();
+    assert_eq!(done.sessions_ended, 2);
+    for hash in &hashes {
+        assert!(
+            SessionRepo::get(&*admin.store, hash, now)
+                .await
+                .unwrap()
+                .is_none(),
+            "an old session survived the password change"
+        );
+    }
+    let filter = AuditFilter {
+        kind: Some("hub.password_set".to_owned()),
+        ..AuditFilter::default()
+    };
+    let rows = AuditLog::list(&*admin.store, &filter, &Page::first(10))
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows[0].detail["sessions_ended"], 2, "newest row first");
+    admin.close().await;
 }

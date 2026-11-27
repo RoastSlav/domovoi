@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use domovoi_config::hub::HubConfig;
 use domovoi_core::audit_chain::{Hash, VerifyReport, VerifyScope};
 use domovoi_core::ports::{
-    AuditEvent, AuditLog, Clock, HostRepo, IngestError, OutboundMessage, SignalSink, StoreError,
-    UserRepo,
+    AuditEvent, AuditLog, Clock, HostRepo, IngestError, OutboundMessage, SessionRepo, SignalSink,
+    StoreError, UserRepo,
 };
 use domovoi_core::{HostKind, HostName, Signal, User, UserId};
 use domovoi_store::Store;
@@ -31,6 +31,15 @@ use crate::agent_server::{
 use crate::auth::password;
 use crate::digest::{DigestDeps, DigestError};
 use crate::runtime::{AdapterOverrides, FanOut, HubLock, LockError, RuntimeError, adapters};
+
+/// What `set-password` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PasswordSet {
+    /// The account whose password was set.
+    pub username: String,
+    /// How many web sessions of that account were ended by the change.
+    pub sessions_ended: u64,
+}
 
 /// Why an admin command failed.
 #[derive(Debug, thiserror::Error)]
@@ -214,14 +223,16 @@ impl OfflineAdmin {
         Ok(self.server.revoke_agent(host.id).await?)
     }
 
-    /// Sets the admin password and returns the username. With no account yet, creates
-    /// the admin account as `username` (default `admin`); otherwise updates the account
-    /// named `username`, or the first account when `username` is `None`.
+    /// Sets the admin password and returns the username and how many web sessions it ended.
+    /// With no account yet, creates the admin account as `username` (default `admin`);
+    /// otherwise updates the account named `username`, or the first account when `username`
+    /// is `None` and signs that account out everywhere: a reset is how a lost or exposed
+    /// password or session gets cut off, so no old session may outlive it.
     pub async fn set_password(
         &self,
         username: Option<&str>,
         password: &str,
-    ) -> Result<String, AdminError> {
+    ) -> Result<PasswordSet, AdminError> {
         if password.chars().count() < password::MIN_PASSWORD_CHARS {
             return Err(AdminError::Invalid(format!(
                 "the password must be at least {} characters",
@@ -236,8 +247,13 @@ impl OfflineAdmin {
         };
         if let Some(user) = existing {
             self.store.set_password_hash(user.id, &hash).await?;
-            self.audit_password(&user.username, false).await?;
-            return Ok(user.username);
+            let sessions_ended = SessionRepo::delete_for_user(&*self.store, user.id).await?;
+            self.audit_password(&user.username, false, sessions_ended)
+                .await?;
+            return Ok(PasswordSet {
+                username: user.username,
+                sessions_ended,
+            });
         }
         if self.store.count().await? > 0 {
             return Err(AdminError::Invalid(format!(
@@ -251,20 +267,31 @@ impl OfflineAdmin {
             password_hash: hash,
             created_at: self.clock.now(),
         };
-        self.store.create(&user).await?;
-        self.audit_password(&user.username, true).await?;
-        Ok(user.username)
+        UserRepo::create(&*self.store, &user).await?;
+        self.audit_password(&user.username, true, 0).await?;
+        Ok(PasswordSet {
+            username: user.username,
+            sessions_ended: 0,
+        })
     }
 
     /// Records that the password of `username` was set from the command line. Never the
     /// password itself.
-    async fn audit_password(&self, username: &str, created: bool) -> Result<(), AdminError> {
+    async fn audit_password(
+        &self,
+        username: &str,
+        created: bool,
+        sessions_ended: u64,
+    ) -> Result<(), AdminError> {
         let event = AuditEvent {
             at: self.clock.now(),
             actor: "system:cli".to_owned(),
             kind: "hub.password_set".to_owned(),
             subject: format!("user:{username}"),
-            detail: serde_json::json!({ "account_created": created }),
+            detail: serde_json::json!({
+                "account_created": created,
+                "sessions_ended": sessions_ended,
+            }),
         };
         AuditLog::append(&*self.store, &event).await?;
         Ok(())

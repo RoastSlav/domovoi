@@ -146,6 +146,12 @@ async fn set_password(args: SetPasswordArgs) -> anyhow::Result<ExitCode> {
         .set_password(args.username.as_deref(), &password)
         .await;
     admin.close().await;
-    println!("Password set for {}.", result?);
+    let done = result?;
+    println!("Password set for {}.", done.username);
+    match done.sessions_ended {
+        0 => println!("No web session was signed in; nothing to end."),
+        1 => println!("1 web session was ended; sign in again with the new password."),
+        n => println!("{n} web sessions were ended; sign in again with the new password."),
+    }
     Ok(ExitCode::SUCCESS)
 }

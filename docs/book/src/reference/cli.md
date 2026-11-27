@@ -171,7 +171,7 @@ domovoi hub agent revoke old-nas
 
 ### `domovoi hub set-password`
 
-Sets the web UI password. It prompts twice without echo. Use `--password-stdin` to read it from the first line of standard input. `--username` picks the account; the default is the first (admin) account. On a hub with no account yet, it creates the admin account (named `admin` unless `--username` says otherwise). Passwords need at least 12 characters.
+Sets the web UI password. It prompts twice without echo. Use `--password-stdin` to read it from the first line of standard input. `--username` picks the account; the default is the first (admin) account. On a hub with no account yet, it creates the admin account (named `admin` unless `--username` says otherwise). Passwords need at least 12 characters. Setting a password signs the account out everywhere: every existing web session of it is deleted, the command prints how many, and the `hub.password_set` audit row records the same count (`sessions_ended`).
 
 ```sh
 domovoi hub set-password
