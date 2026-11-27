@@ -246,6 +246,21 @@ async fn handle(
             *missed = 0;
             Ok(())
         }
+        // The session stays: requests in flight keep their answers, and nothing was lost
+        // that a reconciliation would have to settle.
+        Message::SkillsUpdate(update) => {
+            let changed = inner.registry.set_skills(host, session, update);
+            if changed
+                && let (Some(store), Some(skills)) = (
+                    inner.package_reports.get(),
+                    inner.registry.package_skills(host),
+                )
+            {
+                super::package_report::save(&**store, host, &skills).await;
+            }
+            tracing::info!(%host, "the agent announced a new skill list");
+            Ok(())
+        }
         Message::AgentStatus(status) => {
             inner.registry.set_agent_status(host, session, status);
             notify_status(inner, host);

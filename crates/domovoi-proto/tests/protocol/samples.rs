@@ -399,6 +399,18 @@ pub fn all() -> Vec<Message> {
             signature: Signature([7; 64]),
         }
         .into(),
+        SkillsUpdate {
+            skills: vec![skill_summary()],
+            package_skills: vec![PackageSkillState {
+                package: "media-tools".to_owned(),
+                version: "1.2.0".to_owned(),
+                skill: "media_status".to_owned(),
+                enabled: false,
+                reason: Some("not enabled".to_owned()),
+            }],
+            catalog_hash: Some(Sha256Bytes([0xab; 32])),
+        }
+        .into(),
     ]
 }
 

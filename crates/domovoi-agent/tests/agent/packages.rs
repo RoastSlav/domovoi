@@ -16,7 +16,9 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::harness::{clock, identity, start_link, start_link_packages, start_link_transfers};
+use crate::harness::{
+    clock, identity, start_link, start_link_packages, start_link_resync, start_link_transfers,
+};
 use crate::hub::{HubConn, TestHub, guard};
 use crate::package_rig::{Options, Rig};
 
@@ -168,4 +170,82 @@ async fn hello_announces_the_catalogue_with_the_enabled_package_skill() {
         Some(catalog_hash(&now))
     );
     assert!(hello.package_skills[0].enabled);
+}
+
+/// 48e: a package change is announced on the open session. The link is not dropped, so a
+/// request that is being served keeps the connection its answer goes back on.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_package_change_is_announced_without_dropping_the_link() {
+    use domovoi_testkit::PackageFixture;
+
+    let built = PackageFixture::new("nginx-tools", "1.2.0")
+        .unwrap()
+        .skill("nginx_reload")
+        .build();
+    let rig = Rig::new(&[&built], Options::default());
+    let args = rig.install_args(&built, "nginx-tools", "1.2.0");
+    rig.call(rig.run("agent.package.install", &args)).await;
+    let ctx = Arc::new(rig.ctx);
+    let service = ctx.packages.clone().unwrap();
+    let changed = Arc::new(tokio::sync::Notify::new());
+
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let link = start_link_resync(&hub, &identity, &clock, &dir, ctx.clone(), changed.clone());
+    let mut conn = hub.accept().await;
+    let hello = conn.welcome(&identity, 3600).await;
+    assert!(!hello.package_skills[0].enabled);
+
+    service
+        .enable(domovoi_agent::packages::EnableRequest {
+            package: "nginx-tools".parse().unwrap(),
+            version: "1.2.0".parse().unwrap(),
+        })
+        .unwrap();
+    changed.notify_one();
+    // No time passes: neither a delay nor a backoff stands between the change and the hub.
+    let update = guard(conn.expect()).await;
+    let Message::SkillsUpdate(update) = update.message else {
+        panic!("expected skills_update, got {:?}", update.message);
+    };
+    assert!(update.package_skills[0].enabled);
+    assert_eq!(update.skills.len(), hello.skills.len() + 1);
+    assert_ne!(update.catalog_hash, hello.catalog_hash);
+    // The same connection still answers.
+    send(&mut conn, Message::Ping(Ping { at: clock.now() })).await;
+    assert!(matches!(
+        guard(conn.expect()).await.message,
+        Message::Pong(_)
+    ));
+    assert_eq!(hub.accepted(), 1, "the link was never dropped");
+    link.shutdown.cancel();
+}
+
+/// 48e: a hub that does not know `skills_update` learns the list from a new `hello`, at once
+/// and without backoff.
+#[tokio::test]
+async fn an_older_hub_gets_an_immediate_reconnect_for_a_changed_skill_list() {
+    use domovoi_proto::messages::Unsupported;
+
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let _link = start_link(&hub, &identity, &clock, &dir);
+    let mut conn = hub.accept().await;
+    conn.welcome(&identity, 3600).await;
+    send(
+        &mut conn,
+        Message::Unsupported(Unsupported {
+            type_name: "skills_update".to_owned(),
+        }),
+    )
+    .await;
+    // The clock is never advanced, so any backoff would make this wait time out.
+    let mut again = hub.accept().await;
+    again.welcome(&identity, 3600).await;
+    assert_eq!(hub.accepted(), 2);
 }

@@ -98,6 +98,7 @@ The session hint binds the signature to the connection it was made on. Over TLS 
 | `check_result` | agent → hub | One fresh observation per target. |
 | `config_update` | hub → agent | New hub-managed settings, replacing the previous ones. |
 | `agent_status` | agent → hub | What changed on the host since `hello`: the helper's status and public key, the skill runner's status, whether the agent runs as root or in a container, and the hash of its unattended ceiling. The hub answers nothing and keeps the values for the session. |
+| `skills_update` | agent → hub | The skill list, the stored package skills and the catalogue hash changed (a package was installed, enabled, disabled or removed). Replaces what `hello` said, on the open session, so requests in flight keep their answers. The hub answers nothing. An agent that gets `unsupported` for it connects again at once. |
 | `get_logs` | hub → agent | Ask for the agent's own recent log lines: at most `lines` of them, from `min_level` up, after `offset` lines already received, before a deadline. |
 | `logs` | agent → hub | One chunk of those lines, oldest first. The hub asks again with a larger `offset` until it has the window. |
 | `get_catalog` | hub → agent | Ask for one page (`page`, `page_size` of at most 100) of the agent's capability catalogue. |
@@ -758,6 +759,55 @@ A successful run:
     "skill_runner_status": {
       "state": "absent"
     }
+  },
+  "v": 1
+}
+```
+
+### `skills_update`
+
+```json
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "skills_update",
+  "payload": {
+    "catalog_hash": "abababababababababababababababababababababababababababababababab",
+    "package_skills": [
+      {
+        "enabled": false,
+        "package": "media-tools",
+        "reason": "not enabled",
+        "skill": "media_status",
+        "version": "1.2.0"
+      }
+    ],
+    "skills": [
+      {
+        "applies_to": [
+          "container.restart_loop"
+        ],
+        "description": "Restart one container.",
+        "entry_script_digest": "fc07a55ac3f7c7d7ae2b7117459aa0b7e27421c964467ecd6f59c5c24bd1ad0b",
+        "manifest_hash": "abababababababababababababababababababababababababababababababab",
+        "name": "restart_container",
+        "params": [
+          {
+            "description": "Container name.",
+            "kind": {
+              "max_len": 64,
+              "pattern": "^[a-z0-9_.-]+$",
+              "type": "string"
+            },
+            "name": "container",
+            "required": true
+          }
+        ],
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
+      }
+    ]
   },
   "v": 1
 }

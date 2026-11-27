@@ -1,0 +1,48 @@
+---
+source: crates/domovoi-proto/tests/protocol/snapshots.rs
+expression: "pretty(&message, reply)"
+---
+{
+  "id": "01900000-0000-7000-8000-000000000001",
+  "kind": "skills_update",
+  "payload": {
+    "catalog_hash": "abababababababababababababababababababababababababababababababab",
+    "package_skills": [
+      {
+        "enabled": false,
+        "package": "media-tools",
+        "reason": "not enabled",
+        "skill": "media_status",
+        "version": "1.2.0"
+      }
+    ],
+    "skills": [
+      {
+        "applies_to": [
+          "container.restart_loop"
+        ],
+        "description": "Restart one container.",
+        "entry_script_digest": "fc07a55ac3f7c7d7ae2b7117459aa0b7e27421c964467ecd6f59c5c24bd1ad0b",
+        "manifest_hash": "abababababababababababababababababababababababababababababababab",
+        "name": "restart_container",
+        "params": [
+          {
+            "description": "Container name.",
+            "kind": {
+              "max_len": 64,
+              "pattern": "^[a-z0-9_.-]+$",
+              "type": "string"
+            },
+            "name": "container",
+            "required": true
+          }
+        ],
+        "readme": "# Restart container\n\nRestarts one container managed by compose.",
+        "risk": "write",
+        "timeout": "1m",
+        "verify": null
+      }
+    ]
+  },
+  "v": 1
+}

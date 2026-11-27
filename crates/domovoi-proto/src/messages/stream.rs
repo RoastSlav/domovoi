@@ -1,9 +1,11 @@
 //! Liveness, data the agent streams to the hub, settings pushes and errors.
 
-use domovoi_core::{DigestFact, Signal};
+use domovoi_core::{DigestFact, Signal, SkillSummary};
 use jiff::Timestamp;
 
-use super::handshake::{AgentSettings, HelperIdentity, HelperStatus, SkillRunnerStatus};
+use super::handshake::{
+    AgentSettings, HelperIdentity, HelperStatus, PackageSkillState, SkillRunnerStatus,
+};
 use crate::bytes::{Base64Bytes, Nonce, PublicKey, Sha256Bytes, Signature};
 
 /// A liveness probe. Either side may send it; the other replies `pong` with
@@ -120,4 +122,21 @@ pub struct SafetyAttestation {
     pub report: Base64Bytes,
     /// Base64 of exactly 64 bytes.
     pub signature: Signature,
+}
+
+/// The skills of the host changed while the session stays open: a package was installed,
+/// enabled, disabled or removed. Each field replaces what `hello` said.
+///
+/// The hub answers nothing. A hub that does not know this kind replies `unsupported`, and
+/// the agent then connects again so that `hello` tells it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SkillsUpdate {
+    /// The skills the agent has now, as in `hello.skills`.
+    pub skills: Vec<SkillSummary>,
+    /// Every skill of a stored package, on or off, as in `hello.package_skills`.
+    #[serde(default)]
+    pub package_skills: Vec<PackageSkillState>,
+    /// The capability catalogue's hash now, as in `hello.catalog_hash`.
+    #[serde(default)]
+    pub catalog_hash: Option<Sha256Bytes>,
 }

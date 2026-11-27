@@ -28,7 +28,7 @@ pub use handshake::{
 };
 pub use stream::{
     AgentStatus, AttestSafety, ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong,
-    SafetyAttestation, Signals, SignalsAck, Unsupported,
+    SafetyAttestation, Signals, SignalsAck, SkillsUpdate, Unsupported,
 };
 pub use transfer::{
     TransferBegin, TransferChunk, TransferEnd, TransferFailureCode, TransferKind, TransferOutcome,
@@ -166,4 +166,6 @@ messages! {
     AttestSafety(AttestSafety) = "attest_safety",
     /// `safety_attestation`, agent → hub.
     SafetyAttestation(SafetyAttestation) = "safety_attestation",
+    /// `skills_update`, agent → hub.
+    SkillsUpdate(SkillsUpdate) = "skills_update",
 }

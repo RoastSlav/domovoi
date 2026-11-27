@@ -149,7 +149,23 @@ pub fn start_link_packages(
 ) -> RunningLink {
     let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
     let status = domovoi_agent::link::handshake::AgentStatusSource::default();
-    let options = (None, false, Some((ctx, stale)));
+    let options = (None, false, Some((ctx, stale, None)));
+    start_link_ext(hub, identity, clock, dir, spool, status, options)
+}
+
+/// Like [`start_link_packages`], with `changed` as the "package skills changed" signal.
+pub fn start_link_resync(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    ctx: Arc<RequestCtx>,
+    changed: Arc<tokio::sync::Notify>,
+) -> RunningLink {
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    let status = domovoi_agent::link::handshake::AgentStatusSource::default();
+    let stale = domovoi_proto::Sha256Bytes([0; 32]);
+    let options = (None, false, Some((ctx, stale, Some(changed))));
     start_link_ext(hub, identity, clock, dir, spool, status, options)
 }
 
@@ -170,7 +186,11 @@ pub fn start_link_in_container(
 }
 
 /// What the packaged link announces: the request context and the start-up catalogue hash.
-type Packaged = (Arc<RequestCtx>, domovoi_proto::Sha256Bytes);
+type Packaged = (
+    Arc<RequestCtx>,
+    domovoi_proto::Sha256Bytes,
+    Option<Arc<tokio::sync::Notify>>,
+);
 
 fn start_link_ext(
     hub: &TestHub,
@@ -186,7 +206,10 @@ fn start_link_ext(
     ),
 ) -> RunningLink {
     let (transfers, in_container, packages) = options;
-    let (package_skills, catalog_hash) = packages.unzip();
+    let (package_skills, catalog_hash, resync) = match packages {
+        Some((ctx, hash, resync)) => (Some(ctx), Some(hash), resync),
+        None => (None, None, None),
+    };
     let connector = Arc::new(TlsConnector::new(
         hub.url.clone(),
         Arc::new(PinnedVerifier::new(identity.hub_fingerprint)),
@@ -213,7 +236,7 @@ fn start_link_ext(
         status_dir: Some(dir.path().to_path_buf()),
         transfers,
         package_skills,
-        resync: None,
+        resync,
     };
     let (link, handle, requests) = Link::new(parts);
     let shutdown = CancellationToken::new();

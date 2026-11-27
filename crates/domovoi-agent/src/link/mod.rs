@@ -22,9 +22,10 @@ use std::sync::Arc;
 
 use domovoi_core::ports::{Clock, HostFs};
 use domovoi_core::{RequestId, SkillSummary};
+use domovoi_proto::messages::PackageSkillState;
 use domovoi_proto::messages::{
     ActionStatusQuery, AttestSafety, CheckInfo, GetCatalog, GetLogs, Pong, RunCapability, RunCheck,
-    RunSkill, RunTool, Signals, Unsupported,
+    RunSkill, RunTool, Signals, SkillsUpdate, Unsupported,
 };
 use domovoi_proto::{Decoded, Message, Transport};
 use jiff::SignedDuration;
@@ -151,7 +152,8 @@ pub struct LinkParts {
     /// Where enabled package skills and the state of stored ones come from, read at every
     /// connection; `None` announces only `skills`.
     pub package_skills: Option<Arc<crate::requests::RequestCtx>>,
-    /// Fires when the package skills changed; the link then announces again.
+    /// Fires when the package skills changed; the link then sends `skills_update` on the
+    /// open session.
     pub resync: Option<Arc<tokio::sync::Notify>>,
 }
 
@@ -161,6 +163,13 @@ pub struct Link {
     backoff: Backoff,
     outbox: mpsc::Receiver<Outgoing>,
     requests: mpsc::Sender<IncomingRequest>,
+}
+
+/// The skill lists and catalogue hash as they are now, for `hello` and `skills_update`.
+struct SkillsNow {
+    skills: Vec<SkillSummary>,
+    package_states: Vec<PackageSkillState>,
+    extensions: HelloExtensions,
 }
 
 impl Link {
@@ -202,6 +211,12 @@ impl Link {
                             self.idle(err, &shutdown).await;
                             return Ok(());
                         }
+                        Err(LinkError::Resync) => {
+                            // Deliberate, and the hub is waiting for the new list: no
+                            // backoff, and nothing went wrong to report.
+                            tracing::info!("connecting again to announce the new skills");
+                            continue;
+                        }
                         Err(err) if err.is_final() => {
                             tracing::error!(%err, "the hub link stopped");
                             return Err(err);
@@ -236,6 +251,43 @@ impl Link {
                 () = shutdown.cancelled() => return Ok(()),
                 () = sleep(&*clock, delay) => {}
             }
+        }
+    }
+
+    fn skills_now(&self) -> SkillsNow {
+        let package_view = self
+            .parts
+            .package_skills
+            .as_ref()
+            .map(|ctx| ctx.package_skills());
+        let mut skills = self.parts.skills.clone();
+        let mut package_states = Vec::new();
+        let mut extensions = self.parts.extensions.clone();
+        if let (Some(ctx), Some(view)) = (&self.parts.package_skills, package_view) {
+            // The announced hash must describe the list `get_catalog` pages now: a hash kept
+            // from start-up disagrees with it as soon as a package is enabled or disabled.
+            let enabled: Vec<_> = view
+                .runnable
+                .iter()
+                .map(|r| r.skill.manifest().name.clone())
+                .collect();
+            extensions.catalog_hash =
+                handshake::catalog_announcement(&crate::requests::catalog_entries_with(
+                    &ctx.catalog,
+                    ctx.package_skills_surface(),
+                    &enabled,
+                ));
+            for runnable in &view.runnable {
+                let mut found = runnable.catalog.summaries();
+                ctx.mark_hidden(&runnable.catalog, &mut found);
+                skills.extend(found);
+            }
+            package_states = view.states;
+        }
+        SkillsNow {
+            skills,
+            package_states,
+            extensions,
         }
     }
 
@@ -291,35 +343,11 @@ impl Link {
             mut transport,
             session_hint,
         } = connected;
-        let package_view = self
-            .parts
-            .package_skills
-            .as_ref()
-            .map(|ctx| ctx.package_skills());
-        let mut skills = self.parts.skills.clone();
-        let mut package_states = Vec::new();
-        let mut extensions = self.parts.extensions.clone();
-        if let (Some(ctx), Some(view)) = (&self.parts.package_skills, package_view) {
-            // The announced hash must describe the list `get_catalog` pages now: a hash kept
-            // from start-up disagrees with it as soon as a package is enabled or disabled.
-            let enabled: Vec<_> = view
-                .runnable
-                .iter()
-                .map(|r| r.skill.manifest().name.clone())
-                .collect();
-            extensions.catalog_hash =
-                handshake::catalog_announcement(&crate::requests::catalog_entries_with(
-                    &ctx.catalog,
-                    ctx.package_skills_surface(),
-                    &enabled,
-                ));
-            for runnable in &view.runnable {
-                let mut found = runnable.catalog.summaries();
-                ctx.mark_hidden(&runnable.catalog, &mut found);
-                skills.extend(found);
-            }
-            package_states = view.states;
-        }
+        let SkillsNow {
+            skills,
+            package_states,
+            extensions,
+        } = self.skills_now();
         let announce = Announce {
             facts: host_facts(&*self.parts.fs).await,
             skills: &skills,
@@ -378,7 +406,6 @@ impl Link {
             .unwrap_or(clock.now());
         self.flush(transport.as_mut(), &mut sent).await?;
         let resync = self.parts.resync.clone();
-        let mut resync_at: Option<jiff::Timestamp> = None;
         loop {
             tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
@@ -387,20 +414,16 @@ impl Link {
                         Some(notify) => notify.notified().await,
                         None => std::future::pending().await,
                     }
-                }, if resync_at.is_none() => {
-                    // Give the answer to the request that changed the skills time to leave
-                    // first, then connect again so the hub is told the new list.
-                    resync_at = clock.now().saturating_add(SignedDuration::from_secs(2)).ok();
-                }
-                () = async {
-                    match resync_at {
-                        Some(at) => clock.sleep_until(at).await,
-                        None => std::future::pending().await,
-                    }
-                }, if resync_at.is_some() => {
-                    return Err(LinkError::Lost(
-                        "the package skills changed; announcing them again".to_owned(),
-                    ));
+                } => {
+                    // The session stays open, so requests in flight keep their answers.
+                    let now = self.skills_now();
+                    let message = Message::SkillsUpdate(SkillsUpdate {
+                        skills: now.skills,
+                        package_skills: now.package_states,
+                        catalog_hash: now.extensions.catalog_hash,
+                    });
+                    frame::send(transport.as_mut(), &message, None).await?;
+                    tracing::info!("the package skills changed; told the hub on the open link");
                 }
                 frame = frame::recv(transport.as_mut()) => {
                     let Some(decoded) = frame? else {
@@ -511,6 +534,12 @@ impl Link {
                 let reply = Message::Unsupported(Unsupported { type_name: kind });
                 frame::send(transport, &reply, Some(id)).await?;
                 return Ok(());
+            }
+            // An older hub of this protocol version cannot take the update, so only a new
+            // `hello` can tell it.
+            Message::Unsupported(unsupported) if unsupported.type_name == "skills_update" => {
+                tracing::warn!("this hub does not know skills_update; upgrade the hub");
+                return Err(LinkError::Resync);
             }
             Message::Error(err) => {
                 tracing::warn!(

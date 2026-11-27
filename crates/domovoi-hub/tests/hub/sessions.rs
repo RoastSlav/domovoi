@@ -7,8 +7,8 @@ use domovoi_core::{
 use domovoi_hub::agent_server::{LOCAL_SESSION_HINT, MAX_FRAMES_PER_SECOND, MemoryTransport};
 use domovoi_proto::messages::{
     AgentStatus, Challenge, ChallengeResponse, DigestFacts, Enrolled, ErrorMessage, HelperStatus,
-    Logs, Ping, RejectReason, Signals, SkillRunnerStatus, ToolOutcome, ToolResult, ToolSuccess,
-    Unsupported,
+    Logs, Ping, RejectReason, Signals, SkillRunnerStatus, SkillsUpdate, ToolOutcome, ToolResult,
+    ToolSuccess, Unsupported,
 };
 use domovoi_proto::{
     MAX_FRAME_BYTES, Message, PROTOCOL_VERSION, Signature, Transport, challenge_message, decode,
@@ -658,4 +658,61 @@ async fn reenrollment_with_the_same_key_still_retires_the_old_agent() {
         rejected(&stale.hello(old.agent, PROTOCOL_VERSION).await),
         Some(RejectReason::Revoked)
     );
+}
+
+/// 48e: a changed skill list replaces what `hello` said on the same session, so the host
+/// stays connected and a request in flight still gets its answer.
+#[tokio::test]
+async fn a_skills_update_keeps_the_session_and_the_requests_in_flight() {
+    use domovoi_proto::Sha256Bytes;
+    use domovoi_proto::messages::PackageSkillState;
+
+    let hub = Hub::start().await;
+    let link = hub.server.link_for_tests();
+    let (ident, mut agent) = online(&hub, "nas").await;
+    let before = link.snapshot(ident.host).unwrap().session;
+
+    let deadline = t0() + SignedDuration::from_secs(30);
+    let call = tokio::spawn({
+        let link = link.clone();
+        async move {
+            link.run_tool(ident.host, ReadToolCall::DockerPs { all: true }, deadline)
+                .await
+        }
+    });
+    let request = agent.expect().await;
+
+    agent
+        .send(
+            Message::SkillsUpdate(SkillsUpdate {
+                skills: Vec::new(),
+                package_skills: vec![PackageSkillState {
+                    package: "nginx-tools".to_owned(),
+                    version: "1.2.0".to_owned(),
+                    skill: "nginx_reload".to_owned(),
+                    enabled: false,
+                    reason: Some("not enabled".to_owned()),
+                }],
+                catalog_hash: Some(Sha256Bytes([7; 32])),
+            }),
+            None,
+        )
+        .await;
+    agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert!(matches!(agent.expect().await.message, Message::Pong(_)));
+    assert_eq!(
+        link.catalog_hash(ident.host),
+        Some("07".repeat(32)),
+        "the new hash is the host's"
+    );
+    assert_eq!(link.snapshot(ident.host).unwrap().session, before);
+
+    let result = Message::ToolResult(ToolResult {
+        outcome: ToolOutcome::Ok(ToolSuccess {
+            text: "done".to_owned(),
+            truncated: false,
+        }),
+    });
+    agent.send(result, Some(request.id)).await;
+    assert_eq!(guard(call).await.unwrap().unwrap().text, "done");
 }

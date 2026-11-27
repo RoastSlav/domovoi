@@ -71,6 +71,10 @@ pub enum LinkError {
     /// The connection broke or the hub stopped answering; the link retries.
     #[error("the hub connection was lost: {0}")]
     Lost(String),
+    /// The hub cannot take a changed skill list on an open session; the link connects again
+    /// at once so `hello` carries it.
+    #[error("connecting again to announce the new skills")]
+    Resync,
     /// The hub broke the protocol; the link retries.
     #[error("the hub sent an unexpected message: {0}")]
     Protocol(String),

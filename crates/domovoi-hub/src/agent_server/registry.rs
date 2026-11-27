@@ -12,6 +12,7 @@ use domovoi_core::ports::{
 use domovoi_core::{AgentId, AgentSessionId, HostId, JournalEpoch, RequestId, SkillSummary};
 use domovoi_proto::messages::{
     AgentStatus, CheckInfo, DockerReport, HelperStatus, HostFacts, SessionId, SkillRunnerStatus,
+    SkillsUpdate,
 };
 use domovoi_proto::{Message, encode};
 use jiff::Timestamp;
@@ -172,6 +173,23 @@ impl Registry {
         if closed {
             Self::report(&hosts);
         }
+    }
+
+    /// Replaces the skills and catalogue hash `session` announced, in one step so no reader
+    /// sees a new list under an old hash. False when `session` is no longer the host's.
+    pub fn set_skills(&self, host: HostId, session: SessionId, update: SkillsUpdate) -> bool {
+        let mut hosts = self.lock();
+        let Some(live) = hosts
+            .get_mut(&host)
+            .and_then(|entry| entry.live.as_mut())
+            .filter(|live| live.session == session)
+        else {
+            return false;
+        };
+        live.skills = update.skills;
+        live.package_skills = update.package_skills;
+        live.catalog_hash = update.catalog_hash.map(|hash| hex::encode(hash.as_bytes()));
+        true
     }
 
     /// The latest runtime status for the host's live session.
