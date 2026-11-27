@@ -230,6 +230,14 @@ impl DevicePath {
     }
 }
 
+/// Whether journalctl says on its error output that this account may not read the system
+/// journal. It exits 0 and prints only its own account's lines then, and says nothing at all
+/// with `--quiet`, so no template passes that.
+#[must_use]
+pub fn journal_access_refused(stderr: &str) -> bool {
+    stderr.contains("not seeing messages") || stderr.contains("insufficient permissions")
+}
+
 /// One tool's lookup result.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 enum Tool {
@@ -372,7 +380,8 @@ impl Commands {
         scope: JournalScope<'_>,
     ) -> Result<ProcessSpec, CommandError> {
         let program = Self::tool(&self.journalctl, "journalctl")?;
-        let mut args = owned(&["--no-pager", "--quiet", "--output=cat", "--show-cursor"]);
+        // No `--quiet`, as in [`Commands::journal`]: a check must see the refusal warning.
+        let mut args = owned(&["--no-pager", "--output=cat", "--show-cursor"]);
         match cursor {
             Some(cursor) => args.push(format!("--after-cursor={cursor}")),
             None => args.push(format!("--since=-{FIRST_RUN_MINUTES}min")),

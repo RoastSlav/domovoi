@@ -22,6 +22,8 @@ pub mod containers;
 #[cfg(feature = "host")]
 pub mod hostfs;
 #[cfg(feature = "host")]
+mod journal;
+#[cfg(feature = "host")]
 pub mod learn;
 #[cfg(feature = "net")]
 pub mod net;

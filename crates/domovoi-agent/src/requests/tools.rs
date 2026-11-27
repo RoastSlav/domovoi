@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use domovoi_checks::commands::{CommandError, DevicePath, UnitName};
+use domovoi_checks::commands::{CommandError, DevicePath, UnitName, journal_access_refused};
 use domovoi_checks::containers::{ContainerSource, EventLog, RunState};
 use domovoi_checks::security::ports::{Listener, listeners};
 use domovoi_core::ReadToolCall;
@@ -82,12 +82,6 @@ fn journal_unreadable(output: &ProcessOutput) -> bool {
         || journal_access_refused(&output.stderr)
         || output.stderr.contains("could not be opened")
         || output.stderr.contains("No journal files")
-}
-
-/// Whether journalctl says this account may not read the system journal. It says so on its
-/// error output, and not at all with `--quiet`, so the journal tool never passes that.
-pub(super) fn journal_access_refused(stderr: &str) -> bool {
-    stderr.contains("not seeing messages") || stderr.contains("insufficient permissions")
 }
 
 /// The entries of a `journalctl` output, without its own `-- ... --` marker lines.

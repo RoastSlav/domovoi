@@ -10,7 +10,6 @@ use crate::harness::{
 const JOURNAL: &str = "/usr/bin/journalctl";
 const FIRST_RUN: &[&str] = &[
     "--no-pager",
-    "--quiet",
     "--output=cat",
     "--show-cursor",
     "--since=-15min",
@@ -83,7 +82,7 @@ async fn kernel_errors_advance_cursor_and_do_not_repeat_lines() {
     assert_eq!(h.state.get("cursor"), Some("s=abc;i=1f"));
 
     let mut second_args: Vec<&str> = FIRST_RUN.to_vec();
-    second_args[4] = "--after-cursor=s=abc;i=1f";
+    second_args[3] = "--after-cursor=s=abc;i=1f";
     h.exec.expect(
         JOURNAL,
         &second_args,
@@ -98,7 +97,7 @@ async fn kernel_errors_advance_cursor_and_do_not_repeat_lines() {
     assert_eq!(args(&calls[1]), second_args);
 
     // Output without a cursor line keeps the old cursor.
-    second_args[4] = "--after-cursor=s=abc;i=20";
+    second_args[3] = "--after-cursor=s=abc;i=20";
     h.exec.expect(JOURNAL, &second_args, output(""));
     h.run(&check).await;
     assert_eq!(h.state.get("cursor"), Some("s=abc;i=20"));

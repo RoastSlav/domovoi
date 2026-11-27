@@ -46,6 +46,10 @@ pub enum CheckError {
         /// What went wrong.
         source: ProcessError,
     },
+    /// The journal this check watches could not be read, so nothing it looks for is being
+    /// seen; the text says why. Never treated as a quiet journal.
+    #[error("the journal could not be read: {0}")]
+    JournalUnreadable(String),
     /// A privileged read through the helper failed; the text says why.
     #[error("reading through the helper: {0}")]
     Helper(String),

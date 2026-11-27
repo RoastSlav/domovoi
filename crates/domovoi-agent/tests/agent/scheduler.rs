@@ -747,3 +747,56 @@ fn event_check_never_sends_a_recovery_while_a_state_check_does() {
     let (signals, _) = signals_for(host, &state, &report(vec![ok("kuker")]), &previous, now);
     assert_eq!(signals[0].status(), SignalStatus::Resolved);
 }
+
+/// A journal check that cannot read the journal on its first run and can on the next.
+struct BlindThenReading {
+    runs: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait]
+impl Check for BlindThenReading {
+    fn key(&self) -> CheckKey {
+        key("security.sudo_failure")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_mins(1)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Immediate
+    }
+
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
+    async fn run(&self, _ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        if self.runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            return Err(CheckError::JournalUnreadable(
+                "add it to the systemd-journal group".to_owned(),
+            ));
+        }
+        Ok(CheckReport::default())
+    }
+}
+
+#[tokio::test]
+async fn a_check_that_cannot_read_its_journal_says_so_until_it_can() {
+    let run = start(vec![Box::new(BlindThenReading {
+        runs: std::sync::atomic::AtomicUsize::new(0),
+    })]);
+    let blind = run.batch().await;
+    assert_eq!(
+        blind,
+        [(
+            "journal:unreadable".to_owned(),
+            SignalStatus::Firing,
+            Severity::Warning
+        )]
+    );
+    let back = run.next_run().await;
+    assert_eq!(back[0].0, "journal:unreadable");
+    assert_eq!(back[0].1, SignalStatus::Resolved);
+    run.shutdown.cancel();
+}

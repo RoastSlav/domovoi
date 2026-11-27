@@ -9,13 +9,15 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use domovoi_checks::commands::{CommandError, DayPriority, SUMMARY_LINES, ServiceState, UnitName};
+use domovoi_checks::commands::{
+    CommandError, DayPriority, SUMMARY_LINES, ServiceState, UnitName, journal_access_refused,
+};
 use domovoi_checks::smart::{parse_report, parse_scan};
 use domovoi_core::helper::read::DeviceRef;
 use domovoi_core::ports::{ProcessOutput, ProcessSpec, SkillOutput};
 use domovoi_core::{AgentRead, ScriptDigest, SkillManifest, ValidatedArgs};
 
-use super::tools::{journal_access_refused, journal_asked, journal_result};
+use super::tools::{journal_asked, journal_result};
 use super::{RequestCtx, cap};
 
 /// Exit status of a read whose source could not be read.

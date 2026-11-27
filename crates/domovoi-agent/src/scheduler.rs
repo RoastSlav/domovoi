@@ -7,6 +7,8 @@
 //!   signal, except for an event check (`Check::resolves_itself` is false), whose incidents
 //!   only a person closes. A check that errors changes nothing, so its incidents stay as
 //!   they were.
+//! - A check that cannot read the journal it watches raises its own warning, target
+//!   [`BLIND_TARGET`], and resolves it at its next successful read.
 //! - Each run's signals are one spool batch, and check state is saved only once that batch
 //!   is on disk.
 //! - Digest facts (latest per key) go to the hub once an hour.
@@ -27,6 +29,10 @@ use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use jiff::{SignedDuration, Timestamp};
 use tokio_util::sync::CancellationToken;
+
+mod blind;
+
+pub use blind::{BLIND_TARGET, blind_signal};
 
 use crate::checks::CheckSet;
 use crate::link::LinkHandle;
@@ -151,8 +157,13 @@ pub fn signals_for(
         }
     }
     // An event check never reports a recovery; only a person closes its incident.
+    signals.extend(blind::ended(host, check, previous, now));
     let gone_targets = if check.resolves_itself() {
-        previous.difference(&seen).cloned().collect()
+        previous
+            .difference(&seen)
+            .filter(|gone| *gone != BLIND_TARGET)
+            .cloned()
+            .collect()
     } else {
         Vec::new()
     };
@@ -187,10 +198,10 @@ struct Staged {
     key: CheckKey,
     /// The state it left behind.
     state: CheckState,
-    /// The targets firing now, for a run that produced a report.
+    /// The targets firing now, when the run changed what is firing.
     firing: Option<BTreeSet<String>>,
-    /// The digest facts its report carried.
-    facts: Vec<DigestFact>,
+    /// The digest facts of a run that produced a report.
+    facts: Option<Vec<DigestFact>>,
 }
 
 /// Runs checks until shutdown.
@@ -367,17 +378,25 @@ impl Scheduler {
                         key,
                         state,
                         firing: None,
-                        facts: Vec::new(),
+                        facts: None,
                     });
                     continue;
                 }
                 Err(err) => {
                     tracing::warn!(check = %key, %err, "check failed");
+                    let firing = if let CheckError::JournalUnreadable(why) = &err {
+                        batch.push(blind_signal(self.env.host, check, why, now));
+                        let mut firing = self.store.firing(&key);
+                        firing.insert(BLIND_TARGET.to_owned());
+                        Some(firing)
+                    } else {
+                        None
+                    };
                     staged.push(Staged {
                         key,
                         state,
-                        firing: None,
-                        facts: Vec::new(),
+                        firing,
+                        facts: None,
                     });
                     continue;
                 }
@@ -389,7 +408,7 @@ impl Scheduler {
                 key,
                 state,
                 firing: Some(firing),
-                facts: report.facts,
+                facts: Some(report.facts),
             });
         }
         // Nothing is remembered from a run whose signals could not be spooled: the next run
@@ -406,12 +425,11 @@ impl Scheduler {
         for staged in staged {
             self.store.put_state(&staged.key, staged.state);
             // A failed or unavailable run keeps the previous facts: they are stale, not retired.
-            let succeeded = staged.firing.is_some();
             if let Some(firing) = staged.firing {
                 self.store.set_firing(&staged.key, firing);
             }
-            if succeeded {
-                self.replace_facts(&staged.key, staged.facts);
+            if let Some(facts) = staged.facts {
+                self.replace_facts(&staged.key, facts);
             }
         }
         if let Err(err) = self.store.save() {

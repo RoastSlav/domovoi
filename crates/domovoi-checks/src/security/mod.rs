@@ -17,7 +17,7 @@ pub use ssh::{SshLogin, SshLogins, parse_accepted};
 pub use sudo::{SudoFailures, parse_sudo_failure};
 
 use crate::commands::{JournalCursor, JournalScope};
-use crate::framework::{CheckContext, CheckError, run_command};
+use crate::framework::{CheckContext, CheckError};
 use crate::system::kernel::{CURSOR_STATE, parse_cursor_line};
 
 /// Journal messages in `scope` since this check's cursor, without the cursor line. Moves
@@ -33,12 +33,14 @@ pub(crate) async fn journal_since_cursor(
     let spec = ctx
         .commands
         .journal_since_cursor(previous.as_ref(), scope)?;
-    let output = run_command(ctx, spec).await?;
+    let output = crate::journal::read(ctx, spec).await?;
     let mut cursor = None;
     let mut lines = Vec::new();
     for line in output.stdout.lines() {
         match parse_cursor_line(line) {
             Some(found) => cursor = Some(found),
+            // journalctl's own notes, such as `-- No entries --`.
+            None if line.starts_with("-- ") && line.ends_with(" --") => {}
             None => lines.push(line.to_owned()),
         }
     }

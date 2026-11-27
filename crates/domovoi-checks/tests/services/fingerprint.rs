@@ -159,7 +159,6 @@ async fn targets_never_contain_counts_or_timestamps() {
     let journal = "/usr/bin/journalctl";
     let since = [
         "--no-pager",
-        "--quiet",
         "--output=cat",
         "--show-cursor",
         "--since=-15min",

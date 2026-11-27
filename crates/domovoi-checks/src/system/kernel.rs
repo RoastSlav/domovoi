@@ -214,12 +214,7 @@ impl Check for KernelErrors {
         let spec = ctx
             .commands
             .journal_since_cursor(previous.as_ref(), JournalScope::Kernel)?;
-        let program = spec.program.clone();
-        let output = ctx
-            .exec
-            .run(spec)
-            .await
-            .map_err(|source| CheckError::Process { program, source })?;
+        let output = crate::journal::read(ctx, spec).await?;
         let (tallies, cursor) = scan(&output.stdout);
         match cursor {
             Some(cursor) => ctx.state.set(CURSOR_STATE, cursor.as_str()),

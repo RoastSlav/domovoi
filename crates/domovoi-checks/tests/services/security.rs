@@ -2,11 +2,12 @@
 
 use std::net::IpAddr;
 
-use domovoi_checks::framework::Check;
+use domovoi_checks::framework::{Check, CheckError};
 use domovoi_checks::security::{
     Fail2banBans, ListenerGone, Network, NewPorts, SshLogins, SudoFailures, classify_ip,
     parse_accepted, parse_sudo_failure,
 };
+use domovoi_core::ports::ProcessOutput;
 use domovoi_core::{EvidenceValue, Severity};
 use jiff::SignedDuration;
 
@@ -21,7 +22,6 @@ const FAIL2BAN: &str = "/usr/bin/fail2ban-client";
 fn journal_args<'a>(scope: &[&'a str]) -> Vec<&'a str> {
     let mut args = vec![
         "--no-pager",
-        "--quiet",
         "--output=cat",
         "--show-cursor",
         "--since=-15min",
@@ -268,4 +268,49 @@ fn ip_classification_table() {
         let parsed: IpAddr = ip.parse().unwrap();
         assert_eq!(classify_ip(parsed), expected, "{ip}");
     }
+}
+
+/// What journalctl does for an account outside `systemd-journal`: exit 0, its own lines
+/// only, and a hint on the error output.
+fn refused() -> ProcessOutput {
+    ProcessOutput {
+        stderr: "Hint: You are currently not seeing messages from other users and the system.\n"
+            .to_owned(),
+        ..output("-- No entries --\n")
+    }
+}
+
+#[tokio::test]
+async fn a_journal_check_on_an_account_without_access_fails_and_says_why() {
+    let ssh = SshLogins::new().unwrap();
+    let sudo = SudoFailures::new().unwrap();
+    let scopes: [(&dyn Check, &[&str]); 2] = [
+        (&ssh, &["--unit", "ssh.service", "--unit", "sshd.service"]),
+        (&sudo, &["--identifier", "sudo"]),
+    ];
+    for (check, scope) in scopes {
+        let mut h = Harness::new("proc/ports_base").await;
+        h.exec.expect(JOURNAL, &journal_args(scope), refused());
+        let err = h.try_run(check).await.unwrap_err();
+        assert!(matches!(err, CheckError::JournalUnreadable(_)), "{err:?}");
+        assert!(err.to_string().contains("systemd-journal"), "{err}");
+        assert_eq!(h.state.get("cursor"), None, "no line is skipped");
+    }
+}
+
+#[tokio::test]
+async fn a_failed_journalctl_is_not_a_quiet_journal() {
+    let check = SudoFailures::new().unwrap();
+    let mut h = Harness::new("proc/ports_base").await;
+    h.exec.expect(
+        JOURNAL,
+        &journal_args(&["--identifier", "sudo"]),
+        ProcessOutput {
+            exit_code: Some(1),
+            stderr: "Failed to open journal".to_owned(),
+            ..ProcessOutput::default()
+        },
+    );
+    let err = h.try_run(&check).await.unwrap_err();
+    assert!(err.to_string().contains("Failed to open journal"), "{err}");
 }

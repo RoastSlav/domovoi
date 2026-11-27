@@ -86,7 +86,7 @@ The hottest CPU sensor. The check reads hwmon devices whose driver is `coretemp`
 
 ## Event checks and state checks
 
-A **state** check describes how things are now: a full disk, a failed unit. When a later run no longer reports the target, the agent sends a `resolved` signal and the incident closes by itself. An **event** check reports something that happened: a quiet run proves nothing about it. Seven checks are events: `system.reboot`, `kernel.errors`, `container.new`, `security.ssh_login`, `security.sudo_failure`, `security.new_port` and `security.listener_gone`. The agent never sends a recovery for them, so their incidents stay open until a person acknowledges, dismisses or resolves them. Acknowledging keeps the incident open; dismissing or resolving closes it. The incident counts further events of the same target (a second login by the same user) instead of opening another card.
+A **state** check describes how things are now: a full disk, a failed unit. When a later run no longer reports the target, the agent sends a `resolved` signal and the incident closes by itself. An **event** check reports something that happened: a quiet run proves nothing about it. Seven checks are events: `system.reboot`, `kernel.errors`, `container.new`, `security.ssh_login`, `security.sudo_failure`, `security.new_port` and `security.listener_gone`. The agent never sends a recovery for them, so their incidents stay open until a person acknowledges, dismisses or resolves them. (The one exception is the "cannot read the journal" warning below, which is about the check and not about an event.) Acknowledging keeps the incident open; dismissing or resolving closes it. The incident counts further events of the same target (a second login by the same user) instead of opening another card.
 
 ## `system.reboot`
 
@@ -102,6 +102,10 @@ Fires with warning severity while `/var/run/reboot-required` exists, as written 
 
 - **Target:** none.
 - **Evidence:** `packages` (the first 10 from `/var/run/reboot-required.pkgs`, comma-separated) and `package_count`.
+
+## When the journal cannot be read
+
+`kernel.errors`, `security.ssh_login` and `security.sudo_failure` read the journal. An account that may not read the system journal gets an empty answer and a warning from `journalctl`, which is not the same as a quiet host. When journalctl refuses the account, finds no journal, does not finish or fails, the check fails and the agent raises a warning incident for it with the target `journal:unreadable`: "`<check>` cannot read the journal, so its events are not being seen". The evidence field `reason` says why. The cursor stays where it was, so the missed lines are read once access is back, and the warning then resolves by itself. For a refused account, add `domovoi-agent` to the `systemd-journal` group and restart the agent. In a container, where `journalctl` is not used at all, these checks are unavailable and raise nothing.
 
 ## `kernel.errors`
 
@@ -333,8 +337,8 @@ Checks and the agent's read tools run only these commands. A journal call reads 
 
 | Template | Program | Arguments |
 | --- | --- | --- |
-| `journal` | `journalctl` | `--no-pager --quiet --output=short-iso --since=-<minutes>min --lines=<n>`, then `--dmesg` or `--unit <unit>` |
-| `journal_since_cursor` | `journalctl` | `--no-pager --quiet --output=cat --show-cursor`, then `--after-cursor=<cursor>` or `--since=-15min`, then one scope: `--dmesg`, `--unit <unit>` per unit, or `--identifier <id>` per syslog identifier |
+| `journal` | `journalctl` | `--no-pager --output=short-iso --since=-<minutes>min --lines=<n>`, then `--dmesg` or `--unit <unit>` |
+| `journal_since_cursor` | `journalctl` | `--no-pager --output=cat --show-cursor`, then `--after-cursor=<cursor>` or `--since=-15min`, then one scope: `--dmesg`, `--unit <unit>` per unit, or `--identifier <id>` per syslog identifier |
 | `smartctl_scan` | `smartctl` | `--scan-open --json` |
 | `smartctl_all` | `smartctl` | `--all --json --nocheck=standby <device>` |
 | `systemctl_show` | `systemctl` | `show --no-pager --property=<props> -- <unit>` |

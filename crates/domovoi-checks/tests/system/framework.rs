@@ -53,7 +53,6 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
         args(&spec),
         [
             "--no-pager",
-            "--quiet",
             "--output=cat",
             "--show-cursor",
             "--after-cursor=s=abc;i=1f;b=x",
@@ -154,7 +153,6 @@ async fn journal_scopes_never_mix_units_and_identifiers() {
         args(&spec),
         [
             "--no-pager",
-            "--quiet",
             "--output=cat",
             "--show-cursor",
             "--since=-15min",
