@@ -122,6 +122,47 @@ impl TriageReport {
     }
 }
 
+/// Share of words two texts have in common, from 0.0 to 1.0 (Jaccard on lowercase words).
+fn overlap(a: &str, b: &str) -> f64 {
+    let words = |t: &str| -> std::collections::BTreeSet<String> {
+        t.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 2)
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let (a, b) = (words(a), words(b));
+    let union = a.union(&b).count();
+    if union == 0 {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let ratio = a.intersection(&b).count() as f64 / union as f64;
+    ratio
+}
+
+impl TriageReport {
+    /// Names of fields that say what an earlier field already said, or that break the field's
+    /// job (a shell command in `next_step`). A soft check: the report is still kept, the
+    /// caller shows the repeated field once.
+    #[must_use]
+    pub fn field_problems(&self) -> Vec<&'static str> {
+        let mut found = Vec::new();
+        if overlap(&self.cause, &self.summary) >= 0.7 {
+            found.push("cause repeats summary");
+        }
+        if overlap(&self.next_step, &self.summary) >= 0.7
+            || overlap(&self.next_step, &self.cause) >= 0.7
+        {
+            found.push("next_step repeats the problem");
+        }
+        let step = self.next_step.trim_start();
+        if step.starts_with("sudo ") || step.starts_with('$') || step.starts_with("systemctl ") {
+            found.push("next_step is a shell command");
+        }
+        found
+    }
+}
+
 /// Limits for one triage run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TriageBudget {

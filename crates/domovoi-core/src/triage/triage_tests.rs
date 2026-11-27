@@ -140,3 +140,27 @@ fn every_tool_accepts_its_minimal_arguments() {
         );
     }
 }
+
+#[test]
+fn a_report_whose_fields_each_do_their_own_job_has_no_problems() {
+    assert!(report().field_problems().is_empty());
+}
+
+#[test]
+fn repeated_fields_and_shell_commands_in_next_step_are_named() {
+    let mut r = report();
+    r.cause = r.summary.clone();
+    r.next_step = "sudo systemctl restart plex".to_owned();
+    let problems = r.field_problems();
+    assert!(problems.contains(&"cause repeats summary"), "{problems:?}");
+    assert!(
+        problems.contains(&"next_step is a shell command"),
+        "{problems:?}"
+    );
+    let mut r = report();
+    r.next_step = "The container restarts every 40 seconds.".to_owned();
+    assert!(
+        r.field_problems()
+            .contains(&"next_step repeats the problem")
+    );
+}

@@ -21,6 +21,16 @@ import styles from "./incidents.module.css";
 const RETRY_HINT =
   "Runs the model again with the current skills, notes and evidence. Counts against the hourly triage limit.";
 
+/** Whether two fields say the same thing, ignoring case, punctuation and spacing. */
+export function sameText(a: string, b: string): boolean {
+  const norm = (t: string) =>
+    t
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  return norm(a) !== "" && norm(a) === norm(b);
+}
+
 /** What triage said, as far as the incident has it: from the report, or from the chat card. */
 function lead(detail: IncidentDetail) {
   const { report, card, incident } = detail;
@@ -155,17 +165,19 @@ export function WhatsGoingOn({
           <Stack gap={3}>
             {retry.isPending && <Progress label="Triage is reading the logs…" />}
             {said.summary && <Text block>{said.summary}</Text>}
-            {said.cause && (
+            {said.cause && !sameText(said.cause, said.summary) && (
               <Text block>
                 <Text muted>Cause: </Text>
                 {said.cause}
               </Text>
             )}
-            {said.next && (
-              <div className={styles.nextStep}>
-                <strong>Next step:</strong> {said.next}
-              </div>
-            )}
+            {said.next &&
+              !sameText(said.next, said.cause) &&
+              !sameText(said.next, said.summary) && (
+                <div className={styles.nextStep}>
+                  <strong>Next step:</strong> {said.next}
+                </div>
+              )}
             {state?.kind === "cached" && (
               <Text muted size="sm" block>
                 Triage reused the report of an earlier incident with the same evidence.

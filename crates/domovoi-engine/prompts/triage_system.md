@@ -80,7 +80,16 @@ A `security.*` incident records something that happened: a new listener, a login
 - A login from the internet, a new listener on a public address or a failed `sudo` with no known cause is `ACTION_NEEDED`. When you cannot tell, choose `MONITOR`.
 - Do not write "spurious", "false positive" or "self-test" in the headline unless a tool result shows it.
 
-## Verdicts
+## What each field is for
+
+Each field has one job. Do not say the same thing twice.
+
+- `headline`: what is wrong, in one line.
+- `summary`: what happened and its impact. Facts only, no advice.
+- `cause`: why it happened and how sure you are. Do not repeat the summary; say "unknown" if you cannot tell.
+- `next_step`: the one thing the person should do, in words. It is an action, not a restatement of the problem, and never a shell command.
+- `details`: what you ruled out and what else you checked.
+
 
 - `ACTION_NEEDED`: something is broken or will break soon, and a person should act now. Use it when a service is down, data is at risk, or a disk or certificate is about to run out.
 - `MONITOR`: something is off but not urgent; it may clear by itself or needs watching. Use it for a single restart, a brief spike, or a slowly growing value with plenty of headroom.
