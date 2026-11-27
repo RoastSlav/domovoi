@@ -3692,6 +3692,8 @@ export interface components {
             host_id: string;
             /** @description The one-time enrollment token. */
             token: string;
+            /** @description Set when the hub address in the command is probably not reachable from other hosts. */
+            warning?: string | null;
         };
         /** @description One problem with submitted settings. */
         IssueDto: {

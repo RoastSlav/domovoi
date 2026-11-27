@@ -129,6 +129,8 @@ pub struct AuthState {
     web: WebIdentity,
     setup: Mutex<Option<SetupToken>>,
     limiter: Mutex<LoginLimiter>,
+    /// The same limit per username, so a spread of addresses cannot guess one account.
+    name_limiter: Mutex<LoginLimiter<String>>,
 }
 
 impl std::fmt::Debug for AuthState {
@@ -167,6 +169,7 @@ impl AuthState {
             web,
             setup: Mutex::new(None),
             limiter: Mutex::new(LoginLimiter::default()),
+            name_limiter: Mutex::new(LoginLimiter::default()),
         }
     }
 
@@ -255,7 +258,15 @@ impl AuthState {
         password: &str,
     ) -> Result<NewSession, AuthError> {
         let now = self.clock.now();
-        if let Some(wait) = lock(&self.limiter).locked(ip, now) {
+        let name = username.trim().to_lowercase();
+        let wait = [
+            lock(&self.limiter).locked(ip, now),
+            lock(&self.name_limiter).locked(name.clone(), now),
+        ]
+        .into_iter()
+        .flatten()
+        .max();
+        if let Some(wait) = wait {
             return Err(AuthError::LockedOut {
                 retry_after_secs: wait.as_secs().max(1),
             });
@@ -268,10 +279,12 @@ impl AuthState {
         match user {
             Some(user) if matches => {
                 lock(&self.limiter).succeeded(ip);
+                lock(&self.name_limiter).succeeded(name);
                 self.start(user).await
             }
             _ => {
                 lock(&self.limiter).failed(ip, now);
+                lock(&self.name_limiter).failed(name, now);
                 tracing::info!(%ip, "failed login");
                 Err(AuthError::InvalidCredentials)
             }

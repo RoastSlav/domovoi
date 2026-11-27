@@ -12896,6 +12896,13 @@
           "token": {
             "type": "string",
             "description": "The one-time enrollment token."
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Set when the hub address in the command is probably not reachable from other hosts."
           }
         }
       },

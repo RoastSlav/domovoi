@@ -2969,11 +2969,19 @@ expression: spec
           "connected": {
             "description": "Whether the agent is connected.",
             "type": "boolean"
+          },
+          "refused": {
+            "description": "What the agent refused of the saved overrides, each with the reason; empty when it\ntook them all.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
           "connected",
-          "checks"
+          "checks",
+          "refused"
         ],
         "type": "object"
       },
@@ -3922,6 +3930,13 @@ expression: spec
           "token": {
             "description": "The one-time enrollment token.",
             "type": "string"
+          },
+          "warning": {
+            "description": "Set when the hub address in the command is probably not reachable from other hosts.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [

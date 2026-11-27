@@ -119,6 +119,7 @@ function Command({ invite }: { invite: Invite }) {
           "The invite has expired."
         )}
       </p>
+      {invite.warning ? <p role="alert">{invite.warning}</p> : null}
       <CopyBlock text={invite.command} label="Enrollment command" />
       <p>The agent pins the hub by this fingerprint. Check it matches what the agent prints:</p>
       <CopyBlock text={invite.fingerprint} label="Hub fingerprint" />

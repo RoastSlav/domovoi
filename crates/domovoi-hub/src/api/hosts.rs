@@ -197,6 +197,7 @@ pub(super) async fn enrollment(
         token: invite.token.expose().to_owned(),
         expires_at: invite.expires_at.to_string(),
         fingerprint: invite.fingerprint.clone(),
+        warning: unreachable_hub_warning(&invite.command),
         command: invite.command.clone(),
     }))
 }
@@ -403,5 +404,42 @@ mod tests {
         let (current, gone) = latest_per_key(&again, &retired);
         assert_eq!(current.len(), 2);
         assert!(gone.is_empty());
+    }
+}
+
+/// A warning when the hub address in an enroll command is a bare name (no dot, not an IP
+/// address), which is what the hub falls back to when `[agent_server] public_url` is unset:
+/// other hosts usually cannot resolve it.
+fn unreachable_hub_warning(command: &str) -> Option<String> {
+    let url = command
+        .split_whitespace()
+        .skip_while(|word| *word != "--hub")
+        .nth(1)?;
+    let host = url::Url::parse(url).ok()?.host_str()?.to_owned();
+    let bare = !host.contains('.') && !host.contains(':') && host != "localhost";
+    bare.then(|| {
+        format!(
+            "The command dials \"{host}\", the hub's own name, which other machines usually cannot resolve. Set [agent_server] public_url to an address they can reach, such as wss://hub.lan:7421, and create the invite again."
+        )
+    })
+}
+
+#[cfg(test)]
+mod invite_warning_tests {
+    use super::unreachable_hub_warning;
+
+    #[test]
+    fn a_bare_hub_name_is_warned_about_and_a_real_address_is_not() {
+        let cmd = |hub: &str| {
+            format!("domovoi agent enroll --hub {hub} --token t --fingerprint f --name n")
+        };
+        assert!(
+            unreachable_hub_warning(&cmd("wss://hub-c:7431/"))
+                .unwrap()
+                .contains("hub-c")
+        );
+        assert!(unreachable_hub_warning(&cmd("wss://hub.lan:7431/")).is_none());
+        assert!(unreachable_hub_warning(&cmd("wss://192.168.1.5:7431/")).is_none());
+        assert!(unreachable_hub_warning(&cmd("wss://localhost:7431/")).is_none());
     }
 }

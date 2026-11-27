@@ -149,6 +149,9 @@ pub struct InviteDto {
     pub fingerprint: String,
     /// The command to run on the host.
     pub command: String,
+    /// Set when the hub address in the command is probably not reachable from other hosts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// The body of a revoke: the host's name typed again, as the web page asks for.
