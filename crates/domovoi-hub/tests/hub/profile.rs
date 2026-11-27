@@ -287,16 +287,20 @@ async fn read_skills_that_need_arguments_are_skipped_not_asked_empty() {
         .to_vec(),
     );
     let profile = refresh(&profile_deps(&a), &a.nas).await.unwrap();
-    let gap = profile
+    assert!(
+        profile
+            .sections
+            .iter()
+            .all(|section| section.title != "disk_usage_top"),
+        "a skill that needs arguments gets no section of its own"
+    );
+    let note = profile
         .sections
         .iter()
-        .find(|section| section.title == "disk_usage_top")
-        .unwrap();
-    assert!(!gap.ok, "a skill the hub cannot call leaves a gap");
-    assert_eq!(
-        gap.text, "skipped, needs arguments",
-        "the reason says the hub skipped it, not the agent failing",
-    );
+        .find(|section| section.title == "Not collected")
+        .expect("the skills left out are named once");
+    assert!(note.ok, "leaving it out by design is not a warning");
+    assert!(note.text.contains("disk_usage_top"), "{}", note.text);
     let asked = profile
         .sections
         .iter()

@@ -34,6 +34,8 @@ pub(crate) const AGENT_CUT: &str = "\n[the agent cut this output]";
 pub(crate) const OVERVIEW_TITLE: &str = "Overview";
 pub(crate) const CONTAINER_TITLE: &str = "Containers";
 pub(crate) const LISTENER_TITLE: &str = "Listening ports";
+/// The section that names the skills the profile leaves out because they need arguments.
+const NOT_COLLECTED_TITLE: &str = "Not collected";
 pub(crate) const KERNEL_TITLE: &str = "Kernel messages (24 h)";
 
 /// What the hub reads back from the journal: the last day of kernel messages.
@@ -196,10 +198,12 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
     .to_vec();
     let summaries = deps.capabilities.enabled_skills(host.id);
     let mut asked = 0;
+    // A read skill that needs arguments is not run by the profile on purpose. That is not a
+    // failure, so it gets no warning section: the names are listed once.
+    let mut needs_arguments: Vec<&str> = Vec::new();
     for skill in summaries.iter().filter(|skill| skill.risk == Risk::Read) {
         if skill.params.iter().any(|param| param.required) {
-            let why = Err("skipped, needs arguments".to_owned());
-            sections.push(section_of(skill.name.as_str(), why));
+            needs_arguments.push(skill.name.as_str());
             continue;
         }
         if asked >= MAX_SKILL_SECTIONS {
@@ -212,6 +216,13 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
         };
         let answered = ask(deps, host.id, call).await;
         sections.push(section_of(skill.name.as_str(), answered));
+    }
+    if !needs_arguments.is_empty() {
+        let text = format!(
+            "These read skills need arguments, so the profile does not run them: {}.",
+            needs_arguments.join(", ")
+        );
+        sections.push(section_of(NOT_COLLECTED_TITLE, Ok(text)));
     }
     Ok(HostProfile {
         collected_at: deps.clock.now(),
