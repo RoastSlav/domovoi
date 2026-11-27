@@ -50,6 +50,8 @@ pub enum ConfigKind {
     Hub,
     /// `agent.toml`.
     Agent,
+    /// `helper.toml`, parsed and validated by the helper's own parser.
+    Helper,
 }
 
 pub fn run(command: CheckCommand) -> anyhow::Result<ExitCode> {
@@ -67,11 +69,20 @@ fn guess_kind(file: &Path) -> anyhow::Result<ConfigKind> {
         text.lines()
             .any(|line| line.trim_start().starts_with(&format!("[{table}]")))
     };
+    // A helper file has no table that names it, and may hold `groups` only.
+    let named_helper = file.file_name().is_some_and(|name| name == "helper.toml");
+    let helper_keys = text
+        .lines()
+        .any(|line| line.trim_start().starts_with("groups"))
+        || ["platform", "safety", "smart", "limits", "nft"]
+            .iter()
+            .any(|table| has(table));
     match (has("hub"), has("agent")) {
         (true, false) => Ok(ConfigKind::Hub),
         (false, true) => Ok(ConfigKind::Agent),
+        (false, false) if named_helper || helper_keys => Ok(ConfigKind::Helper),
         _ => anyhow::bail!(
-            "cannot tell whether {} is a hub or an agent configuration; pass --kind",
+            "cannot tell whether {} is a hub, an agent or a helper configuration; pass --kind",
             file.display()
         ),
     }
@@ -85,6 +96,8 @@ fn config(file: &Path, kind: Option<ConfigKind>) -> anyhow::Result<ExitCode> {
     let issues = match kind {
         ConfigKind::Hub => issues(domovoi_config::load_hub(file, &SystemEnv)),
         ConfigKind::Agent => issues(domovoi_config::load_agent(file, &SystemEnv)),
+        // The same parser the helper's start check runs, so it says what the helper would.
+        ConfigKind::Helper => issues(domovoi_config::load_helper(file)),
     };
     for issue in &issues {
         println!("{issue}");

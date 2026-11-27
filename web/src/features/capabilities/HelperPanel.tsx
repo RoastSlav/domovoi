@@ -1,8 +1,9 @@
 import { useHostHelper } from "../../api/hooks/helper";
 import { useHosts } from "../../api/hooks/hosts";
 import { useSelectedHost } from "../../app/HostContext";
-import { EmptyState, QueryBoundary, Skeleton, Stack } from "../../components";
+import { EmptyState, QueryBoundary, Skeleton, Stack, Text } from "../../components";
 import { HelperHostCard } from "./HelperHostCard";
+import { CHECK_HELPER_TOML } from "./helperText";
 
 function ForHost({ name }: { name: string }) {
   const helper = useHostHelper(name);
@@ -37,6 +38,9 @@ export function HelperPanel() {
     >
       {(list) => (
         <Stack gap={4}>
+          <Text block muted size="sm">
+            {CHECK_HELPER_TOML}
+          </Text>
           {list
             .filter((host) => selected === undefined || host.name === selected)
             .map((host) => (

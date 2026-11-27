@@ -62,7 +62,7 @@ The helper's own checks failed, and it answers every request with `StartRefused`
 
 - `helper_state_permissions`: a mode, owner, group or type is wrong on the helper's directory, lock, key, state, platform record or `helper.toml`, or one of them is a symlink. Each path is listed with the found and the expected values. Nothing was changed. Fix it with `sudo domovoi helper repair`, which shows the plan and asks you to type `repair`. If a path is a symlink or the wrong type, remove or fix it yourself first: repair refuses those.
 - `uninitialized`: `domovoi helper init` has not run. Run it with `sudo`.
-- `helper_config_invalid`: `/etc/domovoi/helper.toml` has an unknown key, an unknown group or a duplicate group. Fix the file.
+- `helper_config_invalid`: `/etc/domovoi/helper.toml` has an unknown key, an unknown group, a duplicate group or a value out of range. Run `sudo domovoi check config /etc/domovoi/helper.toml`: it uses the helper's own parser and names each problem. Fix the file.
 - `agent_account_missing`: the `domovoi-agent` account does not exist, so the helper does not know whom to serve.
 
 ### A path has the wrong mode or owner

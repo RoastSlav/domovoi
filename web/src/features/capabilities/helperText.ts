@@ -9,6 +9,10 @@ export const RELAYED = "Relayed by the agent, not verified.";
 export const EDIT_NOTE =
   "To change what is protected, edit helper.toml on the host, then Re-check. This page only shows what the helper reported.";
 
+/** How the owner learns whether an edit of helper.toml is valid before the helper refuses it. */
+export const CHECK_HELPER_TOML =
+  "After editing helper.toml, check it on the host: sudo domovoi check config /etc/domovoi/helper.toml. A file with a mistake makes the helper refuse every request.";
+
 /** Shown when a verified report names no address for the hub itself. */
 export const HUB_ADDR_NOTE =
   "The report lists no address for this hub, so the helper may not protect the connection the hub uses. Add the hub's address to helper.toml on the host, then Re-check.";

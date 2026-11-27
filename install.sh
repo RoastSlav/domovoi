@@ -695,6 +695,7 @@ render_runner_service() {
 helper_toml() {
     cat <<'EOF'
 # /etc/domovoi/helper.toml (root:root 0600). Written by the installer only when absent.
+# After editing it, check it: sudo domovoi check config /etc/domovoi/helper.toml
 groups = ["docker.read", "systemd.read", "smart.read", "kernel.read", "net.read", "safety.attest"]
 
 [platform]
@@ -1085,6 +1086,17 @@ write_helper_toml() {
         manifest_add file /etc/domovoi/helper.toml
         say "Created /etc/domovoi/helper.toml (read groups only; no write group is enabled)"
     fi
+    check_helper_toml /etc/domovoi/helper.toml
+}
+
+# Validates the helper.toml at $1 with the helper's own parser and says what is wrong. It
+# never changes the file and never stops the install: the self-test judges the helper.
+check_helper_toml() {
+    if "$bin" check config --kind helper "$1" >"$tmp/helper-check.out" 2>&1; then
+        return 0
+    fi
+    show_file_err "$tmp/helper-check.out"
+    warn "$1 did not pass the check above, so the helper refuses every request. Fix it, then run: sudo $bin check config $1"
 }
 
 # Installs one unit: NAME and the function that prints it. ExecStart points at this --prefix.

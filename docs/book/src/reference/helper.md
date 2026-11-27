@@ -8,7 +8,7 @@ Who is served: only the `domovoi-agent` account. The helper looks up that accoun
 
 ## `helper.toml`
 
-`/etc/domovoi/helper.toml`, owner root, mode 0600. The installer writes it only when it does not exist, and nothing else edits it. An unknown key, an unknown group name or a duplicate group makes the helper refuse to start with `helper_config_invalid`.
+`/etc/domovoi/helper.toml`, owner root, mode 0600. The installer writes it only when it does not exist, and nothing else edits it. An unknown key, an unknown group name or a duplicate group makes the helper refuse to start with `helper_config_invalid`. After editing the file, check it with `sudo domovoi check config /etc/domovoi/helper.toml`, which parses it as the helper does.
 
 ```toml
 groups = ["docker.read", "systemd.read", "smart.read", "kernel.read", "net.read", "safety.attest"]

@@ -97,6 +97,46 @@ mod tests {
             .stdout(contains("llm.primary.api_key"));
     }
 
+    #[test]
+    fn check_config_judges_helper_toml_with_the_helpers_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("helper.toml");
+        fs::write(&path, "groups = [\"docker.read\", \"systemd.restart\"]\n").unwrap();
+        // The kind is guessed from the name, and can be said.
+        for args in [
+            &["check", "config"][..],
+            &["check", "config", "--kind", "helper"],
+        ] {
+            domovoi()
+                .args(args)
+                .arg(&path)
+                .assert()
+                .failure()
+                .stdout(contains(
+                    "unknown helper group `systemd.restart`; known groups are",
+                ))
+                .stdout(contains("1 error(s)"));
+        }
+        fs::write(
+            &path,
+            "groups = [\"docker.read\"]\n[safety]\nmanagment_cidrs = []\n",
+        )
+        .unwrap();
+        domovoi()
+            .args(["check", "config"])
+            .arg(&path)
+            .assert()
+            .failure()
+            .stdout(contains("safety.managment_cidrs"));
+        fs::write(&path, "groups = [\"docker.read\"]\n").unwrap();
+        domovoi()
+            .args(["check", "config"])
+            .arg(&path)
+            .assert()
+            .success()
+            .stdout(contains("ok (0 warning(s))"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn check_skills_lists_valid_and_invalid() {

@@ -76,10 +76,10 @@ fns="$work/install-functions.sh"
 grep '^\(say\|say_always\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
 for fn in err fail_with failed_checks runner_service_unit render_runner_service runner_prefix_ok \
     runner_dirs place_unit restart_replaced_socket start_sockets selftest_hint manifest_add mkdir_rec \
-    rollback_disarm; do
+    rollback_disarm check_helper_toml warn; do
     sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
 done
-check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 20
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 22
 
 rendered="$work/rendered.service"
 render_with() {
@@ -122,6 +122,10 @@ case "$*" in
     [ "${STUB_FAIL:-none}" != first ] || { echo "ST-05 fail runner_groups_extra"; exit 1; }
     echo "ST-01 pass"
     ;;
+"check config --kind helper "*)
+    [ "${STUB_HELPER_TOML:-ok}" = ok ] || { echo "error: groups[0]: unknown helper group"; exit 1; }
+    echo "helper.toml: ok (0 warning(s))"
+    ;;
 "agent selftest --installer")
     [ "${STUB_FAIL:-none}" != second ] || { echo "ST-13 fail runner_probe"; exit 1; }
     echo "ST-13 pass"
@@ -142,6 +146,16 @@ else
     pass "a refused agent dirs stops the runner steps"
 fi
 check "a refused agent dirs says nothing was changed" grep -q "nothing was changed" "$work/dirs.out"
+
+sockets_run "check_helper_toml '$work/helper.toml'"
+check "a valid helper.toml is said nothing about" \
+    sh -c "! grep -q 'did not pass' '$work/sockets.out'"
+STUB_HELPER_TOML=bad
+export STUB_HELPER_TOML
+sockets_run "check_helper_toml '$work/helper.toml'" || fail "a bad helper.toml stops the install"
+check "a bad helper.toml is shown with the command that checks it" \
+    sh -c "grep -q 'unknown helper group' '$work/sockets.out' && grep -q 'check config $work/helper.toml' '$work/sockets.out'"
+STUB_HELPER_TOML=ok
 
 sockets_run start_sockets
 check "both sockets start when the self-test passes" \

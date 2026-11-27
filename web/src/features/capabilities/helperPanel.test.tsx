@@ -60,6 +60,7 @@ test("helper_panel_shows_each_host_state_and_reason", async () => {
   expect(verified.getByText("nginx.service")).toBeVisible();
   expect(verified.getByText(/Generation 7/)).toBeVisible();
   expect(verified.getByText(/edit helper.toml on the host/)).toBeVisible();
+  expect(screen.getByText(/domovoi check config \/etc\/domovoi\/helper.toml/)).toBeVisible();
 
   const open = within(await screen.findByRole("group", { name: "Helper on pi" }));
   expect(open.getByText("Key not pinned")).toBeVisible();

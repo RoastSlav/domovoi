@@ -256,9 +256,8 @@ impl UnavailableReason {
             Self::HelperError => {
                 "the helper on this host reported an error; the Helper tab shows its reason. If it \
                  says helper_config_invalid, /etc/domovoi/helper.toml is wrong (for example an \
-                 unknown group name): the helper logs the exact key, see `journalctl -u \
-                 domovoi-helper.socket -u 'domovoi-helper@*'`; until it is fixed the helper \
-                 serves no reads"
+                 unknown group name): `sudo domovoi check config /etc/domovoi/helper.toml` names \
+                 the exact key; until it is fixed the helper serves no reads"
             }
             Self::CatalogueIncomplete => "this host's capability catalogue is not verified",
             Self::CatalogueHashMismatch => {

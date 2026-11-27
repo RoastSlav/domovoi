@@ -190,11 +190,12 @@ The web UI does all of these while the hub runs. The lock is released when the h
 
 ### `domovoi check config <file>`
 
-Loads and validates a configuration file without starting anything. It prints every problem with its path in the file (for example `error: llm.primary.api_key: …`) and exits 1 if there are errors. The kind of file is guessed from its `[hub]` or `[agent]` table; `--kind hub|agent` says it explicitly. Secrets given as `{ env = … }` or `{ file = … }` are resolved, so a missing variable is reported too.
+Loads and validates a configuration file without starting anything. It prints every problem with its path in the file (for example `error: llm.primary.api_key: …`) and exits 1 if there are errors. The kind of file is guessed from its `[hub]` or `[agent]` table, or from the name `helper.toml` or its tables; `--kind hub|agent|helper` says it explicitly. A `helper.toml` is parsed by the helper's own parser, so the messages are those that make the helper refuse with `helper_config_invalid`. The installed file is readable by root only: use `sudo`. Secrets given as `{ env = … }` or `{ file = … }` are resolved, so a missing variable is reported too.
 
 ```sh
 domovoi check config /etc/domovoi/hub.toml
 domovoi check config agent.toml --kind agent
+sudo domovoi check config /etc/domovoi/helper.toml
 ```
 
 ### `domovoi check skills <dir>`
