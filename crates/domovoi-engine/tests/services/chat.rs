@@ -97,7 +97,13 @@ async fn asking_about_all_hosts_sends_the_model_no_tools() {
         )
         .await
         .unwrap();
-    assert_eq!(answer, "Both hosts look calm.".to_owned());
+    assert_eq!(
+        answer,
+        format!(
+            "Both hosts look calm.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 1, "one model call answers the question");
@@ -252,7 +258,13 @@ async fn a_chosen_hosts_chat_for_a_provider_without_tools_gets_host_read_output(
         )
         .await
         .unwrap();
-    assert_eq!(answer, "The logs show a stuck nginx worker.".to_owned());
+    assert_eq!(
+        answer,
+        format!(
+            "The logs show a stuck nginx worker.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
 
     let tool_calls: Vec<(HostId, ReadToolCall)> = w
         .link
@@ -344,7 +356,13 @@ async fn a_cut_off_chat_answer_is_retried_with_more_room() {
         .chat(None, "Two hosts.", &Vec::new(), "How many disks?")
         .await
         .unwrap();
-    assert_eq!(answer, "The NAS has two disks.");
+    assert_eq!(
+        answer,
+        format!(
+            "The NAS has two disks.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
@@ -381,7 +399,13 @@ async fn a_provider_without_tools_retries_a_cut_off_answer() {
         )
         .await
         .unwrap();
-    assert_eq!(answer, "The disk is fine.");
+    assert_eq!(
+        answer,
+        format!(
+            "The disk is fine.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
 
     let requests = w.primary.requests();
     assert_eq!(requests.len(), 2);
@@ -444,8 +468,86 @@ async fn a_model_that_spends_its_reads_and_writes_nothing_gets_an_explained_answ
         .chat(Some(other_host_id()), "", &Vec::new(), "Why slow?")
         .await
         .unwrap();
+    assert!(answer.contains("at most 12"), "{answer}");
+}
+
+#[tokio::test]
+async fn a_question_may_read_at_most_twelve_times_even_when_triage_may_read_fifteen() {
+    let w = world(Setup::default()).await;
+    w.link.set_presence(
+        other_host_id(),
+        Presence::Connected {
+            since: T0,
+            version: "0.1.0".to_owned(),
+        },
+    );
+    for n in 0..40 {
+        w.primary.push_ok(read_calls(&[(
+            &format!("c{n}"),
+            "journal",
+            json!({"unit": format!("u{n}")}),
+        )]));
+    }
+    w.triage
+        .chat(Some(other_host_id()), "", &Vec::new(), "Why slow?")
+        .await
+        .unwrap();
+    // Twelve turns with one read each, then the model is told to answer and answers or is cut.
     assert!(
-        answer.contains("Models and triage, Tool calls per run"),
+        w.primary.requests().len() <= 14,
+        "{} requests",
+        w.primary.requests().len()
+    );
+}
+
+#[tokio::test]
+async fn running_out_of_output_tokens_after_reads_returns_what_was_read_not_an_error() {
+    let mut settings = TriageSettings::default();
+    settings.budget.max_output_tokens = 1000;
+    settings.budget.max_total_output_tokens = 2500;
+    let w = world(Setup {
+        settings,
+        ..Setup::default()
+    })
+    .await;
+    w.link.set_presence(
+        other_host_id(),
+        Presence::Connected {
+            since: T0,
+            version: "0.1.0".to_owned(),
+        },
+    );
+    for n in 0..3 {
+        w.primary.push_ok(read_calls(&[(
+            &format!("c{n}"),
+            "journal",
+            json!({"unit": format!("u{n}")}),
+        )]));
+    }
+    let answer = w
+        .triage
+        .chat(Some(other_host_id()), "", &Vec::new(), "Why slow?")
+        .await
+        .expect("the reads are kept, not turned into an error");
+    assert!(
+        answer.contains("ran out of its output token budget"),
+        "{answer}"
+    );
+    assert!(answer.contains("journal"), "the reads are named: {answer}");
+    assert!(answer.contains("I did not check anything else"), "{answer}");
+}
+
+#[tokio::test]
+async fn the_no_tool_footer_is_added_only_to_an_answer_that_used_no_tool() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text("It is fine.");
+    let answer = w
+        .triage
+        .chat(None, "Two hosts.", &Vec::new(), "Is it fine?")
+        .await
+        .unwrap();
+    assert!(
+        answer.ends_with(domovoi_engine::triage::NO_TOOL_FOOTER),
         "{answer}"
     );
 }

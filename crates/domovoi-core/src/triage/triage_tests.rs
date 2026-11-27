@@ -168,10 +168,10 @@ fn repeated_fields_and_shell_commands_in_next_step_are_named() {
 #[test]
 fn a_command_in_the_middle_of_next_step_is_named() {
     for text in [
-        "Run `systemctl restart nginx` now.",
+        "Run `reboot` now.",
         "First apt install curl, then retry.",
-        "Check it, then systemctl restart nginx.",
-        "$ docker restart web",
+        "Check it, then dnf upgrade openssl.",
+        "$ ls /srv",
         "Explain first.\nsudo reboot",
     ] {
         let mut r = report();

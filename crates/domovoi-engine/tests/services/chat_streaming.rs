@@ -139,7 +139,10 @@ async fn chat_streaming_discards_an_incomplete_turn_and_restarts_the_text() {
         .chat_streaming(None, "Hosts.", &[], "Status?", sink.clone())
         .await
         .unwrap();
-    assert_eq!(answer.text, "Whole answer.");
+    assert_eq!(
+        answer.text,
+        format!("Whole answer.{}", domovoi_engine::triage::NO_TOOL_FOOTER)
+    );
     assert_eq!(
         sink.seen(),
         vec![

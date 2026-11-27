@@ -352,7 +352,10 @@ async fn triage_service_without_a_queue_answers_questions_and_chat() {
         .chat(Some(host_id()), "One host.", &Vec::new(), "Is the disk ok?")
         .await
         .unwrap();
-    assert_eq!(chat, "Disk is fine.");
+    assert_eq!(
+        chat,
+        format!("Disk is fine.{}", domovoi_engine::triage::NO_TOOL_FOOTER)
+    );
     assert_eq!(w.primary.requests().len(), 2, "one model call each");
     assert!(w.operations().await.is_empty(), "no investigation started");
 }

@@ -141,7 +141,13 @@ async fn a_question_answers_202_and_the_answer_arrives_in_the_thread() {
     let detail = settled(&a, &login, &id).await;
     let answer = assistant(&detail);
     assert_eq!(answer["status"], "complete", "{detail}");
-    assert_eq!(answer["text"], "The disk is filling up.");
+    assert_eq!(
+        answer["text"],
+        format!(
+            "The disk is filling up.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
     assert!(detail["turn_in_progress"].is_null());
     assert_eq!(detail["title"], "Why is the NAS slow?");
 
@@ -452,7 +458,10 @@ async fn retry_asks_again_and_completes() {
     );
     let detail = settled(&a, &login, &id).await;
     assert_eq!(assistant(&detail)["status"], "complete", "{detail}");
-    assert_eq!(assistant(&detail)["text"], "Now it works.");
+    assert_eq!(
+        assistant(&detail)["text"],
+        format!("Now it works.{}", domovoi_engine::triage::NO_TOOL_FOOTER)
+    );
 
     let again = a
         .post(

@@ -208,14 +208,18 @@ impl RunBudget {
     /// [`grant`](Self::grant), with the failure a model run ends with when the budget is
     /// spent.
     pub(crate) fn grant_or_fail(&mut self, wanted: u32) -> Result<u32, LlmError> {
-        self.grant(wanted).ok_or_else(|| {
-            LlmError::Unavailable(
-                "the run spent its whole output token budget before the model finished; \
-                 raise 'Total tokens per run' under Settings, Models and triage (triage.per_run.total_tokens)"
-                    .to_owned(),
-            )
-        })
+        self.grant(wanted)
+            .ok_or_else(|| LlmError::Unavailable(TOKEN_BUDGET_SPENT.to_owned()))
     }
+}
+
+/// The failure a run ends with when its output token budget is spent.
+const TOKEN_BUDGET_SPENT: &str = "the run spent its whole output token budget before the model finished; \
+     raise 'Total tokens per run' under Settings, Models and triage (triage.per_run.total_tokens)";
+
+/// Whether `err` is the spent output token budget, as opposed to a provider failure.
+pub(crate) fn is_token_budget(err: &LlmError) -> bool {
+    matches!(err, LlmError::Unavailable(text) if text == TOKEN_BUDGET_SPENT)
 }
 
 /// One tool call the model made.

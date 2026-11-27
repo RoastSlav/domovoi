@@ -18,7 +18,24 @@ const FINISH_AGAIN: &str = "Your answer could not be used: call finish again wit
 
 /// The answer when the model used every read it was given and wrote nothing. It says why and
 /// where the limit is, so the person is not left with an empty message.
-const NO_ANSWER_IN_BUDGET: &str = "I used all the reads I am allowed for one question and did not reach an answer. Ask again with a narrower question, or raise the tool-call limit (Settings, Models and triage, Tool calls per run).";
+const NO_ANSWER_IN_BUDGET: &str = "I used all the reads one question may make (at most 12, and no more than Tool calls per run under Settings, Models and triage) and did not reach an answer. Ask again with a narrower question.";
+
+/// The reply when the model ran out of its output tokens after it had read things: what was
+/// read is kept and said, and nothing is made up. `used` is the reads of the conversation.
+fn partial_answer(used: &[ToolUse]) -> String {
+    let mut names: Vec<&str> = used
+        .iter()
+        .filter(|call| !call.refused)
+        .map(|call| call.tool.as_str())
+        .collect();
+    names.dedup();
+    format!(
+        "The model ran out of its output token budget before it wrote an answer. These reads ran: {}. \
+         I did not check anything else. Ask again with a narrower question, or raise 'Total tokens per \
+         run' under Settings, Models and triage.",
+        names.join(", ")
+    )
+}
 
 fn tool_calls(parts: &[Part]) -> Vec<(String, String, Value)> {
     parts
@@ -201,7 +218,8 @@ pub(crate) async fn investigate(
                 }
             }
         }
-        if state.calls_used >= shared.settings.budget.max_tool_calls && !state.told {
+        if state.calls_used >= state.max_calls(shared.settings.budget.max_tool_calls) && !state.told
+        {
             results.push(Part::Text(BUDGET_EXHAUSTED.to_owned()));
             state.told = true;
         }
@@ -232,7 +250,7 @@ pub(crate) async fn converse_read(
     // Reads in a conversation are not recorded as evidence steps: there is no operation.
     let mut evidence: Vec<EvidenceRecord> = Vec::new();
     loop {
-        let response = agent::ask(
+        let response = match agent::ask(
             shared,
             ctx.provider,
             ctx.system,
@@ -240,7 +258,15 @@ pub(crate) async fn converse_read(
             specs.clone(),
             run,
         )
-        .await?;
+        .await
+        {
+            Ok(response) => response,
+            // The reads already made are not thrown away with the failed turn.
+            Err(err) if agent::is_token_budget(&err) && !used.is_empty() => {
+                return Ok(partial_answer(used));
+            }
+            Err(err) => return Err(err),
+        };
         messages.push(LlmMessage {
             role: Role::Assistant,
             parts: response.parts.clone(),
@@ -295,7 +321,7 @@ pub(crate) async fn converse_read(
         if shared.deps.clock.now() >= run.deadline() {
             return Err(deadline_error());
         }
-        if state.calls_used >= shared.settings.budget.max_tool_calls {
+        if state.calls_used >= state.max_calls(shared.settings.budget.max_tool_calls) {
             results.push(Part::Text(BUDGET_EXHAUSTED.to_owned()));
             state.told = true;
         }

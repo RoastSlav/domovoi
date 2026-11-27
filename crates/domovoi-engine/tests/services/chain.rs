@@ -106,7 +106,13 @@ async fn the_chain_returns_the_first_success_and_asks_no_further_provider() {
     let w = world_with_fallbacks().await;
     w.primary.push_err(down("primary is down"));
     w.secondary.push_text("The second answers.");
-    assert_eq!(chatted(&w).await.unwrap(), "The second answers.");
+    assert_eq!(
+        chatted(&w).await.unwrap(),
+        format!(
+            "The second answers.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
     assert_eq!(w.primary.requests().len(), 1);
     assert_eq!(w.secondary.requests().len(), 1);
     assert!(w.third.requests().is_empty(), "chat asked a third");

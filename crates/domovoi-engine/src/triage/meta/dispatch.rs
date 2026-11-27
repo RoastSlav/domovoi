@@ -36,6 +36,8 @@ pub(crate) struct State<'a> {
     pub(super) tools: ToolSet,
     pub(super) plan: Option<&'a PlanScope>,
     pub(super) calls_used: u16,
+    /// A cap on reads that is lower than the run budget's, for conversations with the operator.
+    pub(super) call_cap: Option<u16>,
     pub(super) told: bool,
     pub(super) staged: Vec<PlannedStep>,
     pub(super) refusals: Vec<Logged>,
@@ -45,13 +47,23 @@ pub(crate) struct State<'a> {
     pub(super) experience: ExperienceAccess,
 }
 
+/// The most reads one question to the operator may make, whatever `Tool calls per run` allows
+/// for triage. A question is answered in a few reads; more is a loop.
+pub(crate) const OPERATOR_MAX_TOOL_CALLS: u16 = 12;
+
 impl<'a> State<'a> {
+    /// The reads this conversation may make: the run budget's, lowered by the operator cap.
+    pub(super) fn max_calls(&self, budget: u16) -> u16 {
+        self.call_cap.map_or(budget, |cap| cap.min(budget))
+    }
+
     /// The state of an investigation in `scope`.
     pub(super) fn investigation(scope: &'a LoopScope) -> Self {
         Self {
             tools: scope.tools,
             plan: Some(&scope.plan),
             calls_used: 0,
+            call_cap: None,
             told: false,
             staged: Vec::new(),
             refusals: Vec::new(),
@@ -68,6 +80,7 @@ impl<'a> State<'a> {
             tools: ToolSet::Read,
             plan: None,
             calls_used: 0,
+            call_cap: Some(OPERATOR_MAX_TOOL_CALLS),
             told: false,
             staged: Vec::new(),
             refusals: Vec::new(),
@@ -142,7 +155,7 @@ pub(super) async fn handle(
         }
         other => other,
     };
-    let max = ctx.shared.settings.budget.max_tool_calls;
+    let max = state.max_calls(ctx.shared.settings.budget.max_tool_calls);
     if state.told || state.calls_used >= max {
         used.push(record::recorded(name, &input, ctx.skills, false, true));
         if let MetaToolCall::RequestEvidence(read) = call {

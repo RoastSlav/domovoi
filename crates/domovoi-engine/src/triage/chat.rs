@@ -210,6 +210,9 @@ impl Attempt for ChatAttempt<'_> {
     }
 }
 
+/// Appended to an answer that used no tool.
+pub const NO_TOOL_FOOTER: &str = "\n\nNo tool ran for this answer. It comes from what Domovoi already had (earlier drafts, notes and the overview), not from reading the host now.";
+
 /// Answers `question` about the operator's hosts in general. With `host`, the model may use
 /// that host's read tools and read skills; with `None` it answers from `overview`, the
 /// summary of every host, in one turn with no tools. A provider that cannot call tools
@@ -312,11 +315,17 @@ pub(crate) async fn answer_with(
     let answer = run_chain(shared, &mut state, &attempt)
         .await
         .map_err(|reasons| provider_failure(deps.redactor.as_ref(), &reasons))?;
+    let mut text = clip(
+        deps.redactor.redact(answer.as_str()).as_str(),
+        MAX_ANSWER_CHARS,
+    );
+    // Set in code, so the model cannot leave it out: an answer without a tool is not a read
+    // of the host.
+    if state.used.is_empty() {
+        text.push_str(NO_TOOL_FOOTER);
+    }
     Ok(ChatAnswer {
-        text: clip(
-            deps.redactor.redact(answer.as_str()).as_str(),
-            MAX_ANSWER_CHARS,
-        ),
+        text,
         tools: state.used,
     })
 }

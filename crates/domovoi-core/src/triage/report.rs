@@ -163,11 +163,9 @@ impl TriageReport {
 }
 
 /// Programs whose next word, when it is one of [`COMMAND_VERBS`], makes a sentence a command.
-const COMMAND_PROGRAMS: [&str; 6] = ["apt", "apt-get", "dnf", "pacman", "systemctl", "docker"];
-const COMMAND_VERBS: [&str; 14] = [
-    "install", "remove", "purge", "restart", "start", "stop", "enable", "disable", "run", "rm",
-    "upgrade", "update", "-S", "-Syu",
-];
+const COMMAND_PROGRAMS: &str = "apt apt-get dnf pacman systemctl docker";
+const COMMAND_VERBS: &str =
+    "install remove purge restart start stop enable disable run rm upgrade update -S -Syu";
 
 /// Whether `text` holds a shell command: a line that starts with `$` or `sudo `, a backtick, or
 /// a package or service program followed by a verb ("apt install nginx then systemctl restart").
@@ -181,8 +179,10 @@ fn has_shell_command(text: &str) -> bool {
     }
     let words: Vec<&str> = text.split_whitespace().collect();
     words.windows(2).any(|pair| {
-        COMMAND_PROGRAMS.contains(&pair[0].trim_matches(|c: char| !c.is_alphanumeric() && c != '-'))
-            && COMMAND_VERBS.contains(&pair[1].trim_matches(|c: char| c == ',' || c == '.'))
+        let program = pair[0].trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+        let verb = pair[1].trim_matches([',', '.']);
+        COMMAND_PROGRAMS.split_whitespace().any(|p| p == program)
+            && COMMAND_VERBS.split_whitespace().any(|v| v == verb)
     })
 }
 

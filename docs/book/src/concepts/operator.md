@@ -41,6 +41,8 @@ Every question is limited to 1000 characters. What is sent to the model is redac
 
 The monthly model budget applies to Operator answers, as it does to every other model call.
 
+One question may make at most 12 reads (and never more than `triage.per_run.tool_calls`). When the model runs out of output tokens after it has read things, the reply names the reads that ran and says that nothing else was checked, instead of an error. An answer that used no tool ends with a fixed line saying so: it comes from what Domovoi already had (earlier drafts, notes, the overview), not from reading the host now. The model cannot leave that line out.
+
 ## Retention
 
 Operator messages are deleted after `retention.conversations_days`, which defaults to 180 days. The conversation itself and its operation link are kept, so the conversation stays in the list with its scope and attached operation. See [Retention](../guide/retention.md).

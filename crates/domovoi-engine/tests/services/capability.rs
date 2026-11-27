@@ -445,7 +445,13 @@ async fn a_chat_provider_that_refuses_tools_is_rebuilt_with_host_output() {
         .chat(Some(host_id()), "One host.", &Vec::new(), "Why is it slow?")
         .await
         .expect("the rebuilt answer is used");
-    assert_eq!(answer, "The disk is full.".to_owned());
+    assert_eq!(
+        answer,
+        format!(
+            "The disk is full.{}",
+            domovoi_engine::triage::NO_TOOL_FOOTER
+        )
+    );
 
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 2, "one refusal, one rebuilt answer");
