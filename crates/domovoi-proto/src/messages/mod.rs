@@ -44,6 +44,10 @@ macro_rules! messages {
     ($( $(#[$doc:meta])* $variant:ident($ty:ty) = $kind:literal, )*) => {
         /// A typed protocol message. The envelope's `kind` selects the variant.
         #[derive(Debug, Clone, PartialEq)]
+        #[allow(
+            clippy::large_enum_variant,
+            reason = "`hello` is the large one and is sent once per session"
+        )]
         pub enum Message {
             $( $(#[$doc])* $variant($ty), )*
             /// A kind this build does not know; the receiver replies `unsupported`.
