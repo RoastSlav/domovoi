@@ -306,3 +306,19 @@ async fn start_returns_more_than_one_page_of_claimed_operation_dispatch_effects(
         assert_eq!(stored.status, EffectStatus::Pending.as_str());
     }
 }
+
+#[tokio::test]
+async fn a_question_step_shows_its_text_as_the_summary_from_the_start() {
+    let w = world_with(OperationSettings::default()).await;
+    let step = question(&w, 3600);
+    let id = step.id;
+    let mut asking = seed();
+    asking.first_steps = vec![step];
+    let op = w.handle().create(asking).await.unwrap();
+    let snapshot = w.load(op).await;
+    assert_eq!(
+        snapshot.step(id).unwrap().progress.summary.as_deref(),
+        Some("restart plex?"),
+        "the person must be able to read the question"
+    );
+}

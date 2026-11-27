@@ -449,3 +449,30 @@ fn execution_changed_updates_the_card_without_a_thread_reply() {
         }]
     );
 }
+
+#[test]
+fn a_question_from_triage_is_announced_in_the_thread_with_its_text() {
+    let at = ts("2026-10-31T12:00:00Z");
+    let incident = open(Severity::Warning, at);
+    let settings = NotifySettings::new(TimeZone::UTC);
+    let asked = EventKind::QuestionAsked {
+        text: "Is /srv/media meant to be full?".to_owned(),
+    };
+    let out = plan(&event(asked.clone(), &incident), &posted(at), &settings, at);
+    let said = replies(&out.actions);
+    assert_eq!(said.len(), 1, "{:?}", out.actions);
+    assert!(
+        said[0].contains("Is /srv/media meant to be full?"),
+        "{}",
+        said[0]
+    );
+    assert!(said[0].contains("waiting for your answer"), "{}", said[0]);
+    // With no card posted yet there is no thread to speak in.
+    let none = plan(
+        &event(asked, &incident),
+        &NotifyState::default(),
+        &settings,
+        at,
+    );
+    assert!(none.actions.is_empty());
+}

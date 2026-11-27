@@ -55,6 +55,12 @@ pub enum EventKind {
         /// Why, in one line.
         reason: String,
     },
+    /// Triage asked the person a question and waits for the answer. The question is an
+    /// action item, not a status line: it has its own notice.
+    QuestionAsked {
+        /// What is asked, already redacted.
+        text: String,
+    },
     /// An execution step left "awaiting approval": approved, denied, expired, cancelled or
     /// refused.
     ExecutionChanged {

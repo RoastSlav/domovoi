@@ -84,17 +84,6 @@ async fn next_opened(events: &mut broadcast::Receiver<DomainEvent>) -> DomainEve
     }
 }
 
-/// The next change to an incident, triage requests skipped. A signal for an incident that is
-/// already open changes it, so no `IncidentOpened` follows.
-async fn next_change(events: &mut broadcast::Receiver<DomainEvent>) -> DomainEvent {
-    loop {
-        let event = events.recv().await.expect("the manager publishes events");
-        if event.kind != EventKind::TriageRequested {
-            return event;
-        }
-    }
-}
-
 #[tokio::test]
 async fn creates_lists_and_deletes_a_known_condition() {
     let a = api().await;

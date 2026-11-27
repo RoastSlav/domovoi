@@ -187,6 +187,8 @@ pub(crate) struct Applied {
     pub(crate) left_approval: Vec<ExecutionId>,
     /// The first incident the operation is about.
     pub(crate) incident: Option<IncidentId>,
+    /// The text of each question step this commit added.
+    pub(crate) questions: Vec<String>,
 }
 
 /// The error a caller sees for a failed commit.
@@ -231,7 +233,7 @@ pub(crate) fn push_decision(
         )));
     }
     for record in &decision.steps {
-        if record.progress.outcome != StepOutcome::Pending {
+        if record.progress != domovoi_core::StepProgress::pending() {
             tx = tx.write(StateWrite::Operation(OperationWrite::Progress {
                 step: record.step.id,
                 from: StepOutcome::Pending,
@@ -387,6 +389,14 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
         became_terminal: false,
         left_approval,
         incident: loaded.incidents.first().copied(),
+        questions: decision
+            .steps
+            .iter()
+            .filter_map(|step| match &step.step.intent {
+                domovoi_core::StepIntent::Question { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect(),
     };
     if !(decision.is_noop(&state) && updated.is_empty()) {
         tx = tx.write(StateWrite::Operation(OperationWrite::Operation {

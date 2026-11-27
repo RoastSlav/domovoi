@@ -121,9 +121,13 @@ fn born(work: &mut Work<'_>, new: NewStep) -> Result<(), DecideError> {
                 );
             }
         }
-        StepIntent::Question { expires_at, .. } => {
+        StepIntent::Question { expires_at, text } => {
             let expires_at = *expires_at;
-            work.add_step(id, &phase, parent, intent, StepProgress::pending())?;
+            // The question itself is the step's summary, so every view of the step (trace,
+            // Attention, the incident page) can show what is being asked of the person.
+            let mut asked = StepProgress::pending();
+            asked.summary = Some(text.chars().take(280).collect());
+            work.add_step(id, &phase, parent, intent, asked)?;
             work.effect(
                 EffectKind::Wake,
                 wake_payload(operation, Some(id), "question_timeout"),

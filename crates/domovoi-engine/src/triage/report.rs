@@ -172,4 +172,11 @@ mod prompt_tests {
             assert!(prompt.contains("can end the event, never disprove it"));
         }
     }
+
+    #[test]
+    fn the_prompt_says_ask_only_what_no_tool_can_tell() {
+        assert!(
+            crate::triage::meta::META_SYSTEM_PROMPT.contains("Ask only what no tool can tell you")
+        );
+    }
 }

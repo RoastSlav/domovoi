@@ -212,6 +212,19 @@ pub fn plan(
             }
         }
         EventKind::TriageRequested => Vec::new(),
+        EventKind::QuestionAsked { text } => {
+            if posted(&state) {
+                vec![NotifyAction::ThreadReply {
+                    incident: id,
+                    text: format!(
+                        "Triage is waiting for your answer: {text} Open the incident in the web \
+                         UI to answer; it continues by itself if you do not."
+                    ),
+                }]
+            } else {
+                Vec::new()
+            }
+        }
         EventKind::TriageCompleted { .. } => card_changed(incident, &state),
         // A decided step loses its buttons: the card is rebuilt.
         EventKind::ExecutionChanged { .. } => card_changed(incident, &state),

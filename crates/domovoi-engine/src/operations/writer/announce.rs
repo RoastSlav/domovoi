@@ -10,7 +10,7 @@ pub(super) async fn left_approval(shared: &OpShared, applied: &Applied) {
     let Some(incident) = applied.incident else {
         return;
     };
-    if applied.left_approval.is_empty() {
+    if applied.left_approval.is_empty() && applied.questions.is_empty() {
         return;
     }
     let incident = match shared.deps.incidents.get(incident).await {
@@ -24,6 +24,19 @@ pub(super) async fn left_approval(shared: &OpShared, applied: &Applied) {
             return;
         }
     };
+    for text in &applied.questions {
+        let kind = EventKind::QuestionAsked {
+            text: shared.deps.redactor.redact(text),
+        };
+        if shared
+            .deps
+            .bus
+            .send(DomainEvent::new(kind, &incident, true))
+            .is_err()
+        {
+            tracing::debug!("no one listens for questions");
+        }
+    }
     for execution in &applied.left_approval {
         let event = DomainEvent::new(
             EventKind::ExecutionChanged {
