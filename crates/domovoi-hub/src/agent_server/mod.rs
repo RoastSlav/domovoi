@@ -29,11 +29,12 @@ mod tls;
 mod tokens;
 mod ws;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use domovoi_core::ports::{
-    AgentLink, AuditLog, Clock, HostReconciler, HostRepo, MetricSampleRepo, SignalSink, StoreError,
+    AgentLink, AuditLog, Clock, HostReconciler, HostRepo, IncidentFilter, IncidentRepo,
+    MetricSampleRepo, Page, SignalSink, StoreError,
 };
 use domovoi_core::{HostId, HostKind, HostName};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
@@ -234,6 +235,36 @@ impl AgentServer {
     pub fn set_status_listener(&self, listener: Arc<dyn HostReconciler>) {
         if self.inner.status_listener.set(listener).is_err() {
             tracing::warn!("the agent server already has a status listener; keeping the first");
+        }
+    }
+
+    /// Picks up a `hub.network_degraded` incident left open by an earlier run. What was
+    /// raised is kept in memory, so without this nothing would ever resolve it. Call once,
+    /// before presence checks start.
+    pub async fn restore_network_degraded(
+        &self,
+        incidents: &dyn IncidentRepo,
+    ) -> Result<(), StoreError> {
+        let filter = IncidentFilter {
+            host: Some(self.inner.deps.hub_host),
+            active: Some(true),
+            ..IncidentFilter::default()
+        };
+        let mut page = Page::first(Page::MAX_LIMIT);
+        loop {
+            let got = incidents.list(&filter, &page).await?;
+            if got
+                .items
+                .iter()
+                .any(|incident| incident.check().as_str() == presence::NETWORK_DEGRADED)
+            {
+                self.inner.network_degraded.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
+            match got.next_cursor {
+                Some(cursor) => page.cursor = Some(cursor),
+                None => return Ok(()),
+            }
         }
     }
 

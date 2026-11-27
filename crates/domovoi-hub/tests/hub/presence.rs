@@ -2,9 +2,10 @@
 
 use std::sync::atomic::Ordering;
 
-use domovoi_core::ports::HostRepo;
+use domovoi_core::ports::{HostRepo, IncidentRepo};
 use domovoi_core::{
-    AgentId, AgentIdentity, HostKind, Severity, SignalClass, SignalStatus, SourceKind,
+    AgentId, AgentIdentity, CheckKey, HostKind, Incident, Severity, Signal, SignalClass,
+    SignalStatus, SourceKind,
 };
 use domovoi_proto::Message;
 use domovoi_proto::messages::Ping;
@@ -131,6 +132,37 @@ async fn hub_network_down_raises_hub_network_degraded_and_no_host_down() {
             ("host.down".to_owned(), SignalStatus::Firing),
         ]
     );
+}
+
+/// The hub restarted while it was degraded: the flag is memory only, so it is read back
+/// from the open incident, and a working network resolves it.
+#[tokio::test]
+async fn a_restart_resolves_the_open_network_incident() {
+    let hub = Hub::start().await;
+    let raised = Signal::firing(
+        SourceKind::Probe,
+        hub.hub_host,
+        CheckKey::parse("hub.network_degraded").unwrap(),
+        None,
+        Severity::Warning,
+        "host checks are paused",
+        t0(),
+    );
+    let incident = Incident::new_pending(&raised, t0());
+    IncidentRepo::insert(&*hub.store, &incident).await.unwrap();
+
+    hub.server
+        .restore_network_degraded(&*hub.store)
+        .await
+        .unwrap();
+    hub.server.check_presence().await;
+    let signals = hub.signals();
+    assert_eq!(signals.len(), 1, "{signals:?}");
+    assert_eq!(signals[0].check().as_str(), "hub.network_degraded");
+    assert_eq!(signals[0].status(), SignalStatus::Resolved);
+
+    hub.server.check_presence().await;
+    assert_eq!(hub.signals().len(), 1, "resolved once");
 }
 
 #[tokio::test]

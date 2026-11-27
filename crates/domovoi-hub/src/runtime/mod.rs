@@ -190,6 +190,9 @@ impl HubRuntime {
                 hub_host,
             },
         )?;
+        if let Err(err) = server.restore_network_degraded(&*store).await {
+            tracing::warn!(%err, "could not look for an open network incident");
+        }
         let link: Arc<dyn AgentLink> = server.link();
         let helper_hub = helper::hub(&store, caps::helper_relay(link.clone()), &clock);
         let knowledge = knowledge::build(&store, &clock, helper_hub.clone());

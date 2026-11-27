@@ -16,7 +16,7 @@ use super::registry::{Liveness, Watch};
 
 const AGENT_DOWN: &str = "agent.down";
 const HOST_DOWN: &str = "host.down";
-const NETWORK_DEGRADED: &str = "hub.network_degraded";
+pub(super) const NETWORK_DEGRADED: &str = "hub.network_degraded";
 
 fn key(text: &str) -> Option<CheckKey> {
     match CheckKey::parse(text) {
