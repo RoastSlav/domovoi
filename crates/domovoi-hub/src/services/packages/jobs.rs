@@ -160,6 +160,10 @@ impl PackageCommands {
     /// # Errors
     /// Packages disabled, a missing or wrong password, a typed text that is not the package
     /// name, or the install service's refusal (agent not connected, refused by the agent).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "caller, host, package, version, switch and the two proofs are all distinct inputs of one approval"
+    )]
     pub async fn set_skills_enabled(
         &self,
         caller: &Caller,
