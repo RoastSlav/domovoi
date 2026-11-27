@@ -42,7 +42,7 @@ pub(crate) async fn serve(
     listener: tokio::net::TcpListener,
 ) -> Result<(), super::AgentServerError> {
     let inner = &server.inner;
-    let mut errors = AcceptErrors::new();
+    let mut errors = AcceptErrors::new("an agent connection");
     let refusals = Refusals::new();
     loop {
         let accepted = tokio::select! {
@@ -110,14 +110,18 @@ impl Refusals {
 
 /// The state of a run of failed accepts.
 pub(crate) struct AcceptErrors {
+    /// What the port accepts, as a phrase for the log: "an agent connection".
+    what: &'static str,
     gate: RateLimitedLog,
     pause: Duration,
 }
 
 impl AcceptErrors {
-    /// A fresh tracker: no failures yet.
-    pub(crate) fn new() -> Self {
+    /// A fresh tracker for a port that accepts `what` (as in "an agent connection"): no
+    /// failures yet.
+    pub(crate) fn new(what: &'static str) -> Self {
         Self {
+            what,
             gate: RateLimitedLog::new(LINE_EVERY),
             pause: FIRST_PAUSE,
         }
@@ -132,7 +136,8 @@ impl AcceptErrors {
                 %err,
                 suppressed,
                 retry_in_ms = u64::try_from(self.pause.as_millis()).unwrap_or(u64::MAX),
-                "could not accept an agent connection; agents cannot connect while this lasts (too many open files is the usual cause: raise the open-file limit)"
+                "could not accept {}; nothing can connect to this port while this lasts (too many open files is the usual cause: raise the open-file limit)",
+                self.what
             );
         }
         let wait = self.pause;
@@ -159,7 +164,7 @@ mod tests {
     #[test]
     fn a_flood_of_failed_accepts_writes_one_line_and_backs_off() {
         let (logs, _guard) = LogCapture::start();
-        let mut errors = AcceptErrors::new();
+        let mut errors = AcceptErrors::new("an agent connection");
         let t0 = Instant::now();
         let mut last = Duration::ZERO;
         for _ in 0..5000 {

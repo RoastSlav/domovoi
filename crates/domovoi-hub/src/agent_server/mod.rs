@@ -5,7 +5,7 @@
 //! host, `WsAgentLink` for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
-mod accept_log;
+pub(crate) mod accept_log;
 mod admin;
 mod compat;
 mod conn;

@@ -1,7 +1,5 @@
 //! Listener ownership and phased shutdown.
 
-use std::net::SocketAddr;
-
 use jiff::{SignedDuration, Timestamp};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -76,11 +74,10 @@ pub(super) async fn run(
     let report = stopped_tx.clone();
     let stop_http = intake_shutdown.clone();
     intake_tasks.push(tokio::spawn(async move {
-        let result = axum::serve(web, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(stop_http.cancelled_owned())
-            .await
-            .map_err(|err| RuntimeError::Serve(format!("web server failed: {err}")));
-        let _ = report.send(result).await;
+        super::web_serve::serve(web, app, stop_http, super::web_serve::WebLimits::default()).await;
+        // The loop only ends when the hub is stopping; a listener that failed is retried
+        // inside it, so there is no error to report.
+        let _ = report.send(Ok(())).await;
     }));
     for (gateway, sink) in gateways {
         let stop = intake_shutdown.clone();

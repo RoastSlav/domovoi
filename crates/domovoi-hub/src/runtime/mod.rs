@@ -27,6 +27,7 @@ mod support;
 mod tests;
 mod triage_build;
 pub mod updates;
+mod web_serve;
 
 use std::sync::Arc;
 
