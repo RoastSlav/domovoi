@@ -395,7 +395,9 @@ async fn an_unreachable_model_never_ends_an_operation_failed() {
     assert_eq!(w.advisories().await.len(), 1);
     // More operations while the breaker is open park; none fails.
     for i in 0..5 {
-        let other = w.add_incident(&format!("svc{i}"), disk(50.0 + f64::from(i))).await;
+        let other = w
+            .add_incident(&format!("svc{i}"), disk(50.0 + f64::from(i)))
+            .await;
         let op = w.ops.investigate(&other, false).await.unwrap();
         until_skipped(&w, op).await;
     }

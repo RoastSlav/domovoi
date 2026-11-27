@@ -11897,7 +11897,8 @@
         "description": "A host with its latest digest facts.",
         "required": [
           "host",
-          "facts"
+          "facts",
+          "retired_facts"
         ],
         "properties": {
           "facts": {
@@ -11905,11 +11906,18 @@
             "items": {
               "$ref": "#/components/schemas/FactDto"
             },
-            "description": "The latest value of each fact seen in the last 24 hours, sorted by key."
+            "description": "The latest value of each fact seen in the last 24 hours, sorted by key. A fact whose\nagent said its check no longer reports it is not here but in `retired_facts`."
           },
           "host": {
             "$ref": "#/components/schemas/HostDto",
             "description": "The host and its agent."
+          },
+          "retired_facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetiredFactDto"
+            },
+            "description": "Facts a check stopped reporting: the last value seen and when the agent said so. They\nstay searchable in the history; a new sample of the key makes it current again."
           }
         }
       },
@@ -15454,6 +15462,24 @@
               "$ref": "#/components/schemas/RetentionEntry"
             },
             "description": "The nine `[retention]` periods, in registry order."
+          }
+        }
+      },
+      "RetiredFactDto": {
+        "type": "object",
+        "description": "A fact its check no longer reports.",
+        "required": [
+          "fact",
+          "retired_at"
+        ],
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/FactDto",
+            "description": "The last value the host reported."
+          },
+          "retired_at": {
+            "type": "string",
+            "description": "When the agent said the check no longer reports it."
           }
         }
       },

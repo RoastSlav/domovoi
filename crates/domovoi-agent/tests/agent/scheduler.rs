@@ -267,6 +267,92 @@ async fn digest_facts_publish_hourly() {
     run.shutdown.cancel();
 }
 
+/// A check whose facts come from a script: `Some(keys)` is a run that reports those facts,
+/// `None` a run that fails. The last entry repeats.
+struct FactScript {
+    runs: std::sync::Mutex<std::collections::VecDeque<Option<Vec<&'static str>>>>,
+}
+
+#[async_trait]
+impl Check for FactScript {
+    fn key(&self) -> CheckKey {
+        key("test.disk")
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_mins(10)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Normal
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        let now = ctx.clock.now();
+        let step = {
+            let mut runs = self.runs.lock().unwrap();
+            if runs.len() > 1 {
+                runs.pop_front().unwrap()
+            } else {
+                runs.front().cloned().unwrap()
+            }
+        };
+        let Some(keys) = step else {
+            return Err(CheckError::Helper("scripted failure".to_owned()));
+        };
+        Ok(CheckReport {
+            observations: Vec::new(),
+            facts: keys
+                .into_iter()
+                .map(|k| number_fact(ctx.host, k, k, 1.0, "", now))
+                .collect(),
+        })
+    }
+}
+
+async fn hourly_digest(
+    script: Vec<Option<Vec<&'static str>>>,
+) -> domovoi_proto::messages::DigestFacts {
+    let check = FactScript {
+        runs: std::sync::Mutex::new(script.into()),
+    };
+    let mut run = start(vec![Box::new(check)]);
+    for _ in 0..6 {
+        settle().await;
+        run.clock.advance(SignedDuration::from_mins(10));
+    }
+    let out = guard(run.outbox.recv()).await.unwrap();
+    run.shutdown.cancel();
+    let Message::DigestFacts(facts) = out.message else {
+        panic!("expected digest facts");
+    };
+    facts
+}
+
+#[tokio::test]
+async fn a_target_a_check_stops_reporting_is_retired_and_not_republished() {
+    let digest = hourly_digest(vec![
+        Some(vec!["disk./a", "disk./b"]),
+        Some(vec!["disk./a"]),
+    ])
+    .await;
+    let keys: Vec<&str> = digest.facts.iter().map(|f| f.key.as_str()).collect();
+    assert_eq!(keys, ["disk./a"], "the dropped target is not sent again");
+    assert_eq!(digest.retired, ["disk./b"]);
+}
+
+#[tokio::test]
+async fn a_failed_run_retires_nothing() {
+    let digest = hourly_digest(vec![Some(vec!["disk./a", "disk./b"]), None]).await;
+    let keys: Vec<&str> = digest.facts.iter().map(|f| f.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        ["disk./a", "disk./b"],
+        "stale facts are kept, not retired"
+    );
+    assert!(digest.retired.is_empty());
+}
+
 #[tokio::test]
 async fn check_state_persists_after_each_run() {
     let check = ScriptedCheck::new(

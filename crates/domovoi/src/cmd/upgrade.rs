@@ -177,7 +177,10 @@ mod tests {
             std::fs::write(dir.path().join(name), "x").unwrap();
         }
         let text = super::restart_hint_lines(dir.path()).join("\n");
-        assert!(text.contains("sudo systemctl restart domovoi-agent"), "{text}");
+        assert!(
+            text.contains("sudo systemctl restart domovoi-agent"),
+            "{text}"
+        );
         assert!(text.contains("Unit files were not changed"), "{text}");
         assert!(text.contains("domovoi-helper@.service"), "{text}");
         assert!(text.contains("domovoi-skill-runner@.service"), "{text}");

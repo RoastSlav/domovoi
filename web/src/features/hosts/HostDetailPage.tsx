@@ -50,7 +50,9 @@ function HostTabs({ detail }: { detail: HostDetail }) {
     {
       id: "overview",
       label: "Overview",
-      content: <HostOverview name={name} facts={detail.facts} />,
+      content: (
+        <HostOverview name={name} facts={detail.facts} retired={detail.retired_facts ?? []} />
+      ),
     },
     {
       id: "profile",

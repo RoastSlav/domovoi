@@ -2948,7 +2948,7 @@ expression: spec
         "description": "A host with its latest digest facts.",
         "properties": {
           "facts": {
-            "description": "The latest value of each fact seen in the last 24 hours, sorted by key.",
+            "description": "The latest value of each fact seen in the last 24 hours, sorted by key. A fact whose\nagent said its check no longer reports it is not here but in `retired_facts`.",
             "items": {
               "$ref": "#/components/schemas/FactDto"
             },
@@ -2957,11 +2957,19 @@ expression: spec
           "host": {
             "$ref": "#/components/schemas/HostDto",
             "description": "The host and its agent."
+          },
+          "retired_facts": {
+            "description": "Facts a check stopped reporting: the last value seen and when the agent said so. They\nstay searchable in the history; a new sample of the key makes it current again.",
+            "items": {
+              "$ref": "#/components/schemas/RetiredFactDto"
+            },
+            "type": "array"
           }
         },
         "required": [
           "host",
-          "facts"
+          "facts",
+          "retired_facts"
         ],
         "type": "object"
       },
@@ -4743,6 +4751,17 @@ expression: spec
               }
             ]
           },
+          "question": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PendingQuestionDto",
+                "description": "The question the operation waits on, only while it waits for a person's answer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "resolution": {
             "oneOf": [
               {
@@ -5293,6 +5312,29 @@ expression: spec
         },
         "required": [
           "reason"
+        ],
+        "type": "object"
+      },
+      "PendingQuestionDto": {
+        "description": "A question that triage asked the owner and still waits on.",
+        "properties": {
+          "expires_at": {
+            "description": "When it stops waiting. After that the operation carries on without an answer.",
+            "type": "string"
+          },
+          "step": {
+            "description": "The question step; answer it with `POST /api/v1/operations/{id}/steps/{step}/answer`.",
+            "type": "string"
+          },
+          "text": {
+            "description": "The question as asked, redacted.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "text",
+          "expires_at"
         ],
         "type": "object"
       },
@@ -6472,6 +6514,24 @@ expression: spec
           "entries",
           "backups_keep",
           "backups_keep_pre_migrate"
+        ],
+        "type": "object"
+      },
+      "RetiredFactDto": {
+        "description": "A fact its check no longer reports.",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/FactDto",
+            "description": "The last value the host reported."
+          },
+          "retired_at": {
+            "description": "When the agent said the check no longer reports it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact",
+          "retired_at"
         ],
         "type": "object"
       },

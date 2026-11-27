@@ -46,6 +46,10 @@ pub struct SignalsAck {
 pub struct DigestFacts {
     /// The facts.
     pub facts: Vec<DigestFact>,
+    /// Keys a check used to report and no longer does (its target is gone). The hub shows
+    /// them as "no longer reported" instead of as current. Absent from older agents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired: Vec<String>,
 }
 
 /// New hub-managed settings, applied by the agent immediately.

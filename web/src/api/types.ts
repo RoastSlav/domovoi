@@ -32,6 +32,8 @@ export type Host = Schemas["HostDto"];
 export type HostDetail = Schemas["HostDetailDto"];
 /** One digest fact about a host. */
 export type Fact = Schemas["FactDto"];
+/** A fact its check no longer reports, with the last value seen. */
+export type RetiredFact = Schemas["RetiredFactDto"];
 /** A one-time enrollment invite. */
 export type Invite = Schemas["InviteDto"];
 /** A skill an agent reported. */

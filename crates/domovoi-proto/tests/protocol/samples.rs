@@ -205,6 +205,7 @@ pub fn all() -> Vec<Message> {
                 unit: Some("%".to_owned()),
                 observed_at: T0,
             }],
+            retired: vec!["disk./old.free_gib".to_owned()],
         }
         .into(),
         RunTool {

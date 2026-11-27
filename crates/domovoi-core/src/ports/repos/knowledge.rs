@@ -112,4 +112,54 @@ pub trait MetricSampleRepo: Send + Sync {
         from: Timestamp,
         until: Timestamp,
     ) -> Result<Vec<DigestFact>, StoreError>;
+
+    /// Records that the agent no longer reports `key` for `host`, as of `at`. The samples stay.
+    async fn retire(&self, host: HostId, key: &str, at: Timestamp) -> Result<(), StoreError>;
+
+    /// The keys retired for `host` with the time each was retired.
+    async fn retired(&self, host: HostId) -> Result<Vec<(String, Timestamp)>, StoreError>;
+}
+
+/// The settings key under which a host's retired fact keys are kept.
+fn retired_key(host: HostId) -> String {
+    format!("facts.retired.{host}")
+}
+
+/// Records in `settings` that `key` is no longer reported for `host` as of `at`. A store keeps
+/// this beside its samples without a table of its own: the samples stay, only the mark is new.
+///
+/// # Errors
+///
+/// Whatever the store returns for the read or the write.
+pub async fn retire_via<S: super::SettingsRepo + ?Sized>(
+    settings: &S,
+    host: HostId,
+    key: &str,
+    at: Timestamp,
+) -> Result<(), StoreError> {
+    let name = retired_key(host);
+    let mut marks = match settings.get(&name).await? {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    marks.insert(key.to_owned(), serde_json::Value::String(at.to_string()));
+    settings.set(&name, &serde_json::Value::Object(marks)).await
+}
+
+/// The retired keys of `host` with the time each was retired, sorted by key.
+///
+/// # Errors
+///
+/// Whatever the store returns for the read.
+pub async fn retired_via<S: super::SettingsRepo + ?Sized>(
+    settings: &S,
+    host: HostId,
+) -> Result<Vec<(String, Timestamp)>, StoreError> {
+    let Some(serde_json::Value::Object(marks)) = settings.get(&retired_key(host)).await? else {
+        return Ok(Vec::new());
+    };
+    Ok(marks
+        .into_iter()
+        .filter_map(|(key, at)| Some((key, at.as_str()?.parse().ok()?)))
+        .collect())
 }

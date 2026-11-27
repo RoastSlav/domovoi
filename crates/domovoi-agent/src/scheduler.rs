@@ -200,7 +200,11 @@ pub struct Scheduler {
     store: Arc<CheckStore>,
     spool: Arc<SharedSpool>,
     link: LinkHandle,
-    facts: BTreeMap<String, DigestFact>,
+    /// The facts each check's last successful run reported, by check key. A run replaces its
+    /// check's set, so a target a check stops reporting leaves the map.
+    facts: BTreeMap<String, BTreeMap<String, DigestFact>>,
+    /// Fact keys a successful run dropped and the hub has not been told about yet.
+    retired: BTreeSet<String>,
 }
 
 impl Scheduler {
@@ -220,6 +224,7 @@ impl Scheduler {
             spool,
             link,
             facts: BTreeMap::new(),
+            retired: BTreeSet::new(),
         }
     }
 
@@ -400,11 +405,13 @@ impl Scheduler {
         }
         for staged in staged {
             self.store.put_state(&staged.key, staged.state);
+            // A failed or unavailable run keeps the previous facts: they are stale, not retired.
+            let succeeded = staged.firing.is_some();
             if let Some(firing) = staged.firing {
                 self.store.set_firing(&staged.key, firing);
             }
-            for fact in staged.facts {
-                self.facts.insert(fact.key.clone(), fact);
+            if succeeded {
+                self.replace_facts(&staged.key, staged.facts);
             }
         }
         if let Err(err) = self.store.save() {
@@ -412,8 +419,32 @@ impl Scheduler {
         }
     }
 
+    /// Replaces the facts of `check` with those of its latest successful run and remembers the
+    /// keys it no longer reports, so the hub can mark them "no longer reported".
+    fn replace_facts(&mut self, check: &CheckKey, facts: Vec<DigestFact>) {
+        let fresh: BTreeMap<String, DigestFact> =
+            facts.into_iter().map(|f| (f.key.clone(), f)).collect();
+        let old = self.facts.insert(check.to_string(), fresh);
+        let Some(old) = old else { return };
+        let now = self.facts.get(&check.to_string());
+        for key in old.keys() {
+            if now.is_none_or(|set| !set.contains_key(key)) {
+                self.retired.insert(key.clone());
+            }
+        }
+    }
+
     async fn publish_facts(&mut self) {
-        let mut facts: Vec<DigestFact> = self.facts.values().cloned().collect();
+        let mut current: BTreeMap<String, DigestFact> = BTreeMap::new();
+        for set in self.facts.values() {
+            for (key, fact) in set {
+                current.insert(key.clone(), fact.clone());
+            }
+        }
+        // Another check may still report a key this one dropped.
+        self.retired.retain(|key| !current.contains_key(key));
+        let retired: Vec<String> = self.retired.iter().cloned().collect();
+        let mut facts: Vec<DigestFact> = current.into_values().collect();
         let now = self.env.clock.now();
         let dropped = self.spool.lock().await.dropped();
         if dropped > 0 {
@@ -426,13 +457,15 @@ impl Scheduler {
                 now,
             ));
         }
-        if facts.is_empty() {
+        if facts.is_empty() && retired.is_empty() {
             return;
         }
-        if !self
+        if self
             .link
-            .send(Message::DigestFacts(DigestFacts { facts }), None)
+            .send(Message::DigestFacts(DigestFacts { facts, retired }), None)
         {
+            self.retired.clear();
+        } else {
             tracing::debug!("digest facts were not sent; the outbox is full");
         }
     }

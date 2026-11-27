@@ -13,8 +13,8 @@ use serde_json::json;
 use super::audit_note::note;
 use super::dto::{LogLineDto, LogsQuery};
 use super::dto_admin::{
-    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RevokeDto, RevokeRequest, SkillDto,
-    VerifyDto,
+    FactDto, HostDetailDto, HostDto, InviteDto, ParamDto, RetiredFactDto, RevokeDto, RevokeRequest,
+    SkillDto, VerifyDto,
 };
 use super::error::{ApiError, ErrorBody};
 use super::logs::{DEFAULT_LEVEL, DEFAULT_LINES, MAX_LINES};
@@ -101,13 +101,33 @@ fn fact_dto(fact: &DigestFact) -> FactDto {
     }
 }
 
-/// The latest fact per key from `facts` (oldest first), sorted by key.
-fn latest_per_key(facts: &[DigestFact]) -> Vec<FactDto> {
+/// The latest fact per key from `facts` (oldest first), sorted by key, split into the facts
+/// that are current and those whose key `retired` says the agent stopped reporting after their
+/// last sample.
+fn latest_per_key(
+    facts: &[DigestFact],
+    retired: &[(String, jiff::Timestamp)],
+) -> (Vec<FactDto>, Vec<RetiredFactDto>) {
     let mut latest: BTreeMap<&str, &DigestFact> = BTreeMap::new();
     for fact in facts {
         latest.insert(fact.key.as_str(), fact);
     }
-    latest.values().map(|fact| fact_dto(fact)).collect()
+    let mut current = Vec::new();
+    let mut gone = Vec::new();
+    for fact in latest.values() {
+        let at = retired
+            .iter()
+            .find(|(key, at)| key == &fact.key && *at >= fact.observed_at)
+            .map(|(_, at)| *at);
+        match at {
+            Some(at) => gone.push(RetiredFactDto {
+                fact: fact_dto(fact),
+                retired_at: at.to_string(),
+            }),
+            None => current.push(fact_dto(fact)),
+        }
+    }
+    (current, gone)
 }
 
 /// Host `name` with its agent and the latest value of each digest fact from the last day.
@@ -131,9 +151,12 @@ pub(super) async fn detail(
     // `until` is exclusive; include facts observed right now.
     let until = now.checked_add(SignedDuration::from_secs(1)).unwrap_or(now);
     let facts = state.deps.facts.list(host.id, since, until).await?;
+    let retired = state.deps.facts.retired(host.id).await?;
+    let (facts, retired_facts) = latest_per_key(&facts, &retired);
     Ok(Json(HostDetailDto {
         host: host_dto(&state, &host).await?,
-        facts: latest_per_key(&facts),
+        facts,
+        retired_facts,
     }))
 }
 
@@ -337,5 +360,48 @@ mod tests {
         assert_eq!(kind(HostKind::Remote, true), "container_agent");
         assert_eq!(kind(HostKind::Remote, false), "remote");
         assert_eq!(kind(HostKind::Local, true), "local");
+    }
+
+    use domovoi_core::{DigestFact, FactValue, HostId};
+    use jiff::Timestamp;
+
+    use super::latest_per_key;
+
+    fn fact(host: HostId, key: &str, at: &str) -> DigestFact {
+        DigestFact {
+            host,
+            key: key.to_owned(),
+            label: key.to_owned(),
+            value: FactValue::Number(1.0),
+            unit: None,
+            observed_at: at.parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_retired_key_leaves_the_current_facts_until_a_newer_sample_arrives() {
+        let host = HostId::new();
+        let samples = [
+            fact(host, "disk./a", "2026-11-27T10:00:00Z"),
+            fact(host, "disk./b", "2026-11-27T10:00:00Z"),
+        ];
+        let at: Timestamp = "2026-11-27T11:00:00Z".parse().unwrap();
+        let retired = vec![("disk./b".to_owned(), at)];
+
+        let (current, gone) = latest_per_key(&samples, &retired);
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].key, "disk./a");
+        assert_eq!(gone.len(), 1);
+        assert_eq!(gone[0].fact.key, "disk./b");
+        assert!(gone[0].retired_at.starts_with("2026-11-27T11:00:00"));
+
+        // The key is reported again after it was retired: current again.
+        let again = [
+            samples[0].clone(),
+            fact(host, "disk./b", "2026-11-27T12:00:00Z"),
+        ];
+        let (current, gone) = latest_per_key(&again, &retired);
+        assert_eq!(current.len(), 2);
+        assert!(gone.is_empty());
     }
 }

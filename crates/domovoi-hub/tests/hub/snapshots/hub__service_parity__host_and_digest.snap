@@ -44,7 +44,8 @@ expression: replies(&all)
         "reported_protocol": null,
         "reported_release": null,
         "version": null
-      }
+      },
+      "retired_facts": []
     },
     "status": 200
   },

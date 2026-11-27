@@ -131,7 +131,12 @@ async fn selftest_st07_flags_a_runner_unit_from_before_the_proc_fix() {
     let skills = d.skills_dir.to_string_lossy().into_owned();
     let packages = d.packages_dir.to_string_lossy().into_owned();
     let exec = healthy_executor();
-    expect_show(&exec, RUNNER_SOCKET, RUNNER_SOCKET_PROPS, &runner_socket_show());
+    expect_show(
+        &exec,
+        RUNNER_SOCKET,
+        RUNNER_SOCKET_PROPS,
+        &runner_socket_show(),
+    );
     let stale = runner_service_show(&skills, &packages).replace("ProcSubset=all", "ProcSubset=pid");
     expect_show(&exec, RUNNER_SERVICE, RUNNER_SERVICE_PROPS, &stale);
     let found = inspect_units(&exec, SYSTEMCTL, &d).await;

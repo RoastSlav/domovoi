@@ -422,6 +422,9 @@ async fn the_operation_list_carries_the_open_question_and_nothing_else_does() {
         .send(Method::GET, "/api/v1/operations", Some(&login), None)
         .await;
     let items = reply.body["items"].as_array().unwrap();
-    let row = items.iter().find(|row| row["id"] == op.to_string()).unwrap();
+    let row = items
+        .iter()
+        .find(|row| row["id"] == op.to_string())
+        .unwrap();
     assert!(row["question"].is_null(), "{row}");
 }

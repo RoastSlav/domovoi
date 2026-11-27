@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use domovoi_core::ports::{
     AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo, StoreError,
+    retire_via, retired_via,
 };
 use domovoi_core::{
     AckRule, AckRuleId, Advisory, AdvisoryId, BaselineEntry, BaselineKind, DigestFact, HostId,
@@ -264,5 +265,13 @@ impl MetricSampleRepo for InMemoryStore {
             .collect();
         facts.sort_by_key(|f| f.observed_at);
         Ok(facts)
+    }
+
+    async fn retire(&self, host: HostId, key: &str, at: Timestamp) -> Result<(), StoreError> {
+        retire_via(self, host, key, at).await
+    }
+
+    async fn retired(&self, host: HostId) -> Result<Vec<(String, Timestamp)>, StoreError> {
+        retired_via(self, host).await
     }
 }

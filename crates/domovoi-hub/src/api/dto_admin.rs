@@ -99,8 +99,21 @@ pub struct FactDto {
 pub struct HostDetailDto {
     /// The host and its agent.
     pub host: HostDto,
-    /// The latest value of each fact seen in the last 24 hours, sorted by key.
+    /// The latest value of each fact seen in the last 24 hours, sorted by key. A fact whose
+    /// agent said its check no longer reports it is not here but in `retired_facts`.
     pub facts: Vec<FactDto>,
+    /// Facts a check stopped reporting: the last value seen and when the agent said so. They
+    /// stay searchable in the history; a new sample of the key makes it current again.
+    pub retired_facts: Vec<RetiredFactDto>,
+}
+
+/// A fact its check no longer reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct RetiredFactDto {
+    /// The last value the host reported.
+    pub fact: FactDto,
+    /// When the agent said the check no longer reports it.
+    pub retired_at: String,
 }
 
 /// A file a notes import left out.

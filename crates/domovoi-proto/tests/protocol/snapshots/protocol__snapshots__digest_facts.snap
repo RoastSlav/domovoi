@@ -15,6 +15,9 @@ expression: "pretty(&message, reply)"
         "unit": "%",
         "value": 61.0
       }
+    ],
+    "retired": [
+      "disk./old.free_gib"
     ]
   },
   "v": 1

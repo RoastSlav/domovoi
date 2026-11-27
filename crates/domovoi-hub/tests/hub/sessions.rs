@@ -61,6 +61,7 @@ async fn signals_are_submitted_and_acknowledged_and_facts_recorded() {
         .send(
             Message::DigestFacts(DigestFacts {
                 facts: vec![fact.clone()],
+                retired: Vec::new(),
             }),
             None,
         )
@@ -77,7 +78,33 @@ async fn signals_are_submitted_and_acknowledged_and_facts_recorded() {
         )
         .await
         .unwrap();
-    assert_eq!(stored, vec![fact]);
+    assert_eq!(stored, vec![fact.clone()]);
+
+    // The agent says a key is no longer reported: it is recorded as retired, the sample stays.
+    agent
+        .send(
+            Message::DigestFacts(DigestFacts {
+                facts: Vec::new(),
+                retired: vec![fact.key.clone()],
+            }),
+            None,
+        )
+        .await;
+    let ping = agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    assert_eq!(agent.expect().await.reply_to, Some(ping));
+    let retired = hub.store.retired(ident.host).await.unwrap();
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0].0, fact.key);
+    let stored = hub
+        .store
+        .list(
+            ident.host,
+            t0() - SignedDuration::from_secs(1),
+            t0() + SignedDuration::from_secs(1),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stored, vec![fact], "history is kept");
 
     agent
         .send(

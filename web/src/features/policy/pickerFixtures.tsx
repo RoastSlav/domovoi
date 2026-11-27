@@ -53,6 +53,7 @@ export function serveHosts(
         observed_at: "2026-10-31T12:00:00Z",
         value: "running",
       })),
+      retired_facts: [],
     };
   });
 }

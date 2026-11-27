@@ -3301,10 +3301,18 @@ export interface components {
         };
         /** @description A host with its latest digest facts. */
         HostDetailDto: {
-            /** @description The latest value of each fact seen in the last 24 hours, sorted by key. */
+            /**
+             * @description The latest value of each fact seen in the last 24 hours, sorted by key. A fact whose
+             *     agent said its check no longer reports it is not here but in `retired_facts`.
+             */
             facts: components["schemas"]["FactDto"][];
             /** @description The host and its agent. */
             host: components["schemas"]["HostDto"];
+            /**
+             * @description Facts a check stopped reporting: the last value seen and when the agent said so. They
+             *     stay searchable in the history; a new sample of the key makes it current again.
+             */
+            retired_facts: components["schemas"]["RetiredFactDto"][];
         };
         /** @description A host's container runtime. */
         HostDockerDto: {
@@ -4702,6 +4710,13 @@ export interface components {
             backups_keep_pre_migrate: number;
             /** @description The nine `[retention]` periods, in registry order. */
             entries: components["schemas"]["RetentionEntry"][];
+        };
+        /** @description A fact its check no longer reports. */
+        RetiredFactDto: {
+            /** @description The last value the host reported. */
+            fact: components["schemas"]["FactDto"];
+            /** @description When the agent said the check no longer reports it. */
+            retired_at: string;
         };
         /** @description Run one host's target again. */
         RetryRequestDto: {

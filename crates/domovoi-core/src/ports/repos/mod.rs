@@ -36,7 +36,10 @@ pub use conversations::{ConversationFilter, ConversationRepo, ConversationRow};
 pub use hosts::{EnrollmentToken, HostRepo};
 pub use incidents::{IncidentFilter, IncidentRepo, IncidentTimelineEntry, SignalRepo};
 pub use install::{InstallJobFilter, InstallRepo};
-pub use knowledge::{AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo};
+pub use knowledge::{
+    AckRepo, AdvisoryRepo, BaselineRepo, MetricSampleRepo, NoteHit, NoteRepo, retire_via,
+    retired_via,
+};
 pub use notify::NotifyStateRepo;
 pub use operations::{OperationFilter, OperationRepo};
 pub use permit::{AutonomyRow, PermitRepo, RuleFailures, UnresolvedUnknown};

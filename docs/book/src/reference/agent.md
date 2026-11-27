@@ -28,7 +28,7 @@ The agent stops retrying, with an error that says what to do, when the hub answe
 - A firing observation becomes a `firing` signal on every run; the hub folds repeats into one incident.
 - A target that was firing and is now fine, or is no longer reported, gets one `resolved` signal.
 - A check that fails to run changes nothing, so its incidents stay as they are.
-- Digest facts go to the hub once an hour, the latest value per key.
+- Digest facts go to the hub once an hour, the latest value per key. A check's successful run replaces the facts it reported before: a key it no longer reports (a disk that was unmounted) is sent once as `retired`, and the host overview lists it under "No longer reported" with its last value instead of as a current one. A failed run keeps the old facts; they are stale, not retired. The samples stay in the history, and a new sample of the key makes it current again.
 
 ## Config file and account
 
