@@ -120,7 +120,8 @@ pub struct TriageSection {
     /// Limits for a single run.
     #[serde(default)]
     pub per_run: TriageLimits,
-    /// Runs started per hour at most. Default 6.
+    /// Runs started per hour at most. Default 6. At least 1 while triage is enabled; turn
+    /// triage off with `enabled = false` instead of setting 0.
     #[serde(default = "default_per_hour_runs")]
     pub per_hour_runs: u32,
     /// Runs the hour always keeps free for triage: questions and chat may not use these
