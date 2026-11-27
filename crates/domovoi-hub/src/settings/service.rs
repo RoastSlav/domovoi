@@ -7,8 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use domovoi_config::{ConfigIssue, load_hub_layered};
-use domovoi_core::User;
-use domovoi_core::ports::{AuditEvent, AuditLog, Clock, ProcessExecutor, SettingsRepo, StoreError};
+use domovoi_core::ports::{
+    AdminWrite, AuditDraft, AuditEvent, AuditLog, Clock, ProcessExecutor, SettingsRepo, StateWrite,
+    StoreError, Transaction, UnitOfWork,
+};
+use domovoi_core::{Actor, User};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 use secrecy::ExposeSecret;
@@ -328,14 +331,22 @@ impl SettingsService {
             };
             writes.push((format!("{SECRET_PREFIX}{path}"), value));
         }
-        SettingsRepo::set_many(&*deps.store, &writes).await?;
-        self.audit(
-            user,
-            "settings.changed",
-            "settings",
+        // The settings and the audit row of the change commit together.
+        let mut tx = Transaction::new();
+        for (key, value) in writes {
+            tx = tx.write(StateWrite::Admin(AdminWrite::Setting { key, value }));
+        }
+        tx = tx.audit(AuditDraft::new(
+            Actor::User(user.id),
+            deps.clock.now(),
+            "settings.changed".to_owned(),
+            "settings".to_owned(),
             changes_detail(&patched.changes),
-        )
-        .await;
+        ));
+        deps.store
+            .commit(tx)
+            .await
+            .map_err(|err| StoreError::Backend(err.to_string()))?;
 
         let Some(apply) = &deps.apply else {
             return Ok(Saved {

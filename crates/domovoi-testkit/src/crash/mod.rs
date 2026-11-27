@@ -151,6 +151,7 @@ fn summarize(tx: &Transaction) -> TxSummary {
             StateWrite::HelperTrust(_) => writes.push("helper_trust".to_owned()),
             StateWrite::Permit(_) => writes.push("permit".to_owned()),
             StateWrite::Containment(_) => writes.push("containment".to_owned()),
+            StateWrite::Admin(_) => writes.push("admin".to_owned()),
             StateWrite::Policy(write) => writes.push(
                 match write {
                     PolicyWrite::SaveDraft { .. } => "policy:save_draft",

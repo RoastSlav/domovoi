@@ -118,6 +118,20 @@ async fn set_password_creates_the_admin_then_updates_it() {
             .await,
         Err(AdminError::Invalid(_))
     ));
+    // Each success left an audit row, and none of them holds a password.
+    let filter = AuditFilter {
+        kind: Some("hub.password_set".to_owned()),
+        ..AuditFilter::default()
+    };
+    let rows = AuditLog::list(&*admin.store, &filter, &Page::first(10))
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|row| !row.detail.to_string().contains("horse"))
+    );
     admin.close().await;
 }
 
@@ -230,4 +244,35 @@ async fn admin_verify_reports_an_empty_chain_on_a_fresh_database() {
     assert_eq!(report.chained, ChainStatus::Empty);
     assert_eq!(admin.audit_head().await.unwrap(), None);
     admin.close().await;
+}
+
+#[tokio::test]
+async fn a_restore_leaves_an_audit_row_in_the_restored_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let backups = tempfile::tempdir().unwrap();
+    let now: jiff::Timestamp = "2026-11-01T12:00:00Z".parse().unwrap();
+    let admin = OfflineAdmin::open(config(dir.path()), clock())
+        .await
+        .unwrap();
+    let file = admin.store.backup_to(backups.path(), now).await.unwrap();
+    admin.close().await;
+
+    super::restore(dir.path(), &file, now).await.unwrap();
+
+    let store = Store::open(
+        &dir.path().join("hub.db"),
+        StoreOptions::beside(&dir.path().join("hub.db"), now),
+    )
+    .await
+    .unwrap();
+    let filter = AuditFilter {
+        kind: Some("backup.restored".to_owned()),
+        ..AuditFilter::default()
+    };
+    let rows = AuditLog::list(&store, &filter, &Page::first(10))
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows.len(), 1);
+    store.close().await;
 }

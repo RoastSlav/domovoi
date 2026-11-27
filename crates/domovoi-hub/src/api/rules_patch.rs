@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use domovoi_core::CheckKey;
-use domovoi_core::ports::{AuditEvent, IncidentFilter, Page};
+use domovoi_core::ports::{IncidentFilter, Page};
 use serde::{Deserialize, Deserializer};
 use serde_json::json;
 use utoipa::ToSchema;
@@ -201,22 +201,19 @@ pub(super) async fn update(
                 .to_owned(),
         ));
     }
-    state.deps.acks.put_rule(&rule).await?;
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at: now,
-            actor: format!("user:{}", current.user.id),
-            kind: "ack_rule.updated".to_owned(),
-            subject: format!("ack_rule:{}", rule.id),
-            detail: json!({
-                "check": rule.check.as_str(),
-                "changed": changed,
-                "note": rule.note,
-                "expires_at": rule.expires_at.map(|at| at.to_string()),
-            }),
-        })
-        .await?;
+    super::audit_note::decide(
+        &state,
+        domovoi_core::ports::AdminWrite::PutAckRule(rule.clone()),
+        current.user.id,
+        "ack_rule.updated",
+        format!("ack_rule:{}", rule.id),
+        json!({
+            "check": rule.check.as_str(),
+            "changed": changed,
+            "note": rule.note,
+            "expires_at": rule.expires_at.map(|at| at.to_string()),
+        }),
+    )
+    .await?;
     Ok(Json(rule_to_dto(&state, &rule).await?))
 }

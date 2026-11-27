@@ -3,7 +3,6 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use domovoi_core::ports::AuditEvent;
 use domovoi_core::{
     AckRule, AckRuleId, CheckKey, EvidencePredicate, EvidenceValue, HostId, TargetPattern,
     valid_cidr,
@@ -343,30 +342,26 @@ pub(super) async fn list(
     Ok(Json(dtos))
 }
 
-/// Audits that `actor` created `rule` at `at`. The hub creates rules from the ack-rule
-/// page and from dismissing an incident, so both write the same event.
-pub(crate) async fn audit_rule_created(
+/// Stores `rule` and the audit row that says `actor` created it in one commit. The hub creates
+/// rules from the ack-rule page and from dismissing an incident, so both write the same event.
+pub(crate) async fn put_rule_audited(
     state: &ApiState,
     actor: &Current,
     rule: &AckRule,
-    at: Timestamp,
 ) -> Result<(), ApiError> {
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at,
-            actor: format!("user:{}", actor.user.id),
-            kind: "ack_rule.created".to_owned(),
-            subject: format!("ack_rule:{}", rule.id),
-            detail: json!({
-                "check": rule.check.as_str(),
-                "note": rule.note,
-                "expires_at": rule.expires_at.map(|at| at.to_string()),
-            }),
-        })
-        .await?;
-    Ok(())
+    super::audit_note::decide(
+        state,
+        domovoi_core::ports::AdminWrite::PutAckRule(rule.clone()),
+        actor.user.id,
+        "ack_rule.created",
+        format!("ack_rule:{}", rule.id),
+        json!({
+            "check": rule.check.as_str(),
+            "note": rule.note,
+            "expires_at": rule.expires_at.map(|at| at.to_string()),
+        }),
+    )
+    .await
 }
 
 /// Creates a rule.
@@ -412,8 +407,7 @@ pub(super) async fn create(
         created_at: Some(now),
         created_by: Some(current.user.username.clone()),
     };
-    state.deps.acks.put_rule(&rule).await?;
-    audit_rule_created(&state, &current, &rule, now).await?;
+    put_rule_audited(&state, &current, &rule).await?;
     Ok((StatusCode::CREATED, Json(rule_to_dto(&state, &rule).await?)))
 }
 
@@ -441,17 +435,14 @@ pub(super) async fn delete(
         .into_iter()
         .find(|rule| rule.id == id)
         .ok_or(ApiError::NotFound)?;
-    state.deps.acks.delete_rule(id).await?;
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at: state.deps.clock.now(),
-            actor: format!("user:{}", current.user.id),
-            kind: "ack_rule.deleted".to_owned(),
-            subject: format!("ack_rule:{}", rule.id),
-            detail: json!({ "check": rule.check.as_str(), "note": rule.note }),
-        })
-        .await?;
+    super::audit_note::decide(
+        &state,
+        domovoi_core::ports::AdminWrite::DeleteAckRule(id),
+        current.user.id,
+        "ack_rule.deleted",
+        format!("ack_rule:{}", rule.id),
+        json!({ "check": rule.check.as_str(), "note": rule.note }),
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }

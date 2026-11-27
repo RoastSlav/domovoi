@@ -3,7 +3,6 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use domovoi_core::ports::AuditEvent;
 use domovoi_core::skill::SkillName;
 use serde::Deserialize;
 use serde_json::json;
@@ -53,25 +52,29 @@ pub(super) async fn set_skill_enabled(
     if !announced {
         return Err(ApiError::NotFound);
     }
+    let kind = if req.enabled {
+        "skill.enabled"
+    } else {
+        "skill.disabled"
+    };
+    let subject = format!("host:{host_name}/skill:{skill_name}");
+    let detail = json!({ "enabled": req.enabled });
+    let state_ref = &state;
     state
         .deps
         .capabilities
-        .set_skill_enabled(&host, skill, req.enabled)
-        .await?;
-    let kind = if req.enabled {
-        "skill.enabled".to_owned()
-    } else {
-        "skill.disabled".to_owned()
-    };
-    state
-        .deps
-        .audit
-        .append(&AuditEvent {
-            at: state.deps.clock.now(),
-            actor: format!("user:{}", current.user.id),
-            kind,
-            subject: format!("host:{host_name}/skill:{skill_name}"),
-            detail: json!({ "enabled": req.enabled }),
+        .set_skill_enabled_with(&host, skill, req.enabled, |key, value| {
+            super::audit_note::decide(
+                state_ref,
+                domovoi_core::ports::AdminWrite::Setting {
+                    key,
+                    value: Some(value),
+                },
+                current.user.id,
+                kind,
+                subject,
+                detail,
+            )
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)

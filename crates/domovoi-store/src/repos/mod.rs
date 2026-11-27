@@ -24,4 +24,5 @@ pub(crate) use incidents::{
     DiscardOutcome, discard_pending_incident, insert_incident, insert_incident_event,
     insert_signal_and_link, update_incident,
 };
+pub(crate) use knowledge::apply_admin;
 pub(crate) use notes::{insert_note, update_note};

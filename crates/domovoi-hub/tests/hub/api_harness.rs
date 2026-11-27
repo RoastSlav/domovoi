@@ -736,6 +736,7 @@ async fn assemble(
         facts: store.clone(),
         usage: store.clone(),
         acks: store.clone(),
+        uow: store.clone(),
         manager: manager.clone(),
         services: services.clone(),
         triage,

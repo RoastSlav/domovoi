@@ -10,6 +10,32 @@ fn backup_advisory_id() -> domovoi_core::AdvisoryId {
     advisory_id(AdvisoryKind::BackupFailed, None, "nightly")
 }
 
+/// Writes the audit row of one backup run: `backup.created` with the file name, or
+/// `backup.failed`. The reason text is not stored here (it is in the advisory, redacted).
+pub(crate) async fn audit_backup(
+    audit: &dyn domovoi_core::ports::AuditLog,
+    now: Timestamp,
+    result: &Result<std::path::PathBuf, domovoi_store::StoreOpenError>,
+) {
+    let (kind, detail) = match result {
+        Ok(path) => (
+            "backup.created",
+            serde_json::json!({ "file": path.file_name().map(|n| n.to_string_lossy().into_owned()) }),
+        ),
+        Err(_) => ("backup.failed", serde_json::Value::Null),
+    };
+    let event = domovoi_core::ports::AuditEvent {
+        at: now,
+        actor: "system:backups".to_owned(),
+        kind: kind.to_owned(),
+        subject: "hub.db".to_owned(),
+        detail,
+    };
+    if let Err(err) = audit.append(&event).await {
+        tracing::error!(%err, kind, "could not append an audit row");
+    }
+}
+
 /// Records the outcome of the nightly backup: a failure raises `backup_failed` and says
 /// the newest earlier copy is still there; a success clears it and sets the "last good
 /// backup" gauge.

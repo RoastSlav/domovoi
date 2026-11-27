@@ -14,7 +14,8 @@ use async_trait::async_trait;
 use domovoi_config::hub::HubConfig;
 use domovoi_core::audit_chain::{Hash, VerifyReport, VerifyScope};
 use domovoi_core::ports::{
-    Clock, HostRepo, IngestError, OutboundMessage, SignalSink, StoreError, UserRepo,
+    AuditEvent, AuditLog, Clock, HostRepo, IngestError, OutboundMessage, SignalSink, StoreError,
+    UserRepo,
 };
 use domovoi_core::{HostKind, HostName, Signal, User, UserId};
 use domovoi_store::Store;
@@ -84,6 +85,29 @@ pub async fn restore(
 ) -> Result<RestoreReport, AdminError> {
     let _lock = HubLock::acquire(data_dir)?;
     let report = domovoi_store::restore_from_backup(&data_dir.join("hub.db"), backup, now).await?;
+    // The restore replaced the database, so the row goes into the restored history. A hub
+    // owner reads it in the audit log: who cannot be known offline, so the actor is the
+    // command line.
+    let database = data_dir.join("hub.db");
+    let store = Store::open(
+        &database,
+        domovoi_store::StoreOptions::beside(&database, now),
+    )
+    .await
+    .map_err(|err| AdminError::Invalid(format!("the restored database did not open: {err}")))?;
+    let event = AuditEvent {
+        at: now,
+        actor: "system:cli".to_owned(),
+        kind: "backup.restored".to_owned(),
+        subject: "hub.db".to_owned(),
+        detail: serde_json::json!({
+            "backup": backup.display().to_string(),
+            "previous_database": report.previous.as_ref().map(|p| p.display().to_string()),
+        }),
+    };
+    let appended = AuditLog::append(&store, &event).await;
+    store.close().await;
+    appended?;
     Ok(report)
 }
 
@@ -212,6 +236,7 @@ impl OfflineAdmin {
         };
         if let Some(user) = existing {
             self.store.set_password_hash(user.id, &hash).await?;
+            self.audit_password(&user.username, false).await?;
             return Ok(user.username);
         }
         if self.store.count().await? > 0 {
@@ -227,7 +252,22 @@ impl OfflineAdmin {
             created_at: self.clock.now(),
         };
         self.store.create(&user).await?;
+        self.audit_password(&user.username, true).await?;
         Ok(user.username)
+    }
+
+    /// Records that the password of `username` was set from the command line. Never the
+    /// password itself.
+    async fn audit_password(&self, username: &str, created: bool) -> Result<(), AdminError> {
+        let event = AuditEvent {
+            at: self.clock.now(),
+            actor: "system:cli".to_owned(),
+            kind: "hub.password_set".to_owned(),
+            subject: format!("user:{username}"),
+            detail: serde_json::json!({ "account_created": created }),
+        };
+        AuditLog::append(&*self.store, &event).await?;
+        Ok(())
     }
 
     /// Builds today's digest and sends it to every notifier. Returns the date it covers.

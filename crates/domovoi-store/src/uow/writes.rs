@@ -105,6 +105,7 @@ pub(super) async fn apply(
         StateWrite::HelperTrust(write) => crate::helper_trust::apply(conn, write).await,
         StateWrite::Permit(write) => crate::permit::apply(conn, write).await,
         StateWrite::Containment(write) => crate::containment::apply(conn, write).await,
+        StateWrite::Admin(write) => crate::repos::apply_admin(conn, write).await,
     }
 }
 

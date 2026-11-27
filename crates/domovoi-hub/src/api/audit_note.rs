@@ -25,3 +25,36 @@ pub(super) async fn note(
         tracing::error!(%err, kind, "could not append an audit row");
     }
 }
+
+/// Commits one owner decision together with its audit row: both are stored or neither is.
+pub(super) async fn decide(
+    state: &ApiState,
+    write: domovoi_core::ports::AdminWrite,
+    actor: domovoi_core::UserId,
+    kind: &str,
+    subject: String,
+    detail: Value,
+) -> Result<(), super::ApiError> {
+    use domovoi_core::ports::{AuditDraft, StateWrite, Transaction};
+    let draft = AuditDraft::new(
+        domovoi_core::Actor::User(actor),
+        state.deps.clock.now(),
+        kind.to_owned(),
+        subject,
+        detail,
+    );
+    state
+        .deps
+        .uow
+        .commit(
+            Transaction::new()
+                .write(StateWrite::Admin(write))
+                .audit(draft),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|err| match err {
+            domovoi_core::ports::CommitError::Constraint(_) => super::ApiError::NotFound,
+            other => super::ApiError::internal("committing a decision", other),
+        })
+}

@@ -290,6 +290,8 @@ pub enum StateWrite {
     Permit(PermitWrite),
     /// One change to a containment block: its creation or a guarded phase move.
     Containment(ContainmentWrite),
+    /// One change to the known conditions or the settings store, made by a person.
+    Admin(super::AdminWrite),
 }
 
 /// Everything one business event changes.

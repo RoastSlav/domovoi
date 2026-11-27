@@ -384,11 +384,13 @@ fn spawn_daily(
                         .dir
                         .clone()
                         .unwrap_or_else(|| runtime.config.hub.data_dir.join("backups"));
+                    let result = runtime.store.backup_to(&dir, now).await;
+                    super::backup_job::audit_backup(&*runtime.store, now, &result).await;
                     super::backup_job::record_backup_result(
                         &*runtime.store,
                         &*runtime.redactor,
                         now,
-                        runtime.store.backup_to(&dir, now).await,
+                        result,
                     )
                     .await;
                 }

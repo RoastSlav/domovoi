@@ -107,6 +107,29 @@ impl Enablement {
         Ok(())
     }
 
+    /// Like [`Self::set`], but the caller stores the new value (with its audit row, in one
+    /// commit) through `save`; memory follows only when `save` succeeded.
+    pub async fn set_with<F, Fut, E>(
+        &self,
+        host: &Host,
+        skill: SkillName,
+        enabled: bool,
+        save: F,
+    ) -> Result<(), E>
+    where
+        F: FnOnce(String, Value) -> Fut,
+        Fut: std::future::Future<Output = Result<(), E>>,
+    {
+        let _writing = self.updates.lock().await;
+        let names = self.disabled_names(&host.id, skill, enabled);
+        let value = json!({
+            "disabled": names.iter().map(|name| name.as_str().to_owned()).collect::<Vec<String>>(),
+        });
+        save(host_skills_key(host.name.as_str()), value).await?;
+        self.remember(host.id, &names);
+        Ok(())
+    }
+
     /// The host's disabled skills with `skill` switched; memory is left alone.
     #[must_use]
     fn disabled_names(

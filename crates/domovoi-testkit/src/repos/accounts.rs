@@ -141,3 +141,32 @@ impl SessionRepo for InMemoryStore {
         Ok((count - state.sessions.len()) as u64)
     }
 }
+
+/// Applies one owner decision of a unit of work to the in-memory state.
+pub(super) fn apply_admin(
+    state: &mut super::State,
+    write: &domovoi_core::ports::AdminWrite,
+) -> Result<(), domovoi_core::ports::CommitError> {
+    use domovoi_core::ports::{AdminWrite, CommitError};
+    match write {
+        AdminWrite::PutAckRule(rule) => {
+            state.ack_rules.insert(rule.id, rule.clone());
+        }
+        AdminWrite::DeleteAckRule(id) => {
+            if state.ack_rules.remove(id).is_none() {
+                return Err(CommitError::Constraint(
+                    "no such known condition".to_owned(),
+                ));
+            }
+        }
+        AdminWrite::Setting { key, value } => match value {
+            Some(value) => {
+                state.settings.insert(key.clone(), value.clone());
+            }
+            None => {
+                state.settings.remove(key);
+            }
+        },
+    }
+    Ok(())
+}

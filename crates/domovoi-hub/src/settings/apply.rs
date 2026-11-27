@@ -6,7 +6,11 @@ use std::sync::Arc;
 
 use domovoi_config::hub::HubConfig;
 use domovoi_config::{ConfigIssue, EnvSource, Layered, LayeredError, load_hub_layered};
-use domovoi_core::ports::{AdvisoryRepo, Clock, SettingsRepo, StoreError};
+use domovoi_core::Actor;
+use domovoi_core::ports::{
+    AdminWrite, AdvisoryRepo, AuditDraft, Clock, SettingsRepo, StateWrite, StoreError, Transaction,
+    UnitOfWork,
+};
 use domovoi_core::{Advisory, AdvisoryKind};
 use domovoi_engine::advisories::advisory_id;
 use domovoi_store::Store;
@@ -187,15 +191,27 @@ pub(crate) async fn restore_previous(
         revision: current.revision + 1,
         document: previous.document,
     };
+    // The restored settings and the audit row that says why commit together.
+    let tx = Transaction::new()
+        .write(StateWrite::Admin(AdminWrite::Setting {
+            key: CONFIG.to_owned(),
+            value: Some(restored.to_value()),
+        }))
+        .write(StateWrite::Admin(AdminWrite::Setting {
+            key: LAST_APPLY.to_owned(),
+            value: Some(json!({ "ok": false, "at": clock.now().to_string(), "message": why })),
+        }))
+        .audit(AuditDraft::new(
+            Actor::System("settings".to_owned()),
+            clock.now(),
+            "settings.rolled_back".to_owned(),
+            "settings".to_owned(),
+            json!({ "revision": restored.revision, "why": why }),
+        ));
     store
-        .set_many(&[
-            (CONFIG.to_owned(), Some(restored.to_value())),
-            (
-                LAST_APPLY.to_owned(),
-                Some(json!({ "ok": false, "at": clock.now().to_string(), "message": why })),
-            ),
-        ])
-        .await?;
+        .commit(tx)
+        .await
+        .map_err(|err| StoreError::Backend(err.to_string()))?;
     raise(
         store,
         clock,
@@ -353,5 +369,37 @@ mod tests {
             options.keep_pre_migrate, 3,
             "a rollback has no effective configuration to read"
         );
+    }
+
+    #[tokio::test]
+    async fn a_rollback_is_audited_with_its_reason() {
+        use domovoi_core::ports::{AuditFilter, AuditLog, Page};
+        let dir = tempfile::tempdir().unwrap();
+        let clock = domovoi_testkit::FakeClock::new("2026-11-01T12:00:00Z".parse().unwrap());
+        super::rollback(dir.path(), &clock, "the hub could not start")
+            .await
+            .unwrap();
+        let store = domovoi_store::Store::open(
+            &dir.path().join("hub.db"),
+            super::rollback_options(dir.path(), clock_now(&clock)),
+        )
+        .await
+        .unwrap();
+        let filter = AuditFilter {
+            kind: Some("settings.rolled_back".to_owned()),
+            ..AuditFilter::default()
+        };
+        let rows = AuditLog::list(&store, &filter, &Page::first(5))
+            .await
+            .unwrap()
+            .items;
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].detail.to_string().contains("could not start"));
+        store.close().await;
+    }
+
+    fn clock_now(clock: &domovoi_testkit::FakeClock) -> jiff::Timestamp {
+        use domovoi_core::ports::Clock;
+        clock.now()
     }
 }

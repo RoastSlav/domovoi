@@ -120,6 +120,8 @@ pub struct ApiDeps {
     pub usage: Arc<dyn UsageRepo>,
     /// Ack rules ("known conditions"), read for the list and written by the UI.
     pub acks: Arc<dyn AckRepo>,
+    /// The unit of work that commits an owner decision with its audit row.
+    pub uow: Arc<dyn domovoi_core::ports::UnitOfWork>,
     /// The incident manager.
     pub manager: ManagerHandle,
     /// The use-case layer every command goes through.

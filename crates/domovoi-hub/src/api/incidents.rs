@@ -361,8 +361,8 @@ pub(super) async fn dismiss(
     // dismiss that fails after this leaves the rule in place: it shows on the Known
     // conditions page with its note, where a human can read it and delete it.
     let now = state.deps.clock.now();
-    let rule = match req.ignore_for_minutes {
-        None => None,
+    match req.ignore_for_minutes {
+        None => {}
         Some(mins) => {
             // A target key allows `*` anywhere, a rule pattern only at the ends, so the
             // target of this incident may not be expressible. Silencing more than this one
@@ -399,19 +399,15 @@ pub(super) async fn dismiss(
                 created_at: Some(now),
                 created_by: Some(current.user.username.clone()),
             };
-            state.deps.acks.put_rule(&rule).await?;
-            Some(rule)
+            rules::put_rule_audited(&state, &current, &rule).await?;
         }
-    };
+    }
     state
         .deps
         .manager
         .dismiss(incident.id(), current.user.id, reason.to_owned())
         .await
         .map_err(command)?;
-    if let Some(rule) = &rule {
-        rules::audit_rule_created(&state, &current, rule, now).await?;
-    }
     Ok(StatusCode::NO_CONTENT)
 }
 

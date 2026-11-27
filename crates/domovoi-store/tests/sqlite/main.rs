@@ -3,6 +3,8 @@
 
 #[cfg(test)]
 #[cfg(test)]
+mod admin;
+#[cfg(test)]
 mod audit;
 #[cfg(test)]
 mod audit_chain;

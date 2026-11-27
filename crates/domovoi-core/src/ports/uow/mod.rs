@@ -1,5 +1,6 @@
 //! The unit of work: one atomic commit for state, journal, audit and effects.
 
+mod admin;
 mod containment;
 mod conversations;
 mod effects;
@@ -13,6 +14,7 @@ mod permit;
 mod topic;
 mod transaction;
 
+pub use admin::AdminWrite;
 pub use containment::ContainmentWrite;
 pub use conversations::{ConversationWrite, MessageGuard};
 pub use effects::{

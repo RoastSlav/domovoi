@@ -59,6 +59,7 @@ pub(super) fn apply(
         StateWrite::HelperTrust(write) => super::helper_trust::apply(state, write),
         StateWrite::Permit(write) => super::permit::apply(state, write),
         StateWrite::Containment(write) => super::containment::apply(state, write),
+        StateWrite::Admin(write) => super::accounts::apply_admin(state, write),
     }
 }
 

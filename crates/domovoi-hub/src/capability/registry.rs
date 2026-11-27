@@ -202,6 +202,22 @@ impl HubRegistry {
         self.enablement.set(host, skill, enabled).await
     }
 
+    /// Turns one skill on or off for `host`; `save` stores the settings value in the caller's
+    /// commit. Memory changes only when `save` succeeds.
+    pub async fn set_skill_enabled_with<F, Fut, E>(
+        &self,
+        host: &Host,
+        skill: SkillName,
+        enabled: bool,
+        save: F,
+    ) -> Result<(), E>
+    where
+        F: FnOnce(String, serde_json::Value) -> Fut,
+        Fut: std::future::Future<Output = Result<(), E>>,
+    {
+        self.enablement.set_with(host, skill, enabled, save).await
+    }
+
     /// The host's state as one read: availability, the session's words and skills, and the
     /// catalogue.
     ///

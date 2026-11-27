@@ -81,31 +81,85 @@ impl BaselineRepo for Store {
     }
 }
 
+/// Inserts or replaces one known condition on `conn`.
+async fn put_rule_on(conn: &mut sqlx::SqliteConnection, rule: &AckRule) -> Result<(), StoreError> {
+    const SQL: &str = "INSERT INTO ack_rules \
+        (id, host_id, check_key, target_pattern, predicates, note, expires_at, \
+        created_at, created_by) \
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET \
+        host_id = excluded.host_id, check_key = excluded.check_key, \
+        target_pattern = excluded.target_pattern, predicates = excluded.predicates, \
+        note = excluded.note, expires_at = excluded.expires_at, \
+        created_at = excluded.created_at, created_by = excluded.created_by";
+    sqlx::query(SQL)
+        .bind(rule.id.to_string())
+        .bind(rule.host.map(|h| h.to_string()))
+        .bind(rule.check.to_string())
+        .bind(rule.target_pattern.as_ref().map(name).transpose()?)
+        .bind(json(&rule.predicates)?)
+        .bind(&rule.note)
+        .bind(rule.expires_at.map(ms))
+        .bind(rule.created_at.map(ms))
+        .bind(rule.created_by.as_deref())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Applies one owner decision inside a unit of work.
+pub(crate) async fn apply_admin(
+    conn: &mut sqlx::SqliteConnection,
+    write: &domovoi_core::ports::AdminWrite,
+) -> Result<(), domovoi_core::ports::CommitError> {
+    use domovoi_core::ports::{AdminWrite, CommitError};
+    let store = |err: StoreError| CommitError::Backend(err.to_string());
+    match write {
+        AdminWrite::PutAckRule(rule) => put_rule_on(conn, rule).await.map_err(store),
+        AdminWrite::DeleteAckRule(id) => {
+            let done = sqlx::query("DELETE FROM ack_rules WHERE id = ?")
+                .bind(id.to_string())
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| CommitError::Backend(e.to_string()))?;
+            if done.rows_affected() == 0 {
+                return Err(CommitError::Constraint(
+                    "no such known condition".to_owned(),
+                ));
+            }
+            Ok(())
+        }
+        AdminWrite::Setting { key, value } => {
+            let result = match value {
+                Some(value) => {
+                    sqlx::query(
+                        "INSERT INTO settings (key, value) VALUES (?, ?) \
+                         ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                    )
+                    .bind(key)
+                    .bind(json(value).map_err(store)?)
+                    .execute(&mut *conn)
+                    .await
+                }
+                None => {
+                    sqlx::query("DELETE FROM settings WHERE key = ?")
+                        .bind(key)
+                        .execute(&mut *conn)
+                        .await
+                }
+            };
+            result
+                .map(|_| ())
+                .map_err(|e| CommitError::Backend(e.to_string()))
+        }
+    }
+}
+
 #[async_trait]
 impl AckRepo for Store {
     async fn put_rule(&self, rule: &AckRule) -> Result<(), StoreError> {
-        const SQL: &str = "INSERT INTO ack_rules \
-            (id, host_id, check_key, target_pattern, predicates, note, expires_at, \
-            created_at, created_by) \
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET \
-            host_id = excluded.host_id, check_key = excluded.check_key, \
-            target_pattern = excluded.target_pattern, predicates = excluded.predicates, \
-            note = excluded.note, expires_at = excluded.expires_at, \
-            created_at = excluded.created_at, created_by = excluded.created_by";
-        sqlx::query(SQL)
-            .bind(rule.id.to_string())
-            .bind(rule.host.map(|h| h.to_string()))
-            .bind(rule.check.to_string())
-            .bind(rule.target_pattern.as_ref().map(name).transpose()?)
-            .bind(json(&rule.predicates)?)
-            .bind(&rule.note)
-            .bind(rule.expires_at.map(ms))
-            .bind(rule.created_at.map(ms))
-            .bind(rule.created_by.as_deref())
-            .execute(&self.write)
-            .await
-            .map_err(db)?;
-        Ok(())
+        let mut conn = self.write.acquire().await.map_err(db)?;
+        put_rule_on(&mut conn, rule).await
     }
 
     async fn delete_rule(&self, id: AckRuleId) -> Result<(), StoreError> {
