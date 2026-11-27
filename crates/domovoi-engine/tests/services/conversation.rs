@@ -359,3 +359,21 @@ async fn triage_service_without_a_queue_answers_questions_and_chat() {
     assert_eq!(w.primary.requests().len(), 2, "one model call each");
     assert!(w.operations().await.is_empty(), "no investigation started");
 }
+
+/// An answer that says something is not installed, with no `host_binary` result behind it,
+/// is marked unverified in code.
+#[tokio::test]
+async fn an_unbacked_claim_that_something_is_missing_is_marked_unverified() {
+    let w = world(Setup::default()).await;
+    w.primary
+        .push_text("The ip package is not recorded by dpkg.");
+    let chat = w
+        .triage
+        .chat(Some(host_id()), "One host.", &Vec::new(), "Is ip there?")
+        .await
+        .unwrap();
+    assert!(
+        chat.ends_with(domovoi_engine::triage::UNVERIFIED_ABSENCE_FOOTER),
+        "{chat}"
+    );
+}

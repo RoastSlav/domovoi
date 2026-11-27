@@ -213,6 +213,25 @@ impl Attempt for ChatAttempt<'_> {
 /// Appended to an answer that used no tool.
 pub const NO_TOOL_FOOTER: &str = "\n\nNo tool ran for this answer. It comes from what Domovoi already had (earlier drafts, notes and the overview), not from reading the host now.";
 
+/// Appended to an answer that says something is missing or not installed when no successful
+/// `host_binary` call backs it: the model may not state what no tool result says.
+pub const UNVERIFIED_ABSENCE_FOOTER: &str = "\n\nNot verified: this answer says something is missing or not installed, but no `host_binary` result in this turn shows it. Treat that part as unchecked.";
+
+/// Whether `answer` says a program or package is missing, not installed or not recorded.
+fn claims_absence(answer: &str) -> bool {
+    let lower = answer.to_lowercase();
+    [
+        "not installed",
+        "isn't installed",
+        "is missing",
+        "not recorded by",
+        "not present",
+        "is absent",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
+}
+
 /// Answers `question` about the operator's hosts in general. With `host`, the model may use
 /// that host's read tools and read skills; with `None` it answers from `overview`, the
 /// summary of every host, in one turn with no tools. A provider that cannot call tools
@@ -324,6 +343,14 @@ pub(crate) async fn answer_with(
     if state.used.is_empty() {
         text.push_str(NO_TOOL_FOOTER);
     }
+    if claims_absence(&text)
+        && !state
+            .used
+            .iter()
+            .any(|u| u.tool == "host_binary" && !u.failed)
+    {
+        text.push_str(UNVERIFIED_ABSENCE_FOOTER);
+    }
     Ok(ChatAnswer {
         text,
         tools: state.used,
@@ -332,7 +359,16 @@ pub(crate) async fn answer_with(
 
 #[cfg(test)]
 mod tests {
-    use super::{CHAT_PROMPT, ChatRole, ChatTurn, MAX_TURNS, TURN_BYTES, cut, remembered};
+    use super::{
+        CHAT_PROMPT, ChatRole, ChatTurn, MAX_TURNS, TURN_BYTES, claims_absence, cut, remembered,
+    };
+
+    #[test]
+    fn a_claim_that_something_is_missing_is_recognised() {
+        assert!(claims_absence("The ip package is not recorded by dpkg."));
+        assert!(claims_absence("iproute2 is not installed"));
+        assert!(!claims_absence("The unit failed at 10:00."));
+    }
 
     #[test]
     fn the_chat_prompt_says_to_name_what_was_not_checked() {

@@ -45,7 +45,9 @@ use crate::manager::ManagerHandle;
 pub use agent::{
     BUDGET_EXHAUSTED, MAX_OUTPUT_ALLOWANCE, NO_CALLS_LEFT, ToolUse, default_total_output_tokens,
 };
-pub use chat::{CHAT_PROMPT, ChatAnswer, ChatRole, ChatTurn, NO_TOOL_FOOTER};
+pub use chat::{
+    CHAT_PROMPT, ChatAnswer, ChatRole, ChatTurn, NO_TOOL_FOOTER, UNVERIFIED_ABSENCE_FOOTER,
+};
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use meta::{ExperienceAccess, META_SYSTEM_PROMPT, offered_tools};
