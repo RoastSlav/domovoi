@@ -79,24 +79,69 @@ async fn command(ctx: &RequestCtx, spec: ProcessSpec) -> Result<(String, bool), 
 /// read through the helper instead.
 fn journal_unreadable(output: &ProcessOutput) -> bool {
     output.exit_code != Some(0)
+        || journal_access_refused(&output.stderr)
         || output.stderr.contains("could not be opened")
-        || output.stderr.contains("not seeing messages")
         || output.stderr.contains("No journal files")
 }
 
-/// A journal read that ran: an unreadable journal is a failure that says so, never the
-/// same empty text as a journal with no matching entries.
-fn journal_result(output: ProcessOutput) -> Result<(String, bool), ToolFail> {
-    if journal_unreadable(&output) && output.stdout.trim().is_empty() {
-        let why = output.stderr.trim();
+/// Whether journalctl says this account may not read the system journal. It says so on its
+/// error output, and not at all with `--quiet`, so the journal tool never passes that.
+pub(super) fn journal_access_refused(stderr: &str) -> bool {
+    stderr.contains("not seeing messages") || stderr.contains("insufficient permissions")
+}
+
+/// The entries of a `journalctl` output, without its own `-- ... --` marker lines.
+fn journal_entries(stdout: &str) -> String {
+    stdout
+        .lines()
+        .filter(|line| !(line.starts_with("-- ") && line.ends_with(" --")))
+        .fold(String::new(), |mut text, line| {
+            text.push_str(line);
+            text.push('\n');
+            text
+        })
+}
+
+/// A journal read that ran. An account that may not read the system journal, or a failed
+/// read with nothing to show, is a failure that says why; "no entries" is said only when the
+/// read succeeded. `asked` names the filters, so an empty answer can be widened.
+pub(super) fn journal_result(
+    output: ProcessOutput,
+    asked: &str,
+) -> Result<(String, bool), ToolFail> {
+    let entries = journal_entries(&output.stdout);
+    let why = output.stderr.trim();
+    if journal_access_refused(&output.stderr) {
         return Err(ToolFail::new(
             ToolFailureCode::Unavailable,
             format!(
-                "the journal could not be read by this agent account (add it to the systemd-journal group or use a helper journal read); this is not an empty result. {why}"
+                "the journal could not be read: this agent account may not read the system journal (add it to the systemd-journal group and restart the agent); this is not an empty result. {why}"
             ),
         ));
     }
-    Ok(render(output))
+    if entries.trim().is_empty() {
+        if journal_unreadable(&output) {
+            return Err(ToolFail::new(
+                ToolFailureCode::Unavailable,
+                format!("the journal could not be read; this is not an empty result. {why}"),
+            ));
+        }
+        return Ok((
+            format!("no journal entries matched ({asked}); the read succeeded\n"),
+            false,
+        ));
+    }
+    Ok(render(ProcessOutput {
+        stdout: entries,
+        ..output
+    }))
+}
+
+/// The words for a journal query's filters.
+pub(super) fn journal_asked(unit: Option<&str>, minutes: u32, priority: Option<&str>) -> String {
+    let unit = unit.map_or(String::new(), |unit| format!("unit {unit}, "));
+    let priority = priority.map_or(String::new(), |p| format!("priority {p} or worse, "));
+    format!("{unit}{priority}last {minutes} minutes")
 }
 
 /// The kernel log: `journalctl --dmesg` first, and once through the helper when that cannot
@@ -107,6 +152,7 @@ async fn kernel_journal(
     spec: ProcessSpec,
     since_minutes: u32,
     lines: u16,
+    priority: Option<&str>,
 ) -> Result<(String, bool), ToolFail> {
     let output = execute(ctx, spec).await?;
     if let Some(port) = &ctx.privileged
@@ -115,10 +161,21 @@ async fn kernel_journal(
         let minutes = since_minutes.clamp(1, MAX_KERNEL_MINUTES);
         let lines = lines.clamp(1, MAX_LOG_LINES);
         if let Ok(log) = port.kernel_log(minutes, lines).await {
-            return Ok((log.text, log.truncated));
+            let mut text = log.text;
+            if text.trim().is_empty() {
+                text = format!(
+                    "no kernel log lines in the last {minutes} minutes; the read succeeded\n"
+                );
+            } else if priority.is_some() {
+                text.insert_str(
+                    0,
+                    "[read through the helper, which does not filter by priority: every priority is listed]\n",
+                );
+            }
+            return Ok((text, log.truncated));
         }
     }
-    Ok(render(output))
+    journal_result(output, &journal_asked(None, since_minutes, priority))
 }
 
 /// One listener line, with the owning process when the helper saw it.
@@ -227,9 +284,11 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
                 )
                 .map_err(template)?;
             if *kernel && unit.is_none() {
-                kernel_journal(ctx, spec, *since_minutes, *lines).await
+                kernel_journal(ctx, spec, *since_minutes, *lines, priority.as_deref()).await
             } else {
-                journal_result(execute(ctx, spec).await?)
+                let unit = unit.as_ref().map(ToString::to_string);
+                let asked = journal_asked(unit.as_deref(), *since_minutes, priority.as_deref());
+                journal_result(execute(ctx, spec).await?, &asked)
             }
         }
         ReadToolCall::ListeningPorts => {
@@ -292,13 +351,26 @@ mod journal_tests {
     #[test]
     fn an_unreadable_journal_is_an_error_not_an_empty_answer() {
         let hint = "Hint: You are currently not seeing messages from other users and the system.";
-        assert!(journal_result(out(0, "", hint)).is_err());
-        assert!(journal_result(out(1, "", "No journal files were found.")).is_err());
+        assert!(journal_result(out(0, "", hint), "x").is_err());
+        assert!(journal_result(out(0, "-- No entries --\n", hint), "x").is_err());
+        // The account's own lines are not the system journal.
+        assert!(journal_result(out(0, "own line\n", hint), "x").is_err());
+        assert!(journal_result(out(1, "", "No journal files were found."), "x").is_err());
     }
 
     #[test]
-    fn a_readable_empty_journal_is_an_empty_answer() {
-        assert_eq!(journal_result(out(0, "", "")).unwrap().0, "");
-        assert_eq!(journal_result(out(0, "line\n", "")).unwrap().0, "line\n");
+    fn a_readable_empty_journal_says_what_was_asked() {
+        let asked = journal_asked(Some("a.service"), 60, Some("err"));
+        let text = journal_result(out(0, "-- No entries --\n", ""), &asked)
+            .unwrap()
+            .0;
+        assert_eq!(
+            text,
+            "no journal entries matched (unit a.service, priority err or worse, last 60 minutes); the read succeeded\n"
+        );
+        let text = journal_result(out(0, "-- Boot ab --\nline\n", ""), "x")
+            .unwrap()
+            .0;
+        assert_eq!(text, "line\n");
     }
 }

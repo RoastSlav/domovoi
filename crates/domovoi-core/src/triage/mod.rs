@@ -21,6 +21,7 @@ pub use tool_call::{
     MAX_DEVICE_CHARS, MAX_HISTORY, MAX_LINES, MAX_NAME_CHARS, MAX_NOTES, MAX_QUERY_CHARS,
     MAX_SINCE_MINUTES, MAX_SKILL_ARGS, ReadToolCall, ToolArgError,
 };
+pub use tool_schema::argument_summary;
 pub use tools::ReadTool;
 
 /// The timeline kind a follow-up question and its answer are recorded under.

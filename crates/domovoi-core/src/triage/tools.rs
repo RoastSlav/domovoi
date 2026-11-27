@@ -77,7 +77,9 @@ impl ReadTool {
             Self::DockerInspect => "Show one container's configuration and state.",
             Self::DockerEvents => "Show recent Docker events, optionally for one container.",
             Self::HostOverview => "Summarise CPU, memory, disks and uptime of the incident host.",
-            Self::Journal => "Read recent systemd journal lines, optionally for one unit.",
+            Self::Journal => {
+                "Read recent systemd journal lines, optionally for one unit or one priority (priority err for errors only); lines sets how many."
+            }
             Self::ListeningPorts => "List listening TCP and UDP sockets on the incident host.",
             Self::SmartReport => "Show SMART health attributes for one disk.",
             Self::IncidentHistory => "List past incidents with the same fingerprint.",

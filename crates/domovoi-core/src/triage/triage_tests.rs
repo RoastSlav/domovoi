@@ -190,6 +190,26 @@ fn a_command_in_the_middle_of_next_step_is_named() {
     assert!(r.field_problems().is_empty());
 }
 
+/// The model sees one `request_evidence` schema for every read tool, so that schema has to
+/// name each tool's arguments, or the model concludes a tool has none.
+#[test]
+fn request_evidence_names_the_journal_arguments() {
+    let schema = crate::meta::MetaTool::RequestEvidence.json_schema();
+    let args = schema["properties"]["args"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(
+        args.contains(
+            "journal: kernel, lines (1-500), priority (emerg|alert|crit|err|warning|notice|info|debug), since_minutes (1-1440), unit"
+        ),
+        "{args}"
+    );
+    assert!(
+        args.contains("docker_logs: container*, lines (1-500)"),
+        "{args}"
+    );
+}
+
 #[test]
 fn journal_takes_a_priority_from_a_closed_list() {
     let call = ReadToolCall::from_json("journal", json!({ "priority": "err" })).unwrap();

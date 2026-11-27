@@ -6,7 +6,7 @@ use super::MetaTool;
 use crate::capability::EffectClass;
 use crate::triage::{
     HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, MAX_EVIDENCE, MAX_MANUAL_STEPS, MAX_PROPOSALS,
-    NEXT_STEP_MAX_CHARS, ReadTool,
+    NEXT_STEP_MAX_CHARS, ReadTool, argument_summary,
 };
 
 /// Longest capability id, in characters.
@@ -60,7 +60,14 @@ impl MetaTool {
             Self::RequestEvidence => closed(
                 json!({
                     "tool": { "type": "string", "enum": ReadTool::ALL.map(|t| t.name()) },
-                    "args": { "type": "object", "default": {} },
+                    "args": {
+                        "type": "object",
+                        "default": {},
+                        "description": format!(
+                            "The arguments of the chosen tool (* is required): {}",
+                            argument_summary()
+                        ),
+                    },
                 }),
                 &["tool"],
             ),

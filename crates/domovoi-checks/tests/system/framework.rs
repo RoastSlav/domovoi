@@ -32,7 +32,6 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
         args(&spec),
         [
             "--no-pager",
-            "--quiet",
             "--output=short-iso",
             "--since=-30min",
             "--lines=100",

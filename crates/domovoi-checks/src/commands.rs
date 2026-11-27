@@ -329,7 +329,9 @@ impl Commands {
                 format!("must be 1 to {MAX_JOURNAL_LINES}"),
             ));
         }
-        let mut args = owned(&["--no-pager", "--quiet", "--output=short-iso"]);
+        // No `--quiet`: it also hides the warning that this account cannot read the system
+        // journal, which would make an unreadable journal look like an empty one.
+        let mut args = owned(&["--no-pager", "--output=short-iso"]);
         args.push(format!("--since=-{since_minutes}min"));
         args.push(format!("--lines={lines}"));
         if kernel {

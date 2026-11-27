@@ -385,7 +385,7 @@ expression: contracts
   "system.journal": {
     "category": "host.observe",
     "constrainable_args": [],
-    "description": "Read recent systemd journal lines, optionally for one unit.",
+    "description": "Read recent systemd journal lines, optionally for one unit or one priority (priority err for errors only); lines sets how many.",
     "effect": "read",
     "execution": "agent",
     "id": "system.journal",

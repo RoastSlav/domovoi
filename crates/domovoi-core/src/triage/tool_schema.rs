@@ -41,6 +41,49 @@ fn since_field() -> Value {
     })
 }
 
+/// One line per read tool naming every argument its schema accepts, `*` marking the required
+/// ones, with the bounds or the allowed values. Built from [`ReadTool::json_schema`], for
+/// a caller that shows one schema for all of them.
+#[must_use]
+pub fn argument_summary() -> String {
+    ReadTool::ALL
+        .iter()
+        .map(|tool| {
+            let schema = tool.json_schema();
+            let required = schema["required"].as_array().cloned().unwrap_or_default();
+            let args: Vec<String> = schema["properties"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, spec)| {
+                    let star = if required.iter().any(|r| r == name.as_str()) {
+                        "*"
+                    } else {
+                        ""
+                    };
+                    let bounds = match (&spec["enum"], &spec["minimum"], &spec["maximum"]) {
+                        (Value::Array(values), _, _) => {
+                            let words: Vec<&str> =
+                                values.iter().filter_map(Value::as_str).collect();
+                            format!(" ({})", words.join("|"))
+                        }
+                        (_, Value::Number(min), Value::Number(max)) => format!(" ({min}-{max})"),
+                        _ => String::new(),
+                    };
+                    format!("{name}{star}{bounds}")
+                })
+                .collect();
+            let args = if args.is_empty() {
+                "no arguments".to_owned()
+            } else {
+                args.join(", ")
+            };
+            format!("{}: {args}", tool.name())
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 impl ReadTool {
     /// The JSON Schema of this tool's arguments.
     #[must_use]
