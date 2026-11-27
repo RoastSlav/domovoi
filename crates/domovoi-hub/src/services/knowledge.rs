@@ -10,11 +10,14 @@ use std::sync::Arc;
 use domovoi_core::id::{EntityId, FactRecordId, HostId, RelationId};
 use domovoi_core::knowledge::{Entity, Fact, Relation};
 use domovoi_core::ports::{
-    FactFilter, FactHit, KnowledgeRead, Page, Paged, RelationFilter, StoreError, Versioned,
+    FactFilter, FactHit, KnowledgeRead, Page, Paged, RelationFilter, SettingsRepo, StoreError,
+    Versioned,
 };
 use domovoi_engine::knowledge::{
     FactDraft, KnowledgeError, KnowledgeService, ManagementPathView, Recorded, RelationDraft,
 };
+use jiff::Timestamp;
+use serde_json::json;
 
 use super::Caller;
 use super::policy_types::StepUp;
@@ -49,26 +52,43 @@ impl From<StoreError> for KnowledgeCommandError {
     }
 }
 
+/// Why the last confirmation of a management path was refused.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConfirmRefusal {
+    /// When it was refused.
+    pub at: Timestamp,
+    /// Why, in the words the request was answered with.
+    pub reason: String,
+}
+
+fn refusal_key(id: FactRecordId) -> String {
+    format!("knowledge.confirm_refusal.{id}")
+}
+
 /// The knowledge use cases.
 #[derive(Clone)]
 pub struct KnowledgeCommands {
     service: Arc<KnowledgeService>,
     read: Arc<dyn KnowledgeRead>,
     auth: Arc<AuthState>,
+    settings: Arc<dyn SettingsRepo>,
 }
 
 impl KnowledgeCommands {
-    /// The use cases over `service`, reading through `read` and asking `auth` for passwords.
+    /// The use cases over `service`, reading through `read`, asking `auth` for passwords and
+    /// keeping refused confirmations in `settings`.
     #[must_use]
     pub fn new(
         service: Arc<KnowledgeService>,
         read: Arc<dyn KnowledgeRead>,
         auth: Arc<AuthState>,
+        settings: Arc<dyn SettingsRepo>,
     ) -> Self {
         Self {
             service,
             read,
             auth,
+            settings,
         }
     }
 
@@ -182,10 +202,51 @@ impl KnowledgeCommands {
             .into());
         }
         self.step_up(caller, proof).await?;
-        Ok(self
+        match self
             .service
             .confirm_management_path(id, expected, caller.user())
-            .await?)
+            .await
+        {
+            Ok(view) => {
+                self.forget_refusal(id).await;
+                Ok(view)
+            }
+            Err(
+                refused @ (KnowledgeError::PathUncovered | KnowledgeError::CoverageUnverifiable(_)),
+            ) => {
+                self.keep_refusal(id, &refused).await;
+                Err(refused.into())
+            }
+            Err(other) => Err(other.into()),
+        }
+    }
+
+    /// Keeps why the helper check refused to confirm `id`, so the path's row can say it
+    /// after the answer to the request is gone. A failure to keep it is logged: the refusal
+    /// itself still reaches the caller.
+    async fn keep_refusal(&self, id: FactRecordId, why: &KnowledgeError) {
+        let refusal = ConfirmRefusal {
+            at: self.service.now(),
+            reason: why.to_string(),
+        };
+        if let Err(err) = self.settings.set(&refusal_key(id), &json!(refusal)).await {
+            tracing::warn!(%err, fact = %id, "could not keep why a path was not confirmed");
+        }
+    }
+
+    async fn forget_refusal(&self, id: FactRecordId) {
+        if let Err(err) = self.settings.set_many(&[(refusal_key(id), None)]).await {
+            tracing::warn!(%err, fact = %id, "could not forget an earlier refusal of a path");
+        }
+    }
+
+    /// The last time the helper check refused to confirm `id`, until it is confirmed.
+    pub async fn confirm_refusal(
+        &self,
+        id: FactRecordId,
+    ) -> Result<Option<ConfirmRefusal>, KnowledgeCommandError> {
+        let found = self.settings.get(&refusal_key(id)).await?;
+        Ok(found.and_then(|value| serde_json::from_value(value).ok()))
     }
 
     /// One fact with its version.

@@ -1,5 +1,6 @@
 //! Knowledge facts and management paths.
 
+use domovoi_core::knowledge::PathState;
 use std::net::SocketAddr;
 
 use axum::Json;
@@ -11,8 +12,8 @@ use domovoi_core::ports::{FactFilter, Page};
 use domovoi_engine::knowledge::{FactDraft, KnowledgeError};
 
 use super::dto_knowledge::{
-    FactListQuery, KnowledgeFactAction, KnowledgeFactDto, KnowledgeFactInput, KnowledgeFactPageDto,
-    ManagementPathDto, ManagementPathsDto, parse_statuses,
+    ConfirmRefusalDto, FactListQuery, KnowledgeFactAction, KnowledgeFactDto, KnowledgeFactInput,
+    KnowledgeFactPageDto, ManagementPathDto, ManagementPathsDto, parse_statuses,
 };
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named};
@@ -413,12 +414,24 @@ pub(super) async fn management_paths(
         .await
         .map_err(command_error)?;
     let now = state.deps.clock.now();
+    let mut listed = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let mut dto = ManagementPathDto::new(path, now);
+        if path.state != PathState::Confirmed {
+            dto.last_refusal = knowledge
+                .confirm_refusal(path.fact.value.id)
+                .await
+                .map_err(command_error)?
+                .map(|refusal| ConfirmRefusalDto {
+                    at: refusal.at,
+                    reason: refusal.reason,
+                });
+        }
+        listed.push(dto);
+    }
     Ok(Json(ManagementPathsDto {
         host: host.name.to_string(),
         coverage_available: knowledge.coverage_available(),
-        paths: paths
-            .iter()
-            .map(|p| ManagementPathDto::new(p, now))
-            .collect(),
+        paths: listed,
     }))
 }

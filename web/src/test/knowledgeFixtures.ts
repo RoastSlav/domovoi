@@ -50,6 +50,7 @@ export function managementPath(overrides: Partial<ManagementPath> = {}): Managem
     }),
     state: "unconfirmed",
     confirmation: null,
+    last_refusal: null,
     ...overrides,
   };
 }

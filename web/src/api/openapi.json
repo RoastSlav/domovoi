@@ -10553,6 +10553,25 @@
         ],
         "description": "A condition on a rule."
       },
+      "ConfirmRefusalDto": {
+        "type": "object",
+        "description": "A refused confirmation of a management path.",
+        "required": [
+          "at",
+          "reason"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it was refused."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, and what to change."
+          }
+        }
+      },
       "ContainmentStatusDto": {
         "type": "object",
         "description": "What a host's containment looks like: display only, and available when containment is not.",
@@ -13467,6 +13486,17 @@
           "fact": {
             "$ref": "#/components/schemas/KnowledgeFactDto",
             "description": "The path fact."
+          },
+          "last_refusal": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmRefusalDto",
+                "description": "Why the last confirmation was refused, while the path is still not confirmed."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "type": "string",

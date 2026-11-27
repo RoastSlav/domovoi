@@ -88,7 +88,7 @@ for safety decisions. A wrong password changes nothing, and too many wrong tries
 
 A management path records how a host is reached for management. Because a wrong path can lock you out, it counts only when it is current and confirmed by the owner.
 
-A confirmation needs a verified, fresh helper attestation that shows the path covered. If the hub cannot verify that, the confirmation is refused with the reason, such as "the helper's key is not pinned", "the helper has not sent an attestation", "the helper's attestation is too old" or "the helper's attestation does not cover this path". Pin the helper's key and check the attestation first: see [Helper key and attestation](../guide/helper.md). Monitoring and work you approve by hand are not affected.
+A confirmation needs a verified, fresh helper attestation that shows the path covered. If the hub cannot verify that, the confirmation is refused with the reason, such as "the helper's key is not pinned", "the helper has not sent an attestation", "the helper's attestation is too old" or "the helper's attestation does not cover this path". Pin the helper's key and check the attestation first: see [Helper key and attestation](../guide/helper.md). Monitoring and work you approve by hand are not affected. The hub keeps the last such refusal, with its time, and the path's row on the Management paths page shows it until the path is confirmed. A value that is not a network is refused before any password is asked for.
 
 ### The Management paths page
 

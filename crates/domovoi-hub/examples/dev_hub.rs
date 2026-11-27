@@ -548,6 +548,7 @@ async fn main() -> Result<()> {
             knowledge,
             store.clone(),
             auth.clone(),
+            store.clone(),
         ),
         conversations: domovoi_hub::services::ConversationCommands::new(conversation_handle),
         settings: store.clone(),

@@ -76,7 +76,14 @@ export function PathRows({
               <RelativeTime at={path.confirmation.confirmed_at} />
             </Text>
           ) : (
-            <Text muted>Not confirmed</Text>
+            <>
+              <Text muted>Not confirmed</Text>
+              {path.last_refusal && (
+                <Text block>
+                  Refused <RelativeTime at={path.last_refusal.at} />: {path.last_refusal.reason}
+                </Text>
+              )}
+            </>
           ),
       },
       {

@@ -178,6 +178,18 @@ pub struct ManagementPathDto {
     pub state: String,
     /// The owner's confirmation, if there is one.
     pub confirmation: Option<PathConfirmationDto>,
+    /// Why the last confirmation was refused, while the path is still not confirmed.
+    pub last_refusal: Option<ConfirmRefusalDto>,
+}
+
+/// A refused confirmation of a management path.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ConfirmRefusalDto {
+    /// When it was refused.
+    #[schema(value_type = String, format = DateTime)]
+    pub at: Timestamp,
+    /// Why, and what to change.
+    pub reason: String,
 }
 
 impl ManagementPathDto {
@@ -188,6 +200,7 @@ impl ManagementPathDto {
             fact: KnowledgeFactDto::new(&view.fact, now),
             state: view.state.as_str().to_owned(),
             confirmation: view.confirmation.as_ref().map(PathConfirmationDto::from),
+            last_refusal: None,
         }
     }
 }

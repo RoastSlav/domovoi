@@ -1484,6 +1484,25 @@ expression: spec
           }
         ]
       },
+      "ConfirmRefusalDto": {
+        "description": "A refused confirmation of a management path.",
+        "properties": {
+          "at": {
+            "description": "When it was refused.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, and what to change.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "reason"
+        ],
+        "type": "object"
+      },
       "ContainmentStatusDto": {
         "description": "What a host's containment looks like: display only, and available when containment is not.",
         "properties": {
@@ -4393,6 +4412,17 @@ expression: spec
           "fact": {
             "$ref": "#/components/schemas/KnowledgeFactDto",
             "description": "The path fact."
+          },
+          "last_refusal": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ConfirmRefusalDto",
+                "description": "Why the last confirmation was refused, while the path is still not confirmed."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "description": "`candidate`, `unconfirmed`, `confirmed` or `stale`.",

@@ -149,7 +149,9 @@ impl KnowledgeService {
         self.deps.coverage.is_available()
     }
 
-    pub(super) fn now(&self) -> Timestamp {
+    /// The time the service stamps its records with.
+    #[must_use]
+    pub fn now(&self) -> Timestamp {
         self.deps.clock.now()
     }
 

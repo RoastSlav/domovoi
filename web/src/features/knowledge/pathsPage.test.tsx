@@ -311,3 +311,32 @@ test("all_confirmed_with_coverage_available_is_not_blocked_but_says_other_condit
   expect(screen.queryByText(/is blocked on nas/)).toBeNull();
   expect(document.body.textContent).not.toMatch(FORBIDDEN_WORDS);
 });
+
+test("a_refused_confirmation_the_hub_kept_is_shown_on_the_row", async () => {
+  const reason = "the helper does not cover this path: add this network to management_cidrs";
+  route(PATHS, () => ({
+    ...PATHS_AVAILABLE,
+    paths: [managementPath({ last_refusal: { at: "2026-11-03T10:00:00Z", reason } })],
+  }));
+  show();
+
+  // A fresh page with nothing kept in the browser: the words come with the list.
+  const row = within(await rowOf("10.8.0.0/24"));
+  expect(row.getByText("Not confirmed")).toBeVisible();
+  expect(row.getByText(/management_cidrs/)).toBeVisible();
+});
+
+test("an_invalid_network_is_said_before_any_password_is_asked", async () => {
+  const user = userEvent.setup();
+  route("GET /api/v1/hosts", () => [{ id: "host-nas", name: "nas" }]);
+  show();
+
+  await user.click(await screen.findByRole("button", { name: "Add a management path" }));
+  const form = await screen.findByRole("dialog", { name: "Add a management path" });
+  await user.type(within(form).getByLabelText("Network"), "not a network");
+  await user.click(within(form).getByRole("button", { name: "Save path" }));
+
+  expect(within(form).getByText(/That is not a network/)).toBeVisible();
+  expect(screen.queryByRole("dialog", { name: "Confirm with your password" })).toBeNull();
+  expect(callsTo(ASSERT)).toHaveLength(0);
+});

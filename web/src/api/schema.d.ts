@@ -2757,6 +2757,16 @@ export interface components {
              */
             max_ttl_secs: number;
         };
+        /** @description A refused confirmation of a management path. */
+        ConfirmRefusalDto: {
+            /**
+             * Format: date-time
+             * @description When it was refused.
+             */
+            at: string;
+            /** @description Why, and what to change. */
+            reason: string;
+        };
         /** @description What a host's containment looks like: display only, and available when containment is not. */
         ContainmentStatusDto: {
             /** @description Whether the registry offers containment on this host right now. */
@@ -3898,6 +3908,7 @@ export interface components {
             confirmation?: components["schemas"]["PathConfirmationDto"] | null;
             /** @description The path fact. */
             fact: components["schemas"]["KnowledgeFactDto"];
+            last_refusal?: components["schemas"]["ConfirmRefusalDto"] | null;
             /** @description `candidate`, `unconfirmed`, `confirmed` or `stale`. */
             state: string;
         };

@@ -305,6 +305,11 @@ async fn confirm_needs_the_password_and_verified_coverage() {
     assert_eq!(paths.body["coverage_available"], false);
     assert_eq!(paths.body["paths"][0]["state"], "unconfirmed");
 
+    // 38f: the row keeps saying why, for every later reader of the list.
+    let refusal = &paths.body["paths"][0]["last_refusal"];
+    assert_eq!(refusal["reason"], blocked.body["message"], "{}", paths.text);
+    assert!(refusal["at"].as_str().is_some());
+
     a.coverage.cover(&["192.168.1.0/24"]);
     let wrong = a
         .post(
@@ -339,6 +344,7 @@ async fn confirm_needs_the_password_and_verified_coverage() {
         .get("/api/v1/knowledge/hosts/nas/management-paths", &login)
         .await;
     assert_eq!(paths.body["paths"][0]["state"], "confirmed");
+    assert!(paths.body["paths"][0]["last_refusal"].is_null());
 }
 
 #[tokio::test]

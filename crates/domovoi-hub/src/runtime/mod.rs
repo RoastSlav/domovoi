@@ -344,6 +344,7 @@ impl HubRuntime {
                 knowledge.clone(),
                 store.clone(),
                 auth.clone(),
+                store.clone(),
             ),
             conversations,
             settings: store.clone(),
