@@ -87,6 +87,83 @@ pub fn write_if_absent(
     Ok(true)
 }
 
+/// An existing `agent.toml` with the required keys it lacked filled in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Completed {
+    /// The file's text with the added lines; the file itself is not touched.
+    pub text: String,
+    /// The keys that were added, empty when the file had them.
+    pub added: Vec<&'static str>,
+}
+
+/// Fills `agent.host_name` and `agent.hub_url`, where the file at `path` lacks them, from what
+/// the owner gave `agent enroll`. Present values are never changed, and nothing is written:
+/// [`save`] does that once the enrollment succeeded.
+pub fn complete(
+    path: &Path,
+    host_name: Option<&str>,
+    hub_url: &Url,
+) -> Result<Completed, StateError> {
+    let text = std::fs::read_to_string(path).map_err(|e| StateError::new(path, e))?;
+    let table: toml::Table = text
+        .parse()
+        .map_err(|e: toml::de::Error| StateError::new(path, format!("invalid TOML: {e}")))?;
+    let agent = table.get("agent").and_then(toml::Value::as_table);
+    let lacks = |key: &str| agent.is_none_or(|a| !a.contains_key(key));
+    let mut added = Vec::new();
+    let mut lines = String::new();
+    if let Some(name) = host_name.filter(|_| lacks("host_name")) {
+        added.push("agent.host_name");
+        lines.push_str(&format!("host_name = {}\n", quote(name)));
+    }
+    if lacks("hub_url") {
+        added.push("agent.hub_url");
+        lines.push_str(&format!("hub_url = {}\n", quote(hub_url.as_str())));
+    }
+    if added.is_empty() {
+        return Ok(Completed { text, added });
+    }
+    let mut out = String::new();
+    let mut placed = false;
+    for line in text.split_inclusive('\n') {
+        out.push_str(line);
+        if !placed
+            && line
+                .split('#')
+                .next()
+                .is_some_and(|l| l.trim() == "[agent]")
+        {
+            if !line.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&lines);
+            placed = true;
+        }
+    }
+    if !placed {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("[agent]\n");
+        out.push_str(&lines);
+    }
+    if let Err(err) = out.parse::<toml::Table>() {
+        return Err(StateError::new(
+            path,
+            format!(
+                "could not add {}; add it by hand: {err}",
+                added.join(" and ")
+            ),
+        ));
+    }
+    Ok(Completed { text: out, added })
+}
+
+/// Replaces the file at `path` with `text`, as [`complete`] made it.
+pub fn save(path: &Path, text: &str) -> Result<(), StateError> {
+    write_atomic(path, text.as_bytes(), 0o644)
+}
+
 /// Points an existing `agent.toml` at `hub_url`, changing only its `hub_url` line, so the
 /// rest of the file is kept. Returns whether the file changed. The result is checked as an
 /// `agent.toml` before it is written.
@@ -136,7 +213,7 @@ mod tests {
     use domovoi_config::{AgentConfig, MapEnv};
     use url::Url;
 
-    use super::{set_hub_url, write_if_absent};
+    use super::{complete, set_hub_url, write_if_absent};
 
     #[test]
     fn enroll_writes_agent_toml_when_absent_and_never_overwrites() {
@@ -168,6 +245,38 @@ mod tests {
             "an invalid host name is refused before writing"
         );
         assert!(!dir.path().join("bad.toml").exists());
+    }
+
+    #[test]
+    fn complete_adds_only_the_missing_keys_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.toml");
+        let hub = Url::parse("wss://hub.lan:7421/").unwrap();
+        for before in [
+            "# mine\n[agent] # here\n[docker]\nenabled = false\n",
+            "[agent]",
+            "",
+        ] {
+            std::fs::write(&path, before).unwrap();
+            let done = complete(&path, Some("nas"), &hub).unwrap();
+            assert_eq!(done.added, ["agent.host_name", "agent.hub_url"]);
+            let (config, _) =
+                domovoi_config::parse::<AgentConfig>(&done.text, &MapEnv::new()).unwrap();
+            assert_eq!(config.agent.host_name.as_str(), "nas");
+            assert_eq!(config.agent.hub_url, hub);
+            assert!(before.lines().all(|line| done.text.contains(line)));
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                before,
+                "not written"
+            );
+        }
+        std::fs::write(
+            &path,
+            "[agent]\nhost_name = \"mine\"\nhub_url = \"wss://old:1/\"\n",
+        )
+        .unwrap();
+        assert!(complete(&path, Some("nas"), &hub).unwrap().added.is_empty());
     }
 
     #[test]

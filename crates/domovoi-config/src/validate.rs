@@ -11,6 +11,13 @@ use crate::issue::ConfigIssue;
 
 /// Cross-field validation run after a config deserializes.
 pub trait Validate {
+    /// The `table.key` settings that have no default. All that are absent are reported
+    /// together, where deserializing alone would name one per run.
+    #[must_use]
+    fn required_keys() -> &'static [&'static str] {
+        &[]
+    }
+
     /// Pushes every problem found onto `issues`.
     fn validate(&self, issues: &mut Vec<ConfigIssue>);
 }
@@ -373,6 +380,10 @@ fn valid_webhook_name(name: &str) -> bool {
 }
 
 impl Validate for AgentConfig {
+    fn required_keys() -> &'static [&'static str] {
+        &["agent.host_name", "agent.hub_url"]
+    }
+
     fn validate(&self, issues: &mut Vec<ConfigIssue>) {
         if self.agent.hub_url.scheme() != "wss" {
             issues.push(ConfigIssue::error(

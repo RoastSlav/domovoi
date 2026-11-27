@@ -185,6 +185,11 @@ pub fn load_agent(path: &Path) -> anyhow::Result<AgentConfig> {
     loaded(path, domovoi_config::load_agent(path, &SystemEnv))
 }
 
+/// The agent configuration in `text`, reported as the file at `path`.
+pub fn parse_agent(path: &Path, text: &str) -> anyhow::Result<AgentConfig> {
+    loaded(path, domovoi_config::parse(text, &SystemEnv))
+}
+
 fn loaded<T>(
     path: &Path,
     result: Result<(T, Vec<ConfigIssue>), Vec<ConfigIssue>>,

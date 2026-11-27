@@ -138,6 +138,66 @@ mod tests {
     }
 
     #[test]
+    fn a_config_without_required_keys_names_all_of_them_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("agent.toml");
+        fs::write(&config, "[agent]\n").unwrap();
+        domovoi()
+            .args(["check", "config", "--kind", "agent"])
+            .arg(&config)
+            .assert()
+            .failure()
+            .stdout(contains(
+                "agent.host_name: missing required key `host_name`",
+            ))
+            .stdout(contains("agent.hub_url: missing required key `hub_url`"));
+    }
+
+    /// The hub address and the name come from the command line, so the file need not hold
+    /// them. The run stops later, at the hub that is not there, and leaves the file alone.
+    #[test]
+    fn enroll_does_not_ask_the_file_for_what_the_command_line_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("agent.toml");
+        let text = format!(
+            "[agent]\nstate_dir = '{}'\n[docker]\nenabled = false\n",
+            dir.path().join("state").display()
+        );
+        fs::write(&config, &text).unwrap();
+        let enroll = |name: &[&str]| {
+            let assert = domovoi()
+                .args([
+                    "agent",
+                    "enroll",
+                    "--hub",
+                    "wss://127.0.0.1:9",
+                    "--token",
+                    "t",
+                ])
+                .args(["--fingerprint", "not-a-fingerprint"])
+                .args(name)
+                .arg("--config")
+                .arg(&config)
+                .assert()
+                .failure();
+            String::from_utf8_lossy(&assert.get_output().stderr).into_owned()
+        };
+        let named = enroll(&["--name", "box"]);
+        assert!(
+            named.contains("--fingerprint"),
+            "the config loaded: {named}"
+        );
+        let unnamed = enroll(&[]);
+        assert!(
+            unnamed.contains("missing required key `host_name`"),
+            "{unnamed}"
+        );
+        assert!(!unnamed.contains("hub_url"), "{unnamed}");
+        assert!(unnamed.contains("--name"), "{unnamed}");
+        assert_eq!(fs::read_to_string(&config).unwrap(), text);
+    }
+
+    #[test]
     fn check_skills_without_a_folder_uses_the_agents_skills_dir() {
         let dir = tempfile::tempdir().unwrap();
         let skills = dir.path().join("my-skills");

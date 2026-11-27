@@ -154,6 +154,8 @@ domovoi agent enroll --hub wss://hub.lan:7421 --token <token> --fingerprint AB:C
 
 The fingerprint may be written with or without colons. The token can also come from `DOMOVOI_ENROLL_TOKEN`.
 
+An existing `agent.toml` need not hold what the command line already says: a missing `hub_url` is taken from `--hub`, a missing `host_name` from `--name`, and both are added to the file after the enrollment succeeds. Every command that reads the file names all missing required keys at once.
+
 When `state_dir` has no action journal yet, enrolling creates one and says so, so `domovoi agent run` can start straight away. An existing journal is never touched; `agent run` itself never creates one. The agent that runs inside the hub (`--with-local-agent`) creates its own the same way when it starts.
 
 When it runs as root on a host where the `domovoi-agent` account exists, it hands the files in `state_dir` over to that account after its last write and prints one line saying so. `agent.toml` stays owned by root. `domovoi agent journal init` and `reset` do the same.

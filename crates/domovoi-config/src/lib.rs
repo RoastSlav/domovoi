@@ -84,6 +84,7 @@ pub(crate) fn finish<T>(
 where
     T: DeserializeOwned + Validate + Secrets,
 {
+    issues.extend(missing_keys(&table, T::required_keys()));
     if issues.iter().any(ConfigIssue::is_error) {
         return Err(issues);
     }
@@ -99,6 +100,25 @@ where
     } else {
         Ok((config, issues))
     }
+}
+
+/// One error for every key of `required` that `table` lacks.
+fn missing_keys(table: &toml::Table, required: &[&str]) -> Vec<ConfigIssue> {
+    required
+        .iter()
+        .filter(|path| {
+            let (section, key) = path.split_once('.').unwrap_or(("", path));
+            match table.get(section) {
+                None => true,
+                // A section of the wrong type is left to the deserializer to name.
+                Some(value) => value.as_table().is_some_and(|t| !t.contains_key(key)),
+            }
+        })
+        .map(|path| {
+            let key = path.rsplit('.').next().unwrap_or(path);
+            ConfigIssue::error(*path, format!("missing required key `{key}`; add it"))
+        })
+        .collect()
 }
 
 fn load<T>(path: &Path, env: &dyn EnvSource) -> LoadResult<T>

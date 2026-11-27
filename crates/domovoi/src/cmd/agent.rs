@@ -12,7 +12,7 @@ use domovoi_core::ports::Clock as _;
 use domovoi_runner::SandboxExecutor;
 use url::Url;
 
-use super::{DEFAULT_AGENT_CONFIG, load_agent, redactor};
+use super::{DEFAULT_AGENT_CONFIG, load_agent, parse_agent, redactor};
 use crate::init::{self, SystemClock};
 use crate::log_ring::LogRing;
 
@@ -65,8 +65,9 @@ pub struct EnrollArgs {
     #[arg(long)]
     fingerprint: String,
     /// This host's name in Domovoi, as printed with the token. Used to write
-    /// `agent.toml` when it does not exist yet. An existing file keeps everything except
-    /// its `hub_url`, which becomes `--hub` when they differ.
+    /// `agent.toml` when it does not exist yet, or to add `host_name` to a file without one.
+    /// An existing file keeps its other settings; its `hub_url` becomes `--hub` when they
+    /// differ.
     #[arg(long)]
     name: Option<String>,
     #[command(flatten)]
@@ -191,7 +192,14 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 )?;
                 println!("Wrote {}.", path.display());
             }
-            let config = load_agent(path)?;
+            // The file need not repeat what the command line already says.
+            let completed =
+                domovoi_agent::config_file::complete(path, args.name.as_deref(), &args.hub)?;
+            let config = parse_agent(path, &completed.text).inspect_err(|_| {
+                if args.name.is_none() {
+                    super::warn("pass --name (as printed with the token) to give the host name");
+                }
+            })?;
             let fingerprint = production::parse_fingerprint(&args.fingerprint)
                 .map_err(|err| anyhow::anyhow!("--fingerprint: {err}"))?;
             let clock = SystemClock;
@@ -208,8 +216,16 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 },
             )
             .await?;
-            // Only a successful enrollment changes the address in an existing file: a failed
-            // attempt (wrong port, wrong token) leaves `agent.toml` as it was.
+            // Only a successful enrollment changes an existing file: a failed attempt (wrong
+            // port, wrong token) leaves `agent.toml` as it was.
+            if !completed.added.is_empty() {
+                domovoi_agent::config_file::save(path, &completed.text)?;
+                println!(
+                    "Added {} to {}.",
+                    completed.added.join(" and "),
+                    path.display()
+                );
+            }
             if config.agent.hub_url != args.hub
                 && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
             {
