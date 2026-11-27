@@ -176,7 +176,12 @@ impl PackageCommands {
     ) -> Result<domovoi_engine::packages::EnableAnswer, PackageCommandError> {
         Self::web_session(caller)?;
         self.require_enabled()?;
-        self.step_up(caller, proof).await?;
+        self.step_up(caller, proof).await.map_err(|err| match err {
+            PackageCommandError::PasswordRequired => {
+                PackageCommandError::SkillsPasswordRequired { enable }
+            }
+            other => other,
+        })?;
         confirm(confirm_text, name)?;
         Ok(self
             .handle

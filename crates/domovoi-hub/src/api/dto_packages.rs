@@ -193,23 +193,25 @@ pub struct HostPackageDto {
     /// `job` or `refresh`.
     pub observed_by: String,
     /// Whether the package's skills can run: `true` only after a person enabled them and the
-    /// agent's re-check of the files passed. Absent when the agent is not connected or is too
-    /// old to say.
+    /// agent's re-check of the files passed. Absent when the agent never said (it is too old,
+    /// or has not connected since).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skills_enabled: Option<bool>,
     /// Why the skills are off, in the agent's words.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skills_off_reason: Option<String>,
+    /// `false` when `skills_enabled` is what the agent said when it was last connected, not
+    /// what it says now. Absent with `skills_enabled`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills_live: Option<bool>,
 }
 
 impl HostPackageDto {
     /// Fills the enabled state from what the agent announced for this package and version.
     #[must_use]
-    pub fn with_skill_states(
-        mut self,
-        states: &[domovoi_proto::messages::PackageSkillState],
-    ) -> Self {
-        let mine: Vec<_> = states
+    pub fn with_skill_states(mut self, report: &crate::agent_server::PackageReport) -> Self {
+        let mine: Vec<_> = report
+            .skills
             .iter()
             .filter(|s| s.package == self.name && s.version == self.version)
             .collect();
@@ -218,6 +220,7 @@ impl HostPackageDto {
         }
         self.skills_enabled = Some(mine.iter().all(|s| s.enabled));
         self.skills_off_reason = mine.iter().find_map(|s| s.reason.clone());
+        self.skills_live = Some(report.live);
         self
     }
 }
@@ -242,6 +245,7 @@ impl From<&HostPackage> for HostPackageDto {
             .to_owned(),
             skills_enabled: None,
             skills_off_reason: None,
+            skills_live: None,
         }
     }
 }

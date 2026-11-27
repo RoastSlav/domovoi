@@ -394,3 +394,16 @@ test("package_screens_show_no_hub_path", async () => {
   await screen.findByText("nginx-tools");
   expect(document.body).not.toHaveTextContent(/\/var\/|\.part|data_dir/);
 });
+
+test("a_stored_answer_for_an_absent_agent_says_it_is_the_last_report", async () => {
+  stub();
+  route("GET /api/v1/hosts/{name}/packages", () => ({
+    host_id: "host-nas",
+    observed_at: T0,
+    entries: [hostPackage({ skills_enabled: true, skills_live: false })],
+    install_allowed: true,
+  }));
+  show("/capabilities?tab=packages&host=nas");
+  expect(await screen.findByText("Skills on")).toBeVisible();
+  expect(screen.getByText("As last reported: the agent is not connected.")).toBeVisible();
+});

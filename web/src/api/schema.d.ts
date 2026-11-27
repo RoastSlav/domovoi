@@ -3457,10 +3457,15 @@ export interface components {
             skills: string[];
             /**
              * @description Whether the package's skills can run: `true` only after a person enabled them and the
-             *     agent's re-check of the files passed. Absent when the agent is not connected or is too
-             *     old to say.
+             *     agent's re-check of the files passed. Absent when the agent never said (it is too old,
+             *     or has not connected since).
              */
             skills_enabled?: boolean | null;
+            /**
+             * @description `false` when `skills_enabled` is what the agent said when it was last connected, not
+             *     what it says now. Absent with `skills_enabled`.
+             */
+            skills_live?: boolean | null;
             /** @description Why the skills are off, in the agent's words. */
             skills_off_reason?: string | null;
             /** @description `active`, `disabled_untrusted_key` or `missing_files`. */
@@ -5215,6 +5220,11 @@ export interface components {
             name: string;
             /** @description The package it came from; absent for the owner's own skills. */
             package?: string | null;
+            /**
+             * @description Whether a person enabled that package, as its agent says now or said when it was
+             *     last connected; absent for the owner's own skills.
+             */
+            package_enabled?: boolean | null;
             /** @description The version of that package. */
             package_version?: string | null;
             /** @description Declared parameters. */

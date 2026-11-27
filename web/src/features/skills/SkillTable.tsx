@@ -106,7 +106,7 @@ function columns({
               : {})}
             onChange={(enabled) => onToggle(skill, enabled)}
           />
-          {skill.package && !skill.available && (
+          {skill.package && skill.package_enabled === false && (
             <LinkButton
               size="sm"
               to={`/capabilities?tab=packages&host=${encodeURIComponent(host)}`}

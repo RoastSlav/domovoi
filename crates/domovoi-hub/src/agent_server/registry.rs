@@ -444,13 +444,16 @@ impl Registry {
             .unwrap_or_default()
     }
 
-    /// The package skills the host's agent announced, on or off.
-    pub fn package_skills(&self, host: HostId) -> Vec<domovoi_proto::messages::PackageSkillState> {
+    /// The package skills the host's agent announced, on or off; `None` without a live
+    /// session.
+    pub fn package_skills(
+        &self,
+        host: HostId,
+    ) -> Option<Vec<domovoi_proto::messages::PackageSkillState>> {
         self.lock()
             .get(&host)
             .and_then(|e| e.live.as_ref())
             .map(|l| l.package_skills.clone())
-            .unwrap_or_default()
     }
 
     /// The coherent snapshot of the host's live session.

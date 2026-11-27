@@ -9,7 +9,9 @@ use axum::http::{Method, StatusCode};
 use domovoi_core::capability::{ContractIndex, builtin_contracts};
 use domovoi_core::ports::{AuditFilter, AuditLog, CapabilityRegistry, Page, SettingsRepo};
 use domovoi_core::{Risk, SkillName, SkillSummary};
+use domovoi_hub::agent_server::PackageReport;
 use domovoi_hub::capability::{HubRegistry, RegistryDeps, host_skills_key};
+use domovoi_proto::messages::PackageSkillState;
 use domovoi_testkit::build::manifest;
 use serde_json::json;
 
@@ -233,5 +235,39 @@ async fn a_skill_name_the_agent_could_not_have_is_refused() {
             .unwrap(),
         None,
         "the refused switch stored nothing",
+    );
+}
+
+/// 48c: while the agent is away, the stored package skills stay listed, say that a person had
+/// enabled them, and are not available.
+#[tokio::test]
+async fn an_absent_agents_package_skills_are_listed_but_never_available() {
+    let a = api().await;
+    let login = a.admin().await;
+    *a.packages.lock().unwrap() = PackageReport {
+        skills: vec![PackageSkillState {
+            package: "web-tools".to_owned(),
+            version: "1.0.0".to_owned(),
+            skill: "hello_disk".to_owned(),
+            enabled: true,
+            reason: None,
+        }],
+        live: false,
+    };
+    let reply = a.get("/api/v1/hosts/nas/skills", &login).await;
+    let listed = reply
+        .body
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["name"] == "hello_disk")
+        .expect("the stored skill is listed");
+    assert_eq!(listed["package_enabled"], true);
+    assert_eq!(listed["available"], false);
+    assert_eq!(listed["enabled"], false);
+    assert!(
+        listed["unavailable_reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("not connected"))
     );
 }

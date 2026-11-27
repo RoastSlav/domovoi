@@ -43,7 +43,7 @@ To reinstall a host, create a new invite for it with **Add host** and enroll aga
 
 Agents send a heartbeat every `[agent_server] heartbeat` (10 seconds by default). When an agent has been silent for three heartbeats, the hub looks into it once:
 
-1. **The hub doubts itself first.** It checks that its own gateway answers and that it can reach `[agent_server] self_check` (`1.1.1.1:53` by default). If not, it reports `hub.network_degraded` about itself and blames no host.
+1. **The hub doubts itself first.** It checks that its own gateway answers and that it can reach `[agent_server] self_check` (`1.1.1.1:53` by default). If not, it reports `hub.network_degraded` about itself and blames no host. The incident resolves when the network answers again, also after a hub restart.
 2. **Then it probes the host.** It uses the host's `[[probes]]` TCP targets if there are any, otherwise the address the agent last connected from, on ports 22 and 443. A refused connection still means the host is up.
    - The host answers: `agent.down`, a warning. The machine is up, but its agent is not.
    - Nothing answers: `host.down`, critical, sent at once.

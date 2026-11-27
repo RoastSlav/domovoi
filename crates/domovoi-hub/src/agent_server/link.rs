@@ -45,11 +45,11 @@ pub struct WsAgentLink {
 }
 
 impl WsAgentLink {
-    /// The package skills the host announced, on or off.
+    /// The package skills the host announced, on or off; `None` without a live session.
     pub(super) fn package_skills(
         &self,
         host: HostId,
-    ) -> Vec<domovoi_proto::messages::PackageSkillState> {
+    ) -> Option<Vec<domovoi_proto::messages::PackageSkillState>> {
         self.registry.package_skills(host)
     }
 

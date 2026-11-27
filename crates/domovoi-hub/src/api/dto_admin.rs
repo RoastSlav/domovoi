@@ -223,6 +223,9 @@ pub struct SkillDto {
     pub package: Option<String>,
     /// The version of that package.
     pub package_version: Option<String>,
+    /// Whether a person enabled that package, as its agent says now or said when it was
+    /// last connected; absent for the owner's own skills.
+    pub package_enabled: Option<bool>,
 }
 
 /// A note.

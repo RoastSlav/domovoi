@@ -197,7 +197,7 @@ impl PackageService {
         let Some(recorded) = &entry.tree_sha256 else {
             return Err(PackageError::new(
                 PackageFailureCode::TreeChanged,
-                "no tree digest was recorded when this package was installed; install it again",
+                "no tree digest was recorded when this package was installed; install this version again, which records it",
             ));
         };
         let dir = self
@@ -215,7 +215,7 @@ impl PackageService {
         if &now != recorded {
             return Err(PackageError::new(
                 PackageFailureCode::TreeChanged,
-                "the package files differ from what was installed and signed",
+                "the package files differ from what was installed and signed; install this version again to place them anew",
             ));
         }
         Ok(now)
@@ -354,7 +354,7 @@ impl PackageService {
         match self.verify_tree(entry) {
             Ok(digest) if digest == record.tree_sha256 => Ok(()),
             Ok(_) => Err("the package changed since it was enabled; enable it again".to_owned()),
-            Err(error) => Err(format!("switched off: {}", error.message())),
+            Err(error) => Err(format!("switched off: {}", error.detail())),
         }
     }
 

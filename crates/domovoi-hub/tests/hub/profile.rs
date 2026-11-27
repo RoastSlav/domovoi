@@ -155,6 +155,7 @@ pub(crate) fn profile_deps(a: &Api) -> ProfileDeps {
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
+            packages: a.packages.clone(),
         }),
         hosts: a.store.clone(),
         notes: a.store.clone(),
@@ -390,6 +391,7 @@ async fn a_disabled_read_skill_is_never_asked_for_a_profile() {
         agents: Arc::new(TestAgents {
             link: a.link.clone(),
             hosts: a.store.clone(),
+            packages: a.packages.clone(),
         }),
         hosts: a.store.clone(),
         notes: a.store.clone(),

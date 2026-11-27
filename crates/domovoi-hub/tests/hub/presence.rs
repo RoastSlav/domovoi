@@ -7,12 +7,12 @@ use domovoi_core::{
     AgentId, AgentIdentity, CheckKey, HostKind, Incident, Severity, Signal, SignalClass,
     SignalStatus, SourceKind,
 };
-use domovoi_proto::Message;
 use domovoi_proto::messages::Ping;
+use domovoi_proto::{Message, PROTOCOL_VERSION};
 use domovoi_testkit::build::host;
 use jiff::SignedDuration;
 
-use crate::agent::online;
+use crate::agent::{FakeAgent, enroll, hello, online};
 use crate::harness::{Hub, t0};
 
 const SILENT: SignedDuration = SignedDuration::from_secs(31);
@@ -175,7 +175,7 @@ async fn configured_probes_decide_for_hosts_and_known_hosts_are_watched() {
     })
     .await;
     // Enrolled but never connected since the hub started.
-    let ident = crate::agent::enroll(&hub, "nas").await;
+    let ident = enroll(&hub, "nas").await;
     hub.server.watch_known_hosts().await.unwrap();
     hub.clock.advance(SILENT);
     hub.server.check_presence().await;
@@ -220,4 +220,54 @@ async fn local_agent_enrolled_but_never_connected_raises_agent_down() {
         down.summary(),
     );
     assert_eq!(hub.probes.asked(), ["1.1.1.1:53"]);
+}
+
+/// 48c: what the agent said about its packages is kept, and shown as a stored answer once it
+/// is away.
+#[tokio::test]
+async fn package_skills_stay_known_while_the_agent_is_away() {
+    use domovoi_proto::messages::PackageSkillState;
+
+    let hub = Hub::start().await;
+    hub.server.keep_package_reports(hub.store.clone());
+    let ident = enroll(&hub, "nas").await;
+    let skill = PackageSkillState {
+        package: "web-tools".to_owned(),
+        version: "1.0.0".to_owned(),
+        skill: "hello".to_owned(),
+        enabled: true,
+        reason: None,
+    };
+    let mut agent = FakeAgent::connect(hub.addr).await;
+    let Message::Hello(mut announced) = hello(ident.agent, PROTOCOL_VERSION) else {
+        panic!("a hello");
+    };
+    announced.package_skills = vec![skill.clone()];
+    agent.send(Message::Hello(announced), None).await;
+    let Message::Challenge(challenge) = agent.expect().await.message else {
+        panic!("a challenge");
+    };
+    agent.answer(&challenge, ident.agent, &ident.key).await;
+    // The ping is answered only once the session is registered and its report stored.
+    agent.send(Message::Ping(Ping { at: t0() }), None).await;
+    while !matches!(agent.expect().await.message, Message::Pong(_)) {}
+    let live = hub.server.host_package_report(ident.host).await;
+    assert!(live.live);
+
+    drop(agent);
+    let away = crate::harness::guard(async {
+        loop {
+            let report = hub.server.host_package_report(ident.host).await;
+            if !report.live {
+                return report;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert_eq!(away.skills, vec![skill]);
+
+    hub.server.revoke_agent(ident.host).await.unwrap();
+    let after = hub.server.host_package_report(ident.host).await;
+    assert!(after.skills.is_empty(), "a revoked agent's report is gone");
 }

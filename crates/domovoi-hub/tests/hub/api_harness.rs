@@ -21,7 +21,8 @@ use domovoi_engine::{
     TriageDeps, TriageService, TriageSettings,
 };
 use domovoi_hub::agent_server::{
-    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, RealNetProbes, ServerSettings,
+    AgentServer, AgentServerDeps, AgentServerError, EnrollmentInvite, PackageReport, RealNetProbes,
+    ServerSettings,
 };
 use domovoi_hub::api::{AgentAdmin, ApiDeps, ApiState};
 use domovoi_hub::auth::{AuthState, WebIdentity};
@@ -110,6 +111,8 @@ pub fn canned_logs() -> Vec<LogLine> {
 pub struct TestAgents {
     pub link: Arc<FakeAgentLink>,
     pub hosts: Arc<Store>,
+    /// What the agent last said about its packages; empty unless a test sets it.
+    pub packages: Arc<std::sync::Mutex<PackageReport>>,
 }
 
 #[async_trait]
@@ -155,6 +158,10 @@ impl AgentAdmin for TestAgents {
         self.link.host_checks(host)
     }
 
+    async fn package_report(&self, _host: HostId) -> PackageReport {
+        self.packages.lock().unwrap().clone()
+    }
+
     async fn logs(
         &self,
         _host: HostId,
@@ -173,6 +180,7 @@ pub struct Login {
 }
 
 pub struct Api {
+    pub packages: Arc<std::sync::Mutex<PackageReport>>,
     pub app: Router,
     pub state: ApiState,
     pub store: Arc<Store>,
@@ -580,9 +588,11 @@ async fn assemble(
     });
     let source: Arc<dyn LogSource> = Arc::new(CannedLogSource::new(canned_logs()));
     let update = UpdateChecker::load(store.clone(), clock.clone()).await;
+    let packages: Arc<std::sync::Mutex<PackageReport>> = Arc::default();
     let agents: Arc<dyn AgentAdmin> = Arc::new(TestAgents {
         link: link.clone(),
         hosts: store.clone(),
+        packages: packages.clone(),
     });
     let profile_deps = profiles.then(|| ProfileDeps {
         evidence: domovoi_engine::Evidence::new(
@@ -764,6 +774,7 @@ async fn assemble(
     let state = ApiState::new(deps, auth);
     let app = router(state.clone(), None).layer(MockConnectInfo(peer()));
     Api {
+        packages,
         audit: store.clone(),
         services,
         app,

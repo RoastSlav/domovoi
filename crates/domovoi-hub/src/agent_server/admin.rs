@@ -6,7 +6,7 @@ use domovoi_core::ports::{LinkError, LogLine, Presence};
 use domovoi_core::{HostId, HostName, SkillSummary};
 use domovoi_proto::messages::{CheckInfo, HostFacts};
 
-use super::{AgentServer, AgentServerError, EnrollmentInvite};
+use super::{AgentServer, AgentServerError, EnrollmentInvite, PackageReport};
 
 /// Agent administration the hub needs: enrollment, revocation, presence and catalogues.
 #[async_trait]
@@ -24,9 +24,19 @@ pub trait AgentAdmin: Send + Sync {
     fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
-    /// The skills of the packages stored on `host`, on or off, as its agent announced them.
-    fn package_skills(&self, _host: HostId) -> Vec<domovoi_proto::messages::PackageSkillState> {
-        Vec::new()
+    /// The skills of the packages stored on `host`, on or off: as its live agent announced
+    /// them, else as it announced them when last connected.
+    async fn package_report(&self, _host: HostId) -> PackageReport {
+        PackageReport::default()
+    }
+    /// Notes the agent's answer to an enable or disable of a package's skills.
+    async fn note_package_enabled(
+        &self,
+        _host: HostId,
+        _package: &str,
+        _version: &str,
+        _enabled: bool,
+    ) {
     }
     /// Whether `host`'s live agent reports that it runs in a container.
     fn in_container(&self, _host: HostId) -> bool {
@@ -69,8 +79,18 @@ impl AgentAdmin for AgentServer {
         self.host_skills(host)
     }
 
-    fn package_skills(&self, host: HostId) -> Vec<domovoi_proto::messages::PackageSkillState> {
-        self.host_package_skills(host)
+    async fn package_report(&self, host: HostId) -> PackageReport {
+        self.host_package_report(host).await
+    }
+
+    async fn note_package_enabled(
+        &self,
+        host: HostId,
+        package: &str,
+        version: &str,
+        enabled: bool,
+    ) {
+        AgentServer::note_package_enabled(self, host, package, version, enabled).await;
     }
 
     fn in_container(&self, host: HostId) -> bool {

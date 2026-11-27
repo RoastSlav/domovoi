@@ -268,7 +268,8 @@ pub(super) async fn skills(
         .capabilities
         .skills_cannot_run(host.id)
         .map(|reason| reason.describe().to_owned());
-    let package_states = state.deps.agents.package_skills(host.id);
+    let report = state.deps.agents.package_report(host.id).await;
+    let package_states = &report.skills;
     let skills = state
         .deps
         .agents
@@ -302,14 +303,25 @@ pub(super) async fn skills(
             enabled: switch_on(&state, host.id, &s.name) && cannot_run.is_none(),
             available: cannot_run.is_none(),
             unavailable_reason: cannot_run.clone(),
-            package: package_of(&package_states, s.name.as_str()).map(|p| p.package.clone()),
-            package_version: package_of(&package_states, s.name.as_str())
-                .map(|p| p.version.clone()),
+            package: package_of(package_states, s.name.as_str()).map(|p| p.package.clone()),
+            package_version: package_of(package_states, s.name.as_str()).map(|p| p.version.clone()),
+            package_enabled: package_of(package_states, s.name.as_str()).map(|_| true),
         })
         .collect();
     let mut skills: Vec<SkillDto> = skills;
-    // Skills of stored packages that nobody enabled: listed, off, with the agent's reason.
-    for stored in package_states.iter().filter(|p| !p.enabled) {
+    // Skills of stored packages that cannot run: those nobody enabled, with the agent's
+    // reason, and, while the agent is away, every one it last reported. Never available.
+    for stored in package_states.iter().filter(|p| !p.enabled || !report.live) {
+        if skills.iter().any(|skill| skill.name == stored.skill) {
+            continue;
+        }
+        let reason = if report.live || !stored.enabled {
+            stored.reason.clone()
+        } else {
+            Some(
+                "the agent is not connected; when it last was, this package was enabled".to_owned(),
+            )
+        };
         skills.push(SkillDto {
             name: stored.skill.clone(),
             description: format!(
@@ -325,9 +337,10 @@ pub(super) async fn skills(
             readme: None,
             enabled: false,
             available: false,
-            unavailable_reason: stored.reason.clone(),
+            unavailable_reason: reason,
             package: Some(stored.package.clone()),
             package_version: Some(stored.version.clone()),
+            package_enabled: Some(stored.enabled),
         });
     }
     Ok(Json(skills))

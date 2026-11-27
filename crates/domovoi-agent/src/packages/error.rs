@@ -65,6 +65,15 @@ impl PackageError {
         }
     }
 
+    /// The explanation alone, for text a person reads.
+    #[must_use]
+    pub fn detail(&self) -> String {
+        match self {
+            Self::Failed { detail, .. } => detail.clone(),
+            other => other.to_string(),
+        }
+    }
+
     /// The text for `capability_result.failed.message`: `"<code>: <detail>"`, at most 500
     /// characters.
     #[must_use]

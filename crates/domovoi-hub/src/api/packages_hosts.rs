@@ -17,8 +17,8 @@ use super::{ApiState, Authed, host_named};
 use crate::auth::proxy;
 use crate::services::StepUp;
 
-fn dto(state: &ApiState, host: HostId, rows: &[HostPackage]) -> HostPackagesDto {
-    let states = state.deps.agents.package_skills(host);
+async fn dto(state: &ApiState, host: HostId, rows: &[HostPackage]) -> HostPackagesDto {
+    let report = state.deps.agents.package_report(host).await;
     HostPackagesDto {
         host_id: host.to_string(),
         observed_at: rows
@@ -28,7 +28,7 @@ fn dto(state: &ApiState, host: HostId, rows: &[HostPackage]) -> HostPackagesDto 
             .map(|at| at.to_string()),
         entries: rows
             .iter()
-            .map(|row| HostPackageDto::from(row).with_skill_states(&states))
+            .map(|row| HostPackageDto::from(row).with_skill_states(&report))
             .collect(),
         install_allowed: None,
     }
@@ -56,7 +56,7 @@ pub(super) async fn list(
         .host_packages(host.id)
         .await
         .map_err(api_error)?;
-    Ok(Json(dto(&state, host.id, &rows)))
+    Ok(Json(dto(&state, host.id, &rows).await))
 }
 
 /// Asks host `name`'s agent which packages it has and replaces what the hub holds with the
@@ -83,7 +83,7 @@ pub(super) async fn refresh(
         .refresh(&auth.caller(), host.id)
         .await
         .map_err(api_error)?;
-    Ok(Json(dto(&state, host.id, &rows)))
+    Ok(Json(dto(&state, host.id, &rows).await))
 }
 
 /// Lets the skills of a package stored on host `name` run, or stops them. Asks for the
@@ -138,6 +138,16 @@ pub(super) async fn set_skills(
         )
         .await
         .map_err(api_error)?;
+    state
+        .deps
+        .agents
+        .note_package_enabled(
+            host.id,
+            package.as_str(),
+            &version.to_string(),
+            answer.enabled,
+        )
+        .await;
     Ok(Json(PackageSkillsDto {
         name: package.to_string(),
         version: version.to_string(),

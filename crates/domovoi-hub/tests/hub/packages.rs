@@ -1132,6 +1132,16 @@ async fn enabling_a_stored_package_asks_for_password_and_name_and_is_audited() {
         StatusCode::FORBIDDEN
     );
     assert!(seen.lock().unwrap().is_empty(), "nothing reached the agent");
+    for (enable, word) in [(true, "enabling"), (false, "disabling")] {
+        let answer = put(skills_body(enable, None, "web-tools")).await;
+        assert!(
+            answer
+                .text
+                .contains(&format!("{word} a package's skills needs your password")),
+            "{}",
+            answer.text
+        );
+    }
     assert!(a.audit_events("package.enabled").await.is_empty());
 
     let ok = put(skills_body(true, Some(PASSWORD), "web-tools")).await;
@@ -1145,6 +1155,20 @@ async fn enabling_a_stored_package_asks_for_password_and_name_and_is_audited() {
 
     let refused = put(skills_body(false, Some(PASSWORD), "web-tools")).await;
     assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text);
-    assert!(refused.text.contains("tree_changed"));
-    assert_eq!(a.audit_events("package.enable_refused").await.len(), 1);
+    assert!(
+        refused
+            .text
+            .contains("The agent refused: the package files differ"),
+        "{}",
+        refused.text
+    );
+    assert!(!refused.text.contains("tree_changed"), "{}", refused.text);
+    let audited = a.audit_events("package.enable_refused").await;
+    assert_eq!(audited.len(), 1);
+    assert!(
+        audited[0].detail["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("tree_changed")),
+        "the audit log keeps the code"
+    );
 }

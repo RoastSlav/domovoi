@@ -23,6 +23,12 @@ pub enum PackageCommandError {
     /// The request carried no password.
     #[error("installing a package needs your password")]
     PasswordRequired,
+    /// Enabling or disabling a package's skills carried no password.
+    #[error("{} a package's skills needs your password", if *.enable { "enabling" } else { "disabling" })]
+    SkillsPasswordRequired {
+        /// Whether the request was to enable.
+        enable: bool,
+    },
     /// The password is wrong.
     #[error("wrong password")]
     BadPassword,

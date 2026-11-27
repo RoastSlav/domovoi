@@ -2,6 +2,8 @@
 //! line prints too.
 
 use axum::http::StatusCode;
+use domovoi_core::package::PackageFailureCode;
+use domovoi_core::ports::LinkError;
 use domovoi_engine::packages::PackageError;
 
 use super::error::ApiError;
@@ -48,6 +50,16 @@ pub(super) fn import_error(err: ImportError) -> ApiError {
     }
 }
 
+/// An agent's refusal as a person reads it: its words, without the wire code in front. The
+/// code stays in the audit log.
+fn agent_refusal(text: &str) -> String {
+    let detail = text
+        .split_once(": ")
+        .filter(|(code, _)| code.parse::<PackageFailureCode>().is_ok())
+        .map_or(text, |(_, detail)| detail);
+    format!("The agent refused: {detail}")
+}
+
 fn install_error(err: PackageError) -> ApiError {
     let message = err.to_string();
     match err {
@@ -62,6 +74,7 @@ fn install_error(err: PackageError) -> ApiError {
         PackageError::PlanChanged => coded(StatusCode::CONFLICT, "plan_changed", message),
         PackageError::HostBusy(_) => coded(StatusCode::CONFLICT, "host_busy", message),
         PackageError::Conflict(_) => coded(StatusCode::CONFLICT, "package_conflict", message),
+        PackageError::Link(LinkError::Rejected(text)) => ApiError::Conflict(agent_refusal(&text)),
         // The agent is not connected, did not answer or is too old: the same answer as the
         // host log endpoint gives.
         PackageError::Link(_) => ApiError::Conflict(message),
@@ -79,6 +92,7 @@ pub(super) fn api_error(err: PackageCommandError) -> ApiError {
         }
         PackageCommandError::WebOnly
         | PackageCommandError::PasswordRequired
+        | PackageCommandError::SkillsPasswordRequired { .. }
         | PackageCommandError::BadPassword
         | PackageCommandError::ConfirmationMismatch => ApiError::Forbidden(err.to_string()),
         PackageCommandError::BadRequest(message) => ApiError::BadRequest(message),
@@ -87,5 +101,22 @@ pub(super) fn api_error(err: PackageCommandError) -> ApiError {
         PackageCommandError::Import(err) => import_error(err),
         PackageCommandError::Install(err) => install_error(err),
         PackageCommandError::Store(err) => ApiError::from(err),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::agent_refusal;
+
+    #[test]
+    fn the_wire_code_is_not_shown() {
+        assert_eq!(
+            agent_refusal("tree_changed: the files differ"),
+            "The agent refused: the files differ"
+        );
+        assert_eq!(
+            agent_refusal("odd: text stays"),
+            "The agent refused: odd: text stays"
+        );
     }
 }

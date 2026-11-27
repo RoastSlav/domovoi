@@ -63,6 +63,11 @@ function columns(
       label: "Skills",
       cell: (pkg) => (
         <span {...visibilityAttrs("P0", "packages.installed.status")}>
+          {pkg.skills_live === false && (
+            <Text muted size="sm" block>
+              As last reported: the agent is not connected.
+            </Text>
+          )}
           {pkg.skills_enabled === undefined ? (
             <Text muted size="sm">
               Not reported

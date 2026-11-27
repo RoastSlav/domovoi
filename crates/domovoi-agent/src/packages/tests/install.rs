@@ -181,11 +181,15 @@ fn resigned_package_with_trusted_key_updates_signer_without_reextracting() {
     assert_eq!(a.archive_sha256, b.archive_sha256);
     let service = env.open(&Env::section(&[&a, &b]));
     install(&service, &a, "pkg-a", "1.0.0").unwrap();
-    let marker = env.packages().join("pkg-a/1.0.0/marker");
-    std::fs::write(&marker, b"kept").unwrap();
+    let placed = env.packages().join("pkg-a/1.0.0");
+    let inode = |path: &std::path::Path| {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).unwrap().ino()
+    };
+    let before = inode(&placed);
     let outcome = install(&service, &b, "pkg-a", "1.0.0").unwrap();
     assert!(outcome.already_installed && outcome.signer_updated);
-    assert!(marker.is_file());
+    assert_eq!(inode(&placed), before, "the files were not placed again");
     let registry = Registry::read(&env.packages().join(".packages.toml")).unwrap();
     assert_eq!(registry.get(&name("pkg-a")).unwrap().key_id, b.key_id);
 }

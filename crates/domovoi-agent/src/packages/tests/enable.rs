@@ -145,3 +145,47 @@ fn the_tree_digest_changes_with_content_and_ignores_nothing() {
     std::fs::write(dir.join("extra.txt"), b"x").unwrap();
     assert_ne!(first, tree_digest(&dir).unwrap());
 }
+
+/// 48a: a package an older agent stored has no digest. Installing the same version again
+/// places the files and records one, and does not switch anything on.
+#[test]
+fn installing_the_same_version_again_records_the_missing_digest() {
+    let (env, service, built) = stored_with_build();
+    let registry = service.registry_path();
+    let text = std::fs::read_to_string(&registry).unwrap();
+    let old: String = text
+        .lines()
+        .filter(|line| !line.starts_with("tree_sha256"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    std::fs::write(&registry, old).unwrap();
+    assert_eq!(code_of(service.enable(req())), Code::TreeChanged);
+
+    let again = install(&service, &built, "pkg-a", "1.0.0").unwrap();
+    assert!(!again.already_installed);
+    assert_eq!(again.replaced_version, None);
+    assert!(
+        service.skill_view(&[]).runnable.is_empty(),
+        "install never enables"
+    );
+    assert!(service.enable(req()).unwrap().enabled);
+
+    // A sound install of the same archive stays a no-op.
+    assert!(
+        install(&service, &built, "pkg-a", "1.0.0")
+            .unwrap()
+            .already_installed
+    );
+    assert_eq!(service.skill_view(&[]).runnable.len(), 1);
+
+    // Changed files are placed again, and a person has to enable them again.
+    std::fs::write(env.packages().join("pkg-a/1.0.0/extra.txt"), b"x").unwrap();
+    assert!(
+        !install(&service, &built, "pkg-a", "1.0.0")
+            .unwrap()
+            .already_installed
+    );
+    assert!(!env.packages().join("pkg-a/1.0.0/extra.txt").exists());
+    let view = service.skill_view(&[]);
+    assert_eq!(view.states[0].reason.as_deref(), Some(REASON_NOT_ENABLED));
+}

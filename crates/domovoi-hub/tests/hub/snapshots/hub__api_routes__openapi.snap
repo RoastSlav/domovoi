@@ -3269,7 +3269,14 @@ expression: spec
             "type": "array"
           },
           "skills_enabled": {
-            "description": "Whether the package's skills can run: `true` only after a person enabled them and the\nagent's re-check of the files passed. Absent when the agent is not connected or is too\nold to say.",
+            "description": "Whether the package's skills can run: `true` only after a person enabled them and the\nagent's re-check of the files passed. Absent when the agent never said (it is too old,\nor has not connected since).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "skills_live": {
+            "description": "`false` when `skills_enabled` is what the agent said when it was last connected, not\nwhat it says now. Absent with `skills_enabled`.",
             "type": [
               "boolean",
               "null"
@@ -7755,6 +7762,13 @@ expression: spec
             "description": "The package it came from; absent for the owner's own skills.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "package_enabled": {
+            "description": "Whether a person enabled that package, as its agent says now or said when it was\nlast connected; absent for the owner's own skills.",
+            "type": [
+              "boolean",
               "null"
             ]
           },

@@ -17,6 +17,7 @@ mod live;
 mod memory;
 mod overrides;
 pub(crate) use overrides::{stored_docker, stored_overrides};
+mod package_report;
 mod presence;
 mod probes;
 mod registry;
@@ -51,6 +52,7 @@ pub use handshake::{BAD_TOKEN_DELAY, FIRST_FRAME_TIMEOUT, STEP_TIMEOUT};
 #[cfg(any(test, feature = "test-support"))]
 pub use link::WsAgentLink;
 pub use memory::MemoryTransport;
+pub use package_report::PackageReport;
 pub use probes::{NetProbes, RealNetProbes};
 pub use registry::{AGENTS_CONNECTED, MAX_PENDING};
 pub use settings::ServerSettings;
@@ -102,6 +104,8 @@ struct Inner {
     /// The action service, once the runtime has it, so an authenticated agent's
     /// dispatched runs can be reconciled against its journal.
     reconciler: OnceLock<Arc<dyn HostReconciler>>,
+    /// Where each host's last announced package skills are kept.
+    package_reports: OnceLock<Arc<dyn domovoi_core::ports::SettingsRepo>>,
     /// Told when a host's agent reports new runtime status, so the helper attestation can be
     /// refreshed when the helper or its key changed.
     status_listener: OnceLock<Arc<dyn HostReconciler>>,
@@ -142,6 +146,7 @@ impl AgentServer {
                 overrides: OnceLock::new(),
                 reconciler: OnceLock::new(),
                 status_listener: OnceLock::new(),
+                package_reports: OnceLock::new(),
             }),
         })
     }
@@ -193,13 +198,51 @@ impl AgentServer {
         self.inner.link.skills(host)
     }
 
-    /// The package skills `host`'s agent announced, enabled or not.
-    #[must_use]
-    pub fn host_package_skills(
+    /// Keeps each host's announced package skills in `store`, so they can be shown while
+    /// the agent is away. Call once, before the server serves.
+    pub fn keep_package_reports(&self, store: Arc<dyn domovoi_core::ports::SettingsRepo>) {
+        if self.inner.package_reports.set(store).is_err() {
+            tracing::warn!("the agent server already stores package reports; keeping the first");
+        }
+    }
+
+    /// `host`'s package skills: what its live agent announced, else what it announced when
+    /// it was last connected.
+    pub async fn host_package_report(&self, host: HostId) -> PackageReport {
+        if let Some(skills) = self.inner.link.package_skills(host) {
+            return PackageReport { skills, live: true };
+        }
+        let skills = match self.inner.package_reports.get() {
+            Some(store) => package_report::load(&**store, host).await,
+            None => Vec::new(),
+        };
+        PackageReport {
+            skills,
+            live: false,
+        }
+    }
+
+    /// Notes the agent's answer to an enable or disable at once, in case it goes away
+    /// before it announces its new list.
+    pub async fn note_package_enabled(
         &self,
         host: HostId,
-    ) -> Vec<domovoi_proto::messages::PackageSkillState> {
-        self.inner.link.package_skills(host)
+        package: &str,
+        version: &str,
+        enabled: bool,
+    ) {
+        let Some(store) = self.inner.package_reports.get() else {
+            return;
+        };
+        let mut skills = package_report::load(&**store, host).await;
+        for skill in skills
+            .iter_mut()
+            .filter(|s| s.package == package && s.version == version)
+        {
+            skill.enabled = enabled;
+            skill.reason = (!enabled).then(|| "disabled by a person".to_owned());
+        }
+        package_report::save(&**store, host, &skills).await;
     }
 
     /// The agent's recent log lines, as the log page asks for them.
@@ -384,6 +427,9 @@ impl AgentServer {
                 // Retirement, not a plain close: a handshake for this identity that is still
                 // in flight must not register itself after the revocation.
                 inner.registry.retire(agent.agent, now);
+                if let Some(store) = inner.package_reports.get() {
+                    package_report::forget(&**store, host).await;
+                }
                 tracing::info!(%host, agent = %agent.agent, "agent revoked");
                 Ok(true)
             }

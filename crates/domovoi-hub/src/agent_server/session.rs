@@ -104,6 +104,12 @@ pub(crate) async fn run_session(
         authoritative_absence,
         "agent connected"
     );
+    if let (Some(store), Some(skills)) = (
+        inner.package_reports.get(),
+        inner.registry.package_skills(host),
+    ) {
+        super::package_report::save(&**store, host, &skills).await;
+    }
     reconcile(inner, host, &cancel);
     let clock = inner.deps.clock.clone();
     let secs = inner.settings.heartbeat.as_secs().max(1);

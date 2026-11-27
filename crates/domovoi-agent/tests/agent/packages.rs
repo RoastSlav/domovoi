@@ -16,8 +16,9 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::harness::{clock, identity, start_link, start_link_transfers};
+use crate::harness::{clock, identity, start_link, start_link_packages, start_link_transfers};
 use crate::hub::{HubConn, TestHub, guard};
+use crate::package_rig::{Options, Rig};
 
 fn begin(id: Uuid, bytes: &[u8]) -> Message {
     Message::TransferBegin(TransferBegin {
@@ -123,4 +124,48 @@ async fn heartbeat_is_answered_while_chunks_flow() {
     assert_eq!(result.outcome, TransferOutcome::Stored);
     link.shutdown.cancel();
     served.await.unwrap();
+}
+
+/// 48b: the catalogue hash in `hello` describes the list the agent pages now, enabled
+/// package skills included, not the one it had when it started.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn hello_announces_the_catalogue_with_the_enabled_package_skill() {
+    use domovoi_agent::requests::catalog_entries_with;
+    use domovoi_core::capability::catalog_hash;
+    use domovoi_testkit::PackageFixture;
+
+    let built = PackageFixture::new("nginx-tools", "1.2.0")
+        .unwrap()
+        .skill("nginx_reload")
+        .build();
+    let rig = Rig::new(&[&built], Options::default());
+    let args = rig.install_args(&built, "nginx-tools", "1.2.0");
+    rig.call(rig.run("agent.package.install", &args)).await;
+    let stale = rig.ctx.package_skills_surface();
+    let stale = catalog_entries_with(&rig.ctx.catalog, stale, &[]);
+    let pair = [
+        ("package", "nginx-tools".to_owned()),
+        ("version", "1.2.0".to_owned()),
+    ];
+    rig.call(rig.run("agent.package.enable", &pair)).await;
+    let now = catalog_entries_with(
+        &rig.ctx.catalog,
+        rig.ctx.package_skills_surface(),
+        &rig.ctx.enabled_package_skill_names(),
+    );
+    assert_ne!(catalog_hash(&stale), catalog_hash(&now));
+
+    let mut hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let identity = identity(&hub);
+    let clock = clock();
+    let old = domovoi_agent::link::handshake::catalog_announcement(&stale).unwrap();
+    let _link = start_link_packages(&hub, &identity, &clock, &dir, Arc::new(rig.ctx), old);
+    let hello = hub.accept().await.welcome(&identity, 3600).await;
+    assert_eq!(
+        hello.catalog_hash.map(|hash| hex::encode(hash.as_bytes())),
+        Some(catalog_hash(&now))
+    );
+    assert!(hello.package_skills[0].enabled);
 }

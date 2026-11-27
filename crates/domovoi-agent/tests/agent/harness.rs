@@ -10,6 +10,7 @@ use domovoi_agent::identity::{Identity, generate_key};
 use domovoi_agent::link::tls::PinnedVerifier;
 use domovoi_agent::link::ws::TlsConnector;
 use domovoi_agent::link::{IncomingRequest, IncomingTransfer, Link, LinkHandle, LinkParts};
+use domovoi_agent::requests::RequestCtx;
 use domovoi_agent::spool::{SharedSpool, Spool};
 use domovoi_checks::framework::{Check, CheckContext, CheckError, CheckReport, Observation};
 use domovoi_core::{AgentId, CheckKey, HostId, Severity, SignalClass, TargetKey};
@@ -125,7 +126,31 @@ fn start_link_full(
     status: domovoi_agent::link::handshake::AgentStatusSource,
     transfers: Option<mpsc::Sender<IncomingTransfer>>,
 ) -> RunningLink {
-    start_link_ext(hub, identity, clock, dir, spool, status, (transfers, false))
+    start_link_ext(
+        hub,
+        identity,
+        clock,
+        dir,
+        spool,
+        status,
+        (transfers, false, None),
+    )
+}
+
+/// A link that announces the package skills of `ctx` and starts with `stale` as the
+/// catalogue hash computed at start-up.
+pub fn start_link_packages(
+    hub: &TestHub,
+    identity: &Identity,
+    clock: &Arc<FakeClock>,
+    dir: &tempfile::TempDir,
+    ctx: Arc<RequestCtx>,
+    stale: domovoi_proto::Sha256Bytes,
+) -> RunningLink {
+    let spool = Arc::new(SharedSpool::new(Spool::open(dir.path()).unwrap()));
+    let status = domovoi_agent::link::handshake::AgentStatusSource::default();
+    let options = (None, false, Some((ctx, stale)));
+    start_link_ext(hub, identity, clock, dir, spool, status, options)
 }
 
 /// A link whose hello announces that the agent runs in a container.
@@ -141,8 +166,11 @@ pub fn start_link_in_container(
         ..Default::default()
     };
     let status = domovoi_agent::link::handshake::AgentStatusSource::new(extensions.status());
-    start_link_ext(hub, identity, clock, dir, spool, status, (None, true))
+    start_link_ext(hub, identity, clock, dir, spool, status, (None, true, None))
 }
+
+/// What the packaged link announces: the request context and the start-up catalogue hash.
+type Packaged = (Arc<RequestCtx>, domovoi_proto::Sha256Bytes);
 
 fn start_link_ext(
     hub: &TestHub,
@@ -151,9 +179,14 @@ fn start_link_ext(
     dir: &tempfile::TempDir,
     spool: Arc<SharedSpool>,
     status: domovoi_agent::link::handshake::AgentStatusSource,
-    options: (Option<mpsc::Sender<IncomingTransfer>>, bool),
+    options: (
+        Option<mpsc::Sender<IncomingTransfer>>,
+        bool,
+        Option<Packaged>,
+    ),
 ) -> RunningLink {
-    let (transfers, in_container) = options;
+    let (transfers, in_container, packages) = options;
+    let (package_skills, catalog_hash) = packages.unzip();
     let connector = Arc::new(TlsConnector::new(
         hub.url.clone(),
         Arc::new(PinnedVerifier::new(identity.hub_fingerprint)),
@@ -170,6 +203,7 @@ fn start_link_ext(
         extensions: domovoi_agent::link::handshake::HelloExtensions {
             journal_epoch: uuid::Uuid::now_v7(),
             in_container,
+            catalog_hash,
             ..Default::default()
         },
         status,
@@ -178,7 +212,7 @@ fn start_link_ext(
         jitter: Box::new(|| 1.0),
         status_dir: Some(dir.path().to_path_buf()),
         transfers,
-        package_skills: None,
+        package_skills,
         resync: None,
     };
     let (link, handle, requests) = Link::new(parts);

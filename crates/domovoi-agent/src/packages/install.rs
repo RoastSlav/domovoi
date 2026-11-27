@@ -137,15 +137,22 @@ impl PackageService {
         )?;
 
         let registry = self.read_registry()?;
+        let mut repair = false;
         let replaced = match registry.get(&req.package) {
             Some(existing) if existing.version == req.version => {
-                if existing.archive_sha256 == sf.archive_sha256 {
+                if existing.archive_sha256 != sf.archive_sha256 {
+                    return Err(fail(
+                        PackageFailureCode::VersionConflict,
+                        "this version is installed from a different archive",
+                    ));
+                }
+                if self.files_match(existing) {
                     return self.already_installed(existing, &sf, &registry);
                 }
-                return Err(fail(
-                    PackageFailureCode::VersionConflict,
-                    "this version is installed from a different archive",
-                ));
+                // No digest was recorded, or the files differ from it: the files are placed
+                // again from this verified archive. The disk as it is cannot be trusted.
+                repair = true;
+                None
             }
             Some(existing) => Some(existing.version.clone()),
             None if registry.len() >= MAX_INSTALLED_PACKAGES => {
@@ -209,6 +216,10 @@ impl PackageService {
         };
         self.commit(&registry.with(entry), exec, &req.package, &dest)?;
         self.fault(InstallStep::AfterRegistry)?;
+        // Placing files again never switches skills back on: a person enables them again.
+        if repair {
+            self.forget_enabled(&req.package);
+        }
         self.skills_changed.notify_one();
 
         if let Some(old) = &replaced {
@@ -263,6 +274,18 @@ impl PackageService {
                 }
             }
         }
+    }
+
+    /// Whether the placed files are still the ones whose digest the install recorded.
+    fn files_match(&self, entry: &RegistryEntry) -> bool {
+        let dir = self
+            .dirs
+            .packages_dir
+            .join(entry.name.as_str())
+            .join(entry.version.as_str());
+        entry.tree_sha256.as_ref().is_some_and(|recorded| {
+            super::enable::tree_digest(&dir).is_ok_and(|now| &now == recorded)
+        })
     }
 
     /// The same archive is registered already: only a changed signer is recorded.

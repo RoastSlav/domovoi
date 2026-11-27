@@ -190,6 +190,7 @@ impl HubRuntime {
                 hub_host,
             },
         )?;
+        server.keep_package_reports(store.clone());
         if let Err(err) = server.restore_network_degraded(&*store).await {
             tracing::warn!(%err, "could not look for an open network incident");
         }

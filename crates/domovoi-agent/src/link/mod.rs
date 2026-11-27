@@ -298,7 +298,21 @@ impl Link {
             .map(|ctx| ctx.package_skills());
         let mut skills = self.parts.skills.clone();
         let mut package_states = Vec::new();
-        if let Some(view) = package_view {
+        let mut extensions = self.parts.extensions.clone();
+        if let (Some(ctx), Some(view)) = (&self.parts.package_skills, package_view) {
+            // The announced hash must describe the list `get_catalog` pages now: a hash kept
+            // from start-up disagrees with it as soon as a package is enabled or disabled.
+            let enabled: Vec<_> = view
+                .runnable
+                .iter()
+                .map(|r| r.skill.manifest().name.clone())
+                .collect();
+            extensions.catalog_hash =
+                handshake::catalog_announcement(&crate::requests::catalog_entries_with(
+                    &ctx.catalog,
+                    ctx.package_skills_surface(),
+                    &enabled,
+                ));
             skills.extend(view.runnable.iter().flat_map(|r| r.catalog.summaries()));
             package_states = view.states;
         }
@@ -308,7 +322,7 @@ impl Link {
             package_skills: &package_states,
             checks: &self.parts.checks,
             docker: self.parts.docker.as_ref(),
-            extensions: &self.parts.extensions,
+            extensions: &extensions,
         };
         let shake = handshake(
             transport.as_mut(),

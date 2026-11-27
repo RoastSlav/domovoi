@@ -424,6 +424,7 @@ test("a_stored_package_skill_is_listed_off_with_the_reason_and_a_way_to_enable_i
       unavailable_reason: "the package is stored but not enabled",
       package: "nginx-tools",
       package_version: "1.2.0",
+      package_enabled: false,
     }),
   ]);
   renderAt("/skills?host=nas", "/skills", <SkillsPage />);
@@ -437,4 +438,21 @@ test("a_stored_package_skill_is_listed_off_with_the_reason_and_a_way_to_enable_i
     "href",
     "/capabilities?tab=packages&host=nas",
   );
+});
+
+test("an_enabled_package_skill_of_an_absent_agent_is_not_offered_for_enabling_again", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("nginx_reload", "unknown", {
+      enabled: false,
+      available: false,
+      unavailable_reason: "the agent is not connected",
+      package: "nginx-tools",
+      package_version: "1.2.0",
+      package_enabled: true,
+    }),
+  ]);
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+  await screen.findByText("nginx_reload");
+  expect(screen.queryByRole("link", { name: "Enable package…" })).toBeNull();
 });

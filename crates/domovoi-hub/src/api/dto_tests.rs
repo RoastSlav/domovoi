@@ -39,6 +39,11 @@ fn host_package_rows_carry_the_agents_skill_state() {
         observed_by: "job".to_owned(),
         skills_enabled: None,
         skills_off_reason: None,
+        skills_live: None,
+    };
+    let report = |skills: &[PackageSkillState]| crate::agent_server::PackageReport {
+        skills: skills.to_vec(),
+        live: false,
     };
     let off = PackageSkillState {
         package: "web-tools".to_owned(),
@@ -47,7 +52,10 @@ fn host_package_rows_carry_the_agents_skill_state() {
         enabled: false,
         reason: Some("stored, not enabled".to_owned()),
     };
-    let shown = row.clone().with_skill_states(std::slice::from_ref(&off));
+    let shown = row
+        .clone()
+        .with_skill_states(&report(std::slice::from_ref(&off)));
+    assert_eq!(shown.skills_live, Some(false));
     assert_eq!(shown.skills_enabled, Some(false));
     assert_eq!(
         shown.skills_off_reason.as_deref(),
@@ -59,7 +67,7 @@ fn host_package_rows_carry_the_agents_skill_state() {
         ..off.clone()
     };
     assert_eq!(
-        row.clone().with_skill_states(&[on]).skills_enabled,
+        row.clone().with_skill_states(&report(&[on])).skills_enabled,
         Some(true)
     );
     let other = PackageSkillState {
@@ -67,7 +75,7 @@ fn host_package_rows_carry_the_agents_skill_state() {
         ..off
     };
     assert_eq!(
-        row.with_skill_states(&[other]).skills_enabled,
+        row.with_skill_states(&report(&[other])).skills_enabled,
         None,
         "unknown to the agent"
     );
