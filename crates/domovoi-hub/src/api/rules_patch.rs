@@ -17,7 +17,7 @@ use super::{ApiState, Authed};
 
 /// The agent checks this build ships. A rule may also name a check an agent reports, a probe,
 /// a webhook source, or one an incident has been raised for.
-const BUILT_IN_CHECKS: [&str; 21] = [
+const BUILT_IN_CHECKS: [&str; 22] = [
     "container.expected_down",
     "container.new",
     "container.restart_loop",
@@ -27,6 +27,7 @@ const BUILT_IN_CHECKS: [&str; 21] = [
     "memory.available",
     "power.supply",
     "security.fail2ban",
+    "security.listener_gone",
     "security.new_port",
     "security.ssh_login",
     "security.sudo_failure",

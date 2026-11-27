@@ -205,6 +205,19 @@ impl Builder<'_> {
         {
             return self.out.writes.push(Write::InsertSignal(kept, None));
         }
+        // A vanished listener opens an incident only when a person said it was expected.
+        let expected_gone = if matches!(target, Target::New | Target::Reopen(_)) {
+            match super::expected::gone_listener(&self.state.acks, signal, self.now) {
+                super::expected::Gone::Unexpected(kept) => {
+                    return self.out.writes.push(Write::InsertSignal(kept, None));
+                }
+                super::expected::Gone::Expected(kept) => Some(kept),
+                super::expected::Gone::NotApplicable => None,
+            }
+        } else {
+            None
+        };
+        let signal = expected_gone.as_ref().unwrap_or(signal);
         match target {
             Target::Ignore => {
                 self.out

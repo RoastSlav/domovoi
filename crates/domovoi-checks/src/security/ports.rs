@@ -12,7 +12,7 @@
 //!   **Severity:** warning. **Class:** immediate.
 //! - **Evidence:** `address`, `port`, `proto`; `first_run` on the first run.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -151,8 +151,22 @@ async fn read_net(fs: &dyn HostFs, file: &str) -> Option<String> {
     }
 }
 
-/// Every non-loopback listener on the host.
+/// Every non-loopback listener on the host. A table that cannot be read counts as no
+/// listeners; use [`try_listeners`] where that difference matters.
 pub async fn listeners(fs: &dyn HostFs) -> BTreeSet<Listener> {
+    read_listeners(fs).await.unwrap_or_default()
+}
+
+/// Every non-loopback listener on the host, or an error when no listener table could be read
+/// at all, so a read failure is never taken for "nothing is listening".
+pub async fn try_listeners(fs: &dyn HostFs) -> Result<BTreeSet<Listener>, CheckError> {
+    read_listeners(fs).await.ok_or_else(|| CheckError::Parse {
+        what: "/proc/net listener tables",
+        reason: "none of tcp, tcp6, udp or udp6 could be read".to_owned(),
+    })
+}
+
+async fn read_listeners(fs: &dyn HostFs) -> Option<BTreeSet<Listener>> {
     let (low, high) = match fs
         .read_to_string("/proc/sys/net/ipv4/ip_local_port_range")
         .await
@@ -161,6 +175,7 @@ pub async fn listeners(fs: &dyn HostFs) -> BTreeSet<Listener> {
         Err(_) => DEFAULT_EPHEMERAL,
     };
     let mut out = BTreeSet::new();
+    let mut read_any = false;
     for (file, proto) in [
         ("tcp", Proto::Tcp),
         ("tcp6", Proto::Tcp),
@@ -170,6 +185,7 @@ pub async fn listeners(fs: &dyn HostFs) -> BTreeSet<Listener> {
         let Some(text) = read_net(fs, file).await else {
             continue;
         };
+        read_any = true;
         out.extend(parse_proc_net(&text, proto).into_iter().filter(|l| {
             let loopback = match l.addr {
                 IpAddr::V4(a) => a.is_loopback(),
@@ -181,7 +197,7 @@ pub async fn listeners(fs: &dyn HostFs) -> BTreeSet<Listener> {
             !loopback && !ephemeral
         }));
     }
-    out
+    read_any.then_some(out)
 }
 
 /// The `security.new_port` check.
@@ -239,6 +255,125 @@ impl Check for NewPorts {
             report.observations.push(observation);
         }
         ctx.state.set(REPORTED_STATE, "1");
+        Ok(report)
+    }
+}
+
+/// The state key holding the listeners the previous run saw, one `addr:port/proto` per line.
+pub const SEEN_STATE: &str = "seen";
+/// The state key holding listeners that were missing in earlier runs, `listener<TAB>count`.
+pub const ABSENT_STATE: &str = "absent";
+/// Consecutive runs a listener must be missing before it is reported gone.
+pub const RUNS_ABSENT: u32 = 2;
+
+/// The `security.listener_gone` check: a listener seen before is no longer there.
+///
+/// A listener seen in an earlier run and missing in two runs in a row is reported once as a
+/// firing event. Whether that matters is the hub's decision: it opens an incident only when
+/// a known condition names that exact listener. The check never reports a listener gone when
+/// the listener tables cannot be read; that run fails instead and changes nothing.
+pub struct ListenerGone {
+    key: CheckKey,
+}
+
+impl ListenerGone {
+    /// The check.
+    pub fn new() -> Result<Self, ValidationError> {
+        Ok(Self {
+            key: key("security.listener_gone")?,
+        })
+    }
+}
+
+fn parse_seen(text: Option<&str>) -> BTreeSet<String> {
+    text.unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn parse_absent(text: Option<&str>) -> BTreeMap<String, u32> {
+    text.unwrap_or_default()
+        .lines()
+        .filter_map(|line| {
+            let (name, count) = line.split_once('\t')?;
+            Some((name.to_owned(), count.parse().ok()?))
+        })
+        .collect()
+}
+
+#[async_trait]
+impl Check for ListenerGone {
+    fn key(&self) -> CheckKey {
+        self.key.clone()
+    }
+
+    fn default_cadence(&self) -> SignedDuration {
+        SignedDuration::from_mins(1)
+    }
+
+    fn class(&self) -> SignalClass {
+        SignalClass::Immediate
+    }
+
+    fn resolves_itself(&self) -> bool {
+        false
+    }
+
+    async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
+        // Fails before touching the state: an unreadable table is not "everything is gone".
+        let current: BTreeMap<String, Listener> = try_listeners(ctx.fs)
+            .await?
+            .into_iter()
+            .map(|l| (l.to_string(), l))
+            .collect();
+        let mut absent = parse_absent(ctx.state.get(ABSENT_STATE));
+        let mut tracked = parse_seen(ctx.state.get(SEEN_STATE));
+        tracked.extend(absent.keys().cloned());
+        let mut report = CheckReport::default();
+        let mut seen: BTreeSet<String> = current.keys().cloned().collect();
+        let mut next_absent = BTreeMap::new();
+        for name in tracked {
+            if current.contains_key(&name) {
+                continue;
+            }
+            let runs = absent.remove(&name).unwrap_or(0) + 1;
+            if runs >= RUNS_ABSENT {
+                // Reported once; a listener that comes back and goes again is a new event.
+                let mut observation = Observation::firing(
+                    target(&name),
+                    Severity::Warning,
+                    format!("expected listener {name} is gone"),
+                )
+                .with("runs_absent", EvidenceValue::Int(i64::from(runs)))
+                .with_text("gone_noticed_at", ctx.clock.now().to_string());
+                if let Some((addr, rest)) = name.rsplit_once(':') {
+                    observation =
+                        observation.with_text("address", addr.trim_matches(['[', ']']).to_owned());
+                    if let Some((port, proto)) = rest.split_once('/') {
+                        if let Ok(port) = port.parse::<i64>() {
+                            observation = observation.with("port", EvidenceValue::Int(port));
+                        }
+                        observation = observation.with_text("proto", proto.to_owned());
+                    }
+                }
+                report.observations.push(observation);
+            } else {
+                next_absent.insert(name.clone(), runs);
+                seen.insert(name);
+            }
+        }
+        ctx.state
+            .set(SEEN_STATE, seen.into_iter().collect::<Vec<_>>().join("\n"));
+        ctx.state.set(
+            ABSENT_STATE,
+            next_absent
+                .iter()
+                .map(|(name, runs)| format!("{name}\t{runs}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
         Ok(report)
     }
 }

@@ -2,9 +2,10 @@
 
 use std::net::IpAddr;
 
+use domovoi_checks::framework::Check;
 use domovoi_checks::security::{
-    Fail2banBans, Network, NewPorts, SshLogins, SudoFailures, classify_ip, parse_accepted,
-    parse_sudo_failure,
+    Fail2banBans, ListenerGone, Network, NewPorts, SshLogins, SudoFailures, classify_ip,
+    parse_accepted, parse_sudo_failure,
 };
 use domovoi_core::{EvidenceValue, Severity};
 use jiff::SignedDuration;
@@ -163,6 +164,71 @@ async fn every_listener_is_reported_every_run_and_only_the_first_run_is_marked()
     h.use_fs("proc/ports_new");
     h.advance(SignedDuration::from_mins(1));
     assert!(targets(&h.run(&check).await).contains(&"0.0.0.0:8080/tcp"));
+}
+
+#[tokio::test]
+async fn a_listener_missing_in_two_runs_in_a_row_is_reported_gone_once() {
+    let check = ListenerGone::new().unwrap();
+    let mut h = Harness::new("proc/ports_new").await;
+    assert!(
+        h.run(&check).await.observations.is_empty(),
+        "the first run only remembers"
+    );
+
+    // 8080 disappears: one missing run proves nothing.
+    h.use_fs("proc/ports_base");
+    h.advance(SignedDuration::from_mins(1));
+    assert!(h.run(&check).await.observations.is_empty());
+
+    h.advance(SignedDuration::from_mins(1));
+    let second = h.run(&check).await;
+    assert_eq!(targets(&second), ["0.0.0.0:8080/tcp"]);
+    assert_firing(&second, "0.0.0.0:8080/tcp", Severity::Warning);
+    let gone = find(&second, "0.0.0.0:8080/tcp");
+    assert_eq!(number(gone, "runs_absent"), 2.0);
+    assert_eq!(number(gone, "port"), 8080.0);
+    assert_eq!(text(gone, "proto"), "tcp");
+    assert!(is_immediate(gone, &check));
+    assert!(
+        !check.resolves_itself(),
+        "a gone listener never closes by itself"
+    );
+
+    // Reported once; later quiet runs say nothing more.
+    h.advance(SignedDuration::from_mins(1));
+    assert!(h.run(&check).await.observations.is_empty());
+}
+
+#[tokio::test]
+async fn a_listener_that_comes_back_in_time_is_not_reported_gone() {
+    let check = ListenerGone::new().unwrap();
+    let mut h = Harness::new("proc/ports_new").await;
+    h.run(&check).await;
+    h.use_fs("proc/ports_base");
+    assert!(h.run(&check).await.observations.is_empty());
+    h.use_fs("proc/ports_new");
+    assert!(h.run(&check).await.observations.is_empty());
+    h.use_fs("proc/ports_base");
+    assert!(
+        h.run(&check).await.observations.is_empty(),
+        "the count started over"
+    );
+}
+
+#[tokio::test]
+async fn unreadable_listener_tables_never_report_everything_gone() {
+    let check = ListenerGone::new().unwrap();
+    let mut h = Harness::new("proc/ports_base").await;
+    h.run(&check).await;
+    // No table can be read: the run fails and the memory of what was listening stays.
+    h.use_fs("proc/no_route");
+    for _ in 0..3 {
+        h.advance(SignedDuration::from_mins(1));
+        assert!(h.try_run(&check).await.is_err());
+    }
+    h.use_fs("proc/ports_base");
+    h.advance(SignedDuration::from_mins(1));
+    assert!(h.run(&check).await.observations.is_empty());
 }
 
 #[tokio::test]

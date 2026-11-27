@@ -229,6 +229,7 @@ fn registry_builds_enabled_checks_in_key_order() {
             "memory.available",
             "power.supply",
             "security.fail2ban",
+            "security.listener_gone",
             "security.new_port",
             "security.ssh_login",
             "security.sudo_failure",
@@ -246,7 +247,7 @@ fn registry_builds_enabled_checks_in_key_order() {
     };
     let memory = CheckKey::parse("memory.available").unwrap();
     let some = Registry::build(&BTreeMap::from([(memory.clone(), off)]), deps.clone()).unwrap();
-    assert_eq!(some.checks().count(), 13);
+    assert_eq!(some.checks().count(), 14);
     assert!(some.get(&memory).is_none());
     assert!(some.get(&CheckKey::parse("disk.free").unwrap()).is_some());
 
@@ -261,7 +262,7 @@ fn registry_builds_enabled_checks_in_key_order() {
     };
     let all = Registry::build(&BTreeMap::new(), with_docker).unwrap();
     let keys: Vec<String> = all.checks().map(|c| c.key().to_string()).collect();
-    assert_eq!(keys.len(), 18);
+    assert_eq!(keys.len(), 19);
     assert_eq!(
         &keys[..4],
         [

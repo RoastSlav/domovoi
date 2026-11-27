@@ -188,7 +188,10 @@ pub const MATCHED_RULE_KEY: &str = "matched_rule";
 pub fn is_expected_history_check(check: &CheckKey) -> bool {
     matches!(
         check.as_str(),
-        "security.new_port" | "security.ssh_login" | "security.sudo_failure"
+        "security.new_port"
+            | "security.listener_gone"
+            | "security.ssh_login"
+            | "security.sudo_failure"
     )
 }
 

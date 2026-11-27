@@ -12,7 +12,7 @@ pub mod sudo;
 
 pub use fail2ban::{Fail2banBans, JailStatus, parse_jail_status};
 pub use ip::{Network, classify_ip};
-pub use ports::{Listener, NewPorts, Proto, parse_port_range, parse_proc_net};
+pub use ports::{Listener, ListenerGone, NewPorts, Proto, parse_port_range, parse_proc_net};
 pub use ssh::{SshLogin, SshLogins, parse_accepted};
 pub use sudo::{SudoFailures, parse_sudo_failure};
 

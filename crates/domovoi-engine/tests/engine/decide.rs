@@ -398,3 +398,38 @@ fn a_rule_does_not_close_or_hide_an_incident_that_already_exists() {
         "a person closes it"
     );
 }
+
+#[test]
+fn a_listener_nobody_expected_going_away_is_stored_with_why_and_opens_nothing() {
+    let mut sim = Sim::new(EnginePolicy::default());
+    let host = HostId::new();
+    let gone = Sig::new(host, "security.listener_gone", Some("0.0.0.0:8080/tcp")).immediate();
+    let decision = sim.ingest(gone.firing(0), 0);
+    assert!(decision.events.is_empty(), "nobody is told");
+    let Write::InsertSignal(stored, None) = &decision.writes[0] else {
+        panic!("expected one stored signal: {:?}", decision.writes);
+    };
+    assert!(
+        stored.evidence().get("not_raised").is_some(),
+        "the reason is stored"
+    );
+    assert!(sim.state.active.is_empty());
+}
+
+#[test]
+fn an_expected_listener_going_away_opens_an_incident_that_later_runs_do_not_close() {
+    let mut sim = Sim::new(EnginePolicy::default());
+    let host = HostId::new();
+    let entry = rule_for(host, "security.new_port", Some("0.0.0.0:22/tcp"));
+    sim.state.acks.push(entry.clone());
+    let gone = Sig::new(host, "security.listener_gone", Some("0.0.0.0:22/tcp")).immediate();
+    sim.ingest(gone.firing(0), 0);
+    assert_eq!(sim.state.active.len(), 1, "a warning incident");
+    let incident = sim.only_active();
+    assert_eq!(incident.status(), IncidentStatus::Open);
+
+    // Quiet time proves nothing: no resolved signal comes for an event check, and the
+    // incident stays until a person closes it.
+    sim.ingest(gone.firing(60), 60);
+    assert_eq!(sim.only_active().status(), IncidentStatus::Open);
+}

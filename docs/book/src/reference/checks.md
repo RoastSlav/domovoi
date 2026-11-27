@@ -38,6 +38,7 @@ An unknown threshold key is an error that names the key. Every check is enabled 
 | `security.sudo_failure` | sudo journal | 1m | immediate | failed sudo authentication |
 | `security.fail2ban` | `fail2ban-client` | 5m | normal | 20 or more bans within an hour (info) |
 | `security.new_port` | `/proc/1/net/*` | 1m | immediate | a new non-loopback listener appears |
+| `security.listener_gone` | `/proc/1/net/*` | 1m | immediate | a listener the agent saw is gone for two runs in a row |
 
 Network probes (`probe.tcp`, `probe.http`, `probe.gateway`) are described at the end of this page.
 
@@ -83,7 +84,7 @@ The hottest CPU sensor. The check reads hwmon devices whose driver is `coretemp`
 
 ## Event checks and state checks
 
-A **state** check describes how things are now: a full disk, a failed unit. When a later run no longer reports the target, the agent sends a `resolved` signal and the incident closes by itself. An **event** check reports something that happened: a quiet run proves nothing about it. Six checks are events: `system.reboot`, `kernel.errors`, `container.new`, `security.ssh_login`, `security.sudo_failure` and `security.new_port`. The agent never sends a recovery for them, so their incidents stay open until a person acknowledges, dismisses or resolves them. Acknowledging keeps the incident open; dismissing or resolving closes it. The incident counts further events of the same target (a second login by the same user) instead of opening another card.
+A **state** check describes how things are now: a full disk, a failed unit. When a later run no longer reports the target, the agent sends a `resolved` signal and the incident closes by itself. An **event** check reports something that happened: a quiet run proves nothing about it. Seven checks are events: `system.reboot`, `kernel.errors`, `container.new`, `security.ssh_login`, `security.sudo_failure`, `security.new_port` and `security.listener_gone`. The agent never sends a recovery for them, so their incidents stay open until a person acknowledges, dismisses or resolves them. Acknowledging keeps the incident open; dismissing or resolving closes it. The incident counts further events of the same target (a second login by the same user) instead of opening another card.
 
 ## `system.reboot`
 
@@ -281,6 +282,15 @@ The check keeps no list of its own and learns nothing. It reports every non-loop
 
 - **Target:** `addr:port/proto`, such as `0.0.0.0:22/tcp` or `[::]:443/tcp`.
 - **Evidence:** `address`, `port`, `proto`; `first_run` on the first run.
+
+## `security.listener_gone`
+
+Tells the hub that a listener the agent saw before is no longer there. The check remembers the non-loopback listeners of its previous run. A listener that is missing in two runs in a row is reported once, with warning severity.
+
+- **Target:** the listener, such as `0.0.0.0:22/tcp`. **Evidence:** `address`, `port`, `proto`, `runs_absent`, `gone_noticed_at`.
+- A read failure is never "gone": when none of the listener tables can be read, the run fails and the check keeps what it remembered.
+- The hub opens an incident **only** when a known condition for `security.new_port` names that exact listener on that host (no wildcard, no entry for every host, not expired). That entry is how a person said "this listener is expected". The incident reads "expected listener ... is gone", never closes by itself, and closes when you acknowledge and dismiss it. To stop expecting the listener, remove or edit its known condition (Known conditions page); dismissing with **always** instead silences future "gone" reports for it.
+- A listener nobody expected going away opens nothing and tells nobody, but the signal is stored with the reason (`not_raised`), so it stays in the host's history.
 
 ## Network probes
 

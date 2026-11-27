@@ -9,7 +9,7 @@ use super::{Check, CheckSettings};
 use crate::containers::{
     ContainerDeps, ExpectedContainers, NewContainers, RestartLoop, UnhealthyContainers,
 };
-use crate::security::{Fail2banBans, NewPorts, SshLogins, SudoFailures};
+use crate::security::{Fail2banBans, ListenerGone, NewPorts, SshLogins, SudoFailures};
 use crate::smart::SmartHealth;
 use crate::system::{
     CpuTemperature, DiskFree, FsStats, KernelErrors, MemoryAvailable, PowerSupply, Reboot,
@@ -53,6 +53,7 @@ impl Registry {
             Box::new(SudoFailures::new()?),
             Box::new(Fail2banBans::new()?),
             Box::new(NewPorts::new()?),
+            Box::new(ListenerGone::new()?),
         ];
         if let Some(containers) = deps.containers {
             all.push(Box::new(ExpectedContainers::new(containers.clone())?));
