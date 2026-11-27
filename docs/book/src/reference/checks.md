@@ -43,7 +43,7 @@ Network probes (`probe.tcp`, `probe.http`, `probe.gateway`) are described at the
 
 ## `disk.free`
 
-Free space on every real filesystem. The check skips pseudo filesystems and read-only images: `autofs`, `binfmt_misc`, `bpf`, `cgroup*`, `configfs`, `debugfs`, `devpts`, `devtmpfs`, `efivarfs`, `fusectl`, `hugetlbfs`, `mqueue`, `nsfs`, `overlay`, `proc`, `pstore`, `ramfs`, `rpc_pipefs`, `securityfs`, `squashfs`, `sysfs`, `tmpfs` and `tracefs`. A mount point that appears twice is checked once.
+Free space on every real filesystem. The check skips pseudo filesystems and read-only images: `autofs`, `binfmt_misc`, `bpf`, `cgroup*`, `configfs`, `debugfs`, `devpts`, `devtmpfs`, `efivarfs`, `fusectl`, `hugetlbfs`, `mqueue`, `nsfs`, `overlay`, `proc`, `pstore`, `ramfs`, `rpc_pipefs`, `securityfs`, `squashfs`, `sysfs`, `tmpfs` and `tracefs`. A filesystem is reported once, however many times it is mounted: bind mounts of the same device (the agent's own sandbox mounts `/etc`, `/usr` and others from the root disk) collapse into the one with the fewest path components, so the target of the root disk is `/`, not `/etc`. Targets that were named after a bind mount resolve on the next run.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

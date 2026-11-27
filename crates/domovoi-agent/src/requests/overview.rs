@@ -2,7 +2,7 @@
 
 use std::fmt::Write;
 
-use domovoi_checks::system::disk::{is_pseudo, parse_mounts};
+use domovoi_checks::system::disk::{distinct_filesystems, is_pseudo, parse_mounts};
 use domovoi_checks::system::memory::parse_meminfo;
 use domovoi_checks::system::reboot::parse_uptime;
 
@@ -79,17 +79,18 @@ pub async fn host_overview(ctx: &RequestCtx) -> String {
             total as f64 / GIB
         );
     }
-    let mounts = parse_mounts(
-        &fs.read_to_string("/proc/self/mounts")
-            .await
-            .unwrap_or_default(),
+    let mounts = distinct_filesystems(
+        parse_mounts(
+            &fs.read_to_string("/proc/self/mounts")
+                .await
+                .unwrap_or_default(),
+        )
+        .into_iter()
+        .filter(|m| !is_pseudo(&m.fstype))
+        .collect(),
     );
     out.push_str("disks:\n");
-    for mount in mounts
-        .iter()
-        .filter(|m| !is_pseudo(&m.fstype))
-        .take(MAX_MOUNTS)
-    {
+    for mount in mounts.iter().take(MAX_MOUNTS) {
         match ctx.fs_stats.usage(&mount.mount_point).await {
             Ok(usage) if usage.total_bytes > 0 => {
                 let free_pct = usage.available_bytes as f64 / usage.total_bytes as f64 * 100.0;

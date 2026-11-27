@@ -157,6 +157,45 @@ pub fn parse_mounts(text: &str) -> Vec<Mount> {
         .collect()
 }
 
+/// One entry per backing filesystem, named by its shallowest mount path.
+///
+/// The agent's sandbox bind-mounts the same filesystem under several paths (`/etc`, `/usr`,
+/// `/var/tmp`, ...), each with the same device and the same free space; each of them would
+/// otherwise be its own target, fact and incident. Mounts that share a real device and
+/// filesystem type collapse into the one with the fewest path components (the first in the file on a
+/// tie), keeping the order in which each filesystem first appears. A mount whose device is
+/// not a path (`none`, `overlay`, an empty field) cannot be compared by device and is kept
+/// as it is; a network source such as `host:/export` is its own device.
+#[must_use]
+pub fn distinct_filesystems(mounts: Vec<Mount>) -> Vec<Mount> {
+    let mut kept: Vec<Mount> = Vec::new();
+    for mount in mounts {
+        let comparable = mount.device.starts_with('/') || mount.device.contains(':');
+        let same = comparable
+            .then(|| {
+                kept.iter()
+                    .position(|k| k.device == mount.device && k.fstype == mount.fstype)
+            })
+            .flatten();
+        match same {
+            Some(at) if depth(&mount.mount_point) < depth(&kept[at].mount_point) => {
+                kept[at] = mount
+            }
+            Some(_) => {}
+            None => kept.push(mount),
+        }
+    }
+    kept
+}
+
+/// How many path components a mount point has; `/` has none, so it always wins.
+fn depth(mount_point: &str) -> usize {
+    mount_point
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .count()
+}
+
 /// Whether `fstype` is a pseudo filesystem the check skips.
 #[must_use]
 pub fn is_pseudo(fstype: &str) -> bool {
@@ -222,7 +261,11 @@ impl Check for DiskFree {
 
     async fn run(&self, ctx: &mut CheckContext<'_>) -> Result<CheckReport, CheckError> {
         let thresholds: Thresholds = ctx.settings.thresholds()?;
-        let mounts = parse_mounts(&read(ctx.fs, "/proc/self/mounts").await?);
+        let mounts = parse_mounts(&read(ctx.fs, "/proc/self/mounts").await?)
+            .into_iter()
+            .filter(|mount| !is_pseudo(&mount.fstype))
+            .collect();
+        let mounts = distinct_filesystems(mounts);
         let now = ctx.clock.now();
         let mut seen = BTreeSet::new();
         let mut report = CheckReport::default();
@@ -293,5 +336,58 @@ impl Check for DiskFree {
             ));
         }
         Ok(report)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(mounts: &[Mount]) -> Vec<&str> {
+        mounts.iter().map(|m| m.mount_point.as_str()).collect()
+    }
+
+    #[test]
+    fn the_sandbox_bind_mounts_of_one_disk_become_one_entry() {
+        // The Pi: nine paths, two devices, as the agent's own mount namespace shows them.
+        let text = "\
+/dev/mmcblk0p2 /etc ext4 ro 0 0
+/dev/mmcblk0p2 /usr ext4 ro 0 0
+/dev/mmcblk0p2 / ext4 rw 0 0
+/dev/mmcblk0p2 /var/tmp ext4 rw 0 0
+/dev/mmcblk0p2 /var/lib/domovoi-agent ext4 rw 0 0
+/dev/mmcblk0p2 /var/lib/domovoi-packages ext4 ro 0 0
+/dev/mmcblk0p2 /run/host ext4 ro 0 0
+/dev/mmcblk0p1 /boot/firmware vfat rw 0 0
+/dev/mmcblk0p1 /etc/domovoi vfat ro 0 0
+tmpfs /run tmpfs rw 0 0
+";
+        let all: Vec<Mount> = parse_mounts(text)
+            .into_iter()
+            .filter(|m| !is_pseudo(&m.fstype))
+            .collect();
+        assert_eq!(all.len(), 9);
+        let distinct = distinct_filesystems(all);
+        assert_eq!(names(&distinct), ["/", "/boot/firmware"]);
+    }
+
+    #[test]
+    fn two_subvolumes_of_one_btrfs_device_are_one_filesystem() {
+        let mounts = parse_mounts(
+            "/dev/sda2 /home btrfs rw 0 0\n/dev/sda2 / btrfs rw 0 0\n/dev/sda2 /var/log btrfs rw 0 0\n",
+        );
+        assert_eq!(names(&distinct_filesystems(mounts)), ["/"]);
+    }
+
+    #[test]
+    fn two_real_devices_with_equal_numbers_stay_two_entries() {
+        let mounts = parse_mounts("/dev/sda1 /data ext4 rw 0 0\n/dev/sdb1 /backup ext4 rw 0 0\n");
+        assert_eq!(names(&distinct_filesystems(mounts)), ["/data", "/backup"]);
+    }
+
+    #[test]
+    fn a_mount_without_a_device_path_cannot_be_merged_and_is_kept() {
+        let mounts = parse_mounts("none /a zfs rw 0 0\nnone /b zfs rw 0 0\n");
+        assert_eq!(names(&distinct_filesystems(mounts)), ["/a", "/b"]);
     }
 }
