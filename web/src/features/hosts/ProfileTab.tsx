@@ -94,8 +94,8 @@ export function ProfileTab({ host, connected }: { host: string; connected: boole
           <InfoTip title="Profile">
             What this machine looks like when things are normal: its services, containers, ports and
             hardware. Triage compares an incident against it. The hub checks every minute and
-            collects a new one when there is none, when the agent, the machine or what the agent can do
-            changed, or a week has passed.
+            collects a new one when there is none, when the agent, the machine or what the agent can
+            do changed, or a week has passed.
           </InfoTip>
         </Cluster>
         <Cluster gap={3}>
