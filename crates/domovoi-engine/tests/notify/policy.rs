@@ -467,12 +467,33 @@ fn a_question_from_triage_is_announced_in_the_thread_with_its_text() {
         said[0]
     );
     assert!(said[0].contains("waiting for your answer"), "{}", said[0]);
-    // With no card posted yet there is no thread to speak in.
-    let none = plan(
-        &event(asked, &incident),
+    // With no card posted yet the question is still said: the reply posts the card first.
+    let unposted = plan(
+        &event(asked.clone(), &incident),
         &NotifyState::default(),
         &settings,
         at,
     );
-    assert!(none.actions.is_empty());
+    let said = replies(&unposted.actions);
+    assert_eq!(said.len(), 1, "{:?}", unposted.actions);
+    assert!(said[0].contains("Is /srv/media meant to be full?"));
+    assert!(said[0].contains("link on the card"), "{}", said[0]);
+}
+
+#[test]
+fn a_question_for_an_incident_held_for_quiet_hours_waits_with_it() {
+    let at = ts("2026-10-31T23:30:00Z");
+    let incident = open(Severity::Warning, at);
+    let settings = quiet((22, 0), (7, 0), TimeZone::UTC);
+    let held = plan(
+        &event(EventKind::IncidentOpened, &incident),
+        &NotifyState::default(),
+        &settings,
+        at,
+    );
+    let asked = EventKind::QuestionAsked {
+        text: "Is it meant to be full?".to_owned(),
+    };
+    let out = plan(&event(asked, &incident), &held.state, &settings, at);
+    assert!(out.actions.is_empty(), "{:?}", out.actions);
 }

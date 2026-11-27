@@ -213,16 +213,20 @@ pub fn plan(
         }
         EventKind::TriageRequested => Vec::new(),
         EventKind::QuestionAsked { text } => {
-            if posted(&state) {
+            // A question needs a person, so it is said even when the incident's card was never
+            // posted: the reply posts the card (which links to the incident) and opens the
+            // thread. Only an alert held for quiet hours waits, with the rest of it.
+            if state.is_held() {
+                Vec::new()
+            } else {
                 vec![NotifyAction::ThreadReply {
                     incident: id,
                     text: format!(
-                        "Triage is waiting for your answer: {text} Open the incident in the web \
-                         UI to answer; it continues by itself if you do not."
+                        "Triage is waiting for your answer: {text} Answer it on the incident page \
+                         (the link on the card). If you do not, triage continues without an answer \
+                         when the question expires and the report says it asked and got none."
                     ),
                 }]
-            } else {
-                Vec::new()
             }
         }
         EventKind::TriageCompleted { .. } => card_changed(incident, &state),
