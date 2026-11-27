@@ -1599,11 +1599,12 @@ async fn write_skill_on_an_agent_that_is_not_root_is_unavailable_with_the_reason
         fixture.skill_state("disk_report").await,
         Availability::Available
     );
-    assert!(
-        UnavailableReason::WriteSkillNeedsRoot
-            .describe()
-            .contains("unit.restart")
-    );
+    // The reason says why nothing here may run it, what restarts a unit instead, and which
+    // writes have no helper operation at all.
+    let reason = UnavailableReason::WriteSkillNeedsRoot.describe();
+    for part in ["never skill scripts", "unit.restart", "no helper operation"] {
+        assert!(reason.contains(part), "{part}: {reason}");
+    }
 }
 
 #[tokio::test]

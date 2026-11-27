@@ -274,9 +274,11 @@ impl UnavailableReason {
                 "this agent runs in a container and cannot reach the host's helper or skill runner"
             }
             Self::WriteSkillNeedsRoot => {
-                "write skills change the host as root, and the skill runner account on this \
-                 host is not root; to restart a unit here, use `unit.restart` through the \
-                 helper (it needs the `systemd.write` group in /etc/domovoi/helper.toml)"
+                "this skill changes the host and would need root. On this host skills run as the \
+                 unprivileged skill account, and the helper runs only its own fixed operations, \
+                 never skill scripts. For a unit restart use `unit.restart` (it needs the \
+                 `systemd.write` group in /etc/domovoi/helper.toml); restarting a container and \
+                 vacuuming the journal have no helper operation, so they cannot be done from here"
             }
             Self::SkillNeedsServices => {
                 "the skill declares that it needs the service manager. The skill runner sandbox \
