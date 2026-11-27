@@ -155,7 +155,7 @@ async fn monthly_budget_spent_skips_without_a_retry() {
 async fn failed_run_retries_twice_then_stops() {
     let w = inv(hourly(10)).await;
     for _ in 0..3 {
-        w.llm.push_err(LlmError::Unavailable("down".to_owned()));
+        w.llm.push_err(LlmError::InvalidResponse("down".to_owned()));
     }
     let op = w.start().await;
 
@@ -304,7 +304,7 @@ async fn parked_retry_shows_waiting_timer_and_states_the_cause_first() {
 async fn failed_run_states_the_cause_then_the_retry() {
     let w = inv(hourly(10)).await;
     w.llm
-        .push_err(LlmError::Unavailable("model unreachable".to_owned()));
+        .push_err(LlmError::InvalidResponse("model unreachable".to_owned()));
     let op = w.start().await;
     w.until(op, |s| !of_kind(s, StepKind::Notification).is_empty())
         .await;
@@ -344,12 +344,67 @@ async fn manual_run_that_is_skipped_ends_failed_without_a_retry() {
 async fn model_down(w: &Inv) {
     for _ in 0..3 {
         w.llm
-            .push_err(LlmError::Unavailable("connection refused".to_owned()));
+            .push_err(LlmError::Transport("connection refused".to_owned()));
     }
     let op = w.start().await;
-    w.until_stepping(op, 300, |s| s.operation.status.is_terminal())
-        .await;
+    w.until_stepping(op, 300, |s| {
+        turns(s)
+            .iter()
+            .filter(|t| t.progress.outcome == StepOutcome::Failed)
+            .count()
+            >= 3
+    })
+    .await;
     assert_eq!(w.llm.requests().len(), 3);
+}
+
+#[tokio::test]
+async fn a_stale_degraded_advisory_from_before_a_restart_is_resolved_by_the_first_success() {
+    use domovoi_core::ports::AdvisoryRepo;
+    let w = inv(hourly(10)).await;
+    // The hub restarted while the model was down: the advisory is stored, the in-memory
+    // flag is gone.
+    AdvisoryRepo::upsert(
+        &*w.store,
+        &domovoi_engine::advisories::triage_degraded("the model was down", w.now()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(w.advisories().await.len(), 1);
+    w.llm.push_text(report());
+    let op = w.start().await;
+    w.until_closed(op).await;
+    assert!(
+        w.advisories().await.is_empty(),
+        "a working model clears the old notice"
+    );
+}
+
+#[tokio::test]
+async fn an_unreachable_model_never_ends_an_operation_failed() {
+    let w = inv(hourly(10)).await;
+    model_down(&w).await;
+    // The operation that tipped the breaker is not over: it waits for the next probe.
+    let ops = w.operations_of(&w.incident).await;
+    let snapshot = w.load(ops[0].id).await;
+    assert!(
+        !snapshot.operation.status.is_terminal(),
+        "{:?}",
+        snapshot.operation.status
+    );
+    assert_eq!(w.advisories().await.len(), 1);
+    // More operations while the breaker is open park; none fails.
+    for i in 0..5 {
+        let other = w.add_incident(&format!("svc{i}"), disk(50.0 + f64::from(i))).await;
+        let op = w.ops.investigate(&other, false).await.unwrap();
+        until_skipped(&w, op).await;
+    }
+    for incident in std::iter::once(w.incident.clone()) {
+        for op in w.operations_of(&incident).await {
+            assert_ne!(op.status, OperationStatus::Failed, "{op:?}");
+        }
+    }
+    assert_eq!(w.advisories().await.len(), 1, "one notice");
 }
 
 #[tokio::test]

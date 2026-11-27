@@ -61,6 +61,10 @@ pub(crate) struct TurnOutput {
     /// The steps the model staged, as it wrote them, for `report`; at most three.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) plan: Vec<PlanStepInput>,
+    /// For `failed`: the model could not be reached. This is an outage, not a bad answer, so
+    /// the turn waits for the model instead of ending the operation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unreachable: bool,
 }
 
 impl TurnOutput {
@@ -76,6 +80,7 @@ impl TurnOutput {
             dropped: Vec::new(),
             question: None,
             plan: Vec::new(),
+            unreachable: false,
         }
     }
 

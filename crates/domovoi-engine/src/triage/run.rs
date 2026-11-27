@@ -34,6 +34,9 @@ pub(crate) struct Limits {
     pub(crate) down_gap: jiff::SignedDuration,
     /// The latest failure's reason, redacted.
     pub(crate) down_cause: String,
+    /// Whether the stored advisory was looked at since the hub started. A hub that restarted
+    /// while the model was down has no `degraded` flag, but the advisory is still open.
+    pub(crate) advisory_checked: bool,
 }
 
 /// Guards the run window and failure streak for every gate and outcome path.
@@ -163,6 +166,8 @@ pub(crate) struct Generated {
     pub(crate) plan: Vec<PlanStepInput>,
     /// The "Proposals not offered" lines, redacted.
     pub(crate) dropped: Vec<String>,
+    /// True when the run failed because no provider could be reached.
+    pub(crate) unreachable: bool,
 }
 
 /// Runs the provider chain over `bundle` under the run's budgets, within `scope`, and
@@ -213,6 +218,7 @@ pub(crate) async fn generate(
         evidence: state.evidence,
         plan,
         dropped,
+        unreachable: state.unreachable,
     }
 }
 
@@ -395,13 +401,20 @@ pub(crate) async fn succeeded(shared: &Shared) {
         limits.down_until = None;
         limits.down_since = None;
         limits.down_gap = jiff::SignedDuration::ZERO;
-        std::mem::take(&mut limits.degraded)
+        let was_degraded = std::mem::take(&mut limits.degraded);
+        let first = !std::mem::replace(&mut limits.advisory_checked, true);
+        (was_degraded, first)
     };
-    if clear {
+    // The first success after a start resolves a stored advisory a previous run left open.
+    if clear.0 || clear.1 {
         let deps = &shared.deps;
         let id = triage_degraded("", deps.clock.now()).id;
         if let Err(err) = deps.advisories.resolve(id, deps.clock.now()).await {
-            tracing::warn!(%err, "could not resolve the triage advisory");
+            if clear.0 {
+                tracing::warn!(%err, "could not resolve the triage advisory");
+            } else {
+                tracing::debug!(%err, "no open triage advisory to resolve");
+            }
         }
     }
 }

@@ -254,7 +254,7 @@ async fn closer_finishes_after_denial_expiry_and_failure() {
     // Failed: the model is down for every try.
     let third = w.add_incident("db", disk(3.0)).await;
     for _ in 0..3 {
-        w.llm.push_err(LlmError::Unavailable("down".to_owned()));
+        w.llm.push_err(LlmError::InvalidResponse("down".to_owned()));
     }
     let failing = w.ops.investigate(&third, false).await.unwrap();
     let snapshot = w

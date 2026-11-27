@@ -44,6 +44,25 @@ pub(crate) struct ChainState {
     pub(crate) used: Vec<ToolUse>,
     /// Every parsed read made so far.
     pub(crate) evidence: Vec<EvidenceRecord>,
+    /// Set when the run failed because every provider could not be reached (transport,
+    /// timeout, authentication or rate limit), not because an answer was unusable.
+    pub(crate) unreachable: bool,
+}
+
+impl AttemptError {
+    /// Whether this failure says the model could not be reached, as opposed to an answer
+    /// that arrived and could not be used.
+    pub(crate) fn is_unreachable(&self) -> bool {
+        matches!(
+            self,
+            Self::Provider(
+                LlmError::Transport(_)
+                    | LlmError::RateLimited { .. }
+                    | LlmError::Auth
+                    | LlmError::Timeout { .. }
+            )
+        )
+    }
 }
 
 impl ChainState {
@@ -53,6 +72,7 @@ impl ChainState {
             run: agent::RunBudget::for_run(shared),
             used: Vec::new(),
             evidence: Vec::new(),
+            unreachable: false,
         }
     }
 
@@ -65,6 +85,7 @@ impl ChainState {
             run: agent::RunBudget::for_run(shared).with_sink(sink),
             used: Vec::new(),
             evidence: Vec::new(),
+            unreachable: false,
         }
     }
 }
@@ -93,6 +114,7 @@ pub(crate) async fn run_chain<A: Attempt>(
 ) -> Result<A::Output, Vec<String>> {
     let chain = shared.chain();
     let mut reasons: Vec<String> = Vec::new();
+    let mut all_unreachable = !chain.is_empty();
     for (i, provider) in chain.iter().enumerate() {
         // A provider that refuses a capability changes how the attempt is built (the opening
         // gathers tool output itself when tools are gone), so the attempt is rebuilt from
@@ -117,6 +139,7 @@ pub(crate) async fn run_chain<A: Attempt>(
                     );
                 }
                 Err(err) => {
+                    all_unreachable &= err.is_unreachable();
                     break shared
                         .deps
                         .redactor
@@ -133,6 +156,7 @@ pub(crate) async fn run_chain<A: Attempt>(
         }
         reasons.push(why);
     }
+    state.unreachable = all_unreachable;
     Err(reasons)
 }
 

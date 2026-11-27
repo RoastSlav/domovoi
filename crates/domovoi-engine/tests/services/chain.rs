@@ -208,7 +208,11 @@ async fn a_capability_rejection_rebuilds_once_per_capability() {
 
 /// Splits a failure text into its per-provider reasons.
 fn parts(reason: &str) -> Vec<&str> {
-    reason.split("; ").collect()
+    // A parked retry may add its own sentence after the provider reasons.
+    reason
+        .split("; ")
+        .filter(|part| !part.starts_with("waiting for the model"))
+        .collect()
 }
 
 fn assert_reasons_in_order(reason: &str) {

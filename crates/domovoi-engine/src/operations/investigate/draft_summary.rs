@@ -245,6 +245,13 @@ fn retry_due(
         return None;
     }
     match output.kind {
+        // A model that cannot be reached is an outage, not a failure of this operation: it waits
+        // for the breaker's next probe however many turns failed, and never ends `failed`.
+        TurnKind::Failed if output.unreachable => {
+            let probe = limits(triage).down_until;
+            let soon = after(shared, FAILED_RETRY);
+            Some(probe.map_or(soon, |at| at.max(soon)))
+        }
         TurnKind::Failed => {
             let failed = snapshot
                 .steps
@@ -273,6 +280,9 @@ fn retry_text(
 ) -> Option<String> {
     let at = due.strftime("%H:%M UTC");
     match output.kind {
+        TurnKind::Failed if output.unreachable => {
+            Some(format!("waiting for the model, next try at {at}"))
+        }
         TurnKind::Failed => {
             let failed = snapshot
                 .steps

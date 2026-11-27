@@ -1,6 +1,7 @@
 ---
 source: crates/domovoi-engine/tests/services/parity.rs
-expression: legacy
+assertion_line: 34
+expression: result
 ---
 (
     (
@@ -27,13 +28,13 @@ expression: legacy
     ),
     [
         Object {
-            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset"),
+            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset; waiting for the model, next try at 23:13 UTC"),
         },
         Object {
-            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset"),
+            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset; waiting for the model, next try at 23:13 UTC"),
         },
         Object {
-            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset"),
+            "failed": String("scripted failed: rate limited; scripted failed: transport error: connection reset; waiting for the model, next try at 23:13 UTC"),
         },
     ],
     [

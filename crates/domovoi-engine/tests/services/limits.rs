@@ -133,7 +133,7 @@ async fn failed_triage_runs_again_after_the_retry_delay() {
         ..Setup::default()
     })
     .await;
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     w.primary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     assert_eq!(w.primary.requests().len(), 1);
@@ -383,7 +383,7 @@ async fn fallback_to_secondary_then_failed() {
     })
     .await;
     w.primary
-        .push_err(LlmError::Unavailable("overloaded".to_owned()));
+        .push_err(LlmError::InvalidResponse("overloaded".to_owned()));
     w.secondary.push_text(report());
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
     assert_eq!(w.secondary.requests().len(), 1);
@@ -477,7 +477,7 @@ async fn triage_recovers_when_the_second_fallback_answers() {
     })
     .await;
     w.primary
-        .push_err(LlmError::Unavailable("first stop".to_owned()));
+        .push_err(LlmError::InvalidResponse("first stop".to_owned()));
     w.secondary
         .push_err(LlmError::Transport("second stop".to_owned()));
     w.third.push_text(report());
@@ -548,7 +548,7 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     })
     .await;
     for target in ["redis", "postgres"] {
-        w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+        w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
         let other = another(&w, target).await;
         assert!(matches!(
             w.run_on(&other).await,
@@ -558,7 +558,7 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     assert!(AdvisoryRepo::list_open(&*w.store).await.unwrap().is_empty());
     w.drain();
 
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     w.run().await;
     let open = AdvisoryRepo::list_open(&*w.store).await.unwrap();
     assert_eq!(open.len(), 1);
@@ -573,7 +573,7 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
 
     // The breaker is open for five minutes; after that the next run is a real attempt.
     w.clock.advance(SignedDuration::from_mins(6));
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     let fourth = another(&w, "mysql").await;
     w.run_on(&fourth).await;
     assert!(
@@ -630,13 +630,13 @@ async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
     .await;
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
-    w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("bad".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     for i in 0..4 {
         w.primary.push_text(report());
         assert!(matches!(w.run_on(&other).await, TriageOutcome::Report(_)));
         if i < 2 {
-            w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+            w.primary.push_err(LlmError::InvalidResponse("bad".to_owned()));
         }
         w.clock.advance(SignedDuration::from_mins(61));
         settle().await;
@@ -660,13 +660,13 @@ async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_betwe
     .await;
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
-    w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("bad".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     for i in 0..8 {
         w.primary.push_text(report());
         assert!(matches!(w.run_on(&other).await, TriageOutcome::Report(_)));
         if i < 2 {
-            w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+            w.primary.push_err(LlmError::InvalidResponse("bad".to_owned()));
         }
         // What the manager writes each time the severity moves.
         IncidentRepo::append_event(
@@ -702,7 +702,7 @@ async fn a_tool_use_entry_does_not_stop_a_failed_retry() {
         ..Setup::default()
     })
     .await;
-    w.primary.push_err(LlmError::Unavailable("bad".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("bad".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
 
     // A follow-up that used tools lands after the failed run.
@@ -747,10 +747,10 @@ async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
     .await;
 
     // Three failed runs exhaust the incident's failure retries.
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     for _ in 0..2 {
-        w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+        w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
         w.clock.advance(SignedDuration::from_mins(61));
         settle().await;
     }
@@ -790,7 +790,7 @@ async fn cap_retry_runs_even_after_an_old_failed_retry_chain() {
 #[tokio::test]
 async fn muted_incident_is_not_retried() {
     let w = world(Setup::default()).await;
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     let until = w.now().checked_add(SignedDuration::from_hours(24)).unwrap();
     w.manager
@@ -938,7 +938,7 @@ async fn a_manual_run_replaces_the_retry_of_a_failed_investigation() {
     let w = world(Setup::default()).await;
     let other = open_incident(host_id(), "docker.container", Some("redis")).unwrap();
     IncidentRepo::insert(&*w.store, &other).await.unwrap();
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(
         w.run_on(&other).await,
         TriageOutcome::Failed { .. }
@@ -975,21 +975,21 @@ async fn failed_run_is_not_retried_once_triage_is_degraded() {
     IncidentRepo::insert(&*w.store, &beta).await.unwrap();
     let gamma = open_incident(host_id(), "docker.container", Some("gamma")).unwrap();
     IncidentRepo::insert(&*w.store, &gamma).await.unwrap();
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(
         w.run_on(&beta).await,
         TriageOutcome::Failed { .. }
     ));
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     assert!(matches!(
         w.run_on(&gamma).await,
         TriageOutcome::Failed { .. }
     ));
 
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
-    w.primary.push_err(LlmError::Unavailable("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
+    w.primary.push_err(LlmError::InvalidResponse("down".to_owned()));
     w.clock.advance(SignedDuration::from_mins(61));
     settle().await;
     let requests = w.primary.requests().len();

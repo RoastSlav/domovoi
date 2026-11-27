@@ -178,9 +178,27 @@ impl EffectHandler for CallModel {
                 }
             }
             Err(reason) => {
-                tracing::warn!(incident = %incident.id(), reason = reason.as_str(), "triage failed");
+                // While the breaker is open the outage is already reported once; one line per
+                // waiting operation would only repeat it.
+                if generated.unreachable && crate::triage::run::limits(triage).degraded {
+                    tracing::debug!(incident = %incident.id(), reason = reason.as_str(), "triage failed while the model is down");
+                } else {
+                    tracing::warn!(incident = %incident.id(), reason = reason.as_str(), "triage failed");
+                }
                 failed(triage, &incident, &reason).await;
+                let manual = step_of(&snapshot, turn).is_some_and(|record| {
+                    matches!(&record.step.intent, domovoi_core::StepIntent::ReasoningTurn { context_refs }
+                        if context_refs.iter().any(|part| part == super::start::MANUAL_REF))
+                });
+                let reason = if generated.unreachable && manual {
+                    format!(
+                        "triage did not run: model unreachable ({reason}). Press Run triage to try again"
+                    )
+                } else {
+                    reason
+                };
                 let mut output = TurnOutput::of(TurnKind::Failed);
+                output.unreachable = generated.unreachable;
                 output.reason = Some(reason.clone());
                 Conclusion {
                     step: turn,
