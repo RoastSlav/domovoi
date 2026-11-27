@@ -188,17 +188,6 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                     &args.fingerprint,
                 )?;
                 println!("Wrote {}.", path.display());
-            } else {
-                let config = load_agent(path)?;
-                if config.agent.hub_url != args.hub
-                    && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
-                {
-                    println!(
-                        "Changed the hub address in {} to {}.",
-                        path.display(),
-                        args.hub
-                    );
-                }
             }
             let config = load_agent(path)?;
             let fingerprint = production::parse_fingerprint(&args.fingerprint)
@@ -217,6 +206,17 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 },
             )
             .await?;
+            // Only a successful enrollment changes the address in an existing file: a failed
+            // attempt (wrong port, wrong token) leaves `agent.toml` as it was.
+            if config.agent.hub_url != args.hub
+                && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
+            {
+                println!(
+                    "Changed the hub address in {} to {}.",
+                    path.display(),
+                    args.hub
+                );
+            }
             hand_over_state(&config.agent.state_dir)?;
             if let Some(epoch) = ensure_journal(&config).await? {
                 hand_over_state(&config.agent.state_dir)?;

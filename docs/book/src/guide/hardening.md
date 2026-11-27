@@ -7,7 +7,7 @@ Domovoi's defaults are safe on a home network. Before you expose the web UI beyo
 - **Keep the listener on loopback** (the default, `127.0.0.1:7420`) and publish it through a reverse proxy that terminates TLS: Caddy, nginx or Traefik.
 - **Set the public URL** to the proxy's `https://` address, in **Settings → Hub**. Sessions then get the `Secure` cookie flag, and requests from any other origin are refused.
 - **List the proxy in `[web] trusted_proxies`**, so login rate limits apply to real client addresses instead of the proxy's.
-- **Use a long password.** After five failed logins in a minute an address is locked out, and each further lockout doubles, up to 15 minutes.
+- **Use a long password.** After five failed logins in a minute an address is locked out, and each further lockout doubles, up to 15 minutes. The lockout is kept in memory (a restart clears it) and is per client address. Behind Docker's userland proxy, or behind a reverse proxy that is not listed in `[web] trusted_proxies`, every client has the same address (often `172.17.0.1`), so one bad actor locks everybody out. Publish the port without the userland proxy (`"userland-proxy": false` in Docker's `daemon.json`) or list your proxy in `trusted_proxies` so the real client address is used.
 - Do not put the UI on the open internet without something in front of it, such as a VPN, Tailscale, or your proxy's single sign-on.
 
 ## Settings that need the password again
