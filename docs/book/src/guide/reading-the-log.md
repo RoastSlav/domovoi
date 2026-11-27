@@ -43,6 +43,8 @@ Successful requests are logged at `debug`, so the default log is not one line pe
 | `agent stopped answering after ...` | It missed three heartbeats in a row. |
 | `agent connection failed after ...` / `agent session ended on a protocol error after ...` | A TLS failure or a message the hub could not accept. `reason` has the library text with its links removed. |
 | `could not accept an agent connection ... suppressed=N` | The agent port could not take a connection. Written once, then once every 10 seconds with a count, and the hub pauses 0.1 to 1 second between failures. "Too many open files" means the open-file limit is too low. |
+| `refused an agent connection: too many connections have not finished the handshake ... peer=... pending_from_peer=N limit_per_peer=8 limit_total=64 suppressed=N` | The agent port holds at most 64 connections (8 per address) that have not yet finished TLS and the handshake, and drops one that has not within 5 seconds. A scanner or a stuck client opened more; the connections are closed at once. One line per 10 seconds. It is only a problem if real agents are refused. |
+| `the open-file limit is low soft=... hard=... recommended=4096` | Written once at start when the process may open fewer than 4096 files. Every connection is one descriptor; raise it with `LimitNOFILE=65536` (the shipped unit does) or `--ulimit nofile=65536:65536`. The banner also carries `open_files_soft_hard=`. |
 
 On the agent side:
 

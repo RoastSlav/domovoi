@@ -20,8 +20,19 @@ use super::conn::{ConnError, expect, send, within};
 use super::describe::{Peer, host_name};
 use super::tokens::token_hash;
 
-/// How long a new connection may take to send `enroll` or `hello`.
-pub const FIRST_FRAME_TIMEOUT: SignedDuration = SignedDuration::from_secs(10);
+/// How long a new connection may take to send `enroll` or `hello` once TLS and the WebSocket
+/// upgrade are done. Short on purpose: until the handshake ends the connection counts against
+/// the cap on connections that have not finished it, and an idle socket must not hold a place.
+pub const FIRST_FRAME_TIMEOUT: SignedDuration = SignedDuration::from_secs(5);
+
+/// How long a new TCP connection may take to finish TLS and the WebSocket upgrade.
+pub const UPGRADE_TIMEOUT: SignedDuration = SignedDuration::from_secs(5);
+
+/// How many connections may be between accept and the end of the handshake at once.
+pub const PREAUTH_LIMITS: super::conn_gate::ConnLimits = super::conn_gate::ConnLimits {
+    total: 64,
+    per_source: 8,
+};
 
 /// How long the agent may take to answer the challenge.
 pub const STEP_TIMEOUT: SignedDuration = SignedDuration::from_secs(10);

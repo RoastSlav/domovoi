@@ -27,9 +27,9 @@ use super::{
     AgentServer, AgentServerDeps, LOCAL_SESSION_HINT, MemoryTransport, NetProbes, ServerSettings,
 };
 
-const T0: Timestamp = Timestamp::constant(1_700_000_000, 0);
+pub(super) const T0: Timestamp = Timestamp::constant(1_700_000_000, 0);
 
-struct NoProbes;
+pub(super) struct NoProbes;
 
 #[async_trait]
 impl NetProbes for NoProbes {
@@ -42,7 +42,7 @@ impl NetProbes for NoProbes {
     }
 }
 
-fn settings(dir: &std::path::Path) -> ServerSettings {
+pub(super) fn settings(dir: &std::path::Path) -> ServerSettings {
     ServerSettings {
         hub_name: "testhub".to_owned(),
         data_dir: dir.to_path_buf(),

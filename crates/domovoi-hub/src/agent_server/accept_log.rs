@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use domovoi_core::log_gate::{Gate, RateLimitedLog};
 
+use super::conn_gate::{ConnLimits, Refused};
+
 /// The pause after the first failed accept.
 const FIRST_PAUSE: Duration = Duration::from_millis(100);
 /// The longest pause between accepts while they keep failing.
@@ -41,6 +43,7 @@ pub(crate) async fn serve(
 ) -> Result<(), super::AgentServerError> {
     let inner = &server.inner;
     let mut errors = AcceptErrors::new();
+    let refusals = Refusals::new();
     loop {
         let accepted = tokio::select! {
             () = inner.shutdown.cancelled() => return Ok(()),
@@ -49,8 +52,20 @@ pub(crate) async fn serve(
         match accepted {
             Ok((tcp, peer)) => {
                 errors.succeeded();
-                let server = server.clone();
-                tokio::spawn(async move { super::conn::accept(&server.inner, tcp, peer).await });
+                match inner.preauth.try_acquire(peer.ip()) {
+                    Ok(permit) => {
+                        let server = server.clone();
+                        tokio::spawn(async move {
+                            super::conn::accept(&server.inner, tcp, peer, permit).await;
+                        });
+                    }
+                    Err(refused) => {
+                        // Closing at once costs the sender nothing it had not already spent,
+                        // and keeps the descriptor free for a real agent.
+                        drop(tcp);
+                        refusals.refused(peer.ip(), &refused, inner.preauth.limits());
+                    }
+                }
             }
             Err(err) => {
                 let pause = errors.failed(&err, Instant::now());
@@ -58,6 +73,37 @@ pub(crate) async fn serve(
                     return Ok(());
                 }
             }
+        }
+    }
+}
+
+/// Logs refused connections, one line per interval with the count held back.
+pub(crate) struct Refusals {
+    gate: RateLimitedLog,
+}
+
+impl Refusals {
+    /// A fresh log: nothing refused yet.
+    pub(crate) fn new() -> Self {
+        Self {
+            gate: RateLimitedLog::new(LINE_EVERY),
+        }
+    }
+
+    /// Records one refused connection from `peer`; writes a line when it is the first of the
+    /// interval.
+    pub(crate) fn refused(&self, peer: std::net::IpAddr, why: &Refused, limits: ConnLimits) {
+        if let Gate::Log { suppressed } = self.gate.hit_now("preauth") {
+            tracing::warn!(
+                %peer,
+                pending_from_peer = why.from_source,
+                pending_total = why.in_total,
+                limit_per_peer = limits.per_source,
+                limit_total = limits.total,
+                suppressed,
+                "refused an agent connection: too many connections have not finished the handshake{}; idle or half-open sockets are dropped after 5 seconds, so this clears by itself (it is only a problem if real agents are refused: check what is connecting to the agent port)",
+                if why.source_full { " from this address" } else { "" },
+            );
         }
     }
 }

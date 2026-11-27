@@ -9,6 +9,7 @@ mod accept_log;
 mod admin;
 mod compat;
 mod conn;
+pub mod conn_gate;
 mod describe;
 mod error;
 mod handshake;
@@ -20,6 +21,8 @@ mod memory;
 mod overrides;
 pub(crate) use overrides::{stored_docker, stored_overrides};
 mod package_report;
+#[cfg(test)]
+mod preauth_tests;
 mod presence;
 mod probes;
 mod registry;
@@ -97,6 +100,8 @@ struct Inner {
     registry: Arc<Registry>,
     link: Arc<WsAgentLink>,
     network_degraded: AtomicBool,
+    /// Connections accepted but not yet through the handshake, in total and per address.
+    preauth: conn_gate::ConnGate,
     /// Hosts whose liveness incidents were closed after this hub started, once their agent
     /// was seen alive. The raised state is memory only, so an incident raised before a
     /// restart would otherwise stay open after the agent is back.
@@ -144,6 +149,7 @@ impl AgentServer {
                 registry,
                 link,
                 network_degraded: AtomicBool::new(false),
+                preauth: conn_gate::ConnGate::new(handshake::PREAUTH_LIMITS),
                 reconciled: std::sync::Mutex::new(std::collections::BTreeSet::new()),
                 shutdown: CancellationToken::new(),
                 overrides: OnceLock::new(),
@@ -376,7 +382,7 @@ impl AgentServer {
     /// over the network, without TLS. The agent signs over [`LOCAL_SESSION_HINT`].
     /// Returns when the connection ends.
     pub async fn attach_local(&self, transport: Box<dyn Transport>) {
-        conn::run(&self.inner, transport, LOCAL_SESSION_HINT, None).await;
+        conn::run(&self.inner, transport, LOCAL_SESSION_HINT, None, None).await;
     }
 
     /// A single-use enrollment token for the host called `name`, valid for

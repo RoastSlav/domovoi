@@ -9,9 +9,12 @@ docker volume create domovoi
 docker run -d --name domovoi --restart unless-stopped \
   -p 7420:7420 -p 7421:7421 \
   -v domovoi:/var/lib/domovoi \
+  --ulimit nofile=65536:65536 \
   ghcr.io/roastslav/domovoi:latest
 docker logs domovoi 2>&1 | grep -A1 setup
 ```
+
+`--ulimit nofile=65536:65536` raises the open-file limit. Every connection to the hub is one file descriptor, and a low limit (some hosts start containers with 1024 or less) lets idle connections use them all, so the UI and the agents stop answering with "too many open files" in the log. The hub also limits how many connections it accepts at once and drops idle ones, and it logs a warning at start (`the open-file limit is low`) when it runs with fewer than 4096.
 
 Open the setup link, create the admin account, and follow the guided first run. The link points at `http://127.0.0.1:7420`; from another machine, replace that part with the Docker host's address.
 

@@ -28,6 +28,9 @@ Restart=on-failure
 RestartSec=5
 # The hub stops within 15 seconds.
 TimeoutStopSec=20
+# Every connection is a file descriptor. The default soft limit of 1024 lets a few hundred
+# idle sockets use them all, and then the UI and the agents are both unreachable.
+LimitNOFILE=65536
 
 # hub.db, secret.key, hub.lock, tls/ and backups/ live here.
 ReadWritePaths=/var/lib/domovoi

@@ -11,8 +11,9 @@ use jiff::SignedDuration;
 use tokio::net::TcpStream;
 
 use super::Inner;
+use super::conn_gate::ConnPermit;
 use super::describe::{Peer, log_handshake_failure, log_session_end};
-use super::handshake::{FIRST_FRAME_TIMEOUT, Shaken, handshake};
+use super::handshake::{Shaken, UPGRADE_TIMEOUT, handshake};
 use super::session::run_session;
 use super::tls::channel_binding;
 use super::ws::{Limited, WsTransport, ws_config};
@@ -84,8 +85,10 @@ pub(crate) async fn expect(transport: &mut dyn Transport) -> Result<Decoded, Con
     recv(transport).await?.ok_or(ConnError::Closed)
 }
 
-/// Accepts TLS and the WebSocket upgrade on `tcp`, then runs the connection.
-pub(crate) async fn accept(inner: &Inner, tcp: TcpStream, peer: SocketAddr) {
+/// Accepts TLS and the WebSocket upgrade on `tcp`, then runs the connection. `permit` is the
+/// connection's place under the cap on connections that have not finished the handshake; it is
+/// given back when the handshake ends or the connection is dropped.
+pub(crate) async fn accept(inner: &Inner, tcp: TcpStream, peer: SocketAddr, permit: ConnPermit) {
     let upgrade = async {
         let tls = inner
             .acceptor
@@ -99,25 +102,36 @@ pub(crate) async fn accept(inner: &Inner, tcp: TcpStream, peer: SocketAddr) {
             .map_err(|e| ConnError::Protocol(format!("WebSocket: {e}")))?;
         Ok::<_, ConnError>((WsTransport::new(ws), binding))
     };
-    match within(&*inner.deps.clock, FIRST_FRAME_TIMEOUT, upgrade).await {
+    match within(&*inner.deps.clock, UPGRADE_TIMEOUT, upgrade).await {
         Some(Ok((transport, binding))) => {
-            run(inner, Box::new(transport), &binding, Some(peer.ip())).await;
+            run(
+                inner,
+                Box::new(transport),
+                &binding,
+                Some(peer.ip()),
+                Some(permit),
+            )
+            .await;
         }
         Some(Err(err)) => tracing::debug!(%peer, %err, "agent connection refused"),
         None => tracing::debug!(%peer, "agent connection timed out before the upgrade"),
     }
 }
 
-/// Runs the handshake and, for an authenticated agent, its session.
+/// Runs the handshake and, for an authenticated agent, its session. `permit` is released as
+/// soon as the handshake has ended, so a long session never holds a place meant for new ones.
 pub(crate) async fn run(
     inner: &Inner,
     transport: Box<dyn Transport>,
     binding: &str,
     remote_ip: Option<IpAddr>,
+    permit: Option<ConnPermit>,
 ) {
     let mut transport = Limited::new(transport, inner.deps.clock.clone());
     let mut peer = Peer::default();
-    match handshake(inner, &mut transport, binding, &mut peer).await {
+    let shaken = handshake(inner, &mut transport, binding, &mut peer).await;
+    drop(permit);
+    match shaken {
         Ok(Shaken::Enrolled) => {}
         Ok(Shaken::Session(accepted)) => {
             let host = accepted.agent.host;
