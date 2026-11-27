@@ -538,7 +538,6 @@ async fn triage_falls_back_through_secondary_then_fallback_model() {
 }
 
 #[tokio::test]
-#[ignore = "scripted for the old 15-minute first retry; the first retry is now 3 minutes (47c) and the script needs reworking, see FIX-6"]
 async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     let settings = TriageSettings {
         per_hour_runs: 10,
@@ -588,14 +587,21 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
         "one notice, not one per failure"
     );
 
-    // The second opening lasts ten minutes.
-    w.clock.advance(SignedDuration::from_mins(11));
-    // The first failures of earlier incidents retry after a few minutes and take answers too.
-    for _ in 0..4 {
+    // The second opening lasts ten minutes; the parked retries that ran meanwhile found the
+    // script empty and failed, which stretched it, so wait well past any opening.
+    w.clock.advance(SignedDuration::from_mins(61));
+    // Parked failures of earlier incidents retry after three minutes, and a success pulls
+    // the rest forward, so they take answers too; leave more answers than there are takers.
+    for _ in 0..10 {
         w.primary.push_text(report());
     }
     let fifth = another(&w, "mongo").await;
-    assert!(matches!(w.run_on(&fifth).await, TriageOutcome::Report(_)));
+    let got = w.run_on(&fifth).await;
+    assert!(
+        matches!(got, TriageOutcome::Report(_)),
+        "{got:?} left={}",
+        w.primary.remaining()
+    );
     assert!(AdvisoryRepo::list_open(&*w.store).await.unwrap().is_empty());
 }
 
@@ -626,7 +632,6 @@ async fn zero_hourly_cap_skips_once_and_never_retries() {
 }
 
 #[tokio::test]
-#[ignore = "scripted for the old 15-minute first retry; the first retry is now 3 minutes (47c) and the script needs reworking, see FIX-6"]
 async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
     let settings = TriageSettings {
         per_hour_runs: 100,
@@ -643,12 +648,16 @@ async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
         .push_err(LlmError::InvalidResponse("bad".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
     for i in 0..4 {
+        // One answer, for `other`. The retries of the failed incident (pulled forward by that
+        // success, or due by the clock) find the script empty and fail again: the chain of
+        // failures is what the test counts.
         w.primary.push_text(report());
-        assert!(matches!(w.run_on(&other).await, TriageOutcome::Report(_)));
-        if i < 2 {
-            w.primary
-                .push_err(LlmError::InvalidResponse("bad".to_owned()));
-        }
+        let got = w.run_on(&other).await;
+        assert!(
+            matches!(got, TriageOutcome::Report(_)),
+            "round {i}: {got:?}"
+        );
+        settle().await;
         w.clock.advance(SignedDuration::from_mins(61));
         settle().await;
     }
@@ -659,7 +668,6 @@ async fn failed_retries_stop_at_the_limit_even_when_other_incidents_succeed() {
 }
 
 #[tokio::test]
-#[ignore = "scripted for the old 15-minute first retry; the first retry is now 3 minutes (47c) and the script needs reworking, see FIX-6"]
 async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_between_them() {
     let settings = TriageSettings {
         per_hour_runs: 100,
@@ -675,13 +683,10 @@ async fn failed_retries_stop_at_the_limit_when_other_timeline_entries_land_betwe
     w.primary
         .push_err(LlmError::InvalidResponse("bad".to_owned()));
     assert!(matches!(w.run().await, TriageOutcome::Failed { .. }));
-    for i in 0..8 {
+    for _ in 0..8 {
         w.primary.push_text(report());
         assert!(matches!(w.run_on(&other).await, TriageOutcome::Report(_)));
-        if i < 2 {
-            w.primary
-                .push_err(LlmError::InvalidResponse("bad".to_owned()));
-        }
+        settle().await;
         // What the manager writes each time the severity moves.
         IncidentRepo::append_event(
             &*w.store,
