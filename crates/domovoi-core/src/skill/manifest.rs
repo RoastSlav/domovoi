@@ -4,6 +4,7 @@ use jiff::SignedDuration;
 
 use super::ident_newtype;
 use super::params::ParamSpec;
+use super::view::{AgentRead, HostNeed};
 use crate::host::HostName;
 use crate::sha256::{ScriptDigest, sha256_newtype};
 use crate::signal::CheckKey;
@@ -161,6 +162,14 @@ pub struct SkillManifest {
     pub revert: Option<RevertSpec>,
     /// Cap on captured stdout and stderr, 1 KiB to 1 MiB.
     pub max_output_bytes: u32,
+    /// What of the host the entry script must see. A skill whose need the host hides, with
+    /// no `agent_read` to answer it, is shown unavailable instead of returning nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<HostNeed>,
+    /// A built-in read the agent runs instead of the entry script behind the skill runner.
+    /// Only for `read` skills.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_read: Option<AgentRead>,
 }
 
 impl SkillManifest {
@@ -190,7 +199,19 @@ impl SkillManifest {
             verify: self.verify.clone(),
             readme: None,
             entry_script_digest,
+            hidden_needs: Vec::new(),
+            agent_journal_unreadable: false,
         }
+    }
+
+    /// The needs the entry script has that no `agent_read` answers.
+    #[must_use]
+    pub fn unanswered_needs(&self) -> Vec<HostNeed> {
+        self.needs
+            .iter()
+            .copied()
+            .filter(|need| self.agent_read.is_none_or(|read| read.covers() != *need))
+            .collect()
     }
 }
 
@@ -247,6 +268,14 @@ pub struct SkillSummary {
     /// The skill folder's README.md, at most 8 KiB; absent when there is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readme: Option<String>,
+    /// The manifest's `needs` that this host's skill runner cannot show and the agent does
+    /// not answer itself; empty when the skill can run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_needs: Vec<HostNeed>,
+    /// The agent would answer this skill with its built-in journal read, but the agent's own
+    /// account cannot read the journal either.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_journal_unreadable: bool,
 }
 
 fn default_summary_timeout() -> SignedDuration {

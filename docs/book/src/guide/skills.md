@@ -135,7 +135,23 @@ A container agent has no skill runner. Skills are not run there, and the hub ref
 
 An agent that runs as root, where the boundary is not in effect, runs skills itself instead of through the runner, and `run_as` works there. The host is labelled "privilege boundary not in effect". This does not apply to the container image.
 
-The starter skills `restart_container`, `restart_unit` and `vacuum_journal` change the host as root, and the readers of the journal and other protected state need access the `domovoi-skill` account does not have. The installer therefore copies the three write skills only to an agent that runs as root. On a host with the three identities restart a failed unit through the helper's `unit.restart` operation instead ([Restarting a service](unit-restart.md)); a skill that changes the host is shown as Unavailable (`write_skill_needs_root`) on an agent that does not run as root, and the capability row says to use `unit.restart` instead. A failed run names the last line the skill wrote to its error output. The starter skills that read the service bus, other users' processes or the journal (`service_list`, `top_processes`, `hardware_health`, `log_summary`, `journal_errors`) are not installed on that layout either, because the runner's account sees none of those and they would answer with empty sections; they are installed on a root agent. The remaining starter skills read what any account can read, which is why the runner's unit shows `/proc` in full (`ProcSubset=all`) while `ProtectProc=invisible` still hides other users' processes. A starter skill that cannot see its source exits with status 3 and says `host view hidden: ...` instead of printing empty text.
+The starter skills `restart_container`, `restart_unit` and `vacuum_journal` change the host as root, and the readers of the journal and other protected state need access the `domovoi-skill` account does not have. The installer therefore copies the three write skills only to an agent that runs as root. A skill that changes the host is shown as Unavailable (`write_skill_needs_root`) on an agent that does not run as root: the helper runs only its own fixed operations, never a skill script. Restart a failed unit through the helper's `unit.restart` operation instead ([Restarting a service](unit-restart.md)); restarting a container and vacuuming the journal have no helper operation. A failed run names the last line the skill wrote to its error output.
+
+### What a read skill may see
+
+On the three-identities layout the runner's sandbox hides the system bus, other users' processes, the journal, disk devices and the directories under `/home`, `/root` and `/var/lib`. The sandbox is the same for every skill and a manifest cannot widen it. A manifest says what its script needs with `needs`, a list of `services`, `processes`, `journal`, `hardware` and `files`. A `read` skill may also name one `agent_read`, a fixed read the agent runs itself in place of the entry script:
+
+| `agent_read` | answers `needs` | params | what the agent reads |
+|---|---|---|---|
+| `services` | `services` | none | running and failed services, timers (`systemctl`) |
+| `processes` | `processes` | none | the top processes by CPU and memory (`ps`) |
+| `log_summary` | `journal` | none | warnings and errors of the last 24 hours |
+| `journal_errors` | `journal` | `unit`, `minutes` | one unit's errors |
+| `hardware` | `hardware` | none | temperatures, kernel errors, EDAC counters, SMART through the helper |
+
+The output says on its first line that the built-in read answered and the script did not run. A root agent runs the script. A skill whose need no `agent_read` answers is shown as Unavailable with the reason (`skill_needs_services`, `skill_needs_processes`, `skill_needs_journal`, `skill_needs_hardware`, `skill_needs_files`; `disk_usage_top` is one). A journal read is Unavailable with `agent_journal_unreadable` when the `domovoi-agent` account is not in the `systemd-journal` group. The built-in reads give nothing the hub's read tools do not already reach through the agent's account and the helper.
+
+A read skill that returns no data is a failure, not an empty result: when it finds nothing it must print a line that says so. A starter skill that cannot see its source exits with status 3 and says `host view hidden: ...`. The runner's unit shows `/proc` in full (`ProcSubset=all`) for `system_overview`, while `ProtectProc=invisible` still hides other users' processes. Running the installer again updates the runner unit and every starter skill you have not edited.
 
 POSIX `sh` is fine for the script itself, as long as it starts with a shebang. Quote every argument (`"$1"`), and pass it after `--` where the tool supports that.
 

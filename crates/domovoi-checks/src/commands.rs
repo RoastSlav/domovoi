@@ -19,6 +19,10 @@ use std::path::Path;
 use domovoi_core::ports::{HostFs, ProcessSpec};
 use jiff::SignedDuration;
 
+mod host_view;
+
+pub use host_view::{DayPriority, SUMMARY_LINES, ServiceState};
+
 /// Largest output any template captures, per stream.
 pub const MAX_OUTPUT_BYTES: u32 = 2 * 1024 * 1024;
 /// How long any template may run.
@@ -30,6 +34,7 @@ pub const MAX_JOURNAL_MINUTES: u32 = 1440;
 /// How far back [`Commands::journal_since_cursor`] looks when there is no cursor yet.
 pub const FIRST_RUN_MINUTES: u32 = 15;
 
+const PS: &[&str] = &["/usr/bin/ps", "/bin/ps"];
 const JOURNALCTL: &[&str] = &["/usr/bin/journalctl", "/bin/journalctl"];
 const SMARTCTL: &[&str] = &["/usr/sbin/smartctl", "/usr/bin/smartctl", "/sbin/smartctl"];
 const SYSTEMCTL: &[&str] = &["/usr/bin/systemctl", "/bin/systemctl"];
@@ -244,6 +249,7 @@ pub struct Commands {
     smartctl: Tool,
     systemctl: Tool,
     fail2ban_client: Tool,
+    ps: Tool,
 }
 
 async fn first_existing(fs: &dyn HostFs, candidates: &[&str]) -> Tool {
@@ -295,6 +301,7 @@ impl Commands {
             smartctl: first_existing(tools, SMARTCTL).await,
             systemctl,
             fail2ban_client: first_existing(tools, FAIL2BAN).await,
+            ps: first_existing(tools, PS).await,
         }
     }
 

@@ -275,37 +275,47 @@ pub(super) async fn skills(
         .agents
         .skills(host.id)
         .into_iter()
-        .map(|s| SkillDto {
-            name: s.name.to_string(),
-            description: s.description.clone(),
-            risk: serde_json::to_value(s.risk)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_owned))
-                .unwrap_or_default(),
-            params: s
-                .params
-                .iter()
-                .map(|p| ParamDto {
-                    name: p.name.to_string(),
-                    description: p.description.clone(),
-                    required: p.required,
-                    kind: serde_json::to_value(&p.kind).unwrap_or_default(),
-                })
-                .collect(),
-            applies_to: s.applies_to.iter().map(ToString::to_string).collect(),
-            timeout_secs: s.timeout.as_secs(),
-            manifest_hash: s.manifest_hash.to_string(),
-            verify: s.verify.map(|v| VerifyDto {
-                recheck: v.recheck,
-                delay_secs: v.delay.as_secs(),
-            }),
-            readme: s.readme,
-            enabled: switch_on(&state, host.id, &s.name) && cannot_run.is_none(),
-            available: cannot_run.is_none(),
-            unavailable_reason: cannot_run.clone(),
-            package: package_of(package_states, s.name.as_str()).map(|p| p.package.clone()),
-            package_version: package_of(package_states, s.name.as_str()).map(|p| p.version.clone()),
-            package_enabled: package_of(package_states, s.name.as_str()).map(|_| true),
+        .map(|s| {
+            let cannot_run = cannot_run.clone().or_else(|| {
+                state
+                    .deps
+                    .capabilities
+                    .skill_cannot_run(host.id, &s)
+                    .map(|reason| reason.describe().to_owned())
+            });
+            SkillDto {
+                name: s.name.to_string(),
+                description: s.description.clone(),
+                risk: serde_json::to_value(s.risk)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default(),
+                params: s
+                    .params
+                    .iter()
+                    .map(|p| ParamDto {
+                        name: p.name.to_string(),
+                        description: p.description.clone(),
+                        required: p.required,
+                        kind: serde_json::to_value(&p.kind).unwrap_or_default(),
+                    })
+                    .collect(),
+                applies_to: s.applies_to.iter().map(ToString::to_string).collect(),
+                timeout_secs: s.timeout.as_secs(),
+                manifest_hash: s.manifest_hash.to_string(),
+                verify: s.verify.map(|v| VerifyDto {
+                    recheck: v.recheck,
+                    delay_secs: v.delay.as_secs(),
+                }),
+                readme: s.readme,
+                enabled: switch_on(&state, host.id, &s.name) && cannot_run.is_none(),
+                available: cannot_run.is_none(),
+                unavailable_reason: cannot_run.clone(),
+                package: package_of(package_states, s.name.as_str()).map(|p| p.package.clone()),
+                package_version: package_of(package_states, s.name.as_str())
+                    .map(|p| p.version.clone()),
+                package_enabled: package_of(package_states, s.name.as_str()).map(|_| true),
+            }
         })
         .collect();
     let mut skills: Vec<SkillDto> = skills;

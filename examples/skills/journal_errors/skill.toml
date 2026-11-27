@@ -5,6 +5,8 @@ entry = "run"
 timeout = "30s"
 applies_to = ["unit.failed", "unit.watch", "kernel.errors"]
 max_output_bytes = 65536
+needs = ["journal"]
+agent_read = "journal_errors"
 
 [[params]]
 name = "unit"

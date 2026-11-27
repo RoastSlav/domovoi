@@ -55,6 +55,17 @@ pub enum ManifestError {
         /// What is wrong.
         reason: &'static str,
     },
+    /// `agent_read` is set on a skill that changes the host.
+    #[error("agent_read is only allowed for read skills")]
+    AgentReadNotRead,
+    /// The params do not match what the built-in read takes.
+    #[error("agent_read `{read}` needs exactly these params, in order: [{expected}]")]
+    AgentReadParams {
+        /// The read.
+        read: &'static str,
+        /// The names it takes.
+        expected: String,
+    },
 }
 
 /// Why a set of arguments was rejected.
@@ -160,6 +171,18 @@ impl SkillManifest {
                 errors.push(ManifestError::InvalidDuration {
                     field: "verify.delay",
                     reason: "must be between 0s and 1h",
+                });
+            }
+        }
+        if let Some(read) = self.agent_read {
+            if self.risk != Risk::Read {
+                errors.push(ManifestError::AgentReadNotRead);
+            }
+            let declared: Vec<&str> = self.params.iter().map(|p| p.name.as_str()).collect();
+            if declared != read.params() {
+                errors.push(ManifestError::AgentReadParams {
+                    read: read.name(),
+                    expected: read.params().join(", "),
                 });
             }
         }

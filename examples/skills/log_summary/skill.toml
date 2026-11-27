@@ -4,3 +4,5 @@ risk = "read"
 entry = "run"
 timeout = "30s"
 max_output_bytes = 32768
+needs = ["journal"]
+agent_read = "log_summary"

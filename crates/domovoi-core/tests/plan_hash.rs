@@ -82,6 +82,8 @@ fn summary(name: &str, risk: Risk) -> SkillSummary {
         applies_to: Vec::new(),
         manifest_hash: "ab".repeat(32).parse().unwrap(),
         entry_script_digest: ScriptDigest::of_bytes(b"entry"),
+        hidden_needs: Vec::new(),
+        agent_journal_unreadable: false,
         timeout: SignedDuration::from_secs(60),
         verify: None,
         readme: None,

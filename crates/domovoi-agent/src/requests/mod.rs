@@ -5,6 +5,7 @@
 //! refuses more than its queue holds as busy. Every request is cut off at its deadline,
 //! and tool output is redacted, then capped at [`MAX_TOOL_OUTPUT`].
 
+mod agent_read;
 mod attest;
 mod binary;
 mod capability;

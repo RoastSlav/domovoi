@@ -1607,6 +1607,49 @@ async fn write_skill_on_an_agent_that_is_not_root_is_unavailable_with_the_reason
 }
 
 #[tokio::test]
+async fn a_read_skill_the_runner_cannot_serve_is_unavailable_with_the_need() {
+    let fixture = Fixture::new(Vec::new()).await;
+    let mut hidden = summary("disk_usage", Risk::Read);
+    hidden.hidden_needs = vec![domovoi_core::HostNeed::Files];
+    let mut deaf = summary("log_summary", Risk::Read);
+    deaf.agent_journal_unreadable = true;
+    fixture
+        .link
+        .set_skills(fixture.host_id(), vec![hidden.clone(), deaf]);
+    fixture.complete(&[("skill.disk_usage", 1), ("skill.log_summary", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: false,
+        runner: domovoi_core::ports::RunnerState::Ready,
+        ..HostWords::default()
+    });
+
+    assert_eq!(
+        fixture.skill_state("disk_usage").await,
+        missing(UnavailableReason::SkillNeedsFiles)
+    );
+    assert_eq!(
+        fixture.skill_state("log_summary").await,
+        missing(UnavailableReason::AgentJournalUnreadable)
+    );
+    assert_eq!(
+        fixture
+            .registry
+            .skill_cannot_run(fixture.host_id(), &hidden),
+        Some(UnavailableReason::SkillNeedsFiles)
+    );
+
+    // A root agent runs the script itself, so nothing is hidden from it.
+    fixture.words(HostWords {
+        runs_as_root: true,
+        ..HostWords::default()
+    });
+    assert_eq!(
+        fixture.skill_state("disk_usage").await,
+        Availability::Available
+    );
+}
+
+#[tokio::test]
 async fn a_host_with_no_skill_runner_says_why_skills_cannot_run_and_one_with_a_runner_does_not() {
     let fixture = Fixture::new(Vec::new()).await;
     fixture.words(HostWords {

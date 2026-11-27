@@ -124,6 +124,8 @@ pub fn manifest(name: &str, risk: Risk) -> Result<SkillManifest, BuildError> {
         verify: None,
         revert: None,
         max_output_bytes: 64 * 1024,
+        needs: Vec::new(),
+        agent_read: None,
     })
 }
 

@@ -33,7 +33,7 @@ pub struct SkillEnabledUpdate {
         (status = 400, description = "Invalid skill name", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
         (status = 404, description = "No such host, or the agent does not report that skill", body = ErrorBody),
-        (status = 409, description = "The host cannot run skills (no skill runner), so the skill cannot be enabled", body = ErrorBody),
+        (status = 409, description = "The host cannot run this skill (the message says why), so it cannot be enabled", body = ErrorBody),
     )
 )]
 pub(super) async fn set_skill_enabled(
@@ -44,17 +44,20 @@ pub(super) async fn set_skill_enabled(
 ) -> Result<StatusCode, ApiError> {
     let host = host_named(&state, &host_name).await?;
     let skill = SkillName::parse(&skill_name).map_err(|e| ApiError::BadRequest(e.to_string()))?;
-    let announced = state
+    let Some(announced) = state
         .deps
         .agents
         .skills(host.id)
-        .iter()
-        .any(|s| s.name == skill);
-    if !announced {
+        .into_iter()
+        .find(|s| s.name == skill)
+    else {
         return Err(ApiError::NotFound);
-    }
+    };
     if req.enabled
-        && let Some(reason) = state.deps.capabilities.skills_cannot_run(host.id)
+        && let Some(reason) = state
+            .deps
+            .capabilities
+            .skill_cannot_run(host.id, &announced)
     {
         return Err(ApiError::Conflict(format!(
             "{skill_name} cannot be enabled: {}",

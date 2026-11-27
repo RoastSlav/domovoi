@@ -73,6 +73,36 @@ pub(super) fn failure_message(skill: &str, err: &RouteError) -> String {
     }
 }
 
+/// Whether `stdout` holds anything besides blank lines and `== ...` section headings.
+fn has_data(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .map(str::trim)
+        .any(|line| !line.is_empty() && !line.starts_with("== "))
+}
+
+/// Why a read skill's result is a failure: it returned no data at all. A read that found
+/// nothing has to say so in a line of its own, or the model and the owner would take an
+/// unreadable source for a quiet host.
+fn no_data(skill: &str, output: &SkillOutput) -> Option<String> {
+    if has_data(&output.stdout) {
+        return None;
+    }
+    let status = output
+        .exit_code
+        .map_or("a signal".to_owned(), |code| format!("exit status {code}"));
+    let said = output.stderr.trim();
+    let said = if said.is_empty() {
+        "it wrote nothing to its error output".to_owned()
+    } else {
+        format!("its error output: {said}")
+    };
+    Some(format!(
+        "{skill} returned no data ({status}; {said}). This is not an empty result; a skill \
+         that finds nothing must print a line that says so"
+    ))
+}
+
 fn reply(outcome: SkillOutcome) -> Message {
     Message::SkillResult(SkillResult { outcome })
 }
@@ -136,7 +166,11 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> Message {
     let outcome = match ctx.run_found(&found, &validated).await {
         Ok(output) => {
             tracing::info!(skill = skill_name, exit_code = ?output.exit_code, "skill finished");
-            SkillOutcome::Ok(SkillSuccess::from(redacted(ctx, output)))
+            let output = redacted(ctx, output);
+            match no_data(skill_name, &output) {
+                Some(reason) => fail(SkillFailureCode::Exec, reason),
+                None => SkillOutcome::Ok(SkillSuccess::from(output)),
+            }
         }
         Err(RouteError::TimedOut(_)) => {
             tracing::warn!(skill = skill_name, "skill timed out");
@@ -183,7 +217,14 @@ pub async fn run_read_skill(
     })?;
     match ctx.run_found(&found, &validated).await {
         Ok(output) => {
-            let mut text = output.stdout;
+            if let Some(reason) = no_data(name.as_str(), &output) {
+                return Err(ToolFail::new(ToolFailureCode::Exec, reason));
+            }
+            let mut text = String::new();
+            if output.exit_code != Some(0) {
+                text.push_str("[the skill failed; what it printed may be incomplete]\n");
+            }
+            text.push_str(&output.stdout);
             if !output.stderr.is_empty() {
                 text.push_str("\n[stderr]\n");
                 text.push_str(&output.stderr);

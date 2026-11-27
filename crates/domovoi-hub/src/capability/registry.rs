@@ -22,7 +22,7 @@ use domovoi_core::ports::{
     Clock, HelperState, HostAvailability, HostRepo, HostView, HostWords, RunnerState, SettingsRepo,
     StoreError,
 };
-use domovoi_core::{Host, HostId, Risk, SkillName, SkillSummary};
+use domovoi_core::{Host, HostId, SkillName, SkillSummary};
 use jiff::Timestamp;
 
 use super::catalogue::CatalogueCache;
@@ -30,7 +30,7 @@ use super::ceiling::{CeilingReport, ceiling_of};
 use super::enablement::Enablement;
 use super::floors::{FloorWriteError, Floors};
 use super::host::HostCapabilities;
-use super::host_rules::{host_allows, runner_refusal};
+use super::host_rules::{host_allows, skill_refusal};
 
 /// The pieces the registry is built from, in the order they can be built without a cycle.
 pub struct RegistryDeps {
@@ -339,17 +339,9 @@ impl HubRegistry {
         // section 2), the ceiling gates what may run without one, and the agent never reads it
         // for a skill. Gating here refused every approved write skill, because the agent
         // config cannot name a `skill.*` ceiling entry.
-        // Row 12: where a skill would actually run.
-        if let Some(reason) = runner_refusal(&seen.words) {
+        // Row 12: where a skill would actually run, and what it could see or change there.
+        if let Some(reason) = skill_refusal(&seen.words, summary) {
             return Availability::Unavailable { reason };
-        }
-        // A skill that changes the host runs as root. The skill runner's account is not root
-        // and has no way to switch user, so on the three-identities layout it would fail at
-        // run time with nothing to say why: it is not offered.
-        if summary.risk != Risk::Read && !seen.words.runs_as_root {
-            return Availability::Unavailable {
-                reason: UnavailableReason::WriteSkillNeedsRoot,
-            };
         }
         Availability::Available
     }

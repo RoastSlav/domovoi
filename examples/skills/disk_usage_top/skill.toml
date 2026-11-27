@@ -5,6 +5,7 @@ entry = "run"
 timeout = "2m"
 applies_to = ["disk.free"]
 max_output_bytes = 16384
+needs = ["files"]
 
 [[params]]
 name = "path"

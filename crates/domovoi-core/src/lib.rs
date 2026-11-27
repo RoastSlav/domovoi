@@ -111,8 +111,8 @@ pub use signal::{
     CheckKey, Evidence, EvidenceValue, Signal, SignalClass, SignalStatus, SourceKind, TargetKey,
 };
 pub use skill::{
-    ArgError, ManifestError, ManifestHash, ParamKind, ParamName, ParamSpec, RevertSpec, Risk,
-    SkillManifest, SkillName, SkillSummary, ValidatedArgs, VerifySpec,
+    AgentRead, ArgError, HostNeed, ManifestError, ManifestHash, ParamKind, ParamName, ParamSpec,
+    RevertSpec, Risk, SkillManifest, SkillName, SkillSummary, ValidatedArgs, VerifySpec,
 };
 pub use triage::{
     ActionProposal, EvidenceRef, ReadTool, ReadToolCall, ToolArgError, TriageBudget, TriageOutcome,

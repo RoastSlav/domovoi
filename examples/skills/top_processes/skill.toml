@@ -4,3 +4,5 @@ risk = "read"
 entry = "run"
 timeout = "15s"
 max_output_bytes = 32768
+needs = ["processes"]
+agent_read = "processes"

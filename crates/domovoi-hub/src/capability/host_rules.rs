@@ -6,6 +6,7 @@ use domovoi_core::capability::{
     UnavailableReason, is_policy_only,
 };
 use domovoi_core::ports::{HelperState, HostWords, RunnerState};
+use domovoi_core::{HostNeed, Risk, SkillSummary};
 
 use super::ceiling::{CeilingParse, covers, parse_ceiling};
 
@@ -94,4 +95,35 @@ pub(super) fn runner_refusal(words: &HostWords) -> Option<UnavailableReason> {
         RunnerState::Unsupported => Some(UnavailableReason::SkillRunnerUnsupported),
         RunnerState::Failed => Some(UnavailableReason::SkillRunnerError),
     }
+}
+
+/// Why one skill cannot run where skills run on this host: no usable runner, a skill that
+/// changes the host with no root to do it, or a declared need the runner sandbox hides.
+pub(super) fn skill_refusal(
+    words: &HostWords,
+    summary: &SkillSummary,
+) -> Option<UnavailableReason> {
+    if let Some(reason) = runner_refusal(words) {
+        return Some(reason);
+    }
+    if words.runs_as_root {
+        return None;
+    }
+    // The skill runner's account is not root and has no way to switch user, so a write skill
+    // would fail at run time with nothing to say why.
+    if summary.risk != Risk::Read {
+        return Some(UnavailableReason::WriteSkillNeedsRoot);
+    }
+    if let Some(need) = summary.hidden_needs.first() {
+        return Some(match need {
+            HostNeed::Services => UnavailableReason::SkillNeedsServices,
+            HostNeed::Processes => UnavailableReason::SkillNeedsProcesses,
+            HostNeed::Journal => UnavailableReason::SkillNeedsJournal,
+            HostNeed::Hardware => UnavailableReason::SkillNeedsHardware,
+            HostNeed::Files => UnavailableReason::SkillNeedsFiles,
+        });
+    }
+    summary
+        .agent_journal_unreadable
+        .then_some(UnavailableReason::AgentJournalUnreadable)
 }

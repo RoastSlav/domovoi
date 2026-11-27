@@ -5,6 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use domovoi_core::{AgentRead, HostNeed, Risk};
 use domovoi_runner::SkillCatalog;
 
 fn workspace() -> PathBuf {
@@ -73,7 +74,7 @@ fn every_starter_skill_loads_and_is_documented() {
 /// (an unreadable journal, an unreachable service bus, a process list without pid 1) can
 /// be reproduced on any machine.
 #[allow(clippy::disallowed_methods)]
-fn run_with_fakes(skill: &str, args: &[&str], fakes: &[(&str, &str)]) -> (i32, String) {
+fn run_with_fakes(skill: &str, args: &[&str], fakes: &[(&str, &str)]) -> (i32, String, String) {
     let dir = tempfile::tempdir().unwrap();
     for (name, body) in fakes {
         let path = dir.path().join(name);
@@ -90,6 +91,7 @@ fn run_with_fakes(skill: &str, args: &[&str], fakes: &[(&str, &str)]) -> (i32, S
         .unwrap();
     (
         output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
 }
@@ -102,18 +104,66 @@ fn starter_read_skills_fail_loudly_when_the_host_view_is_hidden() {
         ("journal_errors", vec!["nginx.service", "10"]),
         ("hardware_health", vec![]),
     ] {
-        let (code, stderr) = run_with_fakes(skill, &args, &blind_journal);
+        let (code, _, stderr) = run_with_fakes(skill, &args, &blind_journal);
         assert_eq!(code, 3, "{skill} exited {code}: {stderr}");
         assert!(stderr.contains("host view hidden"), "{skill}: {stderr}");
     }
-    let (code, stderr) = run_with_fakes(
+    let (code, _, stderr) = run_with_fakes(
         "service_list",
         &[],
         &[("systemctl", "echo 'Failed to connect to bus'; exit 1")],
     );
     assert_eq!(code, 3, "{stderr}");
     assert!(stderr.contains("host view hidden"), "{stderr}");
-    let (code, stderr) = run_with_fakes("top_processes", &[], &[("ps", "exit 1")]);
+    let (code, _, stderr) = run_with_fakes("top_processes", &[], &[("ps", "exit 1")]);
     assert_eq!(code, 3, "{stderr}");
     assert!(stderr.contains("pid 1 is not visible"), "{stderr}");
+}
+
+/// Behind the skill runner every starter read skill either reads only what the sandbox shows,
+/// or names the built-in read that answers it; the one that can do neither says what it
+/// needs, so the hub shows it unavailable.
+#[test]
+fn every_starter_read_skill_is_served_or_declares_what_is_hidden() {
+    let dir = tempfile::tempdir().unwrap();
+    copied_starter_skills(dir.path());
+    let (catalog, _) = SkillCatalog::load(dir.path());
+    let mut served = Vec::new();
+    for summary in catalog.summaries() {
+        if summary.risk != Risk::Read {
+            continue;
+        }
+        let manifest = catalog.get(&summary.name).unwrap().manifest();
+        served.push((
+            summary.name.to_string(),
+            manifest.agent_read,
+            manifest.unanswered_needs(),
+        ));
+    }
+    let own = |name: &str| (name.to_owned(), None, Vec::new());
+    let agent = |name: &str, read| (name.to_owned(), Some(read), Vec::new());
+    assert_eq!(
+        served,
+        [
+            ("disk_usage_top".to_owned(), None, vec![HostNeed::Files]),
+            agent("hardware_health", AgentRead::Hardware),
+            agent("journal_errors", AgentRead::JournalErrors),
+            agent("log_summary", AgentRead::LogSummary),
+            own("power_status"),
+            agent("service_list", AgentRead::Services),
+            own("system_overview"),
+            agent("top_processes", AgentRead::Processes),
+        ]
+    );
+}
+
+#[test]
+fn journal_errors_says_when_there_are_none() {
+    let quiet = [("journalctl", "exit 0")];
+    let (code, stdout, _) = run_with_fakes("journal_errors", &["nginx.service", "10"], &quiet);
+    assert_eq!(code, 0);
+    assert_eq!(
+        stdout,
+        "no errors logged by nginx.service in the last 10 minutes\n"
+    );
 }

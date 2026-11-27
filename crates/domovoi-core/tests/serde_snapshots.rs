@@ -235,6 +235,8 @@ fn skill_contract_snapshot() {
         applies_to: Vec::new(),
         manifest_hash: "00".repeat(32).parse::<ManifestHash>().unwrap(),
         entry_script_digest: ScriptDigest::of_bytes(b"#!/bin/sh\nexit 0\n"),
+        hidden_needs: Vec::new(),
+        agent_journal_unreadable: false,
         timeout: SignedDuration::from_secs(90),
         verify: Some(VerifySpec {
             recheck: true,

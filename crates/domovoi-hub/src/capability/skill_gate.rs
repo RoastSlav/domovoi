@@ -1,9 +1,8 @@
 //! The skill switches of the registry: turning a skill on with its audit row, and why a host
 //! cannot run skills at all.
 
-use domovoi_core::SkillName;
 use domovoi_core::capability::UnavailableReason;
-use domovoi_core::{Host, HostId};
+use domovoi_core::{Host, HostId, SkillName, SkillSummary};
 
 use super::registry::HubRegistry;
 
@@ -29,5 +28,16 @@ impl HubRegistry {
     pub fn skills_cannot_run(&self, host: HostId) -> Option<UnavailableReason> {
         let words = self.agent.view(host)?.words;
         super::host_rules::runner_refusal(&words)
+    }
+
+    /// Why the skill `summary` cannot run on `host`, or `None` when it can or the host is
+    /// not known to this hub right now. The same rule as the availability rows.
+    pub fn skill_cannot_run(
+        &self,
+        host: HostId,
+        summary: &SkillSummary,
+    ) -> Option<UnavailableReason> {
+        let words = self.agent.view(host)?.words;
+        super::host_rules::skill_refusal(&words, summary)
     }
 }

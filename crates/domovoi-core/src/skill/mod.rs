@@ -5,12 +5,14 @@ mod params;
 mod validate;
 #[cfg(test)]
 mod validate_tests;
+mod view;
 
 pub use manifest::{
     ManifestHash, RevertSpec, Risk, SkillManifest, SkillName, SkillSummary, VerifySpec,
 };
 pub use params::{ParamKind, ParamName, ParamSpec};
 pub use validate::{ArgError, ManifestError, ValidatedArgs};
+pub use view::{AgentRead, HostNeed};
 
 /// Defines a validated identifier newtype matching `^[a-z][a-z0-9_]{0,MAX-1}$`.
 macro_rules! ident_newtype {

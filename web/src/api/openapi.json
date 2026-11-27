@@ -2912,7 +2912,7 @@
             }
           },
           "409": {
-            "description": "The host cannot run skills (no skill runner), so the skill cannot be enabled",
+            "description": "The host cannot run this skill (the message says why), so it cannot be enabled",
             "content": {
               "application/json": {
                 "schema": {

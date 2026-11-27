@@ -30,6 +30,8 @@ pub(super) fn summary(name: &str, risk: Risk, verify: Option<VerifySpec>) -> Ski
         applies_to: Vec::new(),
         manifest_hash: "00".repeat(32).parse().unwrap(),
         entry_script_digest: ScriptDigest::of_bytes(b"entry"),
+        hidden_needs: Vec::new(),
+        agent_journal_unreadable: false,
         timeout: SignedDuration::from_secs(60),
         verify,
         readme: None,

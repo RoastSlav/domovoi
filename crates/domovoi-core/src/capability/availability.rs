@@ -100,6 +100,18 @@ pub enum UnavailableReason {
     /// A skill that changes the host on an agent that does not run as root: the skill
     /// runner's account cannot change the host.
     WriteSkillNeedsRoot,
+    /// A skill declares it needs the service manager, which the skill runner sandbox hides.
+    SkillNeedsServices,
+    /// A skill declares it needs other accounts' processes, hidden from the skill runner.
+    SkillNeedsProcesses,
+    /// A skill declares it needs the system journal, hidden from the skill runner.
+    SkillNeedsJournal,
+    /// A skill declares it needs disks or the kernel log, hidden from the skill runner.
+    SkillNeedsHardware,
+    /// A skill declares it needs directories the skill runner sandbox hides.
+    SkillNeedsFiles,
+    /// The agent would read the journal in the skill's place, but its account cannot.
+    AgentJournalUnreadable,
     /// The helper is running but offers no `systemd.write` group, so it cannot restart a unit
     /// or run `unit.identity`.
     HelperSystemdGroupMissing,
@@ -222,6 +234,12 @@ impl UnavailableReason {
             Self::DockerWriteUnsupported => "docker_write_unsupported",
             Self::AgentInContainer => "agent_in_container",
             Self::WriteSkillNeedsRoot => "write_skill_needs_root",
+            Self::SkillNeedsServices => "skill_needs_services",
+            Self::SkillNeedsProcesses => "skill_needs_processes",
+            Self::SkillNeedsJournal => "skill_needs_journal",
+            Self::SkillNeedsHardware => "skill_needs_hardware",
+            Self::SkillNeedsFiles => "skill_needs_files",
+            Self::AgentJournalUnreadable => "agent_journal_unreadable",
             Self::HelperSystemdGroupMissing => "helper_systemd_group_missing",
             Self::HelperNftGroupMissing => "helper_nft_group_missing",
         }
@@ -259,6 +277,35 @@ impl UnavailableReason {
                 "write skills change the host as root, and the skill runner account on this \
                  host is not root; to restart a unit here, use `unit.restart` through the \
                  helper (it needs the `systemd.write` group in /etc/domovoi/helper.toml)"
+            }
+            Self::SkillNeedsServices => {
+                "the skill declares that it needs the service manager. The skill runner sandbox \
+                 has no system bus, and the skill names no built-in read (`agent_read`) the agent \
+                 could answer in its place"
+            }
+            Self::SkillNeedsProcesses => {
+                "the skill declares that it needs other accounts' processes. The skill runner \
+                 sandbox hides them, and the skill names no built-in read (`agent_read`) the \
+                 agent could answer in its place"
+            }
+            Self::SkillNeedsJournal => {
+                "the skill declares that it needs the system journal. The skill runner account \
+                 cannot read it, and the skill names no built-in read (`agent_read`) the agent \
+                 could answer in its place"
+            }
+            Self::SkillNeedsHardware => {
+                "the skill declares that it needs disks or the kernel log. The skill runner \
+                 sandbox hides them, and the skill names no built-in read (`agent_read`) the \
+                 agent could answer in its place"
+            }
+            Self::SkillNeedsFiles => {
+                "the skill declares that it needs directories under /home, /root or /var/lib. The \
+                 skill runner sandbox hides them and nothing else on this host reads them for it"
+            }
+            Self::AgentJournalUnreadable => {
+                "the agent would read the journal for this skill, but the domovoi-agent account \
+                 cannot read it: run `sudo usermod -aG systemd-journal domovoi-agent`, then \
+                 `sudo systemctl restart domovoi-agent`"
             }
             Self::HelperSystemdGroupMissing => {
                 "the helper on this host does not offer unit restarts. All three must hold: \

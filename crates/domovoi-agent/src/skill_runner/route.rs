@@ -2,6 +2,7 @@
 //! process. This is the only code that decides which.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use domovoi_core::identity::SKILL_ACCOUNT;
 use domovoi_core::ports::{Clock, ProcessExecutor, SkillOutput};
@@ -40,6 +41,11 @@ pub enum RouteError {
         /// The `run_as` value of the manifest.
         run_as: String,
     },
+    /// The skill needs something the runner's sandbox hides and no built-in read answers.
+    #[error(
+        "host_view_hidden: the skill runner cannot show {0}, which the skill declares it needs"
+    )]
+    HostViewHidden(String),
     /// The runner refused the request.
     #[error("{}: {detail}", .code.as_str())]
     Refused {
@@ -104,6 +110,7 @@ pub struct RunnerRoute {
     expected: ExpectedDirs,
     clock: Arc<dyn Clock>,
     permits: Semaphore,
+    journal_unreadable: AtomicBool,
 }
 
 impl RunnerRoute {
@@ -117,7 +124,20 @@ impl RunnerRoute {
             expected,
             clock,
             permits: Semaphore::new(MAX_CONCURRENT_RUNS),
+            journal_unreadable: AtomicBool::new(false),
         }
+    }
+
+    /// Records whether the agent's own account failed to read the journal, which is what
+    /// the built-in journal reads need.
+    pub fn set_journal_unreadable(&self, unreadable: bool) {
+        self.journal_unreadable.store(unreadable, Ordering::Relaxed);
+    }
+
+    /// What [`set_journal_unreadable`](Self::set_journal_unreadable) last recorded.
+    #[must_use]
+    pub fn journal_unreadable(&self) -> bool {
+        self.journal_unreadable.load(Ordering::Relaxed)
     }
 
     /// The socket client, for probes.

@@ -391,38 +391,3 @@ async fn listening_ports_tool_keeps_the_direct_result_when_the_helper_fails() {
     let (text, _) = run_tool(&ctx, &ReadToolCall::ListeningPorts).await.unwrap();
     assert_eq!(text, "0.0.0.0:22/tcp\n");
 }
-
-/// The journal tool passes `priority` on, never with `--quiet` (which would hide the
-/// warning that the account may not read the journal), and an account that may not is a
-/// failure that says why, not "no entries".
-#[tokio::test]
-async fn journal_tool_with_a_priority_never_reads_an_unreadable_journal_as_empty() {
-    let fixture = Fixture::new();
-    let port = Arc::new(FakePrivilegedReads::new(PrivilegedScript::default()));
-    let ctx = journal_ctx(&fixture, port).await;
-    fixture.exec.expect(
-        JOURNAL,
-        &[
-            "--no-pager",
-            "--output=short-iso",
-            "--since=-60min",
-            "--lines=5",
-            "--priority=err",
-        ],
-        ProcessOutput {
-            exit_code: Some(0),
-            stderr: "Hint: You are currently not seeing messages from other users and the system."
-                .to_owned(),
-            ..ProcessOutput::default()
-        },
-    );
-    let call = ReadToolCall::Journal {
-        unit: None,
-        since_minutes: 60,
-        lines: 5,
-        kernel: false,
-        priority: Some("err".to_owned()),
-    };
-    let fail = run_tool(&ctx, &call).await.unwrap_err();
-    assert!(fail.message.contains("systemd-journal"), "{}", fail.message);
-}

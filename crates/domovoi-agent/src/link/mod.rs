@@ -313,7 +313,11 @@ impl Link {
                     ctx.package_skills_surface(),
                     &enabled,
                 ));
-            skills.extend(view.runnable.iter().flat_map(|r| r.catalog.summaries()));
+            for runnable in &view.runnable {
+                let mut found = runnable.catalog.summaries();
+                ctx.mark_hidden(&runnable.catalog, &mut found);
+                skills.extend(found);
+            }
             package_states = view.states;
         }
         let announce = Announce {

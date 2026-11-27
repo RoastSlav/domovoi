@@ -27,6 +27,9 @@ fi
 
 echo
 echo "== disks"
+if [ "$(id -un 2>/dev/null)" = domovoi-skill ]; then
+    echo "(skill sandbox: filesystems mounted under /home, /root, /var/lib, /run or /tmp are not listed)"
+fi
 if ! df -hP -x tmpfs -x devtmpfs -x overlay -x squashfs 2>/dev/null; then
     df -hP || {
         echo "host view hidden: df cannot read the mount table" >&2

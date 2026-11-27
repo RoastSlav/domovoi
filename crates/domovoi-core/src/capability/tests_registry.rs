@@ -100,6 +100,24 @@ fn availability_reasons_have_codes() {
             "write_skill_needs_root",
         ),
         (
+            UnavailableReason::SkillNeedsServices,
+            "skill_needs_services",
+        ),
+        (
+            UnavailableReason::SkillNeedsProcesses,
+            "skill_needs_processes",
+        ),
+        (UnavailableReason::SkillNeedsJournal, "skill_needs_journal"),
+        (
+            UnavailableReason::SkillNeedsHardware,
+            "skill_needs_hardware",
+        ),
+        (UnavailableReason::SkillNeedsFiles, "skill_needs_files"),
+        (
+            UnavailableReason::AgentJournalUnreadable,
+            "agent_journal_unreadable",
+        ),
+        (
             UnavailableReason::HelperSystemdGroupMissing,
             "helper_systemd_group_missing",
         ),

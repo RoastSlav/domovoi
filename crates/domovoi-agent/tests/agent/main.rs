@@ -28,6 +28,8 @@ mod helper_stub;
 #[cfg(test)]
 mod helper_switch;
 #[cfg(test)]
+mod host_view;
+#[cfg(test)]
 mod hub;
 #[cfg(test)]
 mod link;

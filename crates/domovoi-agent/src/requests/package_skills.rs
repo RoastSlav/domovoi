@@ -3,15 +3,15 @@
 
 use std::borrow::Cow;
 
-use domovoi_core::ValidatedArgs;
 use domovoi_core::ports::SkillOutput;
 use domovoi_core::skill::SkillName;
 use domovoi_core::skill_runner::SkillSource;
+use domovoi_core::{HostNeed, SkillSummary, ValidatedArgs};
 use domovoi_runner::{LoadedSkill, SkillCatalog};
 
-use super::RequestCtx;
+use super::{RequestCtx, agent_read};
 use crate::packages::enable::SkillView;
-use crate::skill_runner::RouteError;
+use crate::skill_runner::{RouteError, SkillRoute};
 
 /// A skill and the place it was found in.
 pub struct Found<'a> {
@@ -87,8 +87,49 @@ impl RequestCtx {
         found: &Found<'_>,
         args: &ValidatedArgs,
     ) -> Result<SkillOutput, RouteError> {
+        if matches!(self.skills, SkillRoute::Runner(_)) {
+            let manifest = found.skill.manifest();
+            let hidden = manifest.unanswered_needs();
+            if !hidden.is_empty() {
+                let words: Vec<&str> = hidden.iter().map(|need| need.describe()).collect();
+                return Err(RouteError::HostViewHidden(words.join(" and ")));
+            }
+            if let Some(read) = manifest.agent_read {
+                return Ok(agent_read::run(self, read, manifest, args).await);
+            }
+        }
         self.skills
             .run_from(&found.skill, &found.catalog, &found.source, args)
             .await
+    }
+
+    /// Fills in what `hello.skills` says about the skills of `catalog` that cannot run here:
+    /// only behind the skill runner does anything hide the host from a skill.
+    pub fn mark_hidden(&self, catalog: &SkillCatalog, summaries: &mut [SkillSummary]) {
+        let SkillRoute::Runner(route) = &self.skills else {
+            return;
+        };
+        for summary in summaries {
+            let Some(skill) = catalog.get(&summary.name) else {
+                continue;
+            };
+            let manifest = skill.manifest();
+            summary.hidden_needs = manifest.unanswered_needs();
+            summary.agent_journal_unreadable = route.journal_unreadable()
+                && manifest
+                    .agent_read
+                    .is_some_and(|read| read.covers() == HostNeed::Journal);
+        }
+    }
+
+    /// The owner skills as `hello` announces them. Behind the runner it first checks once
+    /// whether this account can read the journal.
+    pub async fn announced_skills(&self) -> Vec<SkillSummary> {
+        if let SkillRoute::Runner(route) = &self.skills {
+            route.set_journal_unreadable(!agent_read::journal_is_readable(self).await);
+        }
+        let mut summaries = self.catalog.summaries();
+        self.mark_hidden(&self.catalog, &mut summaries);
+        summaries
     }
 }

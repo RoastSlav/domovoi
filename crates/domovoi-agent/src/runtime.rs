@@ -359,7 +359,7 @@ impl AgentRuntime {
             identity: self.identity,
             clock: self.deps.clock.clone(),
             fs: self.deps.hostfs.clone(),
-            skills: self.requests.catalog.summaries(),
+            skills: self.requests.announced_skills().await,
             checks: self.check_infos,
             docker: self.deps.docker.as_ref().map(|d| d.report().clone()),
             extensions,

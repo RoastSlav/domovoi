@@ -8,5 +8,10 @@ if ! journalctl --no-pager --quiet --lines=1 >/dev/null 2>&1; then
     echo "host view hidden: this account cannot read the journal (it needs the systemd-journal group)" >&2
     exit 3
 fi
-exec journalctl --no-pager --quiet --output=short-iso --priority=err \
-    --unit="$unit" --since="-${minutes}min" --lines=200
+found=$(journalctl --no-pager --quiet --output=short-iso --priority=err \
+    --unit="$unit" --since="-${minutes}min" --lines=200) || exit
+if [ -z "$found" ]; then
+    echo "no errors logged by $unit in the last $minutes minutes"
+else
+    printf '%s\n' "$found"
+fi
