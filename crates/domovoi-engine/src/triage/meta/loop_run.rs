@@ -16,6 +16,10 @@ const HOW_TO_ANSWER: &str = "Reply with only the JSON object described in your i
 /// What the model is told after a `finish` whose report did not validate.
 const FINISH_AGAIN: &str = "Your answer could not be used: call finish again with a valid report.";
 
+/// The answer when the model used every read it was given and wrote nothing. It says why and
+/// where the limit is, so the person is not left with an empty message.
+const NO_ANSWER_IN_BUDGET: &str = "I used all the reads I am allowed for one question and did not reach an answer. Ask again with a narrower question, or raise the tool-call limit (Settings, Triage, Tool calls per run).";
+
 fn tool_calls(parts: &[Part]) -> Vec<(String, String, Value)> {
     parts
         .iter()
@@ -195,7 +199,11 @@ pub(crate) async fn converse_read(
         });
         let calls = tool_calls(&response.parts);
         if calls.is_empty() || state.told || specs.is_empty() {
-            return Ok(text_of(&response.parts));
+            let text = text_of(&response.parts);
+            if text.trim().is_empty() && !calls.is_empty() {
+                return Ok(NO_ANSWER_IN_BUDGET.to_owned());
+            }
+            return Ok(text);
         }
         let mut results = Vec::with_capacity(calls.len() + 1);
         for (id, name, input) in calls {

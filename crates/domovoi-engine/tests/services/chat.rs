@@ -420,3 +420,29 @@ async fn a_chat_that_never_answers_fails_at_the_ceiling() {
         "{err:?}"
     );
 }
+
+#[tokio::test]
+async fn a_model_that_spends_its_reads_and_writes_nothing_gets_an_explained_answer() {
+    let w = world(Setup::default()).await;
+    w.link.set_presence(
+        other_host_id(),
+        Presence::Connected {
+            since: T0,
+            version: "0.1.0".to_owned(),
+        },
+    );
+    // Every turn asks for another read; the budget runs out and the last turn has no text.
+    for n in 0..40 {
+        w.primary.push_ok(read_calls(&[(
+            &format!("c{n}"),
+            "journal",
+            json!({"unit": format!("u{n}")}),
+        )]));
+    }
+    let answer = w
+        .triage
+        .chat(Some(other_host_id()), "", &Vec::new(), "Why slow?")
+        .await
+        .unwrap();
+    assert!(answer.contains("Tool calls per run"), "{answer}");
+}
