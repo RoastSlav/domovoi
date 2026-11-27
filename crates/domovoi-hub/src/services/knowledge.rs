@@ -256,6 +256,14 @@ impl KnowledgeCommands {
         Ok(self.read.relations(filter, page).await?)
     }
 
+    /// Whether an owner-made entity with this id exists.
+    pub async fn entity_exists(
+        &self,
+        id: domovoi_core::EntityId,
+    ) -> Result<bool, KnowledgeCommandError> {
+        Ok(self.read.entity(id).await?.is_some())
+    }
+
     /// Records a relation the owner states.
     pub async fn assert_relation(
         &self,

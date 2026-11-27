@@ -85,6 +85,27 @@ pub(super) async fn assert_relation(
         observed_at: None,
         evidence: evidence(input.evidence.as_deref())?,
     };
+    for (label, end) in [("from", &draft.from), ("to", &draft.to)] {
+        if let Some(host) = end.host()
+            && state.deps.hosts.get_host(host).await?.is_none()
+        {
+            return Err(ApiError::BadRequest(format!(
+                "`{label}` names a host that does not exist"
+            )));
+        }
+        if let Some(entity) = end.entity()
+            && !state
+                .services()
+                .knowledge
+                .entity_exists(entity)
+                .await
+                .map_err(command_error)?
+        {
+            return Err(ApiError::BadRequest(format!(
+                "`{label}` names an entity that does not exist"
+            )));
+        }
+    }
     let relation = state
         .services()
         .knowledge

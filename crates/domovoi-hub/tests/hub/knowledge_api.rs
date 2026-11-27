@@ -568,3 +568,36 @@ fn the_openapi_document_lists_every_knowledge_route() {
         assert!(found.iter().any(|f| f == id), "missing {id}: {found:?}");
     }
 }
+
+#[tokio::test]
+async fn a_relation_to_something_that_does_not_exist_is_refused() {
+    let a = api().await;
+    let login = a.admin().await;
+    for (from, to, what) in [
+        (
+            host_ref(&a),
+            "entity:01a2191a-0000-7000-8000-000000000000".to_owned(),
+            "entity",
+        ),
+        (
+            "host:01a2191a-0000-7000-8000-000000000001".to_owned(),
+            host_ref(&a),
+            "host",
+        ),
+    ] {
+        let reply = a
+            .post(
+                "/api/v1/knowledge/relations",
+                &login,
+                json!({ "from": from, "kind": "managed_from", "to": to }),
+            )
+            .await;
+        assert_eq!(
+            reply.status,
+            StatusCode::BAD_REQUEST,
+            "{what}: {}",
+            reply.text
+        );
+        assert!(reply.text.contains("does not exist"), "{}", reply.text);
+    }
+}
