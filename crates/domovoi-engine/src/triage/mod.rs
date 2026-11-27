@@ -25,6 +25,7 @@ mod prepare_tests;
 mod prompt;
 pub(crate) mod proposals;
 mod recap;
+mod refusal_log;
 pub(crate) mod report;
 pub(crate) mod run;
 pub(crate) mod tools;

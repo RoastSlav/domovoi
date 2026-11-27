@@ -83,7 +83,30 @@ fn account_name() -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
+/// Logs that the one-time setup link was printed on standard output, naming the token by
+/// its first characters only.
+pub fn log_setup_pending(setup_url: &str) {
+    tracing::info!(
+        token_prefix = %setup_token_prefix(setup_url),
+        "no account exists yet; the one-time setup link (valid 24 hours) was printed on standard output, not logged"
+    );
+}
+
 impl HubRuntime {
+    /// The first-run setup link while no account exists, issued once; `None` afterwards.
+    pub async fn setup_link(&self) -> Result<Option<String>, super::RuntimeError> {
+        self.auth
+            .open_setup()
+            .await
+            .map_err(|err| super::RuntimeError::Serve(format!("could not open setup: {err}")))
+    }
+
+    /// The revision of the saved settings this runtime started with.
+    #[must_use]
+    pub fn settings_revision(&self) -> Option<u64> {
+        self.startup.revision
+    }
+
     /// Logs the one start-up banner. `commit` is the build's git commit, known only to the
     /// binary.
     pub fn log_banner(&self, commit: &str) {

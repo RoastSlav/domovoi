@@ -96,7 +96,22 @@ pub(crate) async fn insert_audit(
         .execute(&mut *conn)
         .await
         .map_err(db)?;
+    log_pointer(seq, &stored);
     Ok(seq)
+}
+
+/// Audit kinds that happen too often for a line each at the default level.
+const QUIET_KINDS: [&str; 2] = [CHECKPOINT_KIND, "ack_rule.matched"];
+
+/// One line that points at the audit row: its number, kind, actor and subject. The audit
+/// log is the record; this line lets a person reading the log find the row. The detail is
+/// left out, since it can hold values that must not reach the log.
+fn log_pointer(seq: u64, event: &AuditEvent) {
+    if QUIET_KINDS.contains(&event.kind.as_str()) {
+        tracing::debug!(seq, kind = %event.kind, actor = %event.actor, subject = %event.subject, "audit row recorded");
+    } else {
+        tracing::info!(seq, kind = %event.kind, actor = %event.actor, subject = %event.subject, "audit row recorded");
+    }
 }
 
 /// Writes the single anchor row if it does not exist yet.

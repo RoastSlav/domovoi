@@ -218,6 +218,21 @@ impl Shared {
     }
 }
 
+/// The reason the gateway gave up, as one sentence. Discord closes a connection for good
+/// when the bot token is refused or a requested intent is not enabled; the shard then stops
+/// and does not reconnect, so what to check comes first.
+#[must_use]
+pub(crate) fn closed_for_good(last_trouble: Option<&str>) -> String {
+    let mut text = "the Discord gateway closed the connection for good and will not reconnect; \
+         check that the bot token is valid and that the Message Content intent is enabled \
+         for the bot"
+        .to_owned();
+    if let Some(trouble) = last_trouble {
+        text.push_str(&format!(" (last error before it closed: {trouble})"));
+    }
+    text
+}
+
 /// Connects as the bot with `token` and delivers events to `sink` until the connection
 /// ends for good. The shard reconnects on its own and Twilight's HTTP client honours rate
 /// limits.
@@ -241,11 +256,13 @@ pub async fn run(
         | EventTypeFlags::INTERACTION_CREATE
         | EventTypeFlags::MESSAGE_CREATE
         | EventTypeFlags::GATEWAY_RECONNECT;
+    let mut last_trouble = None;
     while let Some(item) = shard.next_event(wanted).await {
         let event = match item {
             Ok(event) => event,
             Err(err) => {
                 tracing::warn!(%err, "discord connection trouble");
+                last_trouble = Some(err.to_string());
                 continue;
             }
         };
@@ -267,7 +284,21 @@ pub async fn run(
             _ => {}
         }
     }
-    Err(ChatError::Transport(
-        "the discord connection closed".to_owned(),
-    ))
+    Err(ChatError::Transport(closed_for_good(
+        last_trouble.as_deref(),
+    )))
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::closed_for_good;
+
+    #[test]
+    fn a_closed_gateway_says_it_will_not_reconnect_and_what_to_check() {
+        let text = closed_for_good(Some("authentication failed"));
+        assert!(text.contains("will not reconnect"), "{text}");
+        assert!(text.contains("bot token"), "{text}");
+        assert!(text.contains("authentication failed"), "{text}");
+        assert!(!closed_for_good(None).contains("last error"));
+    }
 }

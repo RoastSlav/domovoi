@@ -209,17 +209,14 @@ pub(crate) async fn generate(
                     if let Some(line) = attribution::recorded_action(shared, incident).await {
                         report.record_action(&line);
                     }
+                    let model_verdict = report.verdict;
                     if guard_security_verdict(
                         incident.check(),
                         incident.title(),
                         &mut report,
                         &state.used,
                     ) {
-                        tracing::info!(
-                            incident = %incident.id(),
-                            "a model's security verdict or wording was refused; \
-                             the verdict is now action needed"
-                        );
+                        super::refusal_log::log_refusal(incident.id(), model_verdict, &report);
                     }
                     Ok(GeneratedEnd::Report(report))
                 }

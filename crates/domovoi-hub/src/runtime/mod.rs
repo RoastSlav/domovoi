@@ -491,14 +491,6 @@ impl HubRuntime {
         )
     }
 
-    /// The first-run setup link while no account exists, issued once; `None` afterwards.
-    pub async fn setup_link(&self) -> Result<Option<String>, RuntimeError> {
-        self.auth
-            .open_setup()
-            .await
-            .map_err(|err| RuntimeError::Serve(format!("could not open setup: {err}")))
-    }
-
     /// Serves until `shutdown` is cancelled, then drains and closes within 15 seconds.
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), RuntimeError> {
         serve::run(self, shutdown).await

@@ -347,6 +347,15 @@ impl SettingsService {
             .commit(tx)
             .await
             .map_err(|err| StoreError::Backend(err.to_string()))?;
+        // Names only: the audit row has the values, and a secret's value is never logged.
+        let keys: Vec<&str> = patched.changes.iter().map(Change::path).collect();
+        tracing::info!(
+            revision = revision + 1,
+            actor = %user.username,
+            keys = %keys.join(","),
+            restart = deps.apply.is_some(),
+            "settings saved"
+        );
 
         let Some(apply) = &deps.apply else {
             return Ok(Saved {
@@ -378,6 +387,11 @@ impl SettingsService {
             }
             Err(why) => {
                 let why = redact(&why, &candidate);
+                tracing::warn!(
+                    revision = revision + 1,
+                    %why,
+                    "the new settings could not be applied; the previous settings are restored"
+                );
                 if let Err(err) = restore_previous(&deps.store, &*deps.clock, &why).await {
                     tracing::error!(%err, "could not restore the previous settings");
                 }

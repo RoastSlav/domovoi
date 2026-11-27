@@ -68,6 +68,7 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
             apply: Some(apply_tx.clone()),
             logs: Some(logs.clone()),
         };
+        let mut rolled_back = false;
         let runtime = match HubRuntime::start(sources.clone(), deps()).await {
             Ok(runtime) => runtime,
             Err(err) if restarting => {
@@ -76,19 +77,34 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
                 let data_dir =
                     domovoi_config::bootstrap_data_dir(sources.file.as_deref(), &*sources.env)
                         .map_err(|issues| anyhow::anyhow!("{issues:?}"))?;
+                tracing::error!(
+                    %why,
+                    "the hub did not start with the new settings; rolling back to the previous settings"
+                );
                 domovoi_hub::settings::rollback(&data_dir, &*clock, &why).await?;
+                rolled_back = true;
                 HubRuntime::start(sources.clone(), deps()).await?
             }
             Err(err) => return Err(err.into()),
         };
         runtime.log_banner(env!("DOMOVOI_GIT_COMMIT"));
+        if restarting {
+            if rolled_back {
+                tracing::warn!(
+                    revision = runtime.settings_revision().unwrap_or(0),
+                    "the hub is running the previous settings again; the new settings were not applied"
+                );
+            } else {
+                tracing::info!(
+                    revision = runtime.settings_revision().unwrap_or(0),
+                    "the hub is back with the new settings"
+                );
+            }
+        }
         if let Some(link) = runtime.setup_link().await? {
             // The link is for the person at the terminal. The structured log gets only a
             // short prefix, so the token does not stay in the journal.
-            tracing::info!(
-                token_prefix = %domovoi_hub::runtime::banner::setup_token_prefix(&link),
-                "no account exists yet; the one-time setup link (valid 24 hours) was printed on standard output, not logged"
-            );
+            domovoi_hub::runtime::banner::log_setup_pending(&link);
             println!("No account exists yet. Finish setup in the web UI within 24 hours:");
             println!("  {link}");
             println!("(or run `domovoi hub set-password` while the hub is stopped)");
@@ -108,7 +124,9 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
         }
         match supervise(runtime, &shutdown, &mut apply_rx, &clock, &executor).await {
             Ended::Restart => {
-                tracing::info!("restarting the hub with the new settings");
+                tracing::info!(
+                    "new settings were saved; stopping the hub to start it again with them"
+                );
                 let _ = local_tx.send(None);
                 restarting = true;
             }

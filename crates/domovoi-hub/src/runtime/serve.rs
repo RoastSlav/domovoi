@@ -89,7 +89,11 @@ pub(super) async fn run(
                 () = stop.cancelled() => {}
                 result = gateway.run(sink) => {
                     if let Err(err) = result {
-                        tracing::warn!(%err, gateway = %gateway.platform(), "chat gateway stopped");
+                        tracing::error!(
+                            %err,
+                            gateway = %gateway.platform(),
+                            "chat gateway stopped; chat on this platform is off until the hub is restarted, it does not retry"
+                        );
                     }
                 }
             }

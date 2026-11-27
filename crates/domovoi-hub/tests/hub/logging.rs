@@ -22,7 +22,7 @@ async fn every_response_carries_a_request_id_that_the_log_line_repeats() {
         "status=401",
         "user=-",
         "duration_ms=",
-        "WARN",
+        "INFO",
     ] {
         assert!(lines[0].contains(field), "line lacks {field}: {}", lines[0]);
     }
@@ -156,4 +156,48 @@ async fn an_enrollment_invite_names_who_created_it_and_the_host_id() {
         assert!(line.contains(&field), "lacks {field}: {line}");
     }
     assert!(!logs.text().contains(&token), "the token is never logged");
+}
+
+#[tokio::test]
+async fn a_saved_setting_logs_keys_actor_revision_and_an_audit_pointer_without_values() {
+    use crate::api_harness::PASSWORD;
+    let a = api().await;
+    let login = a.admin().await;
+    let secret = "discord-log-secret-not-for-eyes";
+    let (logs, _guard) = LogCapture::start();
+    let reply = a
+        .send(
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(&login),
+            Some(serde_json::json!({
+                "base_revision": 0,
+                "password": PASSWORD,
+                "changes": { "discord": {
+                    "enabled": false,
+                    "channel_id": 42,
+                    "bot_token": { "set": secret }
+                }, "incidents": { "confirm_runs": 4 } }
+            })),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let saved = logs.lines_with("settings saved").remove(0);
+    for field in [
+        "revision=1",
+        "actor=admin",
+        "incidents.confirm_runs",
+        "discord.bot_token",
+    ] {
+        assert!(saved.contains(field), "lacks {field}: {saved}");
+    }
+    let pointer = logs.lines_with("kind=settings.changed").remove(0);
+    assert!(
+        pointer.contains("audit row recorded") && pointer.contains("seq="),
+        "{pointer}"
+    );
+    assert!(
+        !logs.text().contains(secret),
+        "a secret never reaches the log"
+    );
 }

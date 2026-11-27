@@ -46,7 +46,13 @@ pub(crate) async fn record_backup_result(
     result: Result<std::path::PathBuf, domovoi_store::StoreOpenError>,
 ) {
     match result {
-        Ok(_) => {
+        Ok(path) => {
+            let size = tokio::fs::metadata(&path).await.map(|m| m.len()).ok();
+            tracing::info!(
+                path = %path.display(),
+                size_bytes = size,
+                "nightly backup written"
+            );
             metrics::gauge!("domovoi_backup_last_success_timestamp_seconds")
                 .set(now.as_second() as f64);
             match store.resolve(backup_advisory_id(), now).await {
