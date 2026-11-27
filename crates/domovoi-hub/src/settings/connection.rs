@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use domovoi_config::hub::HubConfig;
 use domovoi_config::load_hub_layered;
 use domovoi_core::HostName;
-use domovoi_core::ports::{ChatGateway, LlmMessage, LlmRequest, Part, Role};
+use domovoi_core::ports::{AdvisoryRepo, ChatGateway, LlmMessage, LlmRequest, Part, Role};
 use secrecy::ExposeSecret;
 use serde_json::{Map, Value};
 
@@ -70,11 +70,25 @@ impl SettingsService {
                 format!("no answer within {} s", TEST_TIMEOUT.as_secs()),
             ),
         };
+        // A model that answers a test is no longer unreachable: the notice goes now, and a
+        // model that is still down brings it back with the next failed run.
+        if ok && target == (Target::Llm { secondary: false }) {
+            self.resolve_model_notice().await;
+        }
         Ok(TestResult {
             ok,
             message: scrub(&message, &config, &secrets),
             latency_ms,
         })
+    }
+
+    /// Resolves the stored "triage is degraded" notice, if one is open.
+    async fn resolve_model_notice(&self) {
+        let deps = self.deps();
+        let id = domovoi_engine::advisories::triage_degraded("", deps.clock.now()).id;
+        if let Err(err) = AdvisoryRepo::resolve(&*deps.store, id, deps.clock.now()).await {
+            tracing::debug!(%err, "no open triage advisory to resolve");
+        }
     }
 
     /// Lists models for the candidate provider; `secondary` picks the fallback slot

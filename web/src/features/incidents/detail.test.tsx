@@ -454,6 +454,36 @@ test("triage_that_failed_shows_the_reason_and_retry", async () => {
   });
   expect(screen.queryByText("Triage finished"), "a failure is not a success toast").toBeNull();
 });
+test("a_failed_banner_is_hidden_while_a_newer_investigation_is_open", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: null,
+    triage: { kind: "failed", reason: "the model is not available" },
+    operations: [
+      {
+        id: "op-new",
+        kind: "investigate",
+        goal: "find out why nginx fails",
+        status: "waiting_user",
+        waiting_for: ["user"],
+        cycle: 0,
+        incidents: ["inc-1"],
+        hosts: [nas.id],
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ],
+  }));
+  open();
+
+  expect((await screen.findAllByText(/Triage is waiting for your answer/)).length).toBeGreaterThan(
+    0,
+  );
+  expect(screen.queryByText("Triage failed")).toBeNull();
+  expect(screen.getByText(/The attempt before failed: The model is not available/)).toBeVisible();
+});
+
 test("triage_that_was_skipped_says_why", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({

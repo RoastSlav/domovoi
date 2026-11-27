@@ -374,24 +374,35 @@ pub(crate) async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
             limits.down_gap = (gap + gap).min(BREAKER_MAX);
             limits.down_cause = shared.deps.redactor.redact(reason);
         }
-        let raise = limits.failures >= DEGRADED_AFTER && !limits.degraded;
-        if raise {
+        let first = limits.failures >= DEGRADED_AFTER && !limits.degraded;
+        if first {
             limits.degraded = true;
         }
-        raise.then_some(limits.failures)
+        (limits.failures >= DEGRADED_AFTER).then_some((limits.failures, first))
     };
-    let Some(failures) = raise else { return };
     let deps = &shared.deps;
+    let Some((failures, first)) = raise else {
+        return;
+    };
     let why = format!("The last {failures} triage runs failed, most recently: {reason}");
-    if let Err(err) = deps
+    // Stored on every failure past the threshold: a test that succeeded in between resolved
+    // the notice, and a model that is still down must bring it back.
+    let advisory = triage_degraded(&why, deps.clock.now());
+    // Only when none is open, so "since" keeps the time the outage began.
+    let open = deps
         .advisories
-        .upsert(&triage_degraded(&why, deps.clock.now()))
+        .list_open()
         .await
+        .is_ok_and(|open| open.iter().any(|a| a.id == advisory.id));
+    if (first || !open)
+        && let Err(err) = deps.advisories.upsert(&advisory).await
     {
         tracing::warn!(%err, "could not store the triage advisory");
     }
-    let event = DomainEvent::new(EventKind::TriageDegraded { reason: why }, incident, true);
-    let _ = deps.bus.send(event);
+    if first {
+        let event = DomainEvent::new(EventKind::TriageDegraded { reason: why }, incident, true);
+        let _ = deps.bus.send(event);
+    }
 }
 
 pub(crate) async fn succeeded(shared: &Shared) {
@@ -405,6 +416,10 @@ pub(crate) async fn succeeded(shared: &Shared) {
         let first = !std::mem::replace(&mut limits.advisory_checked, true);
         (was_degraded, first)
     };
+    // A model that answers after an outage starts the failed investigations again.
+    if clear.0 {
+        shared.recovered.notify_one();
+    }
     // The first success after a start resolves a stored advisory a previous run left open.
     if clear.0 || clear.1 {
         let deps = &shared.deps;

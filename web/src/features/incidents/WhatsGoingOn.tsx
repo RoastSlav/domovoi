@@ -148,7 +148,9 @@ export function WhatsGoingOn({
       </Card>
     );
   }
-  if (!said && (state?.kind === "skipped" || state?.kind === "failed")) {
+  // A failure older than the investigation that is open now is not the news: the open one is.
+  const stale = state?.kind === "failed" && working !== undefined && !retry.isPending;
+  if (!said && !stale && (state?.kind === "skipped" || state?.kind === "failed")) {
     return (
       <Stack gap={2}>
         <InlineMessage
@@ -168,7 +170,12 @@ export function WhatsGoingOn({
         <Cluster justify="between">
           <Text muted>
             {working ? (
-              working
+              <>
+                {working}
+                {stale && state?.reason
+                  ? ` The attempt before failed: ${sentence(state.reason)}`
+                  : ""}
+              </>
             ) : off ? (
               <>
                 Triage has not run, and it cannot: {off.line.replace(/\.$/, "").toLowerCase()}.{" "}

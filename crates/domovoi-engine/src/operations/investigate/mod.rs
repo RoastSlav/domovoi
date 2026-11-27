@@ -17,6 +17,7 @@ mod draft_plan;
 mod draft_summary;
 mod notify;
 mod plumbing;
+mod recover;
 mod resume;
 mod start;
 mod turn_output;
@@ -130,6 +131,7 @@ pub(super) fn register(runner: &mut EffectRunner, shared: &Arc<OpShared>) {
 pub(super) async fn run(handle: OperationHandle) {
     let _ = tokio::join!(
         start::run_investigator(handle.clone()),
+        recover::run_recoverer(handle.clone()),
         close::run_closer(handle),
     );
 }

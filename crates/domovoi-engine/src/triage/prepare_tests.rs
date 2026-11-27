@@ -67,6 +67,7 @@ fn shared_of(deps: TriageDeps, settings: TriageSettings) -> Shared {
         settings,
         limits: std::sync::Mutex::new(Limits::default()),
         questions: tokio::sync::Semaphore::new(1),
+        recovered: tokio::sync::Notify::new(),
     }
 }
 

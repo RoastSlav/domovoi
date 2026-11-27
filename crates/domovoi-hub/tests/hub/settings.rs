@@ -748,3 +748,47 @@ async fn packages_keys_are_not_web_writable() {
     }
     assert_eq!(SettingsRepo::get(&*a.store, "config").await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn a_model_test_that_succeeds_clears_the_unreachable_notice() {
+    use domovoi_core::ports::AdvisoryRepo;
+    let a = api().await;
+    let login = a.admin().await;
+    let now = jiff::Timestamp::now();
+    AdvisoryRepo::upsert(
+        &*a.store,
+        &domovoi_engine::advisories::triage_degraded("The last 3 triage runs failed", now),
+    )
+    .await
+    .unwrap();
+    assert_eq!(AdvisoryRepo::list_open(&*a.store).await.unwrap().len(), 1);
+
+    // A model that does not answer leaves the notice alone.
+    let down = json!({ "changes": { "llm": { "primary": {
+        "kind": "openai_compatible", "base_url": "http://127.0.0.1:9/v1", "model": "m"
+    }}}});
+    let reply = a.post("/api/v1/settings/test/llm", &login, down).await;
+    assert_eq!(reply.body["ok"], false, "{}", reply.text);
+    assert_eq!(AdvisoryRepo::list_open(&*a.store).await.unwrap().len(), 1);
+
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/v1/chat/completions"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "id": "c", "object": "chat.completion", "created": 0, "model": "m",
+            "choices": [{ "index": 0, "finish_reason": "stop",
+                "message": { "role": "assistant", "content": "OK" } }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        })))
+        .mount(&server)
+        .await;
+    let up = json!({ "changes": { "llm": { "primary": {
+        "kind": "openai_compatible", "base_url": format!("{}/v1", server.uri()), "model": "m"
+    }}}});
+    let reply = a.post("/api/v1/settings/test/llm", &login, up).await;
+    assert_eq!(reply.body["ok"], true, "{}", reply.text);
+    assert!(
+        AdvisoryRepo::list_open(&*a.store).await.unwrap().is_empty(),
+        "the notice is gone after a model answered"
+    );
+}

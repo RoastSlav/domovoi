@@ -461,3 +461,93 @@ fn output_text(snapshot: &domovoi_core::OperationSnapshot) -> String {
         .and_then(|t| t.progress.reason.clone())
         .unwrap_or_default()
 }
+
+/// A run a person asked for on a new incident, with the model's next answer queued by the
+/// caller. Returns the incident and its operation once the run is over.
+async fn manual_run(w: &Inv, target: &str, value: f64) -> (Incident, OperationId) {
+    let incident = w.add_incident(target, disk(value)).await;
+    let (ops, asked) = (w.ops.clone(), incident.clone());
+    let waiting =
+        tokio::spawn(async move { ops.investigate_on_request_and_wait(&asked, false).await });
+    w.settle().await;
+    let _ = waiting.await;
+    let op = w.operations_of(&incident).await[0].id;
+    w.until_closed(op).await;
+    (incident, op)
+}
+
+#[tokio::test]
+async fn failed_investigations_start_again_one_by_one_when_the_model_answers() {
+    let w = inv(hourly(20)).await;
+
+    // Three runs a person asked for end failed while the model is down: the breaker opens.
+    let mut failed = Vec::new();
+    for (target, value) in [("redis", 50.0), ("mongo", 60.0), ("kafka", 70.0)] {
+        w.llm
+            .push_err(LlmError::Transport("connection refused".to_owned()));
+        let (incident, op) = manual_run(&w, target, value).await;
+        assert_eq!(w.load(op).await.operation.status, OperationStatus::Failed);
+        failed.push(incident);
+    }
+    assert_eq!(
+        w.advisories().await.len(),
+        1,
+        "the model is noticed as down"
+    );
+
+    // The model answers a run for another incident: that is the recovery.
+    w.llm.push_text(report());
+    manual_run(&w, "mysql", 80.0).await;
+    for _ in 0..3 {
+        w.llm.push_text(report());
+    }
+    for incident in &failed {
+        for _ in 0..400 {
+            if w.operations_of(incident).await.len() >= 2 {
+                break;
+            }
+            w.jump(5).await;
+        }
+        let operations = w.operations_of(incident).await;
+        assert_eq!(operations.len(), 2, "one new investigation: {operations:?}");
+        let newest = operations
+            .iter()
+            .max_by_key(|op| (op.created_at, op.id))
+            .unwrap();
+        let done = w.until_closed(newest.id).await;
+        assert_eq!(done.operation.status, OperationStatus::Succeeded);
+    }
+    assert!(w.advisories().await.is_empty(), "the notice is gone");
+}
+
+#[tokio::test]
+async fn a_restart_with_the_notice_open_asks_the_model_and_clears_it_when_it_answers() {
+    let mut w = inv(hourly(20)).await;
+    model_down(&w).await;
+    assert_eq!(w.advisories().await.len(), 1);
+
+    // The hub restarts; the model is back.
+    w.llm.push_text("OK");
+    w.restart().await;
+    for _ in 0..50 {
+        if w.advisories().await.is_empty() {
+            break;
+        }
+        w.jump(5).await;
+    }
+    assert!(
+        w.advisories().await.is_empty(),
+        "an answering model clears the notice after a restart"
+    );
+}
+
+#[tokio::test]
+async fn a_restart_with_the_model_still_down_keeps_the_notice_and_asks_again_later() {
+    let mut w = inv(hourly(20)).await;
+    model_down(&w).await;
+    w.llm
+        .push_err(LlmError::Transport("connection refused".to_owned()));
+    w.restart().await;
+    w.jump(1).await;
+    assert_eq!(w.advisories().await.len(), 1, "still down, still noticed");
+}
