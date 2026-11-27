@@ -82,4 +82,10 @@ describe("buildValue", () => {
     expect(buildValue(draft({ ...window, startsAt: "" })).ok).toBe(false);
     expect(buildValue(draft({ ...window, note: "x".repeat(201) })).ok).toBe(false);
   });
+
+  it("refuses_a_network_that_is_every_address", () => {
+    for (const cidr of ["0.0.0.0/0", "::/0"]) {
+      expect(buildValue(draft({ predicate: "management_path", cidr })).ok).toBe(false);
+    }
+  });
 });

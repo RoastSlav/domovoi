@@ -78,9 +78,15 @@ export function buildValue(draft: ValueDraft): BuiltValue {
     case "management_path":
     case "trusted_cidr": {
       const cidr = draft.cidr.trim();
-      return cidr === ""
-        ? bad("Enter a network, for example 192.168.1.0/24.")
-        : { ok: true, value: { cidr } };
+      if (cidr === "") {
+        return bad("Enter a network, for example 192.168.1.0/24.");
+      }
+      if (/^[^/]+\/0$/.test(cidr)) {
+        return bad(
+          "That network is every address (/0). Name the network you really manage, for example 192.168.1.0/24.",
+        );
+      }
+      return { ok: true, value: { cidr } };
     }
     case "maintenance_window":
       return window(draft);
