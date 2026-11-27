@@ -389,14 +389,7 @@ async fn attempt(shared: &OpShared, change: &Change) -> Result<Applied, Operatio
         became_terminal: false,
         left_approval,
         incident: loaded.incidents.first().copied(),
-        questions: decision
-            .steps
-            .iter()
-            .filter_map(|step| match &step.step.intent {
-                domovoi_core::StepIntent::Question { text, .. } => Some(text.clone()),
-                _ => None,
-            })
-            .collect(),
+        questions: super::announce::questions(&decision),
     };
     if !(decision.is_noop(&state) && updated.is_empty()) {
         tx = tx.write(StateWrite::Operation(OperationWrite::Operation {

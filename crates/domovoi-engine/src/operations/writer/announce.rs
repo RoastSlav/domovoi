@@ -50,3 +50,15 @@ pub(super) async fn left_approval(shared: &OpShared, applied: &Applied) {
         }
     }
 }
+
+/// The text of each question step a decision adds.
+pub(super) fn questions(decision: &crate::operations::decide::Decision) -> Vec<String> {
+    decision
+        .steps
+        .iter()
+        .filter_map(|step| match &step.step.intent {
+            domovoi_core::StepIntent::Question { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}

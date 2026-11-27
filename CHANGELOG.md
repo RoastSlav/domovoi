@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - *(agent)* a container agent reports that it runs in a container; the hub labels it `container_agent` and refuses helper and skill-runner capabilities with `agent_in_container`
 
+### Changed
+
+- *(checks)* `disk.free` and the host overview report each filesystem once. Targets that were named after a bind mount (`/etc`, `/usr`, `/var/tmp`) are renamed to the shallowest mount of the same device, and incidents on the old names resolve on the next run
+
 ## [0.0.10](https://github.com/RoastSlav/domovoi/compare/v0.0.9...v0.0.10) - 2026-11-12
 
 ### Added
