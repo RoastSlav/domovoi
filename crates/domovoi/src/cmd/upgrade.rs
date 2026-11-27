@@ -113,19 +113,39 @@ fn is_release_tag(tag: &str) -> bool {
 }
 
 fn print_restart_hint(unit_dir: &Path) {
+    for line in restart_hint_lines(unit_dir) {
+        println!("{line}");
+    }
+}
+
+/// What `domovoi upgrade` tells the operator after the swap: what to restart, and that unit
+/// files were not touched (a release may change them; only the installer replaces them).
+fn restart_hint_lines(unit_dir: &Path) -> Vec<String> {
     let units = install::installed_units(unit_dir);
+    let mut lines = Vec::new();
     if units.is_empty() {
-        println!(
+        lines.push(format!(
             "No Domovoi service unit was found in {}.",
             unit_dir.display()
-        );
-        println!("Restart domovoi yourself if it is running.");
-        return;
+        ));
+        lines.push("Restart domovoi yourself if it is running.".to_owned());
+        return lines;
     }
-    println!("Restart what runs on this machine, the hub before any agent:");
+    lines.push("Restart what runs on this machine, the hub before any agent:".to_owned());
     for unit in units {
-        println!("  sudo systemctl restart {unit}");
+        lines.push(format!("  sudo systemctl restart {unit}"));
     }
+    let all = install::all_unit_files(unit_dir);
+    lines.push(String::new());
+    lines.push(format!(
+        "Unit files were not changed (found: {}).",
+        all.join(", ")
+    ));
+    lines.push(
+        "If this release changes them, run the installer again (sudo sh install.sh --role <role>); it replaces a differing unit, saves the old text and prints what changed. Until then `domovoi agent selftest` reports `unit_modified` when a unit is out of date."
+            .to_owned(),
+    );
+    lines
 }
 
 #[cfg(test)]
@@ -143,5 +163,25 @@ mod tests {
         for bad in ["v0.9.9/../x", "v0.9.9?x=1", "latest", "v0.9.9;id", ""] {
             assert!(normalize_tag(bad).is_err(), "{bad:?} must be refused");
         }
+    }
+
+    #[test]
+    fn the_hint_says_unit_files_were_not_changed_and_lists_all_units() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [
+            "domovoi-agent.service",
+            "domovoi-helper@.service",
+            "domovoi-skill-runner@.service",
+            "other.service",
+        ] {
+            std::fs::write(dir.path().join(name), "x").unwrap();
+        }
+        let text = super::restart_hint_lines(dir.path()).join("\n");
+        assert!(text.contains("sudo systemctl restart domovoi-agent"), "{text}");
+        assert!(text.contains("Unit files were not changed"), "{text}");
+        assert!(text.contains("domovoi-helper@.service"), "{text}");
+        assert!(text.contains("domovoi-skill-runner@.service"), "{text}");
+        assert!(!text.contains("other.service"), "{text}");
+        assert!(text.contains("install.sh --role"), "{text}");
     }
 }

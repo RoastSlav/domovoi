@@ -130,6 +130,12 @@ fn specs(dirs: &HostDirs) -> Vec<UnitSpec> {
                     Expect::Span(SystemdDuration::from_secs(3720)),
                 ),
                 ("ExecStart", Expect::Argv(runner_argv(dirs))),
+                // The directives that carry the sandbox boundary. A unit from an older release
+                // (ProcSubset=pid hides /proc) must show as modified, not pass.
+                ("ProcSubset", text("all")),
+                ("ProtectProc", text("invisible")),
+                ("NoNewPrivileges", text("yes")),
+                ("CapabilityBoundingSet", text("")),
                 (
                     "BindReadOnlyPaths",
                     Expect::Binds(vec![

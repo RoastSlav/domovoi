@@ -135,6 +135,9 @@ Options:
                        debugging. Without it, a fresh install that fails before the first
                        service is started removes everything that run created (accounts,
                        directories, files, units, the binary) and prints "Rolled back"
+  --keep-units         keep an installed unit file that differs from this release. Without
+                       it the installer replaces the unit, saves the old text under
+                       DIR/share/domovoi/unit-backups and prints what changed
   --uninstall          remove what the installer put in place (--role is not used): stop and
                        disable the hub, agent, helper and skill runner units, delete the unit
                        files, DIR/bin/domovoi and DIR/share/domovoi. The configuration
@@ -251,6 +254,8 @@ layout=""
 uninstall=0
 purge=0
 keep_on_failure=0
+keep_units=0
+units_replaced=0
 rollback_armed=0
 rolled_back=0
 un_errors=0
@@ -1069,9 +1074,11 @@ write_helper_toml() {
     fi
 }
 
-# Installs one unit: NAME, the function that prints it, and FORCE (1 replaces a different
-# unit that is already there; 0 keeps it and saves the new text beside the examples).
-# ExecStart points at this --prefix.
+# Installs one unit: NAME and the function that prints it. ExecStart points at this --prefix.
+# Units are owned by the product: a unit that differs from this release is replaced, the old
+# text is saved under $prefix/share/domovoi/unit-backups, and the change is always printed
+# (the directive lines that differ). --keep-units keeps the installed file instead, says so
+# and saves the new text beside the examples; the agent self-test then keeps reporting the drift.
 place_unit() {
     pu_name="$1"
     pu_func="$2"
@@ -1084,16 +1091,24 @@ place_unit() {
         say "Installed $pu_path"
     elif cmp -s "$tmp/$pu_name" "$pu_path"; then
         say "$pu_path is up to date."
-    else
-        say "Kept $pu_path: it differs from this release's unit. The new one is"
-        say "  $prefix/share/domovoi/$pu_name"
+    elif [ "${keep_units:-0}" -eq 1 ]; then
         mkdir -p "$prefix/share/domovoi"
         install -m 0644 "$tmp/$pu_name" "$prefix/share/domovoi/$pu_name"
-        if [ "$pu_name" = "domovoi-helper@.service" ]; then
-            say "  Replace the helper unit with it, then run systemctl daemon-reload: SMART, kernel-log"
-            say "  and listening-port reads need its wider device and capability settings. Docker reads"
-            say "  work without the change."
-        fi
+        say_always "Kept $pu_path (--keep-units): it differs from this release's unit."
+        say_always "  The new text is $prefix/share/domovoi/$pu_name. Until you use it, a sandbox fix in this"
+        say_always "  release does not reach this host, and the agent self-test reports the unit as modified."
+    else
+        pu_dir="$prefix/share/domovoi/unit-backups"
+        pu_backup="$pu_dir/$pu_name.$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$pu_dir"
+        cp -p "$pu_path" "$pu_backup"
+        install -m 0644 "$tmp/$pu_name" "$pu_path"
+        say_always "Replaced $pu_path: it differed from this release's unit. The old text is saved as"
+        say_always "  $pu_backup"
+        diff "$pu_backup" "$tmp/$pu_name" 2>/dev/null | sed -n 's/^[<>] /    &/p' | head -n 20 |
+            while IFS= read -r pu_line; do say_always "$pu_line"; done
+        say_always "  Re-apply any change of yours as a systemd drop-in, or pass --keep-units to keep the file."
+        units_replaced=1
     fi
 }
 
@@ -1167,6 +1182,12 @@ install_identities() {
     place_unit domovoi-skill-runner@.service render_runner_service
     place_unit domovoi-agent.service agent_unit
     systemctl daemon-reload
+    if [ "$units_replaced" -eq 1 ]; then
+        say_always "Unit files were replaced and systemd was reloaded. Nothing was restarted: restart the agent"
+        say_always "  (sudo systemctl restart domovoi-agent) to use its new unit. The helper and the skill runner start"
+        say_always "  per connection, so new connections already use the new text; running ones end within their"
+        say_always "  time limit."
+    fi
     start_sockets
 }
 
@@ -2138,7 +2159,11 @@ plan_unit() { # NAME FUNCTION
         if cmp -s "$tmp/plan-unit" "$pn_path"; then
             plan_add keep "$pn_path (up to date)"
         else
-            plan_add keep "$pn_path (differs from this release; the new text goes to $prefix/share/domovoi/$1)"
+            if [ "${keep_units:-0}" -eq 1 ]; then
+                plan_add keep "$pn_path (differs from this release; kept because of --keep-units, the new text goes to $prefix/share/domovoi/$1)"
+            else
+                plan_add change "$pn_path (differs from this release; will be replaced, the old text saved under $prefix/share/domovoi/unit-backups)"
+            fi
         fi
     fi
 }
@@ -3135,6 +3160,10 @@ while [ $# -gt 0 ]; do
         keep_on_failure=1
         shift
         ;;
+    --keep-units)
+        keep_units=1
+        shift
+        ;;
     --uninstall)
         uninstall=1
         shift
@@ -3180,6 +3209,7 @@ if [ "$uninstall" -eq 1 ]; then
     if [ "$service" -eq 0 ]; then uc_bad="$uc_bad --no-service"; fi
     if [ "$start" -eq 0 ]; then uc_bad="$uc_bad --no-start"; fi
     if [ "$keep_on_failure" -eq 1 ]; then uc_bad="$uc_bad --keep-on-failure"; fi
+    if [ "$keep_units" -eq 1 ]; then uc_bad="$uc_bad --keep-units"; fi
     if [ "$accept_reset" -eq 1 ]; then uc_bad="$uc_bad --accept-data-reset"; fi
     if [ "$force_downgrade" -eq 1 ]; then uc_bad="$uc_bad --force-downgrade"; fi
     if [ -n "$public_url$bind_opt$agent_url$admin_pw_file" ] || [ "$admin_pw_stdin" -eq 1 ]; then

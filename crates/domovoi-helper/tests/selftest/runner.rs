@@ -17,7 +17,7 @@ use super::support::*;
 const RUNNER_SOCKET: &str = "domovoi-skill-runner.socket";
 const RUNNER_SERVICE: &str = "domovoi-skill-runner@selftest.service";
 const RUNNER_SOCKET_PROPS: &str = "Accept,SocketMode,SocketUser,SocketGroup";
-const RUNNER_SERVICE_PROPS: &str = "Type,User,RuntimeMaxUSec,ExecStart,BindReadOnlyPaths";
+const RUNNER_SERVICE_PROPS: &str = "Type,User,RuntimeMaxUSec,ExecStart,ProcSubset,ProtectProc,NoNewPrivileges,CapabilityBoundingSet,BindReadOnlyPaths";
 
 fn runner_socket_show() -> String {
     "LoadState=loaded\nFragmentPath=/etc/systemd/system/domovoi-skill-runner.socket\nDropInPaths=\nNeedDaemonReload=no\nAccept=yes\nSocketMode=0660\nSocketUser=root\nSocketGroup=domovoi-agent\n".to_owned()
@@ -25,7 +25,7 @@ fn runner_socket_show() -> String {
 
 fn runner_service_show(skills: &str, packages: &str) -> String {
     format!(
-        "LoadState=loaded\nFragmentPath=/etc/systemd/system/domovoi-skill-runner@.service\nDropInPaths=\nNeedDaemonReload=no\nType=simple\nUser={SKILL_ACCOUNT}\nRuntimeMaxUSec=1h 2min\nExecStart={{ path=/usr/local/bin/domovoi ; argv[]=/usr/local/bin/domovoi skill-runner serve --skills-dir {skills} --packages-dir {packages} ; ignore_errors=no ; status=0/0 }}\nBindReadOnlyPaths={skills}:{skills}:rbind {packages}:{packages}:rbind\n"
+        "LoadState=loaded\nFragmentPath=/etc/systemd/system/domovoi-skill-runner@.service\nDropInPaths=\nNeedDaemonReload=no\nType=simple\nUser={SKILL_ACCOUNT}\nRuntimeMaxUSec=1h 2min\nExecStart={{ path=/usr/local/bin/domovoi ; argv[]=/usr/local/bin/domovoi skill-runner serve --skills-dir {skills} --packages-dir {packages} ; ignore_errors=no ; status=0/0 }}\nProcSubset=all\nProtectProc=invisible\nNoNewPrivileges=yes\nCapabilityBoundingSet=\nBindReadOnlyPaths={skills}:{skills}:rbind {packages}:{packages}:rbind\n"
     )
 }
 
@@ -122,6 +122,24 @@ async fn selftest_st07_flags_runner_bind_paths_that_differ_from_agent_toml() {
     };
     assert_eq!(token, CheckToken::UnitModified);
     assert!(detail.contains("bind_paths"), "{detail}");
+}
+
+// covers: unit_modified
+#[tokio::test]
+async fn selftest_st07_flags_a_runner_unit_from_before_the_proc_fix() {
+    let d = dirs();
+    let skills = d.skills_dir.to_string_lossy().into_owned();
+    let packages = d.packages_dir.to_string_lossy().into_owned();
+    let exec = healthy_executor();
+    expect_show(&exec, RUNNER_SOCKET, RUNNER_SOCKET_PROPS, &runner_socket_show());
+    let stale = runner_service_show(&skills, &packages).replace("ProcSubset=all", "ProcSubset=pid");
+    expect_show(&exec, RUNNER_SERVICE, RUNNER_SERVICE_PROPS, &stale);
+    let found = inspect_units(&exec, SYSTEMCTL, &d).await;
+    let Outcome::Fail { token, detail } = st07(&found).outcome else {
+        panic!("a runner unit with ProcSubset=pid must fail ST-07");
+    };
+    assert_eq!(token, CheckToken::UnitModified);
+    assert!(detail.contains("ProcSubset=\"pid\""), "{detail}");
 }
 
 #[tokio::test]

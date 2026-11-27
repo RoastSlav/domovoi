@@ -12,6 +12,22 @@ pub fn installed_units(unit_dir: &Path) -> Vec<&'static str> {
         .collect()
 }
 
+/// Every Domovoi unit file present in `unit_dir`, by file name.
+pub fn all_unit_files(unit_dir: &Path) -> Vec<&'static str> {
+    [
+        "domovoi-hub.service",
+        "domovoi-agent.service",
+        "domovoi-helper.socket",
+        "domovoi-helper@.service",
+        "domovoi-helper-selftest.service",
+        "domovoi-skill-runner.socket",
+        "domovoi-skill-runner@.service",
+    ]
+    .into_iter()
+    .filter(|unit| unit_dir.join(unit).exists())
+    .collect()
+}
+
 /// Writes `binary` next to `exe` as `domovoi.new` with mode 755, then renames it over
 /// `exe`. The rename is atomic, so `exe` is either the old file or the new one, and a
 /// process already running the old one is not disturbed. On any failure the old

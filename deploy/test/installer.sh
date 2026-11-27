@@ -169,14 +169,23 @@ check "that failure names the check" grep -q "ST-13" "$work/sockets.out"
 check "that failure says the agent was not enrolled and what to run" \
     grep -q "The agent was not enrolled or started" "$work/sockets.out"
 
-# An edited runner unit is kept; the new text is written beside it.
+# A runner unit that differs from the release is replaced; the old text is saved and the change is printed.
 mkdir -p /etc/systemd/system
-echo "# edited" >/etc/systemd/system/domovoi-skill-runner@.service
-sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; place_unit domovoi-skill-runner@.service render_runner_service" \
+printf '[Service]\nProcSubset=pid\n' >/etc/systemd/system/domovoi-skill-runner@.service
+sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; keep_units=0; place_unit domovoi-skill-runner@.service render_runner_service" \
     >"$work/place.out" 2>&1 || true
-check "an edited runner unit is kept" test "$(cat /etc/systemd/system/domovoi-skill-runner@.service)" = "# edited"
-check "the kept runner unit is reported" grep -q "Kept /etc/systemd/system/domovoi-skill-runner@.service" "$work/place.out"
-check "the new runner unit is saved beside it" \
+check "a stale runner unit is replaced" \
+    cmp -s /etc/systemd/system/domovoi-skill-runner@.service "$root/deploy/systemd/domovoi-skill-runner@.service"
+check "the replacement is reported" grep -q "Replaced /etc/systemd/system/domovoi-skill-runner@.service" "$work/place.out"
+check "the report names the changed directive" grep -q "ProcSubset=pid" "$work/place.out"
+check "the old text is saved" sh -c "grep -l 'ProcSubset=pid' '$work'/prefix/share/domovoi/unit-backups/domovoi-skill-runner@.service.* >/dev/null"
+# --keep-units keeps it and says so.
+printf '[Service]\nProcSubset=pid\n' >/etc/systemd/system/domovoi-skill-runner@.service
+sh -c ". '$fns'; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; keep_units=1; place_unit domovoi-skill-runner@.service render_runner_service" \
+    >"$work/place.out" 2>&1 || true
+check "--keep-units keeps the unit" grep -q "ProcSubset=pid" /etc/systemd/system/domovoi-skill-runner@.service
+check "--keep-units says so" grep -q "Kept /etc/systemd/system/domovoi-skill-runner@.service (--keep-units)" "$work/place.out"
+check "--keep-units saves the new text beside" \
     cmp -s "$work/prefix/share/domovoi/domovoi-skill-runner@.service" "$root/deploy/systemd/domovoi-skill-runner@.service"
 rm -f /etc/systemd/system/domovoi-skill-runner@.service
 
@@ -336,15 +345,15 @@ check "agent upgrade still creates no accounts" sh -c "! id domovoi-agent >/dev/
 check "agent upgrade prints the notice again" grep -q "privilege boundary not in effect" "$work/out"
 check "missing starter skill copied again on upgrade" test -f /etc/domovoi/skills/gamma/skill.toml
 
-# Running again changes nothing but the binary; edits are kept.
+# Running again changes the binary; a unit that differs is replaced and the old one is saved.
 echo "# edited" >>/etc/systemd/system/domovoi-hub.service
 echo '[hub]' >/etc/domovoi/hub.toml
 chmod 0700 /var/lib/domovoi
 edited="$(cat /etc/systemd/system/domovoi-hub.service)"
 check "second hub install succeeds" run_install --role hub
-check "edited unit kept" test "$(cat /etc/systemd/system/domovoi-hub.service)" = "$edited"
-check "kept unit reported" grep -q "Kept /etc/systemd/system/domovoi-hub.service" "$work/out"
-check "new unit saved beside it" test -f /usr/local/share/domovoi/domovoi-hub.service
+check "edited unit replaced" test "$(cat /etc/systemd/system/domovoi-hub.service)" != "$edited"
+check "replaced unit reported" grep -q "Replaced /etc/systemd/system/domovoi-hub.service" "$work/out"
+check "old unit saved" sh -c "ls /usr/local/share/domovoi/unit-backups/domovoi-hub.service.* >/dev/null"
 check "hub.toml kept" test "$(cat /etc/domovoi/hub.toml)" = "[hub]"
 check "upgrade suggests restart" grep -q "systemctl restart domovoi-hub" "$work/out"
 check "upgrade does not suggest enable --now" test -z "$(grep "enable --now" "$work/out")"

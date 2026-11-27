@@ -127,6 +127,7 @@ A host in this state gets no unattended execution.
 | `--json`, `--quiet`, `--verbose` | Machine-readable, minimal or detailed output. |
 | `--force-downgrade` | Allow installing an older version than the one found. |
 | `--keep-on-failure` | Do not undo a failed fresh install. |
+| `--keep-units` | Keep an installed unit file that differs from this release. By default it is replaced and the old text saved under `<prefix>/share/domovoi/unit-backups`. |
 | `--uninstall`, `--purge` | Remove the installation. See [Upgrading and uninstalling](upgrading.md#uninstalling). |
 | `--print-unit hub` | Print the systemd unit and exit. The other values are `agent`, `helper-socket`, `helper-service`, `runner-socket`, `runner-service` and `agent-root` (the root agent unit used where the boundary cannot be set up). |
 
