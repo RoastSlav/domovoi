@@ -41,6 +41,7 @@
 - [Control room, attention and search](guide/control-room.md)
 - [Retention](guide/retention.md)
 - [Audit log](guide/audit.md)
+- [Reading the hub and agent log](guide/reading-the-log.md)
 - [Detail level](guide/display.md)
 - [Packages](guide/packages.md)
 - [Helper key and attestation](guide/helper.md)
