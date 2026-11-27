@@ -137,6 +137,20 @@ pub enum EnrollError {
     /// The fingerprint the hub reported differs from the certificate it presented.
     #[error("the hub reported a certificate fingerprint other than the one it presented")]
     FingerprintMismatch,
+    /// The state directory cannot be written, found before the hub was contacted.
+    #[error(
+        "cannot save the agent identity: {0}. Nothing was sent to the hub, so the enrollment \
+         token is still valid. Run this command as the account that owns the state directory \
+         (for example with sudo), or fix its permissions, and run it again"
+    )]
+    StateNotWritable(StateError),
+    /// The hub enrolled this agent but the identity could not be saved afterwards.
+    #[error(
+        "the hub enrolled this agent but the identity could not be saved: {0}. The enrollment \
+         token is now used: fix the problem, create a new invite with `domovoi hub token \
+         create` and enroll again"
+    )]
+    IdentityNotSaved(StateError),
     /// The identity could not be saved.
     #[error(transparent)]
     State(#[from] StateError),

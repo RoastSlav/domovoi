@@ -5,6 +5,23 @@ use std::path::Path;
 
 use crate::error::StateError;
 
+/// Proves that a file can be created in `dir` (which is created when missing) by making and
+/// removing a small probe file there. Enrollment calls it before the token leaves the host, so
+/// a read-only or unowned directory never costs a one-time token.
+pub fn check_dir_writable(dir: &Path) -> Result<(), StateError> {
+    std::fs::create_dir_all(dir).map_err(|e| StateError::new(dir, e))?;
+    let probe = dir.join(format!(".write-check-{}.tmp", std::process::id()));
+    let mut file = open_new(&probe, 0o600).map_err(|e| StateError::new(dir, e))?;
+    let written = file
+        .write_all(b"ok")
+        .and_then(|()| file.sync_all())
+        .map_err(|e| StateError::new(dir, e));
+    drop(file);
+    // A probe that cannot be removed is harmless; the write itself is what was checked.
+    let _ = std::fs::remove_file(&probe);
+    written
+}
+
 /// Writes `bytes` to `path` through a temporary file in the same directory, then renames it
 /// over `path`, so readers see the old or the new content and never a mix.
 ///

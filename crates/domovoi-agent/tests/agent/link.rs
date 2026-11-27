@@ -672,3 +672,36 @@ async fn new_session_sends_its_own_initial_status() {
     );
     link.shutdown.cancel();
 }
+
+#[tokio::test]
+async fn enrollment_checks_the_state_directory_before_it_contacts_the_hub() {
+    let hub = TestHub::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let config = config(&dir, &hub);
+    // A regular file where the state directory should be: it can never be created, whoever runs
+    // the command.
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, b"x").unwrap();
+    let state = blocker.join("state");
+    let clock = clock();
+    let fs = empty_fs(&dir);
+    let result = enroll(
+        &hub.url,
+        EnrollToken::new("one-time-token"),
+        None,
+        &config,
+        &state,
+        EnrollEnv {
+            clock: &*clock,
+            fs: &*fs,
+        },
+    )
+    .await;
+    let Err(err @ EnrollError::StateNotWritable(_)) = &result else {
+        panic!("expected a state directory error, got {result:?}");
+    };
+    let text = err.to_string();
+    assert!(text.contains("token is still valid"), "{text}");
+    assert!(text.contains("Nothing was sent to the hub"), "{text}");
+    assert_eq!(hub.accepted(), 0, "the token must not reach the hub");
+}

@@ -159,6 +159,20 @@ pub fn complete(
     Ok(Completed { text: out, added })
 }
 
+/// Proves that `path` can be replaced (its directory takes a new file and the file itself
+/// opens for writing), without changing it. `agent enroll` calls it before contacting the hub
+/// when the enrollment will edit the file, so a read-only file cannot cost the token.
+pub fn check_writable(path: &Path) -> Result<(), StateError> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        crate::fs_atomic::check_dir_writable(dir)?;
+    }
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map(drop)
+        .map_err(|e| StateError::new(path, e))
+}
+
 /// Replaces the file at `path` with `text`, as [`complete`] made it.
 pub fn save(path: &Path, text: &str) -> Result<(), StateError> {
     write_atomic(path, text.as_bytes(), 0o644)
@@ -213,7 +227,29 @@ mod tests {
     use domovoi_config::{AgentConfig, MapEnv};
     use url::Url;
 
-    use super::{complete, set_hub_url, write_if_absent};
+    use super::{check_writable, complete, set_hub_url, write_if_absent};
+
+    #[test]
+    fn a_file_that_cannot_be_edited_is_found_before_enrolling_and_left_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.toml");
+        std::fs::write(
+            &path, "# mine
+",
+        )
+        .unwrap();
+        check_writable(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "# mine
+"
+        );
+        // A regular file where the directory should be: unwritable for any account.
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"x").unwrap();
+        let err = check_writable(&blocker.join("agent.toml")).unwrap_err();
+        assert!(err.to_string().contains("blocker"), "{err}");
+    }
 
     #[test]
     fn enroll_writes_agent_toml_when_absent_and_never_overwrites() {

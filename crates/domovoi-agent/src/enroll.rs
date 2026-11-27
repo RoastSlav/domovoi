@@ -46,6 +46,9 @@ pub async fn enroll(
     state_dir: &Path,
     env: EnrollEnv<'_>,
 ) -> Result<Identity, EnrollError> {
+    // The token is spent the moment the hub answers, so prove first that the answer can be
+    // kept: a directory this account cannot write must fail before the hub is contacted.
+    crate::fs_atomic::check_dir_writable(state_dir).map_err(EnrollError::StateNotWritable)?;
     let verifier = Arc::new(RecordingVerifier::new(expected_fingerprint));
     let mut connected = dial(hub_url, verifier.clone(), env.clock).await?;
     let seen = verifier
@@ -70,7 +73,9 @@ pub async fn enroll(
                 return Err(EnrollError::FingerprintMismatch);
             }
             let identity = Identity::new(enrolled.agent_id, enrolled.host_id, key, seen);
-            identity.save(state_dir)?;
+            identity
+                .save(state_dir)
+                .map_err(EnrollError::IdentityNotSaved)?;
             tracing::info!(agent_id = %identity.agent_id, fingerprint = %hex::encode(seen), "enrolled");
             Ok(identity)
         }

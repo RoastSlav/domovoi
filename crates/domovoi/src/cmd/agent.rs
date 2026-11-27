@@ -203,6 +203,18 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             })?;
             let fingerprint = production::parse_fingerprint(&args.fingerprint)
                 .map_err(|err| anyhow::anyhow!("--fingerprint: {err}"))?;
+            // The token is spent when the hub answers. Everything this command writes afterwards
+            // is checked now, so a read-only file or directory fails with the token intact.
+            if !completed.added.is_empty() || config.agent.hub_url != args.hub {
+                domovoi_agent::config_file::check_writable(path).map_err(|err| {
+                    anyhow::anyhow!(
+                        "cannot update {}: {err}. Nothing was sent to the hub, so the enrollment \
+                         token is still valid. Run this command as the account that owns the \
+                         file (for example with sudo), or fix its permissions, and run it again",
+                        path.display()
+                    )
+                })?;
+            }
             let clock = SystemClock;
             let fs = production::host_fs(&config);
             let identity = enroll(
@@ -217,30 +229,19 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
                 },
             )
             .await?;
-            // Only a successful enrollment changes an existing file: a failed attempt (wrong
-            // port, wrong token) leaves `agent.toml` as it was.
-            if !completed.added.is_empty() {
-                domovoi_agent::config_file::save(path, &completed.text)?;
-                println!(
-                    "Added {} to {}.",
-                    completed.added.join(" and "),
-                    path.display()
-                );
-            }
-            if config.agent.hub_url != args.hub
-                && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
-            {
-                println!(
-                    "Changed the hub address in {} to {}.",
-                    path.display(),
-                    args.hub
-                );
-            }
-            hand_over_state(&config.agent.state_dir)?;
-            if let Some(epoch) = ensure_journal(&config).await? {
-                hand_over_state(&config.agent.state_dir)?;
-                println!("Created the action journal (epoch {epoch}).");
-            }
+            // The hub has spent the token. A failure from here on says so, and what to do.
+            finish_enrollment(path, &args, &config, &completed)
+                .await
+                .map_err(|err| {
+                    anyhow::anyhow!(
+                        "the hub enrolled this agent (host {}, agent {}) and the identity is \
+                         saved, but a later step failed: {err}. The enrollment token is now \
+                         used; fix this, then run `domovoi agent run`, or create a new invite \
+                         and enroll again",
+                        identity.host_id,
+                        identity.agent_id
+                    )
+                })?;
             println!(
                 "Enrolled as host {} (agent {}). Start it with `domovoi agent run`.",
                 identity.host_id, identity.agent_id
@@ -248,6 +249,40 @@ pub async fn run(command: AgentCommand, logs: Arc<LogRing>) -> anyhow::Result<Ex
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// What `agent enroll` does once the hub has answered: edits `agent.toml` and hands the state
+/// over to the agent account.
+async fn finish_enrollment(
+    path: &std::path::Path,
+    args: &EnrollArgs,
+    config: &domovoi_config::AgentConfig,
+    completed: &domovoi_agent::config_file::Completed,
+) -> anyhow::Result<()> {
+    // Only a successful enrollment changes an existing file: a failed attempt (wrong
+    // port, wrong token) leaves `agent.toml` as it was.
+    if !completed.added.is_empty() {
+        domovoi_agent::config_file::save(path, &completed.text)?;
+        println!(
+            "Added {} to {}.",
+            completed.added.join(" and "),
+            path.display()
+        );
+    }
+    if config.agent.hub_url != args.hub && domovoi_agent::config_file::set_hub_url(path, &args.hub)?
+    {
+        println!(
+            "Changed the hub address in {} to {}.",
+            path.display(),
+            args.hub
+        );
+    }
+    hand_over_state(&config.agent.state_dir)?;
+    if let Some(epoch) = ensure_journal(config).await? {
+        hand_over_state(&config.agent.state_dir)?;
+        println!("Created the action journal (epoch {epoch}).");
+    }
+    Ok(())
 }
 
 /// Creates the action journal when the state directory has none, so a freshly enrolled
