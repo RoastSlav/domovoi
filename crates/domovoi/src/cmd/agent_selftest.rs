@@ -17,7 +17,8 @@ mod runner;
 /// `agent selftest`.
 #[derive(Debug, Args)]
 pub struct SelftestArgs {
-    /// Run the root checks here and the agent checks as `domovoi-agent` (needs root).
+    /// Run the root checks here and the agent checks as `domovoi-agent` (needs root). Root
+    /// does this anyway when the `domovoi-agent` account exists.
     #[arg(long)]
     installer: bool,
     /// With `--installer`: write the platform record the helper reads (needs root).
@@ -134,11 +135,7 @@ mod unix {
             println!("{}", agent_checks_json(&env)?);
             return Ok(ExitCode::SUCCESS);
         }
-        let mode = if args.installer {
-            Mode::Installer
-        } else {
-            Mode::Local
-        };
+        let mode = Mode::for_run(args.installer, &inspect);
         let report = run_selftest_observed(&env, mode, &observation).await?;
         let decision = decide(&report, write_opt_in());
         if args.record {
@@ -155,12 +152,6 @@ mod unix {
         } else {
             let affected = skills_not_on_the_skill_account(&dirs);
             print!("{}", render_text(&report, &decision, &affected));
-            if is_root {
-                println!(
-                    "\nThis ran as root, so the agent-account checks are expected to fail. To check the install, \
-                     run it as the agent account: sudo -u domovoi-agent domovoi agent selftest -c /etc/domovoi/agent.toml"
-                );
-            }
         }
         Ok(ExitCode::from(
             u8::try_from(exit_code(&report)).unwrap_or(1),

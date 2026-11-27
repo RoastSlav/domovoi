@@ -48,7 +48,7 @@ pub fn docker_problem(err: &ReadClientError) -> String {
             "docker.read is switched off in helper.toml".into()
         }
         ReadClientError::Unavailable(UnavailableReason::PlatformBlocked) => {
-            "this platform's isolation checks failed; run domovoi agent selftest".into()
+            "this platform's isolation checks failed; run sudo domovoi agent selftest".into()
         }
         ReadClientError::Unavailable(_) => unusable("unavailable"),
         ReadClientError::Failed(ReadToken::EngineAbsent, _) => {

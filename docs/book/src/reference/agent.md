@@ -120,7 +120,7 @@ When the agent runs as `domovoi-agent` it is not in the `docker` group and canno
 | no helper socket | the helper is not installed; Docker is read through it |
 | unreachable, protocol error or start refused | the helper is not usable (the token, or unreachable) |
 | `docker.read` off in `helper.toml` | docker.read is switched off in helper.toml |
-| the platform's isolation checks failed | this platform's isolation checks failed; run domovoi agent selftest |
+| the platform's isolation checks failed | this platform's isolation checks failed; run sudo domovoi agent selftest |
 | no engine socket | no Docker or Podman socket was found |
 | engine socket denied or erroring | the helper cannot use the container engine socket |
 

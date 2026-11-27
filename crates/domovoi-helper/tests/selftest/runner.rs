@@ -261,3 +261,61 @@ fn selftest_st12_fails_on_a_world_connectable_runner_socket() {
     );
     assert_eq!(st12.faults.len(), 1);
 }
+
+#[test]
+fn root_on_an_installed_host_runs_the_agent_checks_as_the_agent() {
+    // `healthy_host` has the agent account and answers as root.
+    assert_eq!(Mode::for_run(false, &healthy_host()), Mode::Installer);
+    assert_eq!(Mode::for_run(false, &agent_host()), Mode::Local);
+    let no_account = domovoi_testkit::FakeHostInspect::new();
+    assert_eq!(
+        Mode::for_run(false, &no_account),
+        Mode::Local,
+        "a root-agent host has no account to switch to"
+    );
+}
+
+#[tokio::test]
+async fn an_agent_account_run_never_calls_a_working_host_blocked() {
+    let host = agent_host();
+    let exec = healthy_executor();
+    let d = dirs();
+    let health = FakeHealth::ok();
+    let report = run_selftest_observed(
+        &env(&host, &exec, &health, &d),
+        Mode::Local,
+        &RunnerObservation::NotAsked,
+    )
+    .await
+    .unwrap();
+    let text = render_text(&report, &decide(&report, WriteOptIn(false)), &[]);
+    assert!(text.contains("ST-05 nd needs_root"), "{text}");
+    assert!(!text.contains("runner_not_installed; "), "{text}");
+    assert!(!text.contains("ST-05 nd runner_not_installed"), "{text}");
+    assert!(text.contains("tier: not decided"), "{text}");
+    assert!(!text.contains("tier: blocked"), "{text}");
+    assert!(!text.contains("skills refuse"), "{text}");
+    assert!(text.contains("sudo domovoi agent selftest"), "{text}");
+}
+
+#[tokio::test]
+async fn a_failed_check_still_blocks_a_run_without_root() {
+    let host = agent_host();
+    let exec = healthy_executor();
+    let d = dirs();
+    let health = FakeHealth::ok();
+    let mut report = run_selftest_observed(
+        &env(&host, &exec, &health, &d),
+        Mode::Local,
+        &RunnerObservation::NotAsked,
+    )
+    .await
+    .unwrap();
+    for result in &mut report.results {
+        if result.id == CheckId::St14 {
+            result.outcome = Outcome::fail(CheckToken::SocketUnreachable, "helper socket");
+        }
+    }
+    let text = render_text(&report, &decide(&report, WriteOptIn(false)), &[]);
+    assert!(text.contains("tier: blocked"), "{text}");
+}

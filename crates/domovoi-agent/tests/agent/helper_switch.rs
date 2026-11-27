@@ -190,7 +190,7 @@ async fn docker_problem_text_follows_the_helper_answer() {
                 group: HelperGroup::DockerRead,
                 reason: UnavailableReason::PlatformBlocked,
             }),
-            "this platform's isolation checks failed; run domovoi agent selftest",
+            "this platform's isolation checks failed; run sudo domovoi agent selftest",
         ),
         (
             "noengine",

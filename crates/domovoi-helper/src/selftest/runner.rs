@@ -98,8 +98,9 @@ pub fn runner_results(observation: &RunnerObservation) -> Vec<CheckResult> {
             detail,
             CheckId::St05,
         ),
-        RunnerObservation::NotInstalled | RunnerObservation::NotAsked => {
-            nd_runner("runner_not_installed")
+        RunnerObservation::NotInstalled => nd_runner("runner_not_installed"),
+        RunnerObservation::NotAsked => {
+            nd_runner("needs_root: only root asks the skill runner for its probe")
         }
         RunnerObservation::Unavailable(why) => nd_runner(&format!("runner_unreachable: {why}")),
     }

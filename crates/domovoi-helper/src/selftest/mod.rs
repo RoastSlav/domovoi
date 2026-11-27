@@ -30,8 +30,8 @@ pub use agent_checks::{
 };
 pub use duration::{SystemdDuration, parse_systemd_duration};
 pub use render::{
-    AffectedSkill, affected_skills, exit_code, render_fault, render_json, render_result,
-    render_text, skill_row,
+    AffectedSkill, VERDICT_COMMAND, affected_skills, exit_code, render_fault, render_json,
+    render_result, render_text, skill_row, unjudged_checks,
 };
 pub use root_checks::{
     RootChecks, SLOW_WRITE_MICROS, TableFaults, WRITE_CYCLES, detect_systemd, run_root_checks,
@@ -79,6 +79,21 @@ pub enum Mode {
     /// The installer's run: root checks here, the agent checks in a child run as the agent
     /// account. Needs root.
     Installer,
+}
+
+impl Mode {
+    /// The mode a run takes: the installer's when asked for, and also when root runs a plain
+    /// self-test on a host that has the agent account. Root running the agent checks itself
+    /// would only describe root (ST-01 fails and the host reads as blocked), never the install.
+    #[must_use]
+    pub fn for_run(installer: bool, inspect: &dyn HostInspect) -> Self {
+        let agent_installed = matches!(inspect.user(AGENT_ACCOUNT), Ok(Some(_)));
+        if installer || (inspect.euid() == 0 && agent_installed) {
+            Self::Installer
+        } else {
+            Self::Local
+        }
+    }
 }
 
 /// Why a self-test could not run at all.

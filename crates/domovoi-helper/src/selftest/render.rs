@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use domovoi_core::identity::{FaultKind, PathFacts, PathFault, PathKind, SKILL_ACCOUNT};
 use domovoi_core::isolation::{
-    BoundaryReason, BoundaryState, CheckResult, Outcome, SelftestReport, TierDecision,
+    BoundaryReason, BoundaryState, CheckId, CheckResult, Outcome, SelftestReport, TierDecision,
 };
 use serde::Serialize;
 
@@ -132,6 +132,74 @@ pub fn skill_row(skill: &AffectedSkill, legacy_root: bool) -> String {
     }
 }
 
+/// The command whose run decides the tier of an installed host.
+pub const VERDICT_COMMAND: &str = "sudo domovoi agent selftest";
+
+/// The required checks a run without root could not judge, when that is the only thing in the
+/// way of a verdict. `None` means the report decides the tier: it ran as root, or a check this
+/// account could make really failed.
+///
+/// ST-01 failing for an account that is neither root nor the agent describes the account the
+/// command ran as, so it does not count as a failure of the install.
+#[must_use]
+pub fn unjudged_checks(report: &SelftestReport, decision: &TierDecision) -> Option<Vec<CheckId>> {
+    let ran_without_root = report
+        .results
+        .iter()
+        .any(|r| matches!(&r.outcome, Outcome::Nd { reason } if reason.starts_with("needs_root")));
+    if !ran_without_root || decision.no_systemd || decision.blocking.is_empty() {
+        return None;
+    }
+    let other_account = matches!(
+        report.boundary,
+        BoundaryState::NotInEffect {
+            reason: BoundaryReason::AgentNotDomovoiAgent { .. }
+        }
+    );
+    let judged_as_failed = decision.blocking.iter().any(|id| {
+        report
+            .result(*id)
+            .is_some_and(|r| r.outcome.is_fail() && !(*id == CheckId::St01 && other_account))
+    });
+    (!judged_as_failed).then(|| decision.blocking.clone())
+}
+
+fn verdict_lines(report: &SelftestReport, decision: &TierDecision) -> Vec<String> {
+    let list = |ids: &[CheckId]| {
+        ids.iter()
+            .map(|i| i.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if let Some(unjudged) = unjudged_checks(report, decision) {
+        return vec![
+            format!(
+                "tier: not decided: this account cannot run {}",
+                list(&unjudged)
+            ),
+            format!(
+                "verdict: run `{VERDICT_COMMAND}`; it runs those checks as root and the agent checks as domovoi-agent"
+            ),
+        ];
+    }
+    let mut lines = vec![
+        format!("tier: {}", decision.tier.as_str()),
+        format!(
+            "decision: skills {}; helper reads {}; helper writes {}",
+            snake(&decision.skills),
+            snake(&decision.helper_read),
+            snake(&decision.helper_write)
+        ),
+    ];
+    if !decision.blocking.is_empty() {
+        lines.push(format!("blocking: {}", list(&decision.blocking)));
+    }
+    if let Some(notice) = decision.notice {
+        lines.push(format!("notice: {}", notice.text()));
+    }
+    lines
+}
+
 /// The whole report as text: a line per check, faults indented below it, then the platform, the
 /// boundary label, the tier decision and the skills that do not run as the skill account.
 #[must_use]
@@ -148,20 +216,7 @@ pub fn render_text(
         report.systemd_version.as_deref().unwrap_or("none")
     ));
     lines.push(boundary_text(&report.boundary));
-    lines.push(format!("tier: {}", decision.tier.as_str()));
-    lines.push(format!(
-        "decision: skills {}; helper reads {}; helper writes {}",
-        snake(&decision.skills),
-        snake(&decision.helper_read),
-        snake(&decision.helper_write)
-    ));
-    if !decision.blocking.is_empty() {
-        let ids: Vec<&str> = decision.blocking.iter().map(|i| i.as_str()).collect();
-        lines.push(format!("blocking: {}", ids.join(", ")));
-    }
-    if let Some(notice) = decision.notice {
-        lines.push(format!("notice: {}", notice.text()));
-    }
+    lines.extend(verdict_lines(report, decision));
     let legacy_root = matches!(
         report.boundary,
         BoundaryState::NotInEffect {

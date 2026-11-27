@@ -143,7 +143,7 @@ Search the [issues](https://github.com/RoastSlav/domovoi/issues), or open one wi
 
 The files under `/etc/domovoi` belong to root, and the agent runs as `domovoi-agent`. A normal user gets "Permission denied". Use these exact commands:
 
-- Check the installation as the agent account, not as root: `sudo -u domovoi-agent domovoi agent selftest -c /etc/domovoi/agent.toml`. Run as root, the self-test reports `blocked` because the agent must never run as root; that is the correct verdict for root, not a fault of the install.
+- Check the installation with `sudo domovoi agent selftest`. It runs the root checks as root and the agent's checks as `domovoi-agent`. Without root the self-test cannot run ST-03 to ST-11 and prints `tier: not decided`.
 - Run one check: `sudo -u domovoi-agent domovoi check run -c /etc/domovoi/agent.toml --only disk.free`. The check key is `disk.free`, not `disk.usage`.
 - Check the skills directory: `sudo domovoi check skills /etc/domovoi/skills`.
 - Agent status: `sudo -u domovoi-agent domovoi agent status -c /etc/domovoi/agent.toml`.

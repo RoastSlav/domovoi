@@ -61,18 +61,18 @@ Without a status file it prints `no status recorded; the agent has not run yet.`
 Checks the host's identities, modes, units and isolation, and says which platform tier the result gives. It is not `domovoi selftest`, which tests the hub pipeline.
 
 ```sh
-domovoi agent selftest --config /etc/domovoi/agent.toml
+sudo domovoi agent selftest
 sudo domovoi agent selftest --installer --record
 ```
 
 | Flag | Meaning |
 | --- | --- |
-| `--installer` | Run as root. Runs the root checks itself and the agent's own checks as `domovoi-agent`, then merges both. |
+| `--installer` | Run as root. Runs the root checks itself and the agent's own checks as `domovoi-agent`, then merges both. Root does this without the flag when the `domovoi-agent` account exists. |
 | `--record` | With `--installer`, write the result to `/var/lib/domovoi-helper/platform.json`. The helper reads that record to decide about write groups. |
 | `--json` | Print the full report as JSON instead of text. |
 | `--config <agent.toml>` | The agent config to read. Default `/etc/domovoi/agent.toml`. |
 
-Without `--installer` it runs the checks the agent's account can run (ST-01, ST-02, ST-12, ST-14, ST-15, ST-16) and reports the rest as not run because they need root. The output has one line per check, such as `ST-10 fail path_mode_wrong`, then each fault with the found and the expected mode and owner, then the privilege-boundary label and the tier decision. It also lists skills whose manifest names a `run_as` other than `domovoi-skill`: one `SK-01` row each, a warning with the token `run_as_unsupported` on a migrated host, and information on a root agent, which still honours it. `SK-01` never affects the platform tier.
+Without root it runs the checks the account can run (ST-01, ST-02, ST-12, ST-14, ST-15, ST-16) and reports the rest as `nd needs_root`. When only that stands in the way, it prints `tier: not decided` with the command that decides it; a check that really failed still gives `tier: blocked`. Root on a host without the `domovoi-agent` account (the root-agent layout) runs every check in its own process. The output has one line per check, such as `ST-10 fail path_mode_wrong`, then each fault with the found and the expected mode and owner, then the privilege-boundary label and the tier decision. It also lists skills whose manifest names a `run_as` other than `domovoi-skill`: one `SK-01` row each, a warning with the token `run_as_unsupported` on a migrated host, and information on a root agent, which still honours it. `SK-01` never affects the platform tier.
 
 Exit code `0` when no check failed, `1` when any failed. A check that was not run is printed as `nd` and is never counted as a pass. It never repairs anything.
 
