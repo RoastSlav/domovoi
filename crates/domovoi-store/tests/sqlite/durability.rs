@@ -46,3 +46,24 @@ async fn the_database_and_its_wal_files_are_readable_by_the_owner_only() {
     }
     reopened.close().await;
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_data_directory_anyone_can_enter_loses_the_other_bits_on_open() {
+    use std::os::unix::fs::PermissionsExt;
+    let fresh = crate::common::Fresh::new().await;
+    let path = fresh.path();
+    let dir = path.parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    fresh.store.close().await;
+    let reopened = domovoi_store::Store::open(
+        &path,
+        domovoi_store::StoreOptions::beside(&path, domovoi_testkit::build::T0),
+    )
+    .await
+    .unwrap();
+    let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+    assert_eq!(mode & 0o007, 0, "others can still enter the directory");
+    assert_eq!(mode & 0o750, 0o750, "the owner and group keep their access");
+    reopened.close().await;
+}

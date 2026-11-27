@@ -118,6 +118,23 @@ fn restrict_to_owner(path: &Path) -> Result<(), StoreOpenError> {
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
                 .map_err(|e| io(path, e))?;
         }
+        // A data directory that anyone can enter (a volume made by an older image, mode 0755)
+        // loses the "other" bits; the group bits stay, so a 0750 directory is left as it is.
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            // Best effort: a directory this account does not own cannot be changed, and that
+            // is not a reason to refuse to open the database.
+            if let Ok(meta) = dir.metadata() {
+                let mode = meta.permissions().mode();
+                if mode & 0o007 != 0
+                    && let Err(err) = std::fs::set_permissions(
+                        dir,
+                        std::fs::Permissions::from_mode(mode & !0o007),
+                    )
+                {
+                    tracing::warn!(%err, dir = %dir.display(), "the data directory is open to others and could not be tightened");
+                }
+            }
+        }
     }
     #[cfg(not(unix))]
     let _ = path;
