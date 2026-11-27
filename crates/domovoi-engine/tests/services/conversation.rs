@@ -392,6 +392,52 @@ async fn an_unbacked_claim_that_something_is_missing_never_leads_the_answer() {
     assert!(shown(&requests[1]).contains("host_binary"));
 }
 
+/// 42d: a claim this turn's own check disproves is reported as checked and wrong, the model
+/// is not told the check never ran, and the first answer of a conversation names no
+/// earlier turn.
+#[tokio::test]
+async fn a_claim_this_turns_check_disproves_is_said_to_be_checked() {
+    let w = world(Setup::default()).await;
+    w.link.on_tool(|_, call| {
+        Ok(domovoi_core::ports::ToolOutput {
+            text: match call.tool().name() {
+                "host_binary" => "file `ip`: found at /usr/sbin/ip.\n\
+                    owner package: `iproute2` (dpkg lists /usr/sbin/ip).\n"
+                    .to_owned(),
+                other => format!("output of {other}"),
+            },
+            truncated: false,
+        })
+    });
+    w.primary
+        .push_ok(read_calls(&[("a", "host_binary", json!({"name": "ip"}))]));
+    w.primary
+        .push_text("It failed because iproute2 is not installed.");
+    w.primary.push_text(
+        "In my previous turn I called host_binary: ip is at /usr/sbin/ip. \
+         The old claim that iproute2 is not installed is wrong.",
+    );
+    let chat = w
+        .triage
+        .chat(
+            Some(host_id()),
+            "One host.",
+            &Vec::new(),
+            "Is ip installed?",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        chat,
+        "In this turn I called host_binary: ip is at /usr/sbin/ip. \
+         The old claim that iproute2 is not installed is wrong."
+    );
+    let nudge = shown(&w.primary.requests()[2]);
+    assert!(nudge.contains("still the same turn"), "{nudge}");
+    assert!(nudge.contains("already found `iproute2`"), "{nudge}");
+    assert!(!nudge.contains("no `host_binary` result"), "{nudge}");
+}
+
 /// 42: a Docker read that names a systemd unit is refused and points to the journal.
 #[tokio::test]
 async fn a_docker_read_of_a_systemd_unit_is_refused() {

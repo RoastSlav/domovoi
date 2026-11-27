@@ -225,15 +225,15 @@ impl Attempt for ChatAttempt<'_> {
                 };
                 // An absence claim nothing shows gets one prompt to check it. A failed
                 // second turn keeps the first answer, which is reviewed like any other.
-                let unchecked = !claims::review(&answered, &state.evidence, true).is_clean();
-                if unchecked {
+                let draft = claims::review(&answered, &state.evidence, true);
+                if !draft.is_clean() {
                     messages.push(LlmMessage {
                         role: Role::Assistant,
                         parts: vec![Part::Text(answered.clone())],
                     });
                     messages.push(LlmMessage {
                         role: Role::User,
-                        parts: vec![Part::Text(CHECK_NUDGE.to_owned())],
+                        parts: vec![Part::Text(claims::check_nudge(draft.contradicted()))],
                     });
                     let second = agent::converse(
                         shared,
@@ -314,11 +314,6 @@ fn offers_instead_of_running(answer: &str) -> bool {
 
 /// Appended to an answer that used no tool.
 pub const NO_TOOL_FOOTER: &str = "\n\nNo tool ran for this answer. It comes from what Domovoi already had (earlier drafts, notes and the overview), not from reading the host now.";
-
-/// Sent once when the answer says something is missing that no read of this turn shows.
-const CHECK_NUDGE: &str = "Your answer says something is missing or not installed, but no \
-`host_binary` result in this turn shows it. Call request_evidence with tool \"host_binary\" for \
-that program now, then answer again from its result. If you cannot check it, say you do not know.";
 
 /// An answer that is a bare JSON object (a model that copied a tool-result shape instead of
 /// writing prose) as readable lines, one `key: value` each. Prose is returned unchanged.
@@ -447,6 +442,9 @@ pub(crate) async fn answer_with(
             .as_str(),
         MAX_ANSWER_CHARS,
     );
+    if chat_turns.is_empty() {
+        text = claims::in_this_turn(text);
+    }
     // Set in code, so the model cannot override it: what no read of this turn shows is not
     // stated first. A cause is judged only for a chosen host, which could have been read.
     let read_host = host.is_none() || reply.prefetched || read_the_host(&state.used);

@@ -43,7 +43,8 @@ These rules run on the hub after the model has answered, so the model cannot lea
 
 - A sentence saying that something is missing or not installed stays where the model put it only when a `host_binary` read in the same answer shows it: that read found no such file, or no such package, under that name. Before that is decided, the model is asked once to run the check.
 - Otherwise the answer opens with "Not verified: I do not know whether ..." and the sentence is moved to the end, under "Unchecked claims from the model's draft (do not act on them)".
-- If `host_binary` did find the named program or package, the answer opens by saying the draft is wrong and names it.
+- If `host_binary` did find the named program or package, or the package it says owns the file it found, the answer opens by saying the draft is wrong and names it. A sentence saying that such a claim (or draft, statement or report) "is wrong", "is false" or "is incorrect" stays as written: the check shows it.
+- The first answer of a conversation has no earlier turn: words such as "in my previous turn" are replaced with "in this turn".
 - For a chosen host, a sentence stating a cause ("because", "caused by", "due to", "root cause") is treated the same way when no read of the host succeeded in that answer. Earlier incidents, notes and past operations are records, not reads of the host.
 - While the answer is being written, text from the first such absence claim on is held back until the checks have run.
 

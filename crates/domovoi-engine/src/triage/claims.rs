@@ -53,6 +53,57 @@ const DOUBT: [&str; 7] = [
     "nothing is missing",
 ];
 
+/// What a sentence calls the thing it refutes.
+const CLAIM_WORDS: [&str; 4] = ["claim", "draft", "statement", "report"];
+
+/// Phrases that refute it.
+const REFUTED: [&str; 8] = [
+    "is wrong",
+    "was wrong",
+    "is false",
+    "was false",
+    "is incorrect",
+    "was incorrect",
+    "is not true",
+    "does not hold",
+];
+
+/// How an answer may refer to a turn before this one.
+const EARLIER_TURN: [&str; 6] = [
+    "in my previous turn",
+    "in the previous turn",
+    "in my last turn",
+    "in my earlier turn",
+    "in an earlier turn",
+    "in a previous turn",
+];
+
+/// Whether `sentence` says that a claim about something missing is wrong. Only a claim word
+/// together with a refutation counts, so "it is not installed, the unit is wrong" does not.
+fn refutes(sentence: &str) -> bool {
+    let lower = sentence.to_lowercase();
+    CLAIM_WORDS.iter().any(|word| lower.contains(word))
+        && REFUTED.iter().any(|phrase| lower.contains(phrase))
+}
+
+/// `answer` to the first question of a conversation, without the earlier turn it cannot
+/// have had: what it places there happened in this one.
+pub(crate) fn in_this_turn(answer: String) -> String {
+    EARLIER_TURN.iter().fold(answer, |text, phrase| {
+        // ASCII lowering keeps byte offsets, so a match can be replaced in place.
+        let mut out = text;
+        while let Some(at) = out.to_ascii_lowercase().find(phrase) {
+            let first = if out[at..].starts_with('I') {
+                "In"
+            } else {
+                "in"
+            };
+            out.replace_range(at..at + phrase.len(), &format!("{first} this turn"));
+        }
+        out
+    })
+}
+
 /// Whether `sentence` says something is missing or not installed.
 pub(crate) fn claims_absence(sentence: &str) -> bool {
     let lower = sentence.to_lowercase();
@@ -99,6 +150,8 @@ fn checked(reads: &[EvidenceRecord]) -> Checked {
         let has = |line: String| read.output.contains(&line);
         if has(format!("file `{name}`: found at")) {
             out.found.push(name.clone());
+            // The read also names the package that owns the file it found.
+            out.found.extend(owner(&read.output));
         } else if has(format!("file `{name}`: not found")) {
             out.absent.push(name.clone());
         }
@@ -111,6 +164,20 @@ fn checked(reads: &[EvidenceRecord]) -> Checked {
         }
     }
     out
+}
+
+/// The package the `host_binary` owner line names; a pacman entry loses its version.
+fn owner(output: &str) -> Option<String> {
+    let line = output
+        .lines()
+        .find_map(|line| line.strip_prefix("owner package: `"))?;
+    let (name, rest) = line.split_once('`')?;
+    let name = if rest.starts_with(" (pacman") {
+        name.rsplitn(3, '-').last().unwrap_or(name)
+    } else {
+        name
+    };
+    Some(name.to_owned())
 }
 
 /// The sentences of one line, each with its end mark.
@@ -142,6 +209,11 @@ impl Review {
     /// Whether every claim in the answer is shown by a read of this turn.
     pub(crate) fn is_clean(&self) -> bool {
         self.claims.is_empty()
+    }
+
+    /// The names the answer still calls missing although `host_binary` found them.
+    pub(crate) fn contradicted(&self) -> &[String] {
+        &self.contradicted
     }
 
     /// The answer as it may be shown: unchanged when clean, otherwise led by what is not
@@ -198,7 +270,8 @@ pub(crate) fn review(answer: &str, reads: &[EvidenceRecord], read_host: bool) ->
             let shown_absent =
                 found.is_empty() && checked.absent.iter().any(|name| names(sentence, name));
             let unchecked = if claims_absence(sentence) {
-                !shown_absent
+                // Saying that a claim the check disproves is wrong is a checked statement.
+                !shown_absent && (found.is_empty() || !refutes(sentence))
             } else {
                 !read_host && claims_cause(sentence)
             };
@@ -225,6 +298,29 @@ pub(crate) fn review(answer: &str, reads: &[EvidenceRecord], read_host: bool) ->
     }
     out.rest = kept.join("\n").trim().to_owned();
     out
+}
+
+/// Opens a nudge: without it a model takes its own draft for an earlier turn.
+const SAME_TURN: &str = "This note is from Domovoi, not from the person. It is still the same \
+turn: your draft above was not shown to anyone, so do not mention it or an earlier turn.";
+
+/// Sent once when the answer says something is missing that no read of this turn shows.
+const CHECK_NUDGE: &str = "Your answer says something is missing or not installed, but no \
+`host_binary` result in this turn shows it. Call request_evidence with tool \"host_binary\" for \
+that program now, then answer again from its result. If you cannot check it, say you do not know.";
+
+/// What to tell the model about a draft that `claims` refused: to run the check, or, when this
+/// turn's check already found what the draft calls missing, to answer from that result.
+pub(crate) fn check_nudge(found: &[String]) -> String {
+    if found.is_empty() {
+        return format!("{SAME_TURN} {CHECK_NUDGE}");
+    }
+    format!(
+        "{SAME_TURN} `host_binary` already found {} on the host in this turn, but your draft \
+         says something is missing or not installed. Answer the question again from that \
+         result. If an older claim says otherwise, say that the claim is wrong.",
+        found.join(", ")
+    )
 }
 
 /// `text` without the lines' sentences that claim something is missing: what a live view may

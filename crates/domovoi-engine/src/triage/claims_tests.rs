@@ -82,3 +82,32 @@ fn a_live_view_stops_before_the_claim() {
     assert_eq!(before_claim(text), "Looking.\nIt is down. ");
     assert_eq!(before_claim("All fine."), "All fine.");
 }
+
+#[test]
+fn the_package_that_owns_a_found_file_is_found_too() {
+    for owner in [
+        "owner package: `iproute2` (dpkg lists /usr/sbin/ip).",
+        "owner package: `iproute2-6.1.0-1` (pacman lists /usr/sbin/ip).",
+    ] {
+        let reads = [binary(
+            "ip",
+            &format!("file `ip`: found at /usr/sbin/ip.\n{owner}"),
+        )];
+        let text = shown("iproute2 is not installed.", &reads, true);
+        assert!(
+            text.starts_with(&format!("{CONTRADICTED_LEAD} `iproute2`.")),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn saying_that_a_disproven_claim_is_wrong_is_a_checked_statement() {
+    let reads = [binary("ip", "file `ip`: found at /usr/sbin/ip.")];
+    let answer = "The old draft's claim that `ip` is not installed is wrong.";
+    assert_eq!(shown(answer, &reads, true), answer);
+    // Not an excuse for another statement in the same sentence, nor without a check.
+    let sly = "`ip` is not installed, so the unit file is wrong.";
+    assert!(shown(sly, &reads, true).starts_with(CONTRADICTED_LEAD));
+    assert!(shown(answer, &[], true).starts_with(UNVERIFIED_LEAD));
+}
