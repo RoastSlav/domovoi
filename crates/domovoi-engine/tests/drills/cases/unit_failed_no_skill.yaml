@@ -42,8 +42,9 @@ model:
         - { label: mounts, value: /mnt/usb-backup missing, source: host_overview }
       verdict: ACTION_NEEDED
       next_step: >
-        Check the USB disk is plugged in and run `mount /mnt/usb-backup`, then start
-        backup.service again.
+        Check the USB disk is plugged in and mounted, then start backup.service again.
+      manual_steps:
+        - mount /mnt/usb-backup
       proposals: []
       details: Restarting the unit would fail the same way until the disk is mounted.
 

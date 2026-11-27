@@ -20,8 +20,10 @@ expression: "frozen(drill, &outcome)"
       }
     ],
     "headline": "The backup failed because its USB disk is not mounted",
-    "manual_steps": [],
-    "next_step": "Check the USB disk is plugged in and run `mount /mnt/usb-backup`, then start backup.service again.",
+    "manual_steps": [
+      "mount /mnt/usb-backup"
+    ],
+    "next_step": "Check the USB disk is plugged in and mounted, then start backup.service again.",
     "proposals": [],
     "summary": "backup.service failed at 03:00 because /mnt/usb-backup is not mounted, so rsync had nowhere to write.\n",
     "verdict": "ACTION_NEEDED"

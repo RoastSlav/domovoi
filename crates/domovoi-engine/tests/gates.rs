@@ -894,6 +894,8 @@ mod redaction {
             "details": leak
         })
         .to_string();
+        // Every field repeats the leak, so the first answer is sent back once; the second is kept.
+        w.primary.push_text(text.clone());
         w.primary.push_text(text);
         let outcome = w.run().await;
         let TriageOutcome::Report(report) = &outcome else {

@@ -164,3 +164,24 @@ fn repeated_fields_and_shell_commands_in_next_step_are_named() {
             .contains(&"next_step repeats the problem")
     );
 }
+
+#[test]
+fn a_command_in_the_middle_of_next_step_is_named() {
+    for text in [
+        "Run `systemctl restart nginx` now.",
+        "First apt install curl, then retry.",
+        "Check it, then systemctl restart nginx.",
+        "$ docker restart web",
+        "Explain first.\nsudo reboot",
+    ] {
+        let mut r = report();
+        r.next_step = text.to_owned();
+        assert!(
+            r.field_problems().contains(&"next_step is a shell command"),
+            "{text}"
+        );
+    }
+    let mut r = report();
+    r.next_step = "Free space on the data volume and look at the backup job.".to_owned();
+    assert!(r.field_problems().is_empty());
+}

@@ -155,12 +155,35 @@ impl TriageReport {
         {
             found.push("next_step repeats the problem");
         }
-        let step = self.next_step.trim_start();
-        if step.starts_with("sudo ") || step.starts_with('$') {
+        if has_shell_command(&self.next_step) {
             found.push("next_step is a shell command");
         }
         found
     }
+}
+
+/// Programs whose next word, when it is one of [`COMMAND_VERBS`], makes a sentence a command.
+const COMMAND_PROGRAMS: [&str; 6] = ["apt", "apt-get", "dnf", "pacman", "systemctl", "docker"];
+const COMMAND_VERBS: [&str; 14] = [
+    "install", "remove", "purge", "restart", "start", "stop", "enable", "disable", "run", "rm",
+    "upgrade", "update", "-S", "-Syu",
+];
+
+/// Whether `text` holds a shell command: a line that starts with `$` or `sudo `, a backtick, or
+/// a package or service program followed by a verb ("apt install nginx then systemctl restart").
+fn has_shell_command(text: &str) -> bool {
+    if text.contains('`')
+        || text.lines().any(|line| {
+            line.trim_start().starts_with("sudo ") || line.trim_start().starts_with('$')
+        })
+    {
+        return true;
+    }
+    let words: Vec<&str> = text.split_whitespace().collect();
+    words.windows(2).any(|pair| {
+        COMMAND_PROGRAMS.contains(&pair[0].trim_matches(|c: char| !c.is_alphanumeric() && c != '-'))
+            && COMMAND_VERBS.contains(&pair[1].trim_matches(|c: char| c == ',' || c == '.'))
+    })
 }
 
 /// Limits for one triage run.

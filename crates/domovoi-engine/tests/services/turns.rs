@@ -281,6 +281,42 @@ async fn invalid_json_gets_one_repair_turn_then_fails() {
     assert!(matches!(w.run().await, TriageOutcome::Report(_)));
 }
 
+/// A report whose cause only repeats its summary.
+fn repeating_report() -> String {
+    let mut value: serde_json::Value = serde_json::from_str(&report()).unwrap();
+    value["cause"] = value["summary"].clone();
+    value.to_string()
+}
+
+#[tokio::test]
+async fn a_report_whose_cause_repeats_the_summary_is_repaired_once() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text(repeating_report());
+    w.primary.push_text(report());
+    let outcome = w.run().await;
+    let TriageOutcome::Report(kept) = outcome else {
+        panic!("expected a report");
+    };
+    assert_ne!(kept.cause, kept.summary, "the repaired report says why");
+    let requests = w.primary.requests();
+    assert_eq!(requests.len(), 2, "exactly one repair turn");
+    let repair = requests[1].messages.last().unwrap();
+    assert!(
+        matches!(&repair.parts[0], Part::Text(t) if t.contains("cause repeats summary")),
+        "{repair:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_report_that_still_repeats_after_the_repair_is_kept() {
+    let w = world(Setup::default()).await;
+    w.primary.push_text(repeating_report());
+    w.primary.push_text(repeating_report());
+    let outcome = w.run().await;
+    assert!(matches!(outcome, TriageOutcome::Report(_)), "{outcome:?}");
+    assert_eq!(w.primary.requests().len(), 2, "one repair, no more");
+}
+
 #[tokio::test]
 async fn reasoning_only_answer_is_retried_with_a_larger_allowance() {
     let w = world(Setup::default()).await;

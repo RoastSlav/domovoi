@@ -41,6 +41,19 @@ fn repair(repairs_left: &mut u8, why: &str) -> Result<(), AttemptError> {
     Ok(())
 }
 
+/// What to tell the model when a report repeats itself or puts a command where a person reads
+/// a reason: one sentence naming each problem, or `None` when the report is fine.
+fn field_complaint(report: &domovoi_core::TriageReport) -> Option<String> {
+    let problems = report.field_problems();
+    (!problems.is_empty()).then(|| {
+        format!(
+            "{}. Say why in cause and what to do in next_step, and do not repeat the summary; \
+             put commands in manual_steps",
+            problems.join("; ")
+        )
+    })
+}
+
 /// Runs one provider's investigation until it delivers a report or asks a question.
 ///
 /// Every meta-tool call but `finish` counts against the run's tool-call budget; once it is
@@ -83,7 +96,21 @@ pub(crate) async fn investigate(
         let text = text_of(&response.parts);
         if calls.is_empty() || !offered {
             match parse_report(&text) {
-                Ok(report) => return Ok(accept(ctx, state, report, Carrier::Text).await),
+                Ok(report) => {
+                    if repairs_left > 0
+                        && let Some(why) = field_complaint(&report)
+                    {
+                        repairs_left -= 1;
+                        messages.push(LlmMessage {
+                            role: Role::User,
+                            parts: vec![Part::Text(format!(
+                                "Your report was not accepted: {why}. {HOW_TO_ANSWER}"
+                            ))],
+                        });
+                        continue;
+                    }
+                    return Ok(accept(ctx, state, report, Carrier::Text).await);
+                }
                 Err(why) => {
                     let why = shared.deps.redactor.redact(&why);
                     repair(&mut repairs_left, &why)?;
@@ -118,8 +145,18 @@ pub(crate) async fn investigate(
             let result = match handled {
                 Handled::Result(result) => result,
                 Handled::Finish(report) => {
-                    // Calls after `finish` in the same response are ignored.
-                    return Ok(accept(ctx, state, *report, Carrier::Finish).await);
+                    if repairs_left > 0
+                        && let Some(why) = field_complaint(&report)
+                    {
+                        repairs_left -= 1;
+                        crate::triage::tools::ToolResult {
+                            content: format!("finish rejected: {why}. {FINISH_AGAIN}"),
+                            is_error: true,
+                        }
+                    } else {
+                        // Calls after `finish` in the same response are ignored.
+                        return Ok(accept(ctx, state, *report, Carrier::Finish).await);
+                    }
                 }
                 Handled::Asked(question) => return Ok(asked(state, question)),
                 Handled::FinishRejected(why) => {
@@ -143,7 +180,18 @@ pub(crate) async fn investigate(
             // The model was told to answer and called tools instead. Its text is read as the
             // answer, and the one repair is spent when it is not a report.
             match parse_report(&text) {
-                Ok(report) => return Ok(accept(ctx, state, report, Carrier::Text).await),
+                Ok(report) => {
+                    if repairs_left > 0
+                        && let Some(why) = field_complaint(&report)
+                    {
+                        repairs_left -= 1;
+                        results.push(Part::Text(format!(
+                            "Your report was not accepted: {why}. {HOW_TO_ANSWER}"
+                        )));
+                    } else {
+                        return Ok(accept(ctx, state, report, Carrier::Text).await);
+                    }
+                }
                 Err(why) => {
                     let why = shared.deps.redactor.redact(&why);
                     repair(&mut repairs_left, &why)?;
