@@ -25,6 +25,7 @@ pub fn c1_input() -> SafetyInput {
         management_cidrs: strings(&["192.168.1.7/24", "2001:DB8:0:0:0:0:0:0/32", "100.64.0.0/10"]),
         protected_units: strings(&["plex", "sshd.service"]),
         protected_containers: strings(&["homeassistant"]),
+        restart_units: Vec::new(),
         max_ttl: Some("24h".to_owned()),
         max_active: Some(50),
     }
@@ -36,6 +37,7 @@ pub fn c2_input() -> SafetyInput {
         management_cidrs: strings(&["100.64.0.0/10", "192.168.1.0/24", "2001:db8::/32"]),
         protected_units: strings(&["sshd.service", "plex.service", "domovoi-agent.service"]),
         protected_containers: strings(&["homeassistant", "homeassistant"]),
+        restart_units: Vec::new(),
         max_ttl: Some("1440m".to_owned()),
         max_active: Some(50),
     }

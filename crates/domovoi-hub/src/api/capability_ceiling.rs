@@ -136,6 +136,15 @@ pub(super) async fn get_ceiling(
 ) -> Result<Json<CeilingDto>, ApiError> {
     let host = host_named(&state, &name).await?;
     let report = state.deps.capabilities.ceiling(host.id);
+    // The units the helper may restart, only from a verified report: an unverified helper
+    // says nothing about its list, so nothing is claimed.
+    let helper_units = state
+        .services()
+        .helper_trust
+        .view(host.name.clone())
+        .await
+        .ok()
+        .and_then(|view| view.detail.verified.map(|v| v.restart_units));
     let mut dto = CeilingDto {
         host: host.name.to_string(),
         connected: report.connected,
@@ -163,7 +172,8 @@ pub(super) async fn get_ceiling(
                         .helper_offer(host.id, &entry.contract)
                     {
                         None => HelperOfferDto::NotApplicable,
-                        Some(Ok(())) => HelperOfferDto::Offered,
+                        Some(Ok(())) => restart_list_refusal(entry, helper_units.as_deref())
+                            .unwrap_or(HelperOfferDto::Offered),
                         Some(Err(reason)) => HelperOfferDto::NotOffered {
                             reason: reason.code().to_owned(),
                             text: reason.describe().to_owned(),
@@ -180,4 +190,95 @@ pub(super) async fn get_ceiling(
         }
     }
     Ok(Json(dto))
+}
+
+/// `unit.restart` is allowed by the ceiling for units the helper's own list leaves out: the
+/// helper would refuse them. Only a verified list is read.
+fn restart_list_refusal(entry: &CeilingEntry, listed: Option<&[String]>) -> Option<HelperOfferDto> {
+    if entry.contract.as_str() != "unit.restart" {
+        return None;
+    }
+    let listed = listed?;
+    let full = |unit: &str| {
+        if unit.contains('.') {
+            unit.to_owned()
+        } else {
+            format!("{unit}.service")
+        }
+    };
+    let missing: Vec<String> = match &entry.targets {
+        CeilingTargets::Any if listed.is_empty() => vec!["any unit".to_owned()],
+        CeilingTargets::Any => Vec::new(),
+        CeilingTargets::Names(names) => names
+            .iter()
+            .map(|name| name.to_string())
+            .filter(|name| !listed.iter().any(|unit| full(unit) == full(name)))
+            .collect(),
+    };
+    if missing.is_empty() {
+        return None;
+    }
+    Some(HelperOfferDto::NotOffered {
+        reason: "helper_unit_not_listed".to_owned(),
+        text: format!(
+            "The helper's list does not include {}. Add it to `[systemd] restart_units` in /etc/domovoi/helper.toml on the host.",
+            missing.join(", ")
+        ),
+    })
+}
+
+#[cfg(test)]
+mod restart_list_tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use domovoi_core::capability::{CeilingEntry, CeilingTargets, ContractId, TargetName};
+
+    use super::{HelperOfferDto, restart_list_refusal};
+
+    fn entry(contract: &str, targets: CeilingTargets) -> CeilingEntry {
+        CeilingEntry {
+            contract: ContractId::parse(contract).unwrap(),
+            targets,
+            max_per_hour: 2,
+            max_active: None,
+            max_ttl: None,
+            args: BTreeMap::new(),
+        }
+    }
+
+    fn names(list: &[&str]) -> CeilingTargets {
+        CeilingTargets::Names(
+            list.iter()
+                .map(|n| TargetName::parse(n).unwrap())
+                .collect::<BTreeSet<_>>(),
+        )
+    }
+
+    #[test]
+    fn a_unit_the_helper_does_not_list_is_named_with_the_file_to_change() {
+        let entry = entry(
+            "unit.restart",
+            names(&["smartmontools.service", "nginx.service"]),
+        );
+        let listed = ["nginx".to_owned()];
+        let Some(HelperOfferDto::NotOffered { reason, text }) =
+            restart_list_refusal(&entry, Some(&listed))
+        else {
+            panic!("a missing unit is refused");
+        };
+        assert_eq!(reason, "helper_unit_not_listed");
+        assert!(text.contains("smartmontools.service"), "{text}");
+        assert!(!text.contains("nginx.service,"), "{text}");
+        assert!(text.contains("restart_units"), "{text}");
+    }
+
+    #[test]
+    fn nothing_is_claimed_without_a_verified_list_or_for_other_contracts() {
+        let restart = entry("unit.restart", names(&["a.service"]));
+        assert!(restart_list_refusal(&restart, None).is_none());
+        let other = entry("firewall.block_source", CeilingTargets::Any);
+        assert!(restart_list_refusal(&other, Some(&[])).is_none());
+        let listed = ["a.service".to_owned()];
+        assert!(restart_list_refusal(&restart, Some(&listed)).is_none());
+    }
 }

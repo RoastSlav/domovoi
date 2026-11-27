@@ -202,6 +202,7 @@ pub fn sample_input() -> SafetyInput {
         management_cidrs: vec!["192.0.2.0/24".into(), "2001:db8::/32".into()],
         protected_units: vec!["svc-a".into()],
         protected_containers: vec!["ctr-a".into()],
+        restart_units: Vec::new(),
         max_ttl: Some("2h".into()),
         max_active: Some(5),
     }

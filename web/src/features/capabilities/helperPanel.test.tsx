@@ -56,6 +56,8 @@ test("helper_panel_shows_each_host_state_and_reason", async () => {
   expect(verified.getByText("192.0.2.0/24")).toBeVisible();
   expect(verified.getByText("sshd.service")).toBeVisible();
   expect(verified.getByText("plex")).toBeVisible();
+  expect(verified.getByText("May restart")).toBeVisible();
+  expect(verified.getByText("nginx.service")).toBeVisible();
   expect(verified.getByText(/Generation 7/)).toBeVisible();
   expect(verified.getByText(/edit helper.toml on the host/)).toBeVisible();
 

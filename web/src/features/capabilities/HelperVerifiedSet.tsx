@@ -14,6 +14,10 @@ export function HelperVerifiedSet({ view }: { view: HelperView }) {
   const rows: KeyValue[] = [
     { label: "Networks", value: listOrNone(report.cidrs, "None configured") },
     { label: "Protected units", value: listOrNone(report.protected_units, "None") },
+    {
+      label: "May restart",
+      value: listOrNone(report.restart_units, "No unit (restart_units in helper.toml is empty)"),
+    },
     { label: "Protected containers", value: listOrNone(report.protected_containers, "None") },
     { label: "Hub addresses", value: listOrNone(report.hub_addrs, "None found") },
     { label: "Containment limits", value: limitsText(view) },

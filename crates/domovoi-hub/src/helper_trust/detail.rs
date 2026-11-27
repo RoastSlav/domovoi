@@ -73,6 +73,8 @@ pub struct VerifiedDetail {
     pub protected_units: Vec<String>,
     /// The protected container names.
     pub protected_containers: Vec<String>,
+    /// The units the helper may restart (`[systemd] restart_units`), signed in the report.
+    pub restart_units: Vec<String>,
 }
 
 /// Everything shown for one host.
@@ -132,6 +134,7 @@ fn verified_detail(state: &VerifiedState, now: Timestamp) -> Option<VerifiedDeta
         computed_at: report.computed_at,
         protected_units: decoded(&report.config.protected_unit),
         protected_containers: decoded(&report.config.protected_container),
+        restart_units: decoded(&report.config.restart_unit),
         state: state.clone(),
     })
 }

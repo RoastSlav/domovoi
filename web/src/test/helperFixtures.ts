@@ -22,6 +22,7 @@ export function verifiedReport(overrides: Partial<HelperVerified> = {}): HelperV
     max_ttl_s: 3600,
     nonce_issued_at: "2026-10-31T11:58:59Z",
     protected_containers: ["plex"],
+    restart_units: ["nginx.service"],
     protected_units: ["sshd.service"],
     route_state_hash: "abc123",
     ...overrides,

@@ -165,6 +165,8 @@ pub struct VerifiedDto {
     pub protected_units: Vec<String>,
     /// The protected container names.
     pub protected_containers: Vec<String>,
+    /// The units the helper may restart (`[systemd] restart_units` in `helper.toml`).
+    pub restart_units: Vec<String>,
     /// The hub addresses the helper found.
     pub hub_addrs: Vec<String>,
     /// The link peers the helper found, as `address:port`.
@@ -238,6 +240,7 @@ fn verified(detail: &VerifiedDetail) -> VerifiedDto {
             .collect(),
         protected_units: detail.protected_units.clone(),
         protected_containers: detail.protected_containers.clone(),
+        restart_units: detail.restart_units.clone(),
         hub_addrs: state.hub_addrs.iter().map(ToString::to_string).collect(),
         link_peers: state
             .link_peers

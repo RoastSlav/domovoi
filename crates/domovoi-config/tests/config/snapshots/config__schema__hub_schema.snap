@@ -1071,7 +1071,7 @@ expression: "HubConfig::json_schema()"
           "default": null
         },
         "per_hour_runs": {
-          "description": "Runs started per hour at most. Default 6.",
+          "description": "Runs started per hour at most. Default 6. At least 1 while triage is enabled; turn\ntriage off with `enabled = false` instead of setting 0.",
           "type": "integer",
           "format": "uint32",
           "default": 6,

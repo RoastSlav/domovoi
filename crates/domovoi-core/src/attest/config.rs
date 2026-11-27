@@ -57,6 +57,8 @@ pub struct SafetyInput {
     pub protected_units: Vec<String>,
     /// `protected_containers`: containers no write may target.
     pub protected_containers: Vec<String>,
+    /// `[systemd] restart_units`: the units the helper may restart.
+    pub restart_units: Vec<String>,
     /// `[safety.containment] max_ttl`, for example `24h`; `None` means the default.
     pub max_ttl: Option<String>,
     /// `[safety.containment] max_active`; `None` means the default of zero.
@@ -72,6 +74,8 @@ pub struct ConfigLines {
     pub protected_unit: Vec<String>,
     /// `protected_container` values.
     pub protected_container: Vec<String>,
+    /// `restart_unit` values: the units the helper may restart. Absent lines mean none.
+    pub restart_unit: Vec<String>,
     /// `max_ttl_s`, in seconds.
     pub max_ttl_s: u64,
     /// `max_active`; zero means no containment.
@@ -105,6 +109,10 @@ impl ConfigLines {
             check_container(name)?;
             containers.insert(name.clone());
         }
+        let mut restart = BTreeSet::new();
+        for name in &input.restart_units {
+            restart.insert(canonical_unit(name)?);
+        }
         let max_ttl_s = match &input.max_ttl {
             Some(text) => parse_max_ttl(text)?,
             None => DEFAULT_MAX_TTL_S,
@@ -113,6 +121,7 @@ impl ConfigLines {
             cidr: cidrs.into_iter().collect(),
             protected_unit: units.into_iter().collect(),
             protected_container: containers.into_iter().collect(),
+            restart_unit: restart.into_iter().collect(),
             max_ttl_s,
             max_active: input.max_active.unwrap_or(0),
         })
@@ -132,6 +141,11 @@ impl ConfigLines {
             self.protected_container
                 .iter()
                 .map(|v| format!("protected_container={v}")),
+        );
+        lines.extend(
+            self.restart_unit
+                .iter()
+                .map(|v| format!("restart_unit={v}")),
         );
         lines.push(format!("max_ttl_s={}", self.max_ttl_s));
         lines.push(format!("max_active={}", self.max_active));

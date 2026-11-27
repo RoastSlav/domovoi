@@ -5574,6 +5574,8 @@ export interface components {
             protected_containers: string[];
             /** @description The protected unit names. */
             protected_units: string[];
+            /** @description The units the helper may restart (`[systemd] restart_units` in `helper.toml`). */
+            restart_units: string[];
             /** @description Hash of the observed route state. */
             route_state_hash: string;
         };

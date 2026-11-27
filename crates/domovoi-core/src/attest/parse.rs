@@ -16,7 +16,7 @@ use super::report::{CompleteReport, IncompleteReport, Report, ReportError, Route
 use super::scalar::{Cidr, parse_ip, parse_uint};
 
 /// Keys in report order, with whether they repeat.
-const KEY_ORDER: [(&str, bool); 21] = [
+const KEY_ORDER: [(&str, bool); 22] = [
     ("format", false),
     ("helper_key_id", false),
     ("nonce", false),
@@ -30,6 +30,7 @@ const KEY_ORDER: [(&str, bool); 21] = [
     ("cidr", true),
     ("protected_unit", true),
     ("protected_container", true),
+    ("restart_unit", true),
     ("max_ttl_s", false),
     ("max_active", false),
     ("hub_addr", true),
@@ -66,7 +67,7 @@ fn name(key: &'static str, value: &str) -> Result<String, ReportError> {
 fn canonical_repeated(key: &'static str, value: &str) -> Result<String, ReportError> {
     Ok(match key {
         "cidr" => typed(key, Cidr::parse_report(value))?.render(),
-        "protected_unit" => {
+        "protected_unit" | "restart_unit" => {
             let unit = name(key, value)?;
             let canonical = canonical_unit(&unit).map_err(|_| bad(key, value))?;
             if canonical != unit {
@@ -169,6 +170,7 @@ impl Parsed {
                     "cidr" => self.config.cidr.push(text),
                     "protected_unit" => self.config.protected_unit.push(text),
                     "protected_container" => self.config.protected_container.push(text),
+                    "restart_unit" => self.config.restart_unit.push(text),
                     "hub_addr" => self.routes.hub_addr.push(text),
                     "link_peer" => self.routes.link_peer.push(text),
                     "local_addr" => self.routes.local_addr.push(text),

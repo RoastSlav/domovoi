@@ -170,3 +170,37 @@ fn cidr_set_algebra_is_family_aware() {
     assert!(!v4.overlaps(&Cidr::parse_report("198.51.100.0/24").expect("other")));
     assert!(Cidr::parse_report("0.0.0.0/0").expect("all").overlaps(&v4));
 }
+
+#[test]
+fn restart_units_are_signed_sorted_and_change_the_hash() {
+    let none = ConfigLines::effective(&SafetyInput::default()).expect("valid");
+    assert!(none.restart_unit.is_empty());
+    assert!(none.lines().iter().all(|l| !l.starts_with("restart_unit=")));
+
+    let input = SafetyInput {
+        restart_units: vec![
+            "nginx".to_owned(),
+            "cron.service".to_owned(),
+            "nginx".to_owned(),
+        ],
+        ..SafetyInput::default()
+    };
+    let with = ConfigLines::effective(&input).expect("valid");
+    assert_eq!(with.restart_unit, ["cron.service", "nginx.service"]);
+    assert!(
+        with.lines()
+            .iter()
+            .any(|l| l == "restart_unit=cron.service")
+    );
+    assert_ne!(
+        with.hash(),
+        none.hash(),
+        "the list is part of what is signed"
+    );
+
+    let bad = SafetyInput {
+        restart_units: vec!["a b".to_owned()],
+        ..SafetyInput::default()
+    };
+    assert!(ConfigLines::effective(&bad).is_err());
+}

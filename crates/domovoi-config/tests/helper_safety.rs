@@ -131,3 +131,16 @@ mod strict_safety {
         assert_eq!((none.max_ttl, none.max_active), (None, None));
     }
 }
+
+#[cfg(test)]
+mod restart_units {
+    use domovoi_config::effective_config_lines;
+
+    #[test]
+    fn the_systemd_restart_list_is_read_for_the_attestation() {
+        let lines = effective_config_lines("[systemd]\nrestart_units = [\"nginx\"]\n").unwrap();
+        assert_eq!(lines.restart_unit, ["nginx.service"]);
+        let none = effective_config_lines("").unwrap();
+        assert!(none.restart_unit.is_empty());
+    }
+}

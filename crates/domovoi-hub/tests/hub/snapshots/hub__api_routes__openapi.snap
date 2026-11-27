@@ -6348,6 +6348,13 @@ expression: spec
             },
             "type": "array"
           },
+          "field_problems": {
+            "description": "Fields that repeat an earlier one or break their job (a command in the next step),\nfound when the report was accepted. The page shows a repeated field once.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "headline": {
             "description": "What is wrong, in one line.",
             "type": "string"
@@ -6388,7 +6395,8 @@ expression: spec
           "next_step",
           "manual_steps",
           "proposals",
-          "details"
+          "details",
+          "field_problems"
         ],
         "type": "object"
       },
@@ -8697,6 +8705,13 @@ expression: spec
             },
             "type": "array"
           },
+          "restart_units": {
+            "description": "The units the helper may restart (`[systemd] restart_units` in `helper.toml`).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "route_state_hash": {
             "description": "Hash of the observed route state.",
             "type": "string"
@@ -8716,6 +8731,7 @@ expression: spec
           "cidrs",
           "protected_units",
           "protected_containers",
+          "restart_units",
           "hub_addrs",
           "link_peers"
         ],

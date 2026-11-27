@@ -17589,6 +17589,7 @@
           "cidrs",
           "protected_units",
           "protected_containers",
+          "restart_units",
           "hub_addrs",
           "link_peers"
         ],
@@ -17670,6 +17671,13 @@
               "type": "string"
             },
             "description": "The protected unit names."
+          },
+          "restart_units": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The units the helper may restart (`[systemd] restart_units` in `helper.toml`)."
           },
           "route_state_hash": {
             "type": "string",

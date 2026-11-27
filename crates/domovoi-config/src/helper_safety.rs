@@ -52,6 +52,13 @@ struct RawSafety {
     containment: RawContainment,
 }
 
+/// The part of `[systemd]` the attestation signs; the table's other keys are the helper's own.
+#[derive(Deserialize, Default)]
+struct RawSystemd {
+    #[serde(default)]
+    restart_units: Vec<String>,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct RawContainment {
@@ -72,6 +79,16 @@ pub fn parse_safety_input(text: &str) -> Result<SafetyInput, HelperSafetyError> 
     let table: toml::Table = text
         .parse()
         .map_err(|err: toml::de::Error| HelperSafetyError::Unreadable(err.message().to_owned()))?;
+    let restart_units = match table.get("systemd") {
+        None => Vec::new(),
+        Some(value) => {
+            let section: RawSystemd =
+                value.clone().try_into().map_err(|err: toml::de::Error| {
+                    HelperSafetyError::Invalid(err.message().to_owned())
+                })?;
+            section.restart_units
+        }
+    };
     let raw: RawSafety = match table.get("safety") {
         None => RawSafety::default(),
         Some(value) => value
@@ -83,6 +100,7 @@ pub fn parse_safety_input(text: &str) -> Result<SafetyInput, HelperSafetyError> 
         management_cidrs: raw.management_cidrs,
         protected_units: raw.protected_units,
         protected_containers: raw.protected_containers,
+        restart_units,
         max_ttl: raw.containment.max_ttl,
         max_active: raw.containment.max_active,
     })
