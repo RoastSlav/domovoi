@@ -33,6 +33,9 @@ struct Webhook {
 pub struct IngestState {
     webhooks: Arc<BTreeMap<String, Webhook>>,
     deps: IngestDeps,
+    /// Keeps a misconfigured sender from filling the log: one line per hook and status a
+    /// while, with the number held back.
+    gate: Arc<domovoi_core::log_gate::RateLimitedLog>,
 }
 
 impl IngestState {
@@ -55,6 +58,9 @@ impl IngestState {
         Self {
             webhooks: Arc::new(webhooks),
             deps,
+            gate: Arc::new(domovoi_core::log_gate::RateLimitedLog::new(
+                std::time::Duration::from_secs(10),
+            )),
         }
     }
 }

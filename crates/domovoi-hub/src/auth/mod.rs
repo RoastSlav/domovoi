@@ -282,10 +282,30 @@ impl AuthState {
                 lock(&self.name_limiter).succeeded(name);
                 self.start(user).await
             }
-            _ => {
-                lock(&self.limiter).failed(ip, now);
-                lock(&self.name_limiter).failed(name, now);
-                tracing::info!(%ip, "failed login");
+            other => {
+                let reason = if other.is_some() {
+                    "wrong password"
+                } else {
+                    "unknown user"
+                };
+                let lockout = [
+                    lock(&self.limiter).failed(ip, now),
+                    lock(&self.name_limiter).failed(name.clone(), now),
+                ]
+                .into_iter()
+                .flatten()
+                .max();
+                // The name is what the caller typed: quoted and cut so it cannot forge a line.
+                let shown: String = name.chars().take(64).collect();
+                tracing::warn!(%ip, username = ?shown, reason, "failed login");
+                if let Some(lockout) = lockout {
+                    tracing::warn!(
+                        %ip,
+                        username = ?shown,
+                        lockout_secs = lockout.as_secs(),
+                        "too many failed logins; this address and username are locked out until the lockout ends"
+                    );
+                }
                 Err(AuthError::InvalidCredentials)
             }
         }
@@ -306,6 +326,9 @@ impl AuthState {
             });
         }
         let stored = self.users.get(user).await?;
+        let username = stored
+            .as_ref()
+            .map_or_else(|| "unknown".to_owned(), |u| u.username.clone());
         let hash = stored
             .as_ref()
             .map_or(password::dummy_hash(), |u| u.password_hash.as_str());
@@ -313,8 +336,16 @@ impl AuthState {
             lock(&self.limiter).succeeded(ip);
             Ok(())
         } else {
-            lock(&self.limiter).failed(ip, now);
-            tracing::info!(%ip, "failed password confirmation");
+            let lockout = lock(&self.limiter).failed(ip, now);
+            // The route and request id come from the request span around this line.
+            tracing::warn!(%ip, %username, "failed password confirmation");
+            if let Some(lockout) = lockout {
+                tracing::warn!(
+                    %ip,
+                    lockout_secs = lockout.as_secs(),
+                    "too many failed password checks; this address is locked out until the lockout ends"
+                );
+            }
             Err(AuthError::InvalidCredentials)
         }
     }

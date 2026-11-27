@@ -43,14 +43,16 @@ impl<K: Ord> LoginLimiter<K> {
         (until > now).then(|| until.duration_since(now))
     }
 
-    /// Records a failed login from `ip`.
-    pub fn failed(&mut self, ip: K, now: Timestamp) {
+    /// Records a failed login from `ip`. Returns the length of the lockout when this failure
+    /// started one, so the caller can log it once.
+    pub fn failed(&mut self, ip: K, now: Timestamp) -> Option<SignedDuration> {
         let entry = self.entries.entry(ip).or_default();
         let minute_ago = now.checked_sub(SignedDuration::from_mins(1)).unwrap_or(now);
         while entry.failures.front().is_some_and(|t| *t <= minute_ago) {
             entry.failures.pop_front();
         }
         entry.failures.push_back(now);
+        let mut started = None;
         if entry.failures.len() >= FAILURES_PER_MINUTE {
             entry.failures.clear();
             let factor = 1_i64 << entry.lockouts.min(4);
@@ -60,7 +62,9 @@ impl<K: Ord> LoginLimiter<K> {
                 .min(MAX_LOCKOUT);
             entry.lockouts += 1;
             entry.locked_until = now.checked_add(lockout).ok();
+            started = Some(lockout);
         }
+        started
     }
 
     /// Forgets `ip` after a successful login.

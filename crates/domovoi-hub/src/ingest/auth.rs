@@ -26,6 +26,24 @@ pub(super) fn authorized(
     }
 }
 
+/// Why a request that failed [`authorized`] failed, as a sentence for the log. It never
+/// repeats what the sender supplied.
+pub(super) fn failure_reason(
+    config: &domovoi_config::hub::WebhookConfig,
+    headers: &HeaderMap,
+) -> &'static str {
+    match config.auth {
+        domovoi_config::hub::WebhookAuth::Hmac => match headers.get(SIGNATURE_HEADER) {
+            None => "the request has no x-domovoi-signature header",
+            Some(_) => "the signature does not match the body and the hook secret",
+        },
+        domovoi_config::hub::WebhookAuth::Bearer => match headers.get(header::AUTHORIZATION) {
+            None => "the request has no Authorization header",
+            Some(_) => "the bearer token does not match the hook secret",
+        },
+    }
+}
+
 fn verify_hmac(secret: &SecretString, body: &[u8], header: Option<&HeaderValue>) -> bool {
     let Some(encoded) = header
         .and_then(|value| value.to_str().ok())

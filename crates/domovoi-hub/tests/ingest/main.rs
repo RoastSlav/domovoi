@@ -239,3 +239,100 @@ async fn default_host_and_sink_unavailable_are_handled() {
         StatusCode::SERVICE_UNAVAILABLE
     );
 }
+
+#[tokio::test]
+async fn a_rejected_webhook_request_is_logged_with_hook_source_and_reason() {
+    use domovoi_testkit::log_capture::LogCapture;
+
+    let harness = Harness::new(WebhookAuth::Hmac);
+    let (logs, _guard) = LogCapture::start();
+
+    assert_eq!(
+        harness.send(BODY, None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let line = logs.lines_with("webhook request rejected").remove(0);
+    for field in [
+        "WARN",
+        "hook=\"alerts\"",
+        "source=",
+        "status=401",
+        "no x-domovoi-signature header",
+        "suppressed=0",
+    ] {
+        assert!(line.contains(field), "lacks {field}: {line}");
+    }
+    assert!(!line.contains(SECRET), "the secret never appears: {line}");
+
+    assert_eq!(
+        harness.hmac("not json").await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    let line = logs.lines_with("status=400").remove(0);
+    assert!(line.contains("not a valid generic payload"), "{line}");
+
+    let big = "x".repeat(domovoi_checks::sources::MAX_BODY_BYTES + 1);
+    assert_eq!(
+        harness.hmac(&big).await.status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+    let line = logs.lines_with("status=413").remove(0);
+    assert!(line.contains("larger than"), "{line}");
+}
+
+#[tokio::test]
+async fn repeated_webhook_rejections_are_counted_not_repeated() {
+    use domovoi_testkit::log_capture::LogCapture;
+
+    let harness = Harness::new(WebhookAuth::Hmac);
+    let (logs, _guard) = LogCapture::start();
+    for _ in 0..50 {
+        harness.send(BODY, None).await;
+    }
+    assert_eq!(
+        logs.lines_with("webhook request rejected").len(),
+        1,
+        "one line for fifty identical rejections"
+    );
+}
+
+#[tokio::test]
+async fn a_rate_limited_webhook_names_the_hook_in_the_log() {
+    use domovoi_testkit::log_capture::LogCapture;
+
+    let harness = Harness::new(WebhookAuth::Hmac);
+    for _ in 0..60 {
+        harness.hmac(BODY).await;
+    }
+    let (logs, _guard) = LogCapture::start();
+    assert_eq!(
+        harness.hmac(BODY).await.status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    let line = logs.lines_with("status=429").remove(0);
+    assert!(
+        line.contains("hook=\"alerts\"") && line.contains("rate limit"),
+        "{line}"
+    );
+}
+
+#[tokio::test]
+async fn random_unknown_hook_names_share_one_log_line() {
+    use domovoi_testkit::log_capture::LogCapture;
+
+    let harness = Harness::new(WebhookAuth::Hmac);
+    let (logs, _guard) = LogCapture::start();
+    for n in 0..30 {
+        let request = Request::post(format!("/hooks/random-{n}"))
+            .body(Body::from(BODY))
+            .unwrap();
+        let response = harness.router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+    assert_eq!(
+        logs.lines_with("webhook request rejected").len(),
+        1,
+        "{}",
+        logs.text()
+    );
+}

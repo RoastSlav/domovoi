@@ -194,7 +194,13 @@ pub(super) async fn enrollment(
         .create_invite(&name)
         .await
         .map_err(agent_error)?;
-    tracing::info!(host = %name, "enrollment invite created");
+    tracing::info!(
+        host = %name,
+        host_id = %invite.host,
+        actor = %current.user.username,
+        expires_at = %invite.expires_at,
+        "enrollment invite created"
+    );
     note(
         &state,
         format!("user:{}", current.user.id),

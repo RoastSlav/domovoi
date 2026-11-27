@@ -11,6 +11,7 @@ use jiff::SignedDuration;
 use tokio::net::TcpStream;
 
 use super::Inner;
+use super::describe::{Peer, log_handshake_failure, log_session_end};
 use super::handshake::{FIRST_FRAME_TIMEOUT, Shaken, handshake};
 use super::session::run_session;
 use super::tls::channel_binding;
@@ -115,14 +116,25 @@ pub(crate) async fn run(
     remote_ip: Option<IpAddr>,
 ) {
     let mut transport = Limited::new(transport, inner.deps.clock.clone());
-    match handshake(inner, &mut transport, binding).await {
+    let mut peer = Peer::default();
+    match handshake(inner, &mut transport, binding, &mut peer).await {
         Ok(Shaken::Enrolled) => {}
         Ok(Shaken::Session(accepted)) => {
             let host = accepted.agent.host;
-            if let Err(err) = run_session(inner, &mut transport, *accepted, remote_ip).await {
-                tracing::info!(%host, %err, "agent session ended");
-            }
+            let session = accepted.session;
+            let started = inner.deps.clock.now();
+            let result = run_session(inner, &mut transport, *accepted, remote_ip).await;
+            let uptime = inner.deps.clock.now().duration_since(started).as_secs();
+            log_session_end(
+                inner,
+                host,
+                session,
+                remote_ip,
+                u64::try_from(uptime).unwrap_or(0),
+                &result,
+            )
+            .await;
         }
-        Err(err) => tracing::info!(%err, "agent handshake failed"),
+        Err(err) => log_handshake_failure(inner, remote_ip, &peer, &err).await,
     }
 }

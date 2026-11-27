@@ -17,6 +17,7 @@ use jiff::SignedDuration;
 
 use super::Inner;
 use super::conn::{ConnError, expect, send, within};
+use super::describe::{Peer, host_name};
 use super::tokens::token_hash;
 
 /// How long a new connection may take to send `enroll` or `hello`.
@@ -48,6 +49,7 @@ pub(crate) async fn handshake(
     inner: &Inner,
     transport: &mut dyn Transport,
     binding: &str,
+    peer: &mut Peer,
 ) -> Result<Shaken, ConnError> {
     let clock = &*inner.deps.clock;
     let first = within(clock, FIRST_FRAME_TIMEOUT, expect(transport))
@@ -55,10 +57,10 @@ pub(crate) async fn handshake(
         .ok_or(ConnError::Timeout)??;
     match first.message {
         Message::Enroll(enroll) => {
-            enroll_agent(inner, transport, first.id, enroll).await?;
+            enroll_agent(inner, transport, first.id, enroll, peer).await?;
             Ok(Shaken::Enrolled)
         }
-        Message::Hello(hello) => authenticate(inner, transport, first.id, hello, binding)
+        Message::Hello(hello) => authenticate(inner, transport, first.id, hello, binding, peer)
             .await
             .map(|accepted| Shaken::Session(Box::new(accepted))),
         other => Err(ConnError::Protocol(format!(
@@ -84,6 +86,7 @@ async fn enroll_agent(
     transport: &mut dyn Transport,
     id: RequestId,
     enroll: Enroll,
+    peer: &mut Peer,
 ) -> Result<(), ConnError> {
     let clock = &*inner.deps.clock;
     let hosts = &*inner.deps.hosts;
@@ -102,6 +105,7 @@ async fn enroll_agent(
         }
         Err(err) => return Err(err.into()),
     };
+    peer.host = Some(host);
     if VerifyingKey::from_bytes(&enroll.public_key.0).is_err() {
         return Err(reject(transport, RejectReason::Unknown, id).await);
     }
@@ -110,7 +114,13 @@ async fn enroll_agent(
     if let Some(old) = hosts.live_agent(host).await? {
         hosts.revoke_agent(old.agent, now).await?;
         inner.registry.retire(old.agent, now);
-        tracing::info!(%host, agent = %old.agent, "re-enrolled; the previous agent is revoked");
+        let name = host_name(inner, host).await;
+        tracing::info!(
+            host = %name,
+            host_id = %host,
+            agent_id = %old.agent,
+            "re-enrolled; the previous agent is revoked"
+        );
     }
     let agent = AgentIdentity {
         agent: AgentId::new(),
@@ -121,7 +131,14 @@ async fn enroll_agent(
         revoked_at: None,
     };
     hosts.put_agent(&agent).await?;
-    tracing::info!(%host, agent = %agent.agent, "agent enrolled");
+    let name = host_name(inner, host).await;
+    tracing::info!(
+        host = %name,
+        host_id = %host,
+        agent_id = %agent.agent,
+        version = %agent.version,
+        "agent enrolled"
+    );
     let event = AuditEvent {
         at: now,
         actor: "system:agent_server".to_owned(),
@@ -149,12 +166,15 @@ async fn authenticate(
     id: RequestId,
     hello: Hello,
     binding: &str,
+    peer: &mut Peer,
 ) -> Result<Accepted, ConnError> {
     let clock = &*inner.deps.clock;
     let hosts = &*inner.deps.hosts;
+    peer.agent = Some(hello.agent_id);
     let Some(mut agent) = hosts.get_agent(hello.agent_id).await? else {
         return Err(reject(transport, RejectReason::UnknownAgent, id).await);
     };
+    peer.host = Some(agent.host);
     if agent.revoked_at.is_some() {
         return Err(reject(transport, RejectReason::Revoked, id).await);
     }

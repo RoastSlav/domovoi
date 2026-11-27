@@ -8,6 +8,7 @@
 mod admin;
 mod compat;
 mod conn;
+mod describe;
 mod error;
 mod handshake;
 mod link;

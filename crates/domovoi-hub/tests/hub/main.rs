@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 mod agent;
+mod agent_logging;
 #[cfg(test)]
 mod api_admin;
 #[cfg(test)]

@@ -33,6 +33,7 @@ pub(crate) async fn run_session(
         session,
     } = accepted;
     let host = agent.host;
+    let agent_version = hello.agent_version.clone();
     let (outbox, mut queued) = mpsc::channel(MAX_PENDING);
     let cancel = inner.shutdown.child_token();
     let live = Live {
@@ -98,9 +99,14 @@ pub(crate) async fn run_session(
         let _ = transport.close().await;
         return Ok(());
     }
+    let host_label = super::describe::host_name(inner, host).await;
     tracing::info!(
-        %host,
-        agent = %agent.agent,
+        host = %host_label,
+        host_id = %host,
+        agent_id = %agent.agent,
+        %session,
+        peer = %remote_ip.map_or_else(|| "local".to_owned(), |ip| ip.to_string()),
+        agent_version = %agent_version,
         %journal_epoch,
         authoritative_absence,
         "agent connected"
@@ -137,7 +143,7 @@ pub(crate) async fn run_session(
                 }
                 () = clock.sleep_until(next_ping) => {
                     if missed >= MISSED_PONGS {
-                        return Err(ConnError::Closed);
+                        return Err(ConnError::Timeout);
                     }
                     let ping = Message::Ping(Ping { at: clock.now() });
                     send(transport, &ping, None).await?;

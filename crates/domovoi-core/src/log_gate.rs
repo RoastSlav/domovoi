@@ -59,13 +59,7 @@ impl RateLimitedLog {
         }
         match slots.get_mut(key) {
             None => {
-                slots.insert(
-                    key.to_owned(),
-                    Slot {
-                        last: now,
-                        held: 0,
-                    },
-                );
+                slots.insert(key.to_owned(), Slot { last: now, held: 0 });
                 Gate::Log { suppressed: 0 }
             }
             Some(slot) if now.saturating_duration_since(slot.last) >= self.window => {
