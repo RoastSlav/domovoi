@@ -497,5 +497,18 @@ row_begin failed_instance_lingers_until_reset_failed
 )
 row_end $?
 
+row_begin starter_read_skills_see_the_host_proc_and_the_systemd_bus_under_the_runner_unit
+(
+    set -e
+    unit="$root/deploy/systemd/domovoi-skill-runner@.service"
+    grep -q '^ProcSubset=all' "$unit" || die "the runner unit hides /proc files (ProcSubset is not all); system_overview would read nothing"
+    ! grep -q '^ProcSubset=pid' "$unit" || die "the runner unit still sets ProcSubset=pid"
+    # The probe the unit's real properties allow: a transient unit with the runner's view reads
+    # /proc/uptime and /proc/meminfo, which the starter skill system_overview needs.
+    systemd-run --wait --pipe -p ProcSubset=all -p ProtectProc=default \
+        sh -c 'test -r /proc/uptime && test -r /proc/meminfo' || die "/proc/uptime or /proc/meminfo is not readable with the runner's ProcSubset"
+)
+row_end $?
+
 echo "$passed passed, $failed failed, $skipped skipped"
 [ "$failed" -eq 0 ]

@@ -231,7 +231,16 @@ pub fn evaluate(device: &str, report: &Report, baselines: &mut Baselines) -> Vec
 /// present, else from `smartctl --scan-open`.
 async fn scan_devices(ctx: &mut CheckContext<'_>) -> Result<Vec<String>, CheckError> {
     if let Some(port) = ctx.privileged {
-        let devices = port.smart_scan().await.map_err(helper_error)?;
+        // A host with no SMART-capable disk (an SD card, a virtual disk) makes the scan
+        // unparsable: that is "not applicable", not a failed check.
+        let devices = match port.smart_scan().await.map_err(helper_error) {
+            Ok(devices) => devices,
+            Err(CheckError::Helper(why)) if why.contains("output_malformed") => {
+                tracing::debug!("no SMART devices: {why}");
+                return Ok(Vec::new());
+            }
+            Err(err) => return Err(err),
+        };
         return Ok(devices.iter().map(|d| d.as_str().to_owned()).collect());
     }
     let scan_output = run_command(ctx, ctx.commands.smartctl_scan()?).await?;

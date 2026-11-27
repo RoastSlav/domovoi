@@ -16,6 +16,8 @@ thresholds = { warning_free_pct = 10, critical_free_pct = 4 }
 
 An unknown threshold key is an error that names the key. Every check is enabled unless its section sets `enabled = false`.
 
+Overrides saved in the hub (`PUT /api/v1/hosts/{name}/checks`) follow the same rules, and the hub refuses a bad one with a 400 that names the key and the allowed range: an unknown check, an unknown threshold key, a value outside its range (percentages 0 to 100, counts 1 to 1000 and so on), and an interval below the minimum for that check (60 seconds for `disk.free`, `system.reboot`, `system.reboot_required` and `security.fail2ban`, 300 for `smart.health`, 10 for the others, and at most 86400). The agent checks every override again when it receives it; it applies none of a refused check's override and tells the hub why, and the hub shows the reason as `refused` on the host's checks.
+
 ## Summary
 
 | Key | Source | Default cadence | Class | Fires when (defaults) |

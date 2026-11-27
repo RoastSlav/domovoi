@@ -209,6 +209,8 @@ pub(super) async fn json_rejections(response: Response) -> Response {
     };
     let message = if status == StatusCode::UNSUPPORTED_MEDIA_TYPE {
         "send the body as JSON with the header Content-Type: application/json".to_owned()
+    } else if text.contains("EOF while parsing") {
+        "the request needs a JSON body and none was sent; send the fields the endpoint lists in the API reference".to_owned()
     } else {
         format!("the request body could not be read: {text}")
     };
