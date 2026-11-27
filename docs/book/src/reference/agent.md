@@ -109,7 +109,7 @@ Requests run beside the link, at most 4 at once. If 32 more are waiting, new one
 
 ### Unit restarts
 
-A `unit.restart` request carries the unit id the hub planned. The agent checks it in this order and stops at the first refusal: the privilege boundary, the platform tier, the helper's `systemd` groups, the unit identity, and, for a request labelled `policy`, the `[unattended]` ceiling. A request labelled `human` skips only the ceiling. The agent counts a policy-labelled restart from its own journal, so `max_per_hour` holds across restarts of the agent, and it refuses a policy-labelled request when `[unattended]` is missing, disabled, does not list the unit or has used its hour. It reports its ceiling to the hub when it connects; the hub cannot set or widen it. See [Restarting a service](../guide/unit-restart.md).
+A `unit.restart` request carries the unit id the hub planned. The agent checks it in this order and stops at the first refusal: the privilege boundary, the platform tier, the helper's `systemd.write` group, the unit identity, and, for a request labelled `policy`, the `[unattended]` ceiling. A request labelled `human` skips only the ceiling. The agent counts a policy-labelled restart from its own journal, so `max_per_hour` holds across restarts of the agent, and it refuses a policy-labelled request when `[unattended]` is missing, disabled, does not list the unit or has used its hour. It reports its ceiling to the hub when it connects; the hub cannot set or widen it. See [Restarting a service](../guide/unit-restart.md).
 
 ### Docker and other reads through the helper
 

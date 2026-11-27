@@ -177,7 +177,7 @@ async fn a_ceiling_entry_says_whether_the_helper_would_serve_it() {
     let a = api().await;
     let login = a.admin().await;
 
-    // Allowed by the agent's ceiling, but the helper has no `systemd` group: the row says so.
+    // Allowed by the agent's ceiling, but the helper has no `systemd.write` group: the row says so.
     connect(&a, helper_words(&[]));
     let reply = a.get("/api/v1/hosts/nas/ceiling", &login).await;
     let entries = reply.body["entries"].as_array().expect("entries");

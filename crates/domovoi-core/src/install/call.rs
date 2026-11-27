@@ -101,6 +101,20 @@ pub enum PackageCall {
         /// The version to remove.
         version: PackageVersion,
     },
+    /// Re-verify a stored package's files and let its skills run.
+    Enable {
+        /// The package name.
+        package: PackageName,
+        /// The stored version.
+        version: PackageVersion,
+    },
+    /// Stop a stored package's skills from running; the files stay.
+    Disable {
+        /// The package name.
+        package: PackageName,
+        /// The stored version.
+        version: PackageVersion,
+    },
     /// List what is installed.
     List,
 }
@@ -112,6 +126,8 @@ impl PackageCall {
         match self {
             Self::Install { .. } => "agent.package.install",
             Self::Uninstall { .. } => "agent.package.uninstall",
+            Self::Enable { .. } => "agent.package.enable",
+            Self::Disable { .. } => "agent.package.disable",
             Self::List => "agent.package.list",
         }
     }
@@ -132,7 +148,9 @@ impl PackageCall {
                 args.insert(keys::ARG_ARTIFACT_TRANSFER, artifact_transfer.to_string());
                 args.insert(keys::ARG_SIGNATURE_TRANSFER, signature_transfer.to_string());
             }
-            Self::Uninstall { package, version } => {
+            Self::Uninstall { package, version }
+            | Self::Enable { package, version }
+            | Self::Disable { package, version } => {
                 args.insert(keys::ARG_PACKAGE, package.to_string());
                 args.insert(keys::ARG_VERSION, version.to_string());
             }
@@ -145,7 +163,10 @@ impl PackageCall {
     #[must_use]
     pub fn target_text(&self) -> String {
         match self {
-            Self::Install { package, .. } | Self::Uninstall { package, .. } => {
+            Self::Install { package, .. }
+            | Self::Uninstall { package, .. }
+            | Self::Enable { package, .. }
+            | Self::Disable { package, .. } => {
                 format!("package:{package}")
             }
             Self::List => "packages:all".to_owned(),

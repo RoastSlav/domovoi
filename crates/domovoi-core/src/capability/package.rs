@@ -81,8 +81,8 @@ pub fn known_contracts() -> Vec<CapabilityContract> {
         .collect()
 }
 
-/// The contracts of `agent.package.install`, `agent.package.uninstall` and
-/// `agent.package.list`, version 1, in that order.
+/// The contracts of `agent.package.install`, `uninstall`, `enable`, `disable` and `list`,
+/// version 1, in that order.
 #[must_use]
 pub fn package_contracts() -> Vec<CapabilityContract> {
     vec![
@@ -106,6 +106,22 @@ pub fn package_contracts() -> Vec<CapabilityContract> {
             schema(&[(keys::ARG_PACKAGE, false), (keys::ARG_VERSION, false)]),
             60,
             "the package no longer appears in agent.package.list",
+        ),
+        mutating(
+            "agent.package.enable",
+            "Enable package skills",
+            "Re-verifies the files of a stored package against the tree recorded at install and lets its skills run on this host.",
+            schema(&[(keys::ARG_PACKAGE, false), (keys::ARG_VERSION, false)]),
+            60,
+            "the package appears in agent.package.list as executable",
+        ),
+        mutating(
+            "agent.package.disable",
+            "Disable package skills",
+            "Stops the skills of a stored package from running; the files stay on the host.",
+            schema(&[(keys::ARG_PACKAGE, false), (keys::ARG_VERSION, false)]),
+            60,
+            "the package appears in agent.package.list as not executable",
         ),
         CapabilityContract {
             id: ContractId::from_static("agent.package.list"),

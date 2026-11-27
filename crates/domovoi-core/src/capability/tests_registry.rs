@@ -368,3 +368,37 @@ fn unit_identity_is_never_claimed() {
         "{shown} is too permissive about unit identity"
     );
 }
+
+/// Every group a reason text tells the owner to add must be a group the helper knows: advice
+/// with an unknown name makes the helper refuse its whole config.
+#[test]
+fn group_names_in_reason_texts_are_known_helper_groups() {
+    use crate::helper::HelperGroup;
+    let reasons = [
+        UnavailableReason::HelperError,
+        UnavailableReason::WriteSkillNeedsRoot,
+        UnavailableReason::HelperSystemdGroupMissing,
+        UnavailableReason::HelperNftGroupMissing,
+        UnavailableReason::DockerWriteUnsupported,
+    ];
+    let mut checked = 0;
+    for reason in reasons {
+        let text = reason.describe();
+        let parts: Vec<&str> = text.split('`').collect();
+        for (index, token) in parts.iter().enumerate().skip(1).step_by(2) {
+            let before = parts[index - 1];
+            let after = parts.get(index + 1).copied().unwrap_or("");
+            let names_group = before.trim_end().ends_with("add")
+                || before.trim_end().ends_with("needs the")
+                || after.starts_with(" group");
+            if names_group {
+                checked += 1;
+                assert!(
+                    HelperGroup::parse(token).is_some(),
+                    "{reason:?} names the helper group {token:?}, which does not exist"
+                );
+            }
+        }
+    }
+    assert!(checked >= 2, "the scan found only {checked} group names");
+}

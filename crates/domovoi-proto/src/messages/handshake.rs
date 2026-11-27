@@ -213,6 +213,26 @@ pub struct Hello {
     /// What the agent found out about the container runtime. `None` from older agents.
     #[serde(default)]
     pub docker: Option<DockerReport>,
+    /// Every skill of a package stored on the host, enabled or not, so the hub can list the
+    /// ones that are off with the reason. Empty from older agents and from hosts with no packages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_skills: Vec<PackageSkillState>,
+}
+
+/// One skill of a stored package and whether it can run.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PackageSkillState {
+    /// The package the skill came from.
+    pub package: String,
+    /// The stored version.
+    pub version: String,
+    /// The skill's name.
+    pub skill: String,
+    /// Whether the skill is in the agent's catalogue and can run.
+    pub enabled: bool,
+    /// Why it is not enabled; absent when it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 fn default_epoch() -> Uuid {

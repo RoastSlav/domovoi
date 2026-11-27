@@ -100,7 +100,7 @@ pub enum UnavailableReason {
     /// A skill that changes the host on an agent that does not run as root: the skill
     /// runner's account cannot change the host.
     WriteSkillNeedsRoot,
-    /// The helper is running but offers no `systemd` write group, so it cannot restart a unit
+    /// The helper is running but offers no `systemd.write` group, so it cannot restart a unit
     /// or run `unit.identity`.
     HelperSystemdGroupMissing,
     /// The helper is running but offers no complete `nft` group, so it cannot contain a source.
@@ -235,7 +235,13 @@ impl UnavailableReason {
             Self::SkillRunnerUnsupported => "the skill runner on this host cannot be used",
             Self::SkillRunnerError => "the skill runner on this host reported an error",
             Self::HelperMissing => "this host has no helper for privileged operations",
-            Self::HelperError => "the helper on this host reported an error",
+            Self::HelperError => {
+                "the helper on this host reported an error; the Helper tab shows its reason. If it \
+                 says helper_config_invalid, /etc/domovoi/helper.toml is wrong (for example an \
+                 unknown group name): the helper logs the exact key, see `journalctl -u \
+                 domovoi-helper.socket -u 'domovoi-helper@*'`; until it is fixed the helper \
+                 serves no reads"
+            }
             Self::CatalogueIncomplete => "this host's capability catalogue is not verified",
             Self::CatalogueHashMismatch => {
                 "the catalogue this host serves does not match what it announced"
@@ -252,11 +258,11 @@ impl UnavailableReason {
             Self::WriteSkillNeedsRoot => {
                 "write skills change the host as root, and the skill runner account on this \
                  host is not root; to restart a unit here, use `unit.restart` through the \
-                 helper (it needs the `systemd` group in /etc/domovoi/helper.toml)"
+                 helper (it needs the `systemd.write` group in /etc/domovoi/helper.toml)"
             }
             Self::HelperSystemdGroupMissing => {
-                "the helper on this host does not offer unit restarts: add `systemd` to `groups` \
-                 and set `[systemd] restart_units` in /etc/domovoi/helper.toml, then restart the \
+                "the helper on this host does not offer unit restarts: add `systemd.write` to \
+                 `groups` and set `[systemd] restart_units` in /etc/domovoi/helper.toml, then restart the \
                  helper (on a platform the helper has not been tested on, also set \
                  `allow_write_groups_on_untested`)"
             }
