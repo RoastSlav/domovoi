@@ -619,6 +619,24 @@ expression: spec
         ],
         "type": "object"
       },
+      "BlindDto": {
+        "description": "Why a check is blind and how to make it see again.",
+        "properties": {
+          "fix": {
+            "description": "What to do on the host.",
+            "type": "string"
+          },
+          "why": {
+            "description": "Why the check cannot read, in the check's own words.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "why",
+          "fix"
+        ],
+        "type": "object"
+      },
       "BlockDto": {
         "description": "One block the hub recorded.",
         "properties": {
@@ -3510,6 +3528,17 @@ expression: spec
             "format": "int64",
             "minimum": 0,
             "type": "integer"
+          },
+          "blind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BlindDto",
+                "description": "Set when the incident says a check cannot read what it watches: why, and the fix."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "card": {
             "$ref": "#/components/schemas/CardDto",

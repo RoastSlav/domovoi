@@ -61,7 +61,7 @@ A dismissed incident that keeps firing reopens within the reopen window, quietly
 
 ## What triggers triage
 
-An incident asks for triage when it opens, when it reopens and when its severity rises.
+An incident asks for triage when it opens, when it reopens and when its severity rises. The exception is an incident that says a check [cannot read the journal](../reference/checks.md#when-the-journal-cannot-be-read): it gives the reason and the fix itself.
 
 Open an incident and look at its **Triage** section. With a report, **Run triage again** runs the model from scratch with the current skills, notes and evidence, even when a cached report would fit. When the last run was skipped or failed, the section says why in words and the button says **Retry triage**; before any run it says **Run triage**. While a run you started is going, the section shows progress in place of the result. Every run counts against the same hourly and monthly caps as any other.
 

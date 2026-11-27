@@ -329,7 +329,8 @@ async fn retry_gate(
     if matches!(
         incident.status(),
         IncidentStatus::Pending | IncidentStatus::Resolved | IncidentStatus::Muted { .. }
-    ) {
+    ) || incident.is_monitoring_blind()
+    {
         return Gate::Done(quiet(shared, held, operation).await);
     }
     let entries = match runtime.triage.deps.incidents.timeline(incident.id()).await {

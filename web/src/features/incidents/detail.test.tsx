@@ -521,6 +521,26 @@ test("a_parked_retry_still_says_why_it_waits", async () => {
   expect(screen.queryByText("Triage failed")).toBeNull();
 });
 
+test("a_blind_check_says_why_and_how_to_fix_it_and_offers_no_triage", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    report: null,
+    triage: null,
+    blind: {
+      why: "this agent account may not read the system journal",
+      fix: "On nas, run `sudo usermod -aG systemd-journal domovoi-agent`.",
+    },
+  }));
+  open();
+
+  expect(await screen.findByText("This check cannot see what it watches")).toBeVisible();
+  expect(screen.getByText(/may not read the system journal/)).toBeVisible();
+  expect(screen.getByText(/usermod -aG systemd-journal/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: /triage/i })).toBeNull();
+  expect(screen.queryByText(/Triage has not run/)).toBeNull();
+});
+
 test("triage_that_was_skipped_says_why", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({

@@ -316,6 +316,10 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
             if status == IncidentStatus::Pending || (only_open && status != IncidentStatus::Open) {
                 continue;
             }
+            // A blind check says why on its own; only a person's request investigates it.
+            if incident.is_monitoring_blind() {
+                continue;
+            }
             let covered = rules.iter().any(|rule| {
                 rule.covers_incident(
                     incident.host(),

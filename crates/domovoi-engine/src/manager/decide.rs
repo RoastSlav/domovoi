@@ -71,7 +71,7 @@ fn not_allowed(err: TransitionError) -> CommandError {
 }
 
 /// Accumulates writes and events while one command is decided.
-struct Builder<'a> {
+pub(super) struct Builder<'a> {
     state: State,
     policy: &'a EnginePolicy,
     now: Timestamp,
@@ -95,7 +95,7 @@ impl Builder<'_> {
         }));
     }
 
-    fn event(&mut self, kind: EventKind, incident: &Incident, notify: bool) {
+    pub(super) fn event(&mut self, kind: EventKind, incident: &Incident, notify: bool) {
         self.out
             .events
             .push(DomainEvent::new(kind, incident, notify));
@@ -115,11 +115,11 @@ impl Builder<'_> {
             match change {
                 IncidentChange::Confirmed => {
                     self.event(EventKind::IncidentOpened, incident, notify);
-                    self.event(EventKind::TriageRequested, incident, notify);
+                    self.request_triage(incident, notify);
                 }
                 IncidentChange::Reopened => {
                     self.event(EventKind::IncidentReopened, incident, notify);
-                    self.event(EventKind::TriageRequested, incident, notify);
+                    self.request_triage(incident, notify);
                 }
                 IncidentChange::Folded { occurrences } => {
                     if let Some(signal) = signal {
@@ -140,7 +140,7 @@ impl Builder<'_> {
                             to: *to,
                         };
                         self.event(kind, incident, notify);
-                        self.event(EventKind::TriageRequested, incident, notify);
+                        self.request_triage(incident, notify);
                     }
                     self.timeline(
                         incident,

@@ -6,13 +6,13 @@ use std::sync::{Arc, Mutex};
 
 use domovoi_config::HubConfig;
 use domovoi_core::ports::{
-    AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo, MessageRef, Notifier,
-    NotifyStateRepo, OutboundMessage, SignalRepo, StoreError,
+    AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo, IncidentTimelineEntry,
+    MessageRef, Notifier, NotifyStateRepo, OutboundMessage, SignalRepo, StoreError,
 };
 use domovoi_core::triage::current_episode;
 use domovoi_core::{Advisory, AdvisoryKind, Card, ChatRefs, Incident, NotifyState, TriageOutcome};
 use domovoi_engine::advisories::advisory_id;
-use domovoi_engine::cards::{CardLinks, MAX_PLANS, build_card};
+use domovoi_engine::cards::{CardLinks, MAX_PLANS, build_card, card_signal, signals_for_card};
 use domovoi_engine::events::{DomainEvent, EventKind};
 use domovoi_engine::notify::{self, NotifyAction, NotifySettings};
 use domovoi_engine::operations::waiting_steps;
@@ -310,13 +310,13 @@ impl Delivery {
                 return None;
             }
         };
-        let latest = self
+        let signals = self
             .store
-            .list_for_incident(incident.id(), 1)
+            .list_for_incident(incident.id(), signals_for_card(incident))
             .await
-            .ok()
-            .and_then(|signals| signals.into_iter().next());
-        let report = self.latest_report(incident).await;
+            .unwrap_or_default();
+        let entries = self.store.timeline(incident.id()).await.unwrap_or_default();
+        let report = latest_report(incident, &entries);
         let steps = waiting_steps(&*self.store, incident, &host.name, MAX_PLANS)
             .await
             .unwrap_or_else(|err| {
@@ -332,24 +332,8 @@ impl Delivery {
                 tokens,
                 steps,
             },
-            latest.as_ref(),
+            card_signal(incident, &signals),
         ))
-    }
-
-    async fn latest_report(&self, incident: &Incident) -> Option<domovoi_core::TriageReport> {
-        let entries = self.store.timeline(incident.id()).await.ok()?;
-        let current = current_episode(incident.check(), &entries);
-        current.iter().rev().cloned().find_map(|entry| {
-            if !matches!(entry.kind.as_str(), "triage.report" | "triage.cached") {
-                return None;
-            }
-            match serde_json::from_value::<TriageOutcome>(entry.detail).ok()? {
-                TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } => {
-                    Some(report)
-                }
-                _ => None,
-            }
-        })
     }
 
     /// Brings `incident`'s card up to date after missed events: an existing card is updated,
@@ -482,4 +466,21 @@ impl Delivery {
             Err(err) => tracing::warn!(%err, %gateway, "could not clear a delivery advisory"),
         }
     }
+}
+
+/// The newest report of the incident as it stands, which a card shows.
+fn latest_report(
+    incident: &Incident,
+    entries: &[IncidentTimelineEntry],
+) -> Option<domovoi_core::TriageReport> {
+    let current = current_episode(incident.check(), entries);
+    current.iter().rev().cloned().find_map(|entry| {
+        if !matches!(entry.kind.as_str(), "triage.report" | "triage.cached") {
+            return None;
+        }
+        match serde_json::from_value::<TriageOutcome>(entry.detail).ok()? {
+            TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } => Some(report),
+            _ => None,
+        }
+    })
 }

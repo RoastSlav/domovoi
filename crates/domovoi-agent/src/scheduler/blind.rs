@@ -3,12 +3,11 @@
 use std::collections::BTreeSet;
 
 use domovoi_checks::framework::Check;
-use domovoi_core::{Evidence, EvidenceValue, HostId, Severity, Signal, SourceKind, TargetKey};
+use domovoi_core::{
+    BLIND_REASON_KEY, BLIND_TARGET, Evidence, EvidenceValue, HostId, Severity, Signal, SourceKind,
+    TargetKey,
+};
 use jiff::Timestamp;
-
-/// The target of the signal that says a check cannot read the journal it watches. The colon
-/// keeps it apart from user, unit and pattern names.
-pub const BLIND_TARGET: &str = "journal:unreadable";
 
 /// The signal for a check that could not read its journal: its events are not being watched,
 /// and an unwatched log must never look like a quiet one.
@@ -18,7 +17,7 @@ pub fn blind_signal(host: HostId, check: &dyn Check, why: &str, now: Timestamp) 
     let summary = format!("{key} cannot read the journal, so its events are not being seen");
     let target = TargetKey::parse(BLIND_TARGET).ok();
     let mut evidence = Evidence::new();
-    evidence.insert("reason", EvidenceValue::Text(why.to_owned()));
+    evidence.insert(BLIND_REASON_KEY, EvidenceValue::Text(why.to_owned()));
     Signal::firing(
         SourceKind::Agent,
         host,

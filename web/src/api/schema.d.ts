@@ -2395,6 +2395,13 @@ export interface components {
             /** @description Rules whose breaker is open. */
             suspended_rules: components["schemas"]["SuspendedRuleDto"][];
         };
+        /** @description Why a check is blind and how to make it see again. */
+        BlindDto: {
+            /** @description What to do on the host. */
+            fix: string;
+            /** @description Why the check cannot read, in the check's own words. */
+            why: string;
+        };
         /** @description One block the hub recorded. */
         BlockDto: {
             /** @description When the helper applied the block. */
@@ -3557,6 +3564,7 @@ export interface components {
              * @description The journal position this snapshot was read at; apply only events with a greater `seq`.
              */
             as_of_seq: number;
+            blind?: components["schemas"]["BlindDto"] | null;
             /** @description The chat card. */
             card: components["schemas"]["CardDto"];
             /** @description The host's name. */

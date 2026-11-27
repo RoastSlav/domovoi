@@ -12,6 +12,7 @@ pub mod advisory;
 pub mod attest;
 pub mod audit_chain;
 pub mod baseline;
+pub mod blind;
 pub mod capability;
 pub mod card;
 pub mod containment;
@@ -64,6 +65,7 @@ pub use actor::{
 pub use addr::{canonical_cidr, in_cidr, valid_cidr};
 pub use advisory::{Advisory, AdvisoryKind};
 pub use baseline::{BaselineEntry, BaselineKind, Criticality};
+pub use blind::{BLIND_REASON_KEY, BLIND_TARGET, BlindNotice, blind_notice};
 pub use capability::{
     Availability, AvailabilityEntry, CapabilityContract, CatalogSnapshot, ContractId, EffectClass,
     ResolvedTarget, TargetError, TargetKind, TargetQuery,

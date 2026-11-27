@@ -6,16 +6,17 @@ use axum::http::StatusCode;
 use domovoi_core::ports::IncidentFilter;
 use domovoi_core::{
     AckRule, AckRuleId, Incident, IncidentGroup, IncidentId, IncidentStatus, Severity,
-    TargetPattern, TriageOutcome,
+    TargetPattern, TriageOutcome, blind_notice,
 };
-use domovoi_engine::cards::{CardLinks, build_card};
+use domovoi_engine::cards::{CardLinks, build_card, card_signal, signals_for_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
 use super::audit_note::note;
 use super::dto::{
-    AskRequest, AskResponse, CardDto, DismissRequest, IncidentDetail, IncidentPage, IncidentQuery,
-    IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto, TriageStateDto,
+    AskRequest, AskResponse, BlindDto, CardDto, DismissRequest, IncidentDetail, IncidentPage,
+    IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
+    TriageStateDto,
 };
 use super::error::{ApiError, ErrorBody, busy};
 use super::operation_errors::{command, operation_error};
@@ -137,12 +138,12 @@ pub(super) async fn detail(
         _ => latest_report(current),
     };
     let triage = outcome.as_ref().map(TriageStateDto::from);
-    let latest = deps
+    let signals = deps
         .signals
-        .list_for_incident(incident.id(), 1)
-        .await?
-        .into_iter()
-        .next();
+        .list_for_incident(incident.id(), signals_for_card(&incident))
+        .await?;
+    let blind = blind_notice(&incident, &host.name, &signals);
+    let latest = card_signal(&incident, &signals);
     let steps = domovoi_engine::operations::waiting_steps(
         &*deps.operation_repo,
         &incident,
@@ -158,7 +159,7 @@ pub(super) async fn detail(
             steps,
             ..CardLinks::default()
         },
-        latest.as_ref(),
+        latest,
     );
     Ok(Json(IncidentDetail {
         incident: IncidentSummary::from(&incident),
@@ -171,6 +172,10 @@ pub(super) async fn detail(
         tools_used: tool_usage(&timeline),
         as_of_seq,
         known_condition: dismissed_rule(&state, &incident, &timeline).await?,
+        blind: blind.map(|notice| BlindDto {
+            why: notice.why,
+            fix: notice.fix,
+        }),
     }))
 }
 
@@ -521,6 +526,11 @@ pub(super) async fn retry_triage(
         )),
         Err(RetriageError::AlreadyRunning) => Err(ApiError::Conflict(
             "an investigation is already running for this incident".to_owned(),
+        )),
+        Err(RetriageError::MonitoringBlind) => Err(ApiError::Conflict(
+            "this incident says a check cannot read what it watches; triage has nothing to add. \
+             Follow the fix on the incident page, or ask a question in its chat"
+                .to_owned(),
         )),
         Err(RetriageError::Operation(err)) => Err(operation_error(err)),
     }

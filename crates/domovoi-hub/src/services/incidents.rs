@@ -40,6 +40,8 @@ pub enum RetriageError {
     OperationsOff,
     /// An investigation of this incident is already running.
     AlreadyRunning,
+    /// The incident says a check is blind: it already gives the reason and the fix.
+    MonitoringBlind,
     /// The operation service refused or failed.
     Operation(OperationError),
 }
@@ -98,6 +100,9 @@ impl IncidentService {
         incident: &Incident,
         fresh: bool,
     ) -> Result<Retriaged, RetriageError> {
+        if incident.is_monitoring_blind() {
+            return Err(RetriageError::MonitoringBlind);
+        }
         if self.triage.is_none() {
             return Err(RetriageError::TriageOff);
         }

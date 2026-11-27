@@ -99,6 +99,8 @@ mod reconciliation;
 #[cfg(test)]
 mod rules;
 #[cfg(test)]
+mod security_events;
+#[cfg(test)]
 mod service_parity;
 #[cfg(test)]
 mod sessions;

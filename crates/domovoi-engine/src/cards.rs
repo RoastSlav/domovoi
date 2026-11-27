@@ -9,13 +9,15 @@
 use std::collections::BTreeMap;
 
 use domovoi_core::{
-    Card, CardBadge, CardButton, CardPlan, EvidenceValue, ExecutionId, HostName, Incident,
-    IncidentStatus, Risk, Signal, TriageReport,
+    BLIND_REASON_KEY, Card, CardBadge, CardButton, CardPlan, EvidenceValue, ExecutionId, HostName,
+    Incident, IncidentStatus, Risk, Signal, TriageReport, blind_notice,
 };
 use jiff::Timestamp;
 
 /// Longest headline, in characters.
 pub const HEADLINE_MAX_CHARS: usize = 120;
+/// Longest line that says why: a cut reason would lose the part that says what to do.
+const REASON_MAX_CHARS: usize = 400;
 /// Most bullets on a card.
 pub const MAX_BULLETS: usize = domovoi_core::card::MAX_BULLETS;
 /// Most waiting steps a card lists and offers buttons for.
@@ -32,6 +34,28 @@ pub struct CardLinks {
     pub tokens: BTreeMap<ExecutionId, String>,
     /// Execution steps waiting for approval.
     pub steps: Vec<WaitingStep>,
+}
+
+/// How many of an incident's newest signals a card needs: one, except for a blind check,
+/// whose newest signal may be the recovery that gives no reason.
+#[must_use]
+pub fn signals_for_card(incident: &Incident) -> u16 {
+    if incident.is_monitoring_blind() {
+        20
+    } else {
+        1
+    }
+}
+
+/// The signal a card takes its evidence from, out of the newest ones, newest first.
+#[must_use]
+pub fn card_signal<'a>(incident: &Incident, signals: &'a [Signal]) -> Option<&'a Signal> {
+    signals
+        .iter()
+        .find(|signal| {
+            !incident.is_monitoring_blind() || signal.evidence().get(BLIND_REASON_KEY).is_some()
+        })
+        .or_else(|| signals.first())
 }
 
 /// One Execution step waiting for approval, as the card needs it. Built from the stored
@@ -193,6 +217,9 @@ pub fn build_card(
     latest: Option<&Signal>,
 ) -> Card {
     let resolved = incident.status() == IncidentStatus::Resolved;
+    // A blind check says why and how to fix it itself; a report cannot add to that.
+    let blind = blind_notice(incident, host, latest);
+    let report = report.filter(|_| blind.is_none());
     let badge = match report.map(|r| r.verdict).or(incident.verdict()) {
         Some(verdict) => CardBadge::Verdict(verdict),
         None => CardBadge::Severity(incident.severity()),
@@ -226,10 +253,16 @@ pub fn build_card(
         host: host.clone(),
         badge,
         headline,
-        bullets: bullets(report, latest),
-        next_step: report
-            .map(|r| r.next_step.trim().to_owned())
-            .filter(|s| !s.is_empty()),
+        bullets: match &blind {
+            Some(notice) => vec![clip(&format!("Why: {}", notice.why), REASON_MAX_CHARS)],
+            None => bullets(report, latest),
+        },
+        next_step: match blind {
+            Some(notice) => Some(notice.fix),
+            None => report
+                .map(|r| r.next_step.trim().to_owned())
+                .filter(|s| !s.is_empty()),
+        },
         buttons,
         plans,
         details: details(report),

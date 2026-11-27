@@ -286,6 +286,17 @@ pub struct IncidentDetail {
     /// The id of the known condition made when this incident was dismissed with a period, so
     /// the page can link to it; null when it was not dismissed or no rule was made.
     pub known_condition: Option<String>,
+    /// Set when the incident says a check cannot read what it watches: why, and the fix.
+    pub blind: Option<BlindDto>,
+}
+
+/// Why a check is blind and how to make it see again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct BlindDto {
+    /// Why the check cannot read, in the check's own words.
+    pub why: String,
+    /// What to do on the host.
+    pub fix: String,
 }
 
 /// One skill or tool used while triaging or answering a follow-up.

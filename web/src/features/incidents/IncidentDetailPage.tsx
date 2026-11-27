@@ -14,6 +14,7 @@ import {
   Text,
 } from "../../components";
 import { IncidentOperations } from "../operations/IncidentOperations";
+import { BlindNotice } from "./BlindNotice";
 import { IncidentChat } from "./IncidentChat";
 import { IncidentControls } from "./IncidentControls";
 import { IncidentDetails } from "./IncidentDetails";
@@ -91,7 +92,7 @@ export function IncidentDetailPage() {
   const { card, report, timeline, host, tools_used } = data;
   const summary = data.incident;
   // With a report its summary and cause are shown above; the card's details repeat them.
-  const details = report ? report.details : card.details;
+  const details = data.blind ? "" : report ? report.details : card.details;
   return (
     <>
       <PageHeader
@@ -102,23 +103,32 @@ export function IncidentDetailPage() {
       <div className={styles.detail} data-columns={wide ? 2 : 1}>
         <div className={styles.main}>
           <div className={styles.slot} data-slot="going">
-            <WhatsGoingOn detail={data} off={modelOff} />
+            {data.blind ? (
+              <BlindNotice blind={data.blind} resolved={summary.status === "resolved"} />
+            ) : (
+              <WhatsGoingOn detail={data} off={modelOff} />
+            )}
           </div>
           <div className={styles.slot} data-slot="operations">
             <IncidentOperations operations={data.operations} />
           </div>
-          {data.operations.length > 0 && (
+          {data.operations.length > 0 && !data.blind && (
             <div className={styles.slot} data-slot="experience">
               <Suspense fallback={null}>
                 <SimilarOperations source={{ incident: summary.id }} />
               </Suspense>
             </div>
           )}
-          <div className={styles.slot} data-slot="evidence">
-            <IncidentEvidence detail={data} />
-          </div>
+          {!data.blind && (
+            <div className={styles.slot} data-slot="evidence">
+              <IncidentEvidence detail={data} />
+            </div>
+          )}
           <div className={styles.slot} data-slot="byhand">
-            <ManualSteps incidentId={summary.id} steps={report?.manual_steps ?? []} />
+            <ManualSteps
+              incidentId={summary.id}
+              steps={data.blind ? [] : (report?.manual_steps ?? [])}
+            />
           </div>
           {details && (
             <div className={styles.slot} data-slot="details">

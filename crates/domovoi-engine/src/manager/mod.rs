@@ -11,6 +11,7 @@ mod command;
 mod commit;
 mod decide;
 mod dismiss;
+mod events;
 mod expected;
 mod fold;
 mod handle;

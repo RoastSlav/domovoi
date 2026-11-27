@@ -181,7 +181,7 @@ pub(super) async fn sweep(handle: &OperationHandle, runtime: &Runtime) {
                     now,
                 )
             });
-            if covered {
+            if covered || incident.is_monitoring_blind() {
                 continue;
             }
             let Ok(operations) = handle

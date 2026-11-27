@@ -9689,6 +9689,24 @@
           }
         }
       },
+      "BlindDto": {
+        "type": "object",
+        "description": "Why a check is blind and how to make it see again.",
+        "required": [
+          "why",
+          "fix"
+        ],
+        "properties": {
+          "fix": {
+            "type": "string",
+            "description": "What to do on the host."
+          },
+          "why": {
+            "type": "string",
+            "description": "Why the check cannot read, in the check's own words."
+          }
+        }
+      },
       "BlockDto": {
         "type": "object",
         "description": "One block the hub recorded.",
@@ -12590,6 +12608,17 @@
             "format": "int64",
             "description": "The journal position this snapshot was read at; apply only events with a greater `seq`.",
             "minimum": 0
+          },
+          "blind": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BlindDto",
+                "description": "Set when the incident says a check cannot read what it watches: why, and the fix."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "card": {
             "$ref": "#/components/schemas/CardDto",

@@ -32,7 +32,8 @@ use tokio_util::sync::CancellationToken;
 
 mod blind;
 
-pub use blind::{BLIND_TARGET, blind_signal};
+pub use blind::blind_signal;
+pub use domovoi_core::BLIND_TARGET;
 
 use crate::checks::CheckSet;
 use crate::link::LinkHandle;

@@ -107,6 +107,8 @@ Fires with warning severity while `/var/run/reboot-required` exists, as written 
 
 `kernel.errors`, `security.ssh_login` and `security.sudo_failure` read the journal. An account that may not read the system journal gets an empty answer and a warning from `journalctl`, which is not the same as a quiet host. When journalctl refuses the account, finds no journal, does not finish or fails, the check fails and the agent raises a warning incident for it with the target `journal:unreadable`: "`<check>` cannot read the journal, so its events are not being seen". The evidence field `reason` says why. The cursor stays where it was, so the missed lines are read once access is back, and the warning then resolves by itself. For a refused account, add `domovoi-agent` to the `systemd-journal` group and restart the agent. In a container, where `journalctl` is not used at all, these checks are unavailable and raise nothing.
 
+Such an incident is about the check, not about the host. Its page and its chat card give the reason and the fix, and no triage runs for it, by itself or on request, because a model can read nothing the check could not. Questions in the incident's chat still work.
+
 ## `kernel.errors`
 
 Reads the kernel journal since the last run, using a journal cursor kept in the check's state, so every line is looked at once. The first run reads the last 15 minutes. Lines are matched case-insensitively, and each pattern is its own target:
