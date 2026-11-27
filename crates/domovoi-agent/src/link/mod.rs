@@ -12,6 +12,7 @@
 pub mod backoff;
 pub mod frame;
 pub mod handshake;
+pub mod report;
 pub mod status;
 pub mod tls;
 pub mod transfers;
@@ -161,6 +162,8 @@ pub struct LinkParts {
 pub struct Link {
     parts: LinkParts,
     backoff: Backoff,
+    /// The outage and session the log lines tell about.
+    outage: report::Outage,
     outbox: mpsc::Receiver<Outgoing>,
     requests: mpsc::Sender<IncomingRequest>,
 }
@@ -182,6 +185,7 @@ impl Link {
         let link = Self {
             parts,
             backoff: Backoff::new(jitter),
+            outage: report::Outage::default(),
             outbox,
             requests,
         };
@@ -193,6 +197,7 @@ impl Link {
     pub async fn run(mut self, shutdown: CancellationToken) -> Result<(), LinkError> {
         let clock = self.parts.clock.clone();
         loop {
+            let mut unreachable = None;
             let attempt = tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
                 attempt = self.parts.connector.connect() => attempt,
@@ -234,7 +239,7 @@ impl Link {
                                     detail: Some(err.to_string()),
                                 },
                             );
-                            tracing::warn!(%err, "the hub link dropped");
+                            self.outage.log_dropped(&err, clock.now());
                         }
                     }
                 }
@@ -243,9 +248,13 @@ impl Link {
                     return Ok(());
                 }
                 Err(err) if err.is_final() => return Err(err),
-                Err(err) => tracing::warn!(%err, "could not reach the hub"),
+                Err(err) => unreachable = Some(err),
             }
             let delay = self.backoff.next_delay();
+            if let Some(err) = unreachable {
+                let hub = self.parts.connector.target();
+                self.outage.log_unreachable(&hub, &err, clock.now(), delay);
+            }
             tracing::debug!(delay_ms = delay.as_millis(), "reconnecting");
             tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
@@ -366,8 +375,9 @@ impl Link {
             () = shutdown.cancelled() => return Ok(()),
             welcome = within(&*clock, STEP_TIMEOUT, shake) => welcome.ok_or(LinkError::Timeout)??,
         };
-        tracing::info!(session = ?welcome.session_id, "connected to the hub");
         let now = clock.now();
+        let hub = self.parts.connector.target();
+        self.outage.log_connected(&hub, &welcome, now);
         write_status(
             self.parts.status_dir.as_deref(),
             &LinkStatus {

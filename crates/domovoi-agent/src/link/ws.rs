@@ -38,6 +38,11 @@ pub struct Connected {
 pub trait Connector: Send + Sync {
     /// Opens one connection.
     async fn connect(&self) -> Result<Connected, LinkError>;
+
+    /// Where this connector dials, for log lines; the in-memory connector has no address.
+    fn target(&self) -> String {
+        "the hub in this process".to_owned()
+    }
 }
 
 /// The protocol's text frames over a WebSocket.
@@ -160,5 +165,9 @@ impl TlsConnector {
 impl Connector for TlsConnector {
     async fn connect(&self) -> Result<Connected, LinkError> {
         dial(&self.url, self.verifier.clone(), &*self.clock).await
+    }
+
+    fn target(&self) -> String {
+        self.url.to_string()
     }
 }
