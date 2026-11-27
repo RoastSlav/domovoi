@@ -31,6 +31,7 @@ pub mod incident;
 pub mod install;
 pub mod interaction;
 pub mod isolation;
+pub mod log_gate;
 pub mod knowledge;
 pub mod meta;
 pub mod note;

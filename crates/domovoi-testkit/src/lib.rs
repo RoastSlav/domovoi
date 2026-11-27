@@ -24,6 +24,7 @@ pub mod helper_attest;
 pub mod host_inspect;
 pub mod link;
 pub mod live;
+pub mod log_capture;
 pub mod llm;
 pub mod logs;
 pub mod package;
