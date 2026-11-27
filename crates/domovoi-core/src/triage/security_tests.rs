@@ -119,3 +119,63 @@ fn stored_entries_are_shown_capped_and_an_earlier_episode_is_not_current() {
     assert_eq!(current_episode(&security, &entries).len(), 1);
     assert_eq!(current_episode(&check("disk.free"), &entries).len(), 2);
 }
+
+fn measured() -> TriageReport {
+    let mut r = report("MONITOR");
+    r.headline = "Repeated sudo auth failures from Domovoi agent operations".to_owned();
+    r.summary = "Likely expected behavior; the agent runs as kuker.".to_owned();
+    r.next_step = "Add NOPASSWD to sudoers if appropriate.".to_owned();
+    r
+}
+
+#[test]
+fn a_stored_report_that_waves_the_event_away_is_withheld_when_shown() {
+    let security = check("security.sudo_failure");
+    for report in [measured(), {
+        let mut r = measured();
+        r.verdict = Verdict::Fixed;
+        r
+    }] {
+        let mut outcome = TriageOutcome::Report(report);
+        assert!(outcome.cap_security(&security, TITLE));
+        let TriageOutcome::Report(r) = &outcome else {
+            panic!("the kind is kept");
+        };
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
+        assert_eq!(r.cause, "Not established.");
+        assert!(r.details.starts_with(NOT_ESTABLISHED));
+        assert!(!r.next_step.contains("NOPASSWD") && !r.headline.contains("Domovoi"));
+        assert!(
+            !outcome.cap_security(&security, TITLE),
+            "applying twice changes nothing"
+        );
+    }
+    let mut stored = vec![entry(
+        "triage.report",
+        "Repeated sudo auth failures from Domovoi agent operations",
+        serde_json::to_value(TriageOutcome::Report(measured())).expect("serializes"),
+    )];
+    show_timeline(&security, TITLE, &mut stored);
+    assert!(
+        stored[0].summary.starts_with("Not verified: ")
+            || stored[0].summary.starts_with("Needs a person: ")
+    );
+    assert!(!stored[0].summary.contains("Domovoi"));
+    let mut other = TriageOutcome::Report(measured());
+    assert!(!other.cap_security(&check("disk.free"), TITLE));
+}
+
+#[test]
+fn only_whole_words_and_the_conclusion_count() {
+    let mut r = report("ACTION_NEEDED");
+    r.headline = "An unexpected login".to_owned();
+    r.summary = "Someone signed in from a new address.".to_owned();
+    r.cause = "Not established.".to_owned();
+    r.next_step = "Check who did this.".to_owned();
+    r.details = "It might be routine, but nothing shows it.".to_owned();
+    r.evidence.clear();
+    assert!(!r.claims_without_evidence());
+    assert!(!r.cap_security(&check("security.ssh_login"), TITLE));
+    r.manual_steps = vec!["Run sudo visudo and set passwordless sudo.".to_owned()];
+    assert!(r.claims_without_evidence());
+}

@@ -11,6 +11,7 @@ use crate::ports::IncidentTimelineEntry;
 use crate::signal::CheckKey;
 use crate::verdict::Verdict;
 
+use super::claims::NOT_ESTABLISHED;
 use super::coverage::SEEN_UNTIL_KEY;
 use super::report::{HEADLINE_MAX_CHARS, TriageOutcome, TriageReport};
 
@@ -51,7 +52,7 @@ impl TriageReport {
             rejected.push_str(step);
         }
         // A report refused before keeps one copy of the reason.
-        let earlier = [NOT_DECIDED, NOT_VERIFIED, NOT_REUSED]
+        let earlier = [NOT_DECIDED, NOT_VERIFIED, NOT_REUSED, NOT_ESTABLISHED]
             .iter()
             .fold(self.details.as_str(), |text, marker| {
                 text.strip_prefix(marker).unwrap_or(text)
@@ -93,8 +94,9 @@ impl TriageReport {
     }
 
     /// Applies the security rule to a stored or copied report of `check`: `EXPECTED` becomes
-    /// `ACTION_NEEDED`, and a report capped earlier whose text still says otherwise is
-    /// rewritten. Other checks are left alone. Returns whether it changed anything.
+    /// `ACTION_NEEDED`, text that calls the event harmless, blames Domovoi or advises weaker
+    /// authentication is replaced by "Not established" (verdict at least `ACTION_NEEDED`),
+    /// and a report capped earlier whose text still says otherwise is rewritten. Other checks are left alone. Returns whether it changed anything.
     pub fn cap_security(&mut self, check: &CheckKey, title: &str) -> bool {
         if !is_security_check(check) {
             return false;
@@ -112,7 +114,7 @@ impl TriageReport {
                 return true;
             }
         }
-        false
+        self.refuse_claims(title)
     }
 }
 

@@ -52,9 +52,11 @@ pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) 
 }
 
 /// Keeps a security event from being waved away. An event check (`security.*`) records
-/// something that happened; the model may call it expected or fixed only when its evidence
-/// cites a tool that ran. Otherwise the verdict becomes `MONITOR` and `details` says why.
-/// Returns whether the verdict was changed.
+/// something that happened; the model may call it expected never, and fixed or monitor only
+/// when its evidence cites a tool that ran. Otherwise the verdict becomes `ACTION_NEEDED` and
+/// `details` says why. Text that calls the event harmless, blames Domovoi or advises weaker
+/// authentication is replaced by "Not established" whatever the verdict. Returns whether the
+/// report was changed.
 ///
 /// The evidence must have a value and come from a tool that can say something about a login,
 /// a listener or a `sudo` use: a container list or a disk report cannot tie one to a recorded
@@ -65,8 +67,11 @@ pub(crate) fn guard_security_verdict(
     report: &mut TriageReport,
     used: &[crate::triage::agent::ToolUse],
 ) -> bool {
-    if !is_security_check(check) || !matches!(report.verdict, Verdict::Expected | Verdict::Fixed) {
+    if !is_security_check(check) {
         return false;
+    }
+    if report.verdict == Verdict::ActionNeeded {
+        return report.cap_security(check, title);
     }
     // `expected` is a person's decision: a known condition they made (those events never reach
     // triage) or a recorded agent action. A model reading logs, or an earlier incident that
@@ -75,6 +80,7 @@ pub(crate) fn guard_security_verdict(
         report.withhold(Verdict::ActionNeeded, NOT_DECIDED, title);
         return true;
     }
+    // `monitor` and `fixed` are below `ACTION_NEEDED`: they need a tool result that ran.
     let tied = report.evidence.iter().any(|item| {
         !item.value.trim().is_empty()
             && used.iter().any(|tool| {
@@ -85,9 +91,10 @@ pub(crate) fn guard_security_verdict(
             })
     });
     if tied {
-        return false;
+        // The verdict stands; the words still may not wave the event away.
+        return report.cap_security(check, title);
     }
-    report.withhold(Verdict::Monitor, NOT_VERIFIED, title);
+    report.withhold(Verdict::ActionNeeded, NOT_VERIFIED, title);
     true
 }
 
@@ -128,7 +135,7 @@ mod guard_tests {
 
     fn report(verdict: Verdict, source: &str) -> TriageReport {
         TriageReport {
-            headline: "Failed sudo likely a self-test".to_owned(),
+            headline: "Failed sudo by kuker".to_owned(),
             summary: String::new(),
             cause: String::new(),
             evidence: vec![domovoi_core::triage::EvidenceRef {
@@ -169,7 +176,7 @@ mod guard_tests {
         let mut r = report(Verdict::Fixed, "journal");
         let used = [tool("journal", true)];
         assert!(guard("security.new_port", &mut r, &used));
-        assert_eq!(r.verdict, Verdict::Monitor);
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
     }
 
     #[test]
@@ -196,7 +203,7 @@ mod guard_tests {
         let mut r = report(Verdict::Fixed, "search_experience");
         let used = [tool("search_experience", false)];
         assert!(guard("security.new_port", &mut r, &used));
-        assert_eq!(r.verdict, Verdict::Monitor);
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
     }
 
     #[test]
@@ -208,6 +215,69 @@ mod guard_tests {
         r.evidence[0].value = "  ".to_owned();
         let used = [tool("journal", false)];
         assert!(guard("security.ssh_login", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
+    }
+
+    #[test]
+    fn monitor_without_a_tool_result_is_not_accepted_for_a_security_event() {
+        let mut r = report(Verdict::Monitor, "incident signal");
+        assert!(guard("security.sudo_failure", &mut r, &[]));
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
+        let mut r = report(Verdict::Monitor, "journal");
+        r.headline = "Failed sudo from kuker".to_owned();
+        assert!(!guard(
+            "security.sudo_failure",
+            &mut r,
+            &[tool("journal", false)]
+        ));
+        assert_eq!(r.verdict, Verdict::Monitor);
+    }
+
+    /// The report 13f measured: MONITOR, a tool result cited, and an invented cause.
+    fn the_measured_report(verdict: Verdict) -> TriageReport {
+        let mut r = report(verdict, "journal");
+        r.headline = "Repeated sudo auth failures from Domovoi agent operations".to_owned();
+        r.summary = "The agent runs as kuker and makes periodic sudo calls; I am moderately \
+                     confident this is expected behavior."
+            .to_owned();
+        r.cause = "The agent's sudo calls fail.".to_owned();
+        r.next_step = "Add NOPASSWD to sudoers if appropriate.".to_owned();
+        r
+    }
+
+    #[test]
+    fn a_benign_cause_or_loosening_advice_is_not_established_whatever_the_evidence() {
+        for verdict in [Verdict::Monitor, Verdict::Fixed, Verdict::ActionNeeded] {
+            let mut r = the_measured_report(verdict);
+            let used = [tool("journal", false)];
+            assert!(guard("security.sudo_failure", &mut r, &used), "{verdict:?}");
+            assert_eq!(r.verdict, Verdict::ActionNeeded);
+            assert_eq!(r.cause, "Not established.");
+            let shown = format!("{} {} {}", r.headline, r.cause, r.next_step);
+            assert!(!r.summary.contains("NOPASSWD") && !r.summary.contains("kuker"));
+            for word in ["NOPASSWD", "Domovoi", "expected", "kuker"] {
+                assert!(!shown.contains(word), "{word} in {shown}");
+            }
+            assert!(r.details.starts_with(domovoi_core::triage::NOT_ESTABLISHED));
+            assert!(
+                r.details.contains("NOPASSWD"),
+                "the model's text is kept as not accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_plain_report_and_other_checks_keep_their_words() {
+        let mut r = report(Verdict::ActionNeeded, "journal");
+        r.headline =
+            "Three failed sudo attempts as kuker; an unexpected login is possible".to_owned();
+        assert!(!guard(
+            "security.sudo_failure",
+            &mut r,
+            &[tool("journal", false)]
+        ));
+        let mut r = the_measured_report(Verdict::Monitor);
+        assert!(!guard("disk.free", &mut r, &[]));
         assert_eq!(r.verdict, Verdict::Monitor);
     }
 

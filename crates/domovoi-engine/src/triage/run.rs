@@ -207,8 +207,8 @@ pub(crate) async fn generate(
                     ) {
                         tracing::info!(
                             incident = %incident.id(),
-                            "a security event was called expected without tool evidence; \
-                             the verdict is now monitor"
+                            "a model's security verdict or wording was refused; \
+                             the verdict is now action needed"
                         );
                     }
                     Ok(GeneratedEnd::Report(report))
