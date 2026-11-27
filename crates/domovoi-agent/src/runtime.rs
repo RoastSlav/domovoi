@@ -138,6 +138,15 @@ pub(crate) fn tool_host(host_root: &Path) -> ToolHost {
 
 fn load_catalog(dir: &Path) -> SkillCatalog {
     let (catalog, issues) = SkillCatalog::load(dir);
+    if !dir.exists() {
+        // One line that says what to do, not a raw "No such file or directory" per issue.
+        tracing::warn!(
+            skills_dir = %dir.display(),
+            "the skills directory does not exist, so this agent has no skills; create it, or set \
+             `skills_dir` in agent.toml (a package install puts them in /etc/domovoi/skills)"
+        );
+        return catalog;
+    }
     for issue in issues {
         tracing::warn!(%issue, "skipped a skill");
     }
