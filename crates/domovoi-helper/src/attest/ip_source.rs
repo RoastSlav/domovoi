@@ -8,7 +8,6 @@
 
 use core::net::IpAddr;
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -19,8 +18,9 @@ use jiff::SignedDuration;
 use super::ip_json::{parse_addresses, parse_lookup, parse_routes, parse_rules};
 use super::observe::{IfAddress, Lookup, PolicyRule, ReadError, RouteSource, TableRoute};
 
-/// The places `ip` is looked for, in order; the first that exists is run.
-pub const IP_PROGRAMS: [&str; 4] = ["/usr/sbin/ip", "/sbin/ip", "/usr/bin/ip", "/bin/ip"];
+/// The places `ip` is looked for, in order; the first sound one is run. The real file comes
+/// first because `/usr/sbin/ip` is a symlink to it on a merged `/usr`.
+pub const IP_PROGRAMS: [&str; 4] = ["/usr/bin/ip", "/bin/ip", "/usr/sbin/ip", "/sbin/ip"];
 /// How long one `ip` call may run.
 pub const READ_TIMEOUT: SignedDuration = SignedDuration::from_secs(5);
 /// The most output of one `ip` call that is read.
@@ -51,10 +51,7 @@ impl IpSource {
     }
 
     fn program(&self) -> Option<&'static str> {
-        IP_PROGRAMS
-            .iter()
-            .copied()
-            .find(|path| self.inspect.lstat(Path::new(path)).is_ok())
+        crate::reads::tools::locate(&*self.inspect, crate::reads::tools::Tool::Ip)
     }
 
     async fn run(&self, args: &[&str]) -> Result<ProcessOutput, RunFailure> {

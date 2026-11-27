@@ -16,7 +16,7 @@ use jiff::SignedDuration;
 use super::verdict::{Counts, MIN_REPLACEMENTS, MIN_RUNS, RUN_SECONDS, SCENARIO_CAP_SECONDS};
 use crate::nft::exec::Runner;
 use crate::nft::view::parse;
-use crate::reads::tools::{Tool, locate};
+use crate::reads::tools::{Tool, locate_explained};
 
 /// The table of the self-test. Never the production name.
 pub const TABLE: &str = "domovoi_selftest";
@@ -124,7 +124,8 @@ impl Host<'_> {
     }
 
     async fn ip(&self, args: &[&str]) -> Result<(), WorldError> {
-        let program = locate(self.inspect, Tool::Ip).ok_or_else(|| fail("ip is missing"))?;
+        let program = locate_explained(self.inspect, Tool::Ip)
+            .map_err(|why| fail(&format!("ip is unusable: {why}")))?;
         let spec = ProcessSpec {
             program: program.to_owned(),
             args: args.iter().map(|a| (*a).to_owned()).collect(),
@@ -351,7 +352,8 @@ async fn measure(
 /// Starts two senders in the sender namespace at once and sums what they sent.
 async fn send(host: &Host<'_>) -> Result<u64, WorldError> {
     let tx = host.tx();
-    let ip = locate(host.inspect, Tool::Ip).ok_or_else(|| fail("ip is missing"))?;
+    let ip = locate_explained(host.inspect, Tool::Ip)
+        .map_err(|why| fail(&format!("ip is unusable: {why}")))?;
     let one = || {
         let spec = ProcessSpec {
             program: ip.to_owned(),

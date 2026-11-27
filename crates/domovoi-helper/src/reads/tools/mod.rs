@@ -64,24 +64,44 @@ impl Tool {
     }
 }
 
-/// The first candidate that exists, if it is a regular file owned by root that no one but root
-/// may write. A candidate that exists and fails that test is not skipped: the answer is `None`.
+/// Why one candidate path cannot be used.
+fn unsound(facts: &domovoi_core::identity::PathFacts) -> Option<&'static str> {
+    if facts.symlink {
+        Some("a symlink")
+    } else if facts.kind != Some(PathKind::File) {
+        Some("not a regular file")
+    } else if facts.uid != 0 {
+        Some("not owned by root")
+    } else if facts.mode & 0o022 != 0 {
+        Some("writable by others")
+    } else {
+        None
+    }
+}
+
+/// The first candidate that is a regular file owned by root that no one but root may write.
+/// A candidate that exists but fails that test is skipped, not trusted: on a merged `/usr`
+/// the first candidate is often a symlink to the real file one entry later.
 #[must_use]
 pub fn locate(inspect: &dyn HostInspect, tool: Tool) -> Option<&'static str> {
+    locate_explained(inspect, tool).ok()
+}
+
+/// Like [`locate`], and when no candidate is usable says which were tried and why each was
+/// refused, so a failure names the cause.
+pub fn locate_explained(inspect: &dyn HostInspect, tool: Tool) -> Result<&'static str, String> {
+    let mut tried = Vec::new();
     for candidate in tool.candidates() {
         match inspect.lstat(Path::new(candidate)) {
-            Ok(facts) => {
-                let sound = facts.kind == Some(PathKind::File)
-                    && !facts.symlink
-                    && facts.uid == 0
-                    && facts.mode & 0o022 == 0;
-                return sound.then_some(*candidate);
-            }
-            Err(InspectError::NotFound) => {}
-            Err(_) => return None,
+            Ok(facts) => match unsound(&facts) {
+                None => return Ok(*candidate),
+                Some(why) => tried.push(format!("{candidate} ({why}, skipped)")),
+            },
+            Err(InspectError::NotFound) => tried.push(format!("{candidate} (not found)")),
+            Err(_) => tried.push(format!("{candidate} (could not be inspected)")),
         }
     }
-    None
+    Err(format!("no usable program: tried {}", tried.join(", ")))
 }
 
 /// The arguments of `smartctl` for a scan.

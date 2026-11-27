@@ -72,6 +72,39 @@ fn tool_lookup_uses_fixed_candidates_and_rejects_a_writable_or_non_root_binary()
     }
 }
 
+#[test]
+fn a_symlinked_first_candidate_does_not_hide_the_real_file_on_a_merged_usr() {
+    // Debian 13: /usr/sbin/ip is a symlink to ../bin/ip, and /usr/bin/ip is the real file.
+    let link = domovoi_core::identity::PathFacts {
+        symlink: true,
+        ..tool_facts()
+    };
+    let debian = FakeHostInspect::new()
+        .path("/usr/sbin/ip", link.clone())
+        .path("/usr/bin/ip", tool_facts());
+    assert_eq!(tools::locate(&debian, Tool::Ip), Some("/usr/bin/ip"));
+
+    // Only the symlink: refused, and the reason names the path and why.
+    let only_link = FakeHostInspect::new().path("/usr/sbin/ip", link);
+    assert_eq!(tools::locate(&only_link, Tool::Ip), None);
+    let why = tools::locate_explained(&only_link, Tool::Ip).unwrap_err();
+    assert!(why.contains("/usr/sbin/ip (a symlink, skipped)"), "{why}");
+    assert!(why.contains("/usr/bin/ip (not found)"), "{why}");
+
+    // An unsound real file is skipped too, and a later sound one is used.
+    let writable = FakeHostInspect::new()
+        .path("/usr/bin/ip", facts(PathKind::File, 0o775, 0))
+        .path("/usr/sbin/ip", tool_facts());
+    assert_eq!(tools::locate(&writable, Tool::Ip), Some("/usr/sbin/ip"));
+    let other_owner =
+        FakeHostInspect::new().path("/usr/bin/ip", facts(PathKind::File, 0o755, 1000));
+    assert!(
+        tools::locate_explained(&other_owner, Tool::Ip)
+            .unwrap_err()
+            .contains("not owned by root")
+    );
+}
+
 #[tokio::test]
 async fn smart_scan_filters_devices_by_the_allowlist_and_caps_at_64() {
     let inspect = healthy(&domovoi_core::identity::HostDirs::default());
