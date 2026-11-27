@@ -1,6 +1,5 @@
 ---
 source: crates/domovoi-config/tests/config/schema.rs
-assertion_line: 5
 expression: "HubConfig::json_schema()"
 ---
 {
@@ -689,7 +688,7 @@ expression: "HubConfig::json_schema()"
           "minimum": 0
         },
         "max_running": {
-          "description": "Operations that may be running, waiting or paused at once; the rest queue.\nDefault 4.",
+          "description": "Operations that may be working (or paused by a person) at once; the rest queue. An\noperation that waits for an approval, an answer, an agent or a retry timer holds no\nslot. Default 4.",
           "type": "integer",
           "format": "uint16",
           "default": 4,

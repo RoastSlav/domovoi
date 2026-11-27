@@ -72,6 +72,7 @@ fn every_starter_skill_loads_and_is_documented() {
 /// Runs a starter skill's `run` with fake programs first on `PATH`, so a hidden host view
 /// (an unreadable journal, an unreachable service bus, a process list without pid 1) can
 /// be reproduced on any machine.
+#[allow(clippy::disallowed_methods)]
 fn run_with_fakes(skill: &str, args: &[&str], fakes: &[(&str, &str)]) -> (i32, String) {
     let dir = tempfile::tempdir().unwrap();
     for (name, body) in fakes {

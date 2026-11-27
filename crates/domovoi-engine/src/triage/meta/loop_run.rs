@@ -18,7 +18,7 @@ const FINISH_AGAIN: &str = "Your answer could not be used: call finish again wit
 
 /// The answer when the model used every read it was given and wrote nothing. It says why and
 /// where the limit is, so the person is not left with an empty message.
-const NO_ANSWER_IN_BUDGET: &str = "I used all the reads I am allowed for one question and did not reach an answer. Ask again with a narrower question, or raise the tool-call limit (Settings, Triage, Tool calls per run).";
+const NO_ANSWER_IN_BUDGET: &str = "I used all the reads I am allowed for one question and did not reach an answer. Ask again with a narrower question, or raise the tool-call limit (Settings, Models and triage, Tool calls per run).";
 
 fn tool_calls(parts: &[Part]) -> Vec<(String, String, Value)> {
     parts

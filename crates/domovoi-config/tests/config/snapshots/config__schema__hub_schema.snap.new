@@ -1,0 +1,1241 @@
+---
+source: crates/domovoi-config/tests/config/schema.rs
+assertion_line: 5
+expression: "HubConfig::json_schema()"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HubConfig",
+  "description": "The whole of `hub.toml`. Every section is optional; omitted keys take the defaults\ndocumented on each field.",
+  "type": "object",
+  "properties": {
+    "agent_server": {
+      "description": "The listener agents connect to.",
+      "$ref": "#/$defs/AgentServerSection"
+    },
+    "backup": {
+      "description": "Local database backups.",
+      "$ref": "#/$defs/BackupSection"
+    },
+    "discord": {
+      "description": "The Discord bot. Omit to run without Discord.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DiscordSection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "heartbeat": {
+      "description": "A dead man's switch pinged while the hub is healthy. Omit to disable.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HeartbeatSection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "hub": {
+      "description": "Identity and storage of this hub.",
+      "$ref": "#/$defs/HubSection"
+    },
+    "incidents": {
+      "description": "How signals become incidents.",
+      "$ref": "#/$defs/IncidentsSection"
+    },
+    "llm": {
+      "description": "Language model providers used by triage.",
+      "$ref": "#/$defs/LlmSection"
+    },
+    "metrics": {
+      "description": "Who may read `/metrics`.",
+      "$ref": "#/$defs/MetricsSection"
+    },
+    "notify": {
+      "description": "When people are notified.",
+      "$ref": "#/$defs/NotifySection"
+    },
+    "orchestration": {
+      "description": "The operation service: durable multi-step work with approvals. On by default; `enabled = false` switches it off.",
+      "$ref": "#/$defs/OrchestrationSection"
+    },
+    "packages": {
+      "description": "The package store and the keys that sign packages. Off by default.",
+      "$ref": "#/$defs/PackagesHubSection"
+    },
+    "policy": {
+      "description": "Policy rules the hub evaluates without enforcing them.",
+      "$ref": "#/$defs/HubPolicySection"
+    },
+    "probes": {
+      "description": "Network probes run from the hub.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Probe"
+      }
+    },
+    "retention": {
+      "description": "How long each kind of raw data is kept.",
+      "$ref": "#/$defs/RetentionSection"
+    },
+    "secrets": {
+      "description": "Secret hygiene.",
+      "$ref": "#/$defs/SecretsSection"
+    },
+    "triage": {
+      "description": "Automatic triage of new incidents.",
+      "$ref": "#/$defs/TriageSection"
+    },
+    "updates": {
+      "description": "Looking for a newer Domovoi release.",
+      "$ref": "#/$defs/UpdatesSection"
+    },
+    "web": {
+      "description": "The web UI and HTTP API listener.",
+      "$ref": "#/$defs/WebSection"
+    },
+    "webhooks": {
+      "description": "Inbound webhooks, keyed by the name used in their URL.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/WebhookConfig"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentServerSection": {
+      "description": "`[agent_server]`.",
+      "type": "object",
+      "properties": {
+        "bind": {
+          "description": "Listen address for agent connections. Default `0.0.0.0:7421`.",
+          "type": "string",
+          "default": "0.0.0.0:7421"
+        },
+        "heartbeat": {
+          "description": "How often agents send a heartbeat. Three missed heartbeats mean a silent agent.\nDefault `10s`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "public_url": {
+          "description": "The `wss://` address agents dial, as printed in the enroll command.\nDefault `wss://<hub name>:<bind port>`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "default": null
+        },
+        "self_check": {
+          "description": "A `host:port` outside the network the hub checks before it blames a silent\nhost. Default `1.1.1.1:53`.",
+          "type": "string",
+          "default": "1.1.1.1:53"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BackupSection": {
+      "description": "`[backup]`.",
+      "type": "object",
+      "properties": {
+        "dir": {
+          "description": "Where backups are written. Default `<data_dir>/backups`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "keep": {
+          "description": "Backups kept. Default 7.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 7,
+          "minimum": 0
+        },
+        "keep_pre_migrate": {
+          "description": "Pre-migration backups kept. Default 3.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "CliConfig": {
+      "description": "`cli = { .. }` on an LLM provider.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "Arguments that replace the preset's own when not empty. Check them against the\ninstalled CLI's `--help`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "description": "Absolute path of the program to run instead of a preset's default.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "preset": {
+          "description": "A known tool whose arguments Domovoi supplies. Set this or `command`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CliPreset"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "CliPreset": {
+      "description": "A known LLM command-line tool.",
+      "oneOf": [
+        {
+          "description": "Claude Code.",
+          "type": "string",
+          "const": "claude"
+        },
+        {
+          "description": "OpenAI Codex CLI.",
+          "type": "string",
+          "const": "codex"
+        }
+      ]
+    },
+    "Digest": {
+      "description": "`digest = { .. }`.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Whether the digest is sent. Default `true`.",
+          "type": "boolean",
+          "default": true
+        },
+        "time": {
+          "description": "Local time it is sent. Default `\"09:00\"`.",
+          "$ref": "#/$defs/LocalTime"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiscordSection": {
+      "description": "`[discord]`.",
+      "type": "object",
+      "properties": {
+        "allowed_user_ids": {
+          "description": "Discord users who may press buttons and run commands. Required when enabled.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "bot_token": {
+          "description": "The bot token.",
+          "$ref": "#/$defs/Secret"
+        },
+        "channel_id": {
+          "description": "The channel incidents are posted to.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "enabled": {
+          "description": "Whether the bot runs. Default `true`.",
+          "type": "boolean",
+          "default": true
+        },
+        "webhook_url": {
+          "description": "A webhook that carries digests and quiet-hours summaries instead of the bot. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "bot_token",
+        "channel_id"
+      ]
+    },
+    "Duration": {
+      "description": "A positive duration such as \"30s\", \"5m\", \"24h\", \"7d\" or \"1h30m\".",
+      "type": "string"
+    },
+    "HeartbeatSection": {
+      "description": "`[heartbeat]`.",
+      "type": "object",
+      "properties": {
+        "interval": {
+          "description": "How often it is pinged. Default `\"1m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "url": {
+          "description": "The URL pinged; it often embeds a token, so it is a secret.",
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ]
+    },
+    "HubPolicySection": {
+      "description": "`[policy]`. Shadow recording and the guardrails of bounded unattended execution.",
+      "type": "object",
+      "properties": {
+        "circuit_failures": {
+          "description": "How many `Failed` or `OutcomeUnknown` results of permit-authorized steps suspend a rule\nwithin `circuit_window`. 1 to 20. Default 2.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 2,
+          "minimum": 0
+        },
+        "circuit_window": {
+          "description": "The window the circuit breaker counts failures in. 1 hour to 30 days. Default `24h`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "max_permits_per_hour": {
+          "description": "How many permits the hub issues per rolling hour, all rules together. 0 to 120; `0`\nmeans no permit is ever issued. Default 12.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 12,
+          "minimum": 0
+        },
+        "permit_ttl": {
+          "description": "How long a policy permit stays valid, capped by the step's own approval window.\n30 seconds to 1 hour. Default `5m`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "shadow": {
+          "description": "Record, for every Execution step, what the active policy and its shadow rules would\ndecide. Nothing is enforced by this switch. Default `false`.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "HubSection": {
+      "description": "`[hub]`.",
+      "type": "object",
+      "properties": {
+        "data_dir": {
+          "description": "Where the database and state live. Default `/var/lib/domovoi`.",
+          "type": "string",
+          "default": "/var/lib/domovoi"
+        },
+        "name": {
+          "description": "Display name of this hub. Default `\"domovoi\"`.",
+          "type": "string",
+          "default": "domovoi"
+        },
+        "timezone": {
+          "description": "Time zone for quiet hours, digests and day boundaries. Default `\"UTC\"`.",
+          "$ref": "#/$defs/TimeZone"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IncidentsSection": {
+      "description": "`[incidents]`.",
+      "type": "object",
+      "properties": {
+        "confirm_runs": {
+          "description": "Consecutive failing runs before an incident opens. Default 2.",
+          "type": "integer",
+          "format": "uint8",
+          "default": 2,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "default_ttl": {
+          "description": "Incidents with no new signal for this long resolve. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "grouping_window": {
+          "description": "Signals on one host this close together are grouped. Default `\"5m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "reopen_window": {
+          "description": "A resolved incident that fails again within this window reopens. Default `\"6h\"`.",
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false
+    },
+    "LlmKind": {
+      "description": "The kind of language model adapter.",
+      "oneOf": [
+        {
+          "description": "The Anthropic Messages API.",
+          "type": "string",
+          "const": "anthropic"
+        },
+        {
+          "description": "Any server speaking the OpenAI chat completions API.",
+          "type": "string",
+          "const": "openai_compatible"
+        },
+        {
+          "description": "A local command-line tool.",
+          "type": "string",
+          "const": "cli"
+        }
+      ]
+    },
+    "LlmProvider": {
+      "description": "`[llm.primary]` or `[llm.secondary]`.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "API key. Required for `anthropic`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_url": {
+          "description": "API base URL. Required for `openai_compatible`; optional for `anthropic`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "default": null
+        },
+        "call_deadline": {
+          "description": "The longest one model call may take in total, such as `5m`, even while it keeps\nstreaming. Default `5m`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cli": {
+          "description": "How to run a local CLI. Required for `cli`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CliConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fallback_models": {
+          "description": "Models of the same provider tried in order when `model` fails. Optional.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "kind": {
+          "description": "Which adapter talks to the model.",
+          "$ref": "#/$defs/LlmKind"
+        },
+        "model": {
+          "description": "Model name. Required for `anthropic` and `openai_compatible`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "price": {
+          "description": "Prices used for the monthly budget. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Price"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeout": {
+          "description": "The longest the model may stay silent, such as `2m`. Answers are streamed, so the\nclock restarts with every token; it covers loading and reading the prompt too. For\n`cli` it is the whole run. Default `2m`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ]
+    },
+    "LlmSection": {
+      "description": "`[llm]`.",
+      "type": "object",
+      "properties": {
+        "primary": {
+          "description": "The provider tried first. Required when triage is enabled.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LlmProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "secondary": {
+          "description": "A fallback used when the primary fails. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LlmProvider"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "LocalTime": {
+      "description": "A 24-hour time of day such as \"09:00\".",
+      "type": "string",
+      "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+    },
+    "MetricsSection": {
+      "description": "`[metrics]`.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "description": "Bearer token a Prometheus scraper sends as `Authorization: Bearer <token>`.\nWithout it, only a logged-in web session can read `/metrics`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "NotifySection": {
+      "description": "`[notify]`.",
+      "type": "object",
+      "properties": {
+        "digest": {
+          "description": "The daily digest.",
+          "$ref": "#/$defs/Digest"
+        },
+        "quiet_hours": {
+          "description": "Warnings wait until these hours end; critical alerts are always sent. Optional.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuietHours"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "renotify": {
+          "description": "How often an unacknowledged incident is announced again.",
+          "$ref": "#/$defs/Renotify"
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestrationBudgets": {
+      "description": "`[orchestration.budgets]`: what one operation may spend before it pauses. A limit left\nout of the file keeps its default; `cost_micros` has no default and so no limit.",
+      "type": "object",
+      "properties": {
+        "cost_micros": {
+          "description": "Model cost in millionths of a currency unit. No limit by default.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "cycles": {
+          "description": "Repair cycles. Default 3.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "evidence_requests": {
+          "description": "Evidence requests. Default 40.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 40,
+          "minimum": 0
+        },
+        "executions": {
+          "description": "Executions. Default 5.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
+        },
+        "model_turns": {
+          "description": "Model turns. Default 20.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": 20,
+          "minimum": 0
+        },
+        "tokens": {
+          "description": "Model tokens, input and output together. Default 200000.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "default": 200000,
+          "minimum": 0
+        },
+        "wall_time": {
+          "description": "Wall-clock time from admission. Default `\"72h\"`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "OrchestrationSection": {
+      "description": "`[orchestration]`: durable operations that wait for a person, dispatch skills and verify\nthe result. On by default; switching it off stops the operation service and automatic\ninvestigation.",
+      "type": "object",
+      "properties": {
+        "agent_wait_limit": {
+          "description": "How long an approved action waits for its host's agent to come back. Default `\"30m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "approval_ttl": {
+          "description": "How long a proposed action waits for a person to approve it. At most `\"7d\"`.\nDefault `\"24h\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "budgets": {
+          "description": "Limits an operation starts with.",
+          "$ref": "#/$defs/OrchestrationBudgets"
+        },
+        "enabled": {
+          "description": "Investigate new incidents as operations and approve proposed actions per step on the\nOperations page. Default true. Set to false to switch off automatic investigation\n(alert cards still go out) and the operation service; follow-up questions, chat and\nany old pending actions keep working. Read once at start; changing it needs a\nrestart.",
+          "type": "boolean",
+          "default": true
+        },
+        "loop_guard_per_hour": {
+          "description": "Runs of one skill on one host allowed per hour before the loop guard refuses the\nnext. Default 3.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 3,
+          "minimum": 0
+        },
+        "max_running": {
+          "description": "Operations that may be working (or paused by a person) at once; the rest queue. An\noperation that waits for an approval, an answer, an agent or a retry timer holds no\nslot. Default 4.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 4,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "question_timeout": {
+          "description": "How long a question waits for an answer. Default `\"24h\"`.",
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PackagesHubSection": {
+      "description": "`[packages]`. Off by default: with `enabled = false` the hub imports and installs nothing,\nthough it still lists what it holds.",
+      "type": "object",
+      "properties": {
+        "approval_window": {
+          "description": "How long a person's approval to install stays valid. 1 minute to 1 hour; default\n`\"10m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "enabled": {
+          "description": "Whether packages can be imported and installed from this hub. Default `false`.",
+          "type": "boolean",
+          "default": false
+        },
+        "job_history_days": {
+          "description": "Days finished install jobs are kept. 7 to 3650; default 180.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 180,
+          "minimum": 0
+        },
+        "max_artifact_bytes": {
+          "description": "Largest archive accepted on import, in bytes. 1 KiB to 256 MiB; default 20 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 20971520,
+          "minimum": 0
+        },
+        "max_artifacts": {
+          "description": "Most archives the hub keeps. 1 to 1000; default 64.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 64,
+          "minimum": 0
+        },
+        "max_store_bytes": {
+          "description": "Most bytes of archives the hub keeps. 1 MiB to 16 GiB; default 512 MiB.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 536870912,
+          "minimum": 0
+        },
+        "owner_keys": {
+          "description": "Keys whose signatures the hub accepts on import. Read from the file only; the web UI\ncannot change them.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TrustedKey"
+          }
+        },
+        "revoked": {
+          "description": "Key ids (16 lowercase hex characters) whose packages are never accepted, even when\nalso listed in `owner_keys`. Read from the file only; the web UI cannot change it.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "Price": {
+      "description": "`price = { .. }`: what a provider charges, in US dollars per million tokens.",
+      "type": "object",
+      "properties": {
+        "input_per_mtok_usd": {
+          "description": "Dollars per million input tokens.",
+          "type": "number",
+          "format": "double"
+        },
+        "output_per_mtok_usd": {
+          "description": "Dollars per million output tokens.",
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "input_per_mtok_usd",
+        "output_per_mtok_usd"
+      ]
+    },
+    "Probe": {
+      "description": "`[[probes]]`.",
+      "type": "object",
+      "properties": {
+        "expect_status": {
+          "description": "The HTTP status that counts as healthy. Required for `http`.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "default": null,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "host": {
+          "description": "The host the probe reports on.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "interval": {
+          "description": "How often it runs. Default `\"1m\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "kind": {
+          "description": "What the probe does.",
+          "$ref": "#/$defs/ProbeKind"
+        },
+        "target": {
+          "description": "`host:port` for `tcp`; an `http` or `https` URL for `http`.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "kind",
+        "target"
+      ]
+    },
+    "ProbeKind": {
+      "description": "A network probe kind.",
+      "oneOf": [
+        {
+          "description": "Opens a TCP connection.",
+          "type": "string",
+          "const": "tcp"
+        },
+        {
+          "description": "Sends an HTTP GET.",
+          "type": "string",
+          "const": "http"
+        }
+      ]
+    },
+    "QuietHours": {
+      "description": "`quiet_hours = { .. }`. The range may cross midnight.",
+      "type": "object",
+      "properties": {
+        "end": {
+          "description": "When quiet hours end, such as `\"09:00\"`.",
+          "$ref": "#/$defs/LocalTime"
+        },
+        "start": {
+          "description": "When quiet hours begin, such as `\"00:00\"`.",
+          "$ref": "#/$defs/LocalTime"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "Renotify": {
+      "description": "`renotify = { .. }`.",
+      "type": "object",
+      "properties": {
+        "critical": {
+          "description": "Interval for critical incidents. Default `\"4h\"`.",
+          "$ref": "#/$defs/Duration"
+        },
+        "warning": {
+          "description": "Interval for warnings. Default `\"24h\"`.",
+          "$ref": "#/$defs/Duration"
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetentionSection": {
+      "description": "`[retention]`: how many days each kind of raw data is kept. Operations, resolution\nsummaries and the audit log are kept and have no setting here.",
+      "type": "object",
+      "properties": {
+        "conversations_days": {
+          "description": "Days follow-up questions on an incident and Operator conversation messages are kept. Default 180.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 180,
+          "minimum": 0
+        },
+        "execution_outputs_days": {
+          "description": "Days raw execution output is kept. Not applied yet: applies once execution outputs\nare stored apart from the audit log. Default 30.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "incident_timeline_days": {
+          "description": "Days an incident timeline entry other than a follow-up conversation is kept.\nDefault 90.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 90,
+          "minimum": 0
+        },
+        "notifications_days": {
+          "description": "Days the notification state of a resolved incident is kept. Default 30.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "operation_journal_days": {
+          "description": "Days the operation journal is kept. Not applied yet: applies once operations exist.\nDefault 180.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 180,
+          "minimum": 0
+        },
+        "resolved_advisories_days": {
+          "description": "Days a resolved advisory is kept. Default 30.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "retracted_facts_days": {
+          "description": "Days the content of a retracted fact or relation is kept; its tombstone stays.\nDefault 30.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "signals_days": {
+          "description": "Days a signal is kept. Default 30.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "triage_cache_days": {
+          "description": "Days a cached triage report is kept. Default 90.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 90,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "Secret": {
+      "description": "A secret read from an environment variable or a file; never written inline.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "env": {
+              "description": "Name of the environment variable holding the value.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "env"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "file": {
+              "description": "Path of a file, readable only by its owner, holding the value.",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ]
+        }
+      ]
+    },
+    "SecretsSection": {
+      "description": "`[secrets]`.",
+      "type": "object",
+      "properties": {
+        "exposed": {
+          "description": "Names of secrets you know were exposed; each raises an advisory until removed.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "TimeZone": {
+      "description": "An IANA time zone name such as \"Europe/Sofia\" or \"UTC\".",
+      "type": "string"
+    },
+    "TriageLimits": {
+      "description": "`per_run = { .. }` in `[triage]`.",
+      "type": "object",
+      "properties": {
+        "output_tokens": {
+          "description": "Output tokens per model turn. Default 2000, clamped to the supported maximum of\n16000. It also caps a reasoning model's reasoning, so a turn that runs out of room\nbefore finishing its answer is retried with four times as much, up to the maximum.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 2000,
+          "minimum": 0
+        },
+        "prompt_bytes": {
+          "description": "Largest prompt sent in one model call, in bytes. Old tool results are shortened\nfirst to fit. Default 131072 (128 KiB).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 131072,
+          "minimum": 0
+        },
+        "seconds": {
+          "description": "Wall-clock seconds per run. Default 90.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 90,
+          "minimum": 0
+        },
+        "tool_calls": {
+          "description": "Tool calls per run. Default 15.",
+          "type": "integer",
+          "format": "uint16",
+          "default": 15,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "total_tokens": {
+          "description": "Output tokens one run may ask for in total: every normal turn (`tool_calls + 1`),\none turn retried all the way to the supported maximum, and the report repair\nretried the same way. Optional; that sum is the default. Every request is charged\nbefore it is sent, including each retry, so the run cannot exceed it.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "TriageSection": {
+      "description": "`[triage]`.",
+      "type": "object",
+      "properties": {
+        "cache_days": {
+          "description": "Days a triage report is reused for the same evidence. Default 7.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 7,
+          "minimum": 0
+        },
+        "concurrency": {
+          "description": "Triage runs at the same time, and questions and chat at the same time. With\n`[orchestration] enabled` investigations are limited by `[orchestration] max_running`\ninstead. Default 2.",
+          "type": "integer",
+          "format": "uint8",
+          "default": 2,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "enabled": {
+          "description": "Whether new incidents are triaged automatically. Automatic investigation also needs\n`[orchestration] enabled`. Default `false`.",
+          "type": "boolean",
+          "default": false
+        },
+        "monthly_budget_usd": {
+          "description": "Spending cap per calendar month, in US dollars. Optional.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "default": null
+        },
+        "per_hour_runs": {
+          "description": "Runs started per hour at most. Default 6.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 6,
+          "minimum": 0
+        },
+        "per_run": {
+          "description": "Limits for a single run.",
+          "$ref": "#/$defs/TriageLimits"
+        },
+        "reserved_for_incidents": {
+          "description": "Runs the hour always keeps free for triage: questions and chat may not use these\nlast runs of the hour. When set it must be less than `per_hour_runs`. When omitted\nit is 2, or one fewer than `per_hour_runs` when that is smaller. Ignored when\n`per_hour_runs` is 0.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "default": null,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "TrustedKey": {
+      "description": "One key entry: `[[packages.trusted_keys]]` in `agent.toml`, `[[packages.owner_keys]]` in `hub.toml`.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The key id: the first 16 hex characters of the SHA-256 of the raw public key.",
+          "type": "string"
+        },
+        "label": {
+          "description": "A note for people, at most 64 characters.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "public_key": {
+          "description": "The Ed25519 public key, 32 bytes in standard padded base64.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "public_key"
+      ]
+    },
+    "UpdatesSection": {
+      "description": "`[updates]`.",
+      "type": "object",
+      "properties": {
+        "check": {
+          "description": "Look for a newer Domovoi release on GitHub twice a day. Nothing is sent but the\nrequest itself. Default `true`.",
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "WebSection": {
+      "description": "`[web]`.",
+      "type": "object",
+      "properties": {
+        "bind": {
+          "description": "Listen address. Default `127.0.0.1:7420`.",
+          "type": "string",
+          "default": "127.0.0.1:7420"
+        },
+        "public_url": {
+          "description": "The URL people use to reach the UI, for links in chat. Optional.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri",
+          "default": null
+        },
+        "trusted_proxies": {
+          "description": "Reverse proxies whose `X-Forwarded-For` is trusted. Default none.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "format": "ip"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "WebhookAuth": {
+      "description": "How an inbound webhook is authenticated.",
+      "oneOf": [
+        {
+          "description": "An HMAC-SHA256 signature of the body.",
+          "type": "string",
+          "const": "hmac"
+        },
+        {
+          "description": "An `Authorization: Bearer` token.",
+          "type": "string",
+          "const": "bearer"
+        }
+      ]
+    },
+    "WebhookConfig": {
+      "description": "`[webhooks.<name>]`.",
+      "type": "object",
+      "properties": {
+        "auth": {
+          "description": "How requests prove they are genuine.",
+          "$ref": "#/$defs/WebhookAuth"
+        },
+        "default_host": {
+          "description": "Host used when the payload names none. Optional.",
+          "type": "string",
+          "default": null,
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "host_label": {
+          "description": "For Alertmanager, the label that names the host. Default: `host`, then `instance`\nwithout its port.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "kind": {
+          "description": "The payload format.",
+          "$ref": "#/$defs/WebhookKind"
+        },
+        "secret": {
+          "description": "The HMAC key or bearer token.",
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "auth",
+        "secret"
+      ]
+    },
+    "WebhookKind": {
+      "description": "An inbound webhook payload format.",
+      "oneOf": [
+        {
+          "description": "Domovoi's own JSON format.",
+          "type": "string",
+          "const": "generic"
+        },
+        {
+          "description": "Prometheus Alertmanager.",
+          "type": "string",
+          "const": "alertmanager"
+        },
+        {
+          "description": "Uptime Kuma.",
+          "type": "string",
+          "const": "uptime_kuma"
+        }
+      ]
+    }
+  }
+}

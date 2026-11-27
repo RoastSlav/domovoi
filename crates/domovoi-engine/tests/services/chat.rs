@@ -444,5 +444,8 @@ async fn a_model_that_spends_its_reads_and_writes_nothing_gets_an_explained_answ
         .chat(Some(other_host_id()), "", &Vec::new(), "Why slow?")
         .await
         .unwrap();
-    assert!(answer.contains("Tool calls per run"), "{answer}");
+    assert!(
+        answer.contains("Models and triage, Tool calls per run"),
+        "{answer}"
+    );
 }
