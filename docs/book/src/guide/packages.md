@@ -140,7 +140,7 @@ The hub never retries a target on its own after the request has been sent.
 
 ## Installing does not enable
 
-After a successful install, the package is on disk but not enabled. Its skills do not appear for the triage agent, and nothing in the package runs. No step in the hub enables a package.
+After a successful install, the package is on disk but not enabled. Its skills do not appear for the triage agent, and nothing in the package runs. No step in the hub enables a package yet, so a package that installed is **stored, not active**: the job page says "Stored, skills not active", each host shows "Stored (skills off)", and the install wizard says so before you confirm. An enable step (password, the package name typed again, a signature re-check and an audit entry) is planned as its own feature.
 
 ## Keeping records
 

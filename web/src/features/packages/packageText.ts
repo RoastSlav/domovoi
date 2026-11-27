@@ -1,6 +1,6 @@
 /** What every install is not: the install puts files on a host and enables nothing. */
 export const INSTALL_NOT_ENABLE =
-  "Installing puts the package's files on the host. It does not enable anything.";
+  "Installing stores the package's files on the host and nothing else. Its skills cannot be switched on yet: this release has no enable step, so a stored package runs nothing.";
 
 /** What the hub's signature check does and does not mean. */
 export const SIGNATURE_NOTE =

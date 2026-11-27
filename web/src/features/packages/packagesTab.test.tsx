@@ -224,7 +224,7 @@ test("details_dialog_lists_digest_signature_and_hosts", async () => {
   expect(await within(dialog).findByText("a".repeat(64))).toBeVisible();
   expect(within(dialog).getByText('key_id = "sigtext"')).toBeVisible();
   expect(within(dialog).getByText("nas")).toBeVisible();
-  expect(within(dialog).getByText("Installed")).toBeVisible();
+  expect(within(dialog).getByText("Stored (skills off)")).toBeVisible();
   expect(within(dialog).getByText(/as last reported/)).toBeVisible();
   expect(dialog).not.toHaveTextContent(/\/var\/|\/etc\/|\.part|data_dir/);
 });
@@ -265,10 +265,12 @@ test("installed_list_is_display_only_and_says_when_it_was_last_checked", async (
     install_allowed: true,
   }));
   show("/capabilities?tab=packages&host=nas");
-  expect(await screen.findByText("Installed")).toBeVisible();
+  expect(await screen.findByText("Stored (skills off)")).toBeVisible();
   expect(screen.getByText("Isolated")).toBeVisible();
   expect(screen.getByText(/Last checked/)).toBeVisible();
-  expect(screen.getByText("Installed does not mean enabled.")).toBeVisible();
+  expect(
+    screen.getByText("Stored files only: the skills of a package cannot be switched on yet."),
+  ).toBeVisible();
   expect(screen.getByRole("link", { name: "Remove…" })).toHaveAttribute(
     "href",
     "/capabilities/install?kind=uninstall&package=nginx-tools&version=1.2.0&host=nas",
@@ -298,7 +300,7 @@ test("check_host_refreshes_and_reports_in_words", async () => {
   show("/capabilities?tab=packages&host=nas");
   expect(await screen.findByText("Not checked yet")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Check host" }));
-  expect(await screen.findByText("Installed")).toBeVisible();
+  expect(await screen.findByText("Stored (skills off)")).toBeVisible();
   expect(screen.getByText(/Last checked/)).toBeVisible();
 });
 

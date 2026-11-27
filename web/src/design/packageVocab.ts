@@ -50,10 +50,10 @@ export const INSTALL_TARGET_STATUSES: Table<InstallTargetStatus> = {
     hint: "The host's agent is carrying it out. The hub is waiting for its answer.",
   },
   succeeded: {
-    label: "Succeeded",
+    label: "Stored (skills off)",
     tone: "success",
     icon: "check-circle",
-    hint: "The host's agent confirmed it.",
+    hint: "The host's agent confirmed the package files are stored and verified. Its skills are not active and cannot be switched on yet.",
   },
   failed: {
     label: "Failed",
@@ -90,10 +90,10 @@ export const INSTALL_JOB_STATUSES: Table<InstallJobStatus> = {
     hint: "At least one host is still working on it.",
   },
   succeeded: {
-    label: "Succeeded",
+    label: "Stored, skills not active",
     tone: "success",
     icon: "check-circle",
-    hint: "Every host finished.",
+    hint: "Every host stored the package. Storing does not enable anything: the package's skills cannot be switched on yet.",
   },
   failed: {
     label: "Failed",
@@ -112,10 +112,10 @@ export const INSTALL_JOB_STATUSES: Table<InstallJobStatus> = {
 /** What a host reports about a package it holds. */
 export const HOST_PACKAGE_STATUSES: Table<HostPackageStatus> = {
   active: {
-    label: "Installed",
+    label: "Stored (skills off)",
     tone: "success",
     icon: "check-circle",
-    hint: "The host holds verified files for this package. Installed does not mean enabled.",
+    hint: "The host holds verified files for this package. Its skills are not active and cannot be switched on yet.",
   },
   disabled_untrusted_key: {
     label: "Signed by an untrusted key",

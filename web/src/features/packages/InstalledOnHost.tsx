@@ -140,7 +140,7 @@ function HostInstalled({ hostId, host }: { host: string; hostId: string }) {
               rowKey={(pkg) => `${pkg.name}@${pkg.version}`}
             />
             <Text muted size="sm" block>
-              Installed does not mean enabled.
+              Stored files only: the skills of a package cannot be switched on yet.
             </Text>
           </Stack>
         )}

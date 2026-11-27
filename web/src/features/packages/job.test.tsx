@@ -307,3 +307,11 @@ test("copy_never_claims_enabled_or_available_early_on_the_job_page", async () =>
     expect(text).not.toContain(phrase);
   }
 });
+
+test("a_succeeded_install_says_stored_not_active_and_never_plain_success", async () => {
+  serve(() => job([target({ status: "succeeded" })], { status: "succeeded" }));
+  show();
+  expect((await screen.findAllByText("Stored, skills not active")).length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Stored (skills off)").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Succeeded")).toBeNull();
+});
