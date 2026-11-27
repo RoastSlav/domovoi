@@ -14,6 +14,7 @@ use super::admission::{
     ADMISSION_RETRY, BREAKER_FIRST, BREAKER_MAX, Purpose, Refusal, admit, breaker, unpriced_text,
 };
 use super::agent::{self, ToolUse};
+use super::attribution;
 use super::cache::evidence_digest;
 use super::chain::{Attempt, AttemptError, ChainState, run_chain};
 use super::meta::{self, EvidenceRecord, LoopEnd, LoopOutput, LoopScope, meta_prompt};
@@ -199,6 +200,12 @@ pub(crate) async fn generate(
             match output.end {
                 LoopEnd::Report(mut report) => {
                     redact_report(deps.redactor.as_ref(), &mut report);
+                    // The record is the system's finding, never the model's: a line the
+                    // model wrote is removed, and only a record found here is added.
+                    report.clear_recorded_action();
+                    if let Some(line) = attribution::recorded_action(shared, incident).await {
+                        report.record_action(&line);
+                    }
                     if guard_security_verdict(
                         incident.check(),
                         incident.title(),

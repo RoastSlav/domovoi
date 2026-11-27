@@ -179,3 +179,24 @@ fn only_whole_words_and_the_conclusion_count() {
     r.manual_steps = vec!["Run sudo visudo and set passwordless sudo.".to_owned()];
     assert!(r.claims_without_evidence());
 }
+
+fn blaming_domovoi() -> TriageReport {
+    let mut r = report("MONITOR");
+    r.headline = "Domovoi restarted nginx".to_owned();
+    r.summary = "The Domovoi agent restarted the unit.".to_owned();
+    r.cause = "The agent's restart.".to_owned();
+    r.next_step = "Check the journal.".to_owned();
+    r
+}
+
+#[test]
+fn a_stored_report_that_names_a_recorded_action_is_not_withheld_when_shown_again() {
+    let mut r = blaming_domovoi();
+    r.record_action("operation 0190-aa: unit.restart unit=nginx.service");
+    assert!(!r.cap_security(&check("security.sudo_failure"), TITLE));
+    assert!(r.cause.starts_with("Recorded: operation 0190-aa"));
+    // The same text without the engine's record line is the model's word alone.
+    let mut bare = blaming_domovoi();
+    assert!(bare.cap_security(&check("security.sudo_failure"), TITLE));
+    assert_eq!(bare.cause, "Not established.");
+}

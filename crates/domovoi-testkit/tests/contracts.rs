@@ -114,6 +114,7 @@ contract_tests! {
     in_memory_execution_round_trips_a_human_approval_exactly => execution_round_trips_a_human_approval_exactly,
     in_memory_snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions => snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions,
     in_memory_dispatched_on_lists_only_running_executions_of_the_host => dispatched_on_lists_only_running_executions_of_the_host,
+    in_memory_dispatched_between_lists_one_hosts_dispatches_in_the_window => dispatched_between_lists_one_hosts_dispatches_in_the_window,
     in_memory_dispatched_since_counts_by_host_contract_and_time => dispatched_since_counts_by_host_contract_and_time,
     in_memory_with_status_returns_oldest_first => with_status_returns_oldest_first,
     in_memory_incident_link_is_idempotent => incident_link_is_idempotent,

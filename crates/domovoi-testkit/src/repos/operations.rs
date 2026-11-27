@@ -176,6 +176,30 @@ impl OperationRepo for InMemoryStore {
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 
+    async fn dispatched_between(
+        &self,
+        host: HostId,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ExecutionRecord>, StoreError> {
+        let state = self.begin()?;
+        let mut found: Vec<(Timestamp, ExecutionRecord)> = state
+            .executions
+            .values()
+            .map(|(execution, _)| execution)
+            .filter(|execution| execution.host == host)
+            .filter_map(|execution| {
+                let (_, at) = execution.dispatched?;
+                (from <= at && at <= to).then(|| (at, execution.clone()))
+            })
+            .collect();
+        found.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.execution.to_string().cmp(&b.1.execution.to_string()))
+        });
+        Ok(found.into_iter().map(|(_, execution)| execution).collect())
+    }
+
     async fn with_status(&self, statuses: &[&str], max: u16) -> Result<Vec<Operation>, StoreError> {
         let state = self.begin()?;
         let mut operations: Vec<Operation> = state

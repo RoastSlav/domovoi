@@ -62,6 +62,16 @@ pub trait OperationRepo: Send + Sync {
         since: Timestamp,
     ) -> Result<u32, StoreError>;
 
+    /// The executions on `host` handed to the agent at or between `from` and `to` (inclusive),
+    /// whatever their outcome, oldest dispatch first. Executions never dispatched are not
+    /// returned: nothing ran.
+    async fn dispatched_between(
+        &self,
+        host: HostId,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ExecutionRecord>, StoreError>;
+
     /// Up to `limit` operations whose status name is in `statuses`, oldest first.
     async fn with_status(
         &self,

@@ -4,6 +4,7 @@
 mod permits;
 mod reads;
 mod structure;
+mod window;
 mod writes;
 
 use std::collections::BTreeMap;
@@ -38,6 +39,7 @@ pub use structure::{
     execution_version_guard_refuses_a_stale_write, incident_link_is_idempotent,
     step_ordinals_are_dense_and_unique_within_an_operation,
 };
+pub use window::dispatched_between_lists_one_hosts_dispatches_in_the_window;
 pub use writes::{
     failed_operation_commit_rolls_back_every_stage,
     operation_commit_writes_operation_steps_edges_journal_audit_and_effects_together,

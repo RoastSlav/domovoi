@@ -10,6 +10,7 @@
 
 pub(crate) mod admission;
 pub(crate) mod agent;
+mod attribution;
 pub(crate) mod cache;
 mod chain;
 mod chat;

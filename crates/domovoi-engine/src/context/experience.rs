@@ -85,6 +85,12 @@ impl ExperienceSource {
         })
     }
 
+    /// The read port over operations and their executions, for lookups that are not context.
+    #[must_use]
+    pub fn operations(&self) -> &Arc<dyn OperationRepo> {
+        &self.deps.operations
+    }
+
     fn id() -> ContextSourceId {
         ContextSourceId::parse("experience").unwrap_or_else(|_| ContextSourceId::evidence())
     }

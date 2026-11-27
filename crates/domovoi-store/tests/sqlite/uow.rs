@@ -163,6 +163,7 @@ uow_contract_tests! {
     sqlite_execution_round_trips_a_human_approval_exactly => execution_round_trips_a_human_approval_exactly,
     sqlite_snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions => snapshot_load_returns_steps_in_ordinal_order_with_edges_and_executions,
     sqlite_dispatched_on_lists_only_running_executions_of_the_host => dispatched_on_lists_only_running_executions_of_the_host,
+    sqlite_dispatched_between_lists_one_hosts_dispatches_in_the_window => dispatched_between_lists_one_hosts_dispatches_in_the_window,
     sqlite_dispatched_since_counts_by_host_contract_and_time => dispatched_since_counts_by_host_contract_and_time,
     sqlite_with_status_returns_oldest_first => with_status_returns_oldest_first,
     sqlite_incident_link_is_idempotent => incident_link_is_idempotent,

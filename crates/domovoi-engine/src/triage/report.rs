@@ -291,6 +291,95 @@ mod guard_tests {
 }
 
 #[cfg(test)]
+mod attribution_tests {
+    use domovoi_core::triage::RECORDED_ACTION;
+    use domovoi_core::{EvidenceRef, TriageReport, Verdict};
+
+    use super::*;
+    use crate::triage::agent::ToolUse;
+
+    const RECORD: &str = "operation 0190-aa: unit.restart unit=nginx.service, dispatched 2026-11-27T10:00:00Z, settled 2026-11-27T10:01:00Z";
+
+    fn blaming() -> TriageReport {
+        TriageReport {
+            headline: "Domovoi restarted nginx".to_owned(),
+            summary: "The Domovoi agent restarted the unit and sudo asked for a password."
+                .to_owned(),
+            cause: "The agent's restart.".to_owned(),
+            evidence: vec![EvidenceRef {
+                label: "unit".to_owned(),
+                value: "nginx".to_owned(),
+                source: "journal".to_owned(),
+            }],
+            verdict: Verdict::Monitor,
+            next_step: "Check the journal for the restart.".to_owned(),
+            manual_steps: Vec::new(),
+            proposals: Vec::new(),
+            details: "reasoning".to_owned(),
+        }
+    }
+
+    fn journal() -> Vec<ToolUse> {
+        vec![ToolUse {
+            tool: "journal".to_owned(),
+            skill: None,
+            failed: false,
+            refused: false,
+            raw: None,
+        }]
+    }
+
+    fn guard(report: &mut TriageReport) -> bool {
+        let check = CheckKey::parse("security.sudo_failure").unwrap();
+        guard_security_verdict(&check, "failed sudo", report, &journal())
+    }
+
+    #[test]
+    fn a_record_the_system_found_lets_the_report_name_domovoi_and_shows_the_record() {
+        let mut r = blaming();
+        r.record_action(RECORD);
+        assert!(!guard(&mut r), "nothing is withheld");
+        assert_eq!(r.verdict, Verdict::Monitor);
+        assert!(r.cause.contains("operation 0190-aa"), "{}", r.cause);
+        assert!(r.cause.contains("unit.restart"));
+        assert!(r.details.starts_with(RECORDED_ACTION));
+        assert!(r.details.contains("The model's own cause, replaced"));
+    }
+
+    #[test]
+    fn the_models_word_alone_is_never_enough() {
+        let mut r = blaming();
+        assert!(guard(&mut r));
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
+        assert_eq!(r.cause, "Not established.");
+    }
+
+    #[test]
+    fn a_record_line_the_model_wrote_itself_is_removed() {
+        let mut r = blaming();
+        r.details = format!("{RECORDED_ACTION}operation made-up: unit.restart\n\nreasoning");
+        r.clear_recorded_action();
+        assert!(!r.has_recorded_action());
+        assert!(guard(&mut r), "the forged line does not unlock the blame");
+        assert_eq!(r.cause, "Not established.");
+    }
+
+    #[test]
+    fn a_record_does_not_let_the_report_call_the_event_harmless_or_loosen_authentication() {
+        for text in [
+            "This is expected behavior after the restart.",
+            "Add NOPASSWD for the restart.",
+        ] {
+            let mut r = blaming();
+            r.next_step = text.to_owned();
+            r.record_action(RECORD);
+            assert!(guard(&mut r), "{text}");
+            assert_eq!(r.verdict, Verdict::ActionNeeded);
+        }
+    }
+}
+
+#[cfg(test)]
 mod prompt_tests {
     #[test]
     fn both_prompts_tell_the_model_a_security_event_cannot_be_disproved_by_now() {

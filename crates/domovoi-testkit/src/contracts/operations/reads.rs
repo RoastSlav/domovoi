@@ -13,7 +13,7 @@ use super::{commit, execution, note, operation, running, seed};
 use crate::approvals::authorize;
 use crate::build::at;
 
-fn epoch(n: u128) -> Result<JournalEpoch, ContractError> {
+pub(super) fn epoch(n: u128) -> Result<JournalEpoch, ContractError> {
     serde_json::from_value(json!(uuid_text(n))).map_err(super::setup)
 }
 
@@ -21,7 +21,7 @@ fn uuid_text(n: u128) -> String {
     format!("0190a0a0-0000-7000-8000-{n:012x}")
 }
 
-fn new_execution(row: domovoi_core::ExecutionRecord) -> OperationWrite {
+pub(super) fn new_execution(row: domovoi_core::ExecutionRecord) -> OperationWrite {
     OperationWrite::Execution {
         execution: row,
         expected: ExecutionGuard::New,

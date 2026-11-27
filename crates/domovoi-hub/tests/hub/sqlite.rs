@@ -302,6 +302,15 @@ impl OperationRepo for SqliteStore {
         OperationRepo::dispatched_since(&*self.0, host, contract, since).await
     }
 
+    async fn dispatched_between(
+        &self,
+        host: HostId,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ExecutionRecord>, StoreError> {
+        OperationRepo::dispatched_between(&*self.0, host, from, to).await
+    }
+
     async fn with_status(
         &self,
         statuses: &[&str],

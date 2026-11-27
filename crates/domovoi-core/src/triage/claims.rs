@@ -15,6 +15,11 @@ pub const NOT_ESTABLISHED: &str = "Not established: the model's report called th
 event harmless, blamed Domovoi or its agent, or advised weaker authentication, but no known \
 condition and no action Domovoi recorded supports that. Only a person can decide it.";
 
+/// Opens `details` when the engine itself found a recorded Domovoi action that explains the
+/// security event. The engine writes this line and nothing else may: it clears the line from
+/// model text before it adds its own, so a report cannot claim a record it was not given.
+pub const RECORDED_ACTION: &str = "Recorded Domovoi action: ";
+
 /// Phrases that call an event harmless or expected.
 const BENIGN: &[&str] = &[
     "benign",
@@ -106,12 +111,53 @@ impl TriageReport {
             .map(String::as_str)
     }
 
-    /// Whether the conclusion calls the event harmless, blames Domovoi or advises weaker
-    /// authentication.
+    /// Whether the engine found a recorded Domovoi action for this report (see
+    /// [`TriageReport::record_action`]).
+    #[must_use]
+    pub fn has_recorded_action(&self) -> bool {
+        self.details.starts_with(RECORDED_ACTION)
+    }
+
+    /// Whether the conclusion puts the event on Domovoi, its agent or its automated checks.
+    #[must_use]
+    pub fn attributes_to_domovoi(&self) -> bool {
+        self.conclusion().any(|text| says(text, ATTRIBUTION))
+    }
+
+    /// Removes a record line the model wrote itself. Called before [`Self::record_action`]
+    /// and before any guard, so the line is the engine's or absent.
+    pub fn clear_recorded_action(&mut self) {
+        if let Some(rest) = self.details.strip_prefix(RECORDED_ACTION) {
+            self.details = format!("The model's details: {rest}");
+        }
+    }
+
+    /// Notes the recorded Domovoi action `line` that the engine found for the event: `details`
+    /// opens with it, and when the report puts the event on Domovoi, `cause` becomes the
+    /// record, with the model's own cause kept in `details` as replaced. The model's word is
+    /// not the evidence: the record is.
+    pub fn record_action(&mut self, line: &str) {
+        self.clear_recorded_action();
+        if self.attributes_to_domovoi() {
+            let replaced = std::mem::replace(&mut self.cause, format!("Recorded: {line}"));
+            self.details = format!(
+                "{RECORDED_ACTION}{line}\n\nThe model's own cause, replaced by the record: \
+                 {replaced}\n\n{}",
+                self.details
+            );
+        } else {
+            self.details = format!("{RECORDED_ACTION}{line}\n\n{}", self.details);
+        }
+    }
+
+    /// Whether the conclusion calls the event harmless, advises weaker authentication or
+    /// blames Domovoi. A recorded action lets the report blame Domovoi, and nothing else.
     #[must_use]
     pub fn claims_without_evidence(&self) -> bool {
-        self.conclusion()
-            .any(|text| says(text, BENIGN) || says(text, ATTRIBUTION) || says(text, LOOSENING))
+        let recorded = self.has_recorded_action();
+        self.conclusion().any(|text| {
+            says(text, BENIGN) || (!recorded && says(text, ATTRIBUTION)) || says(text, LOOSENING)
+        })
     }
 
     /// Withholds the report when its text makes a claim only a person may make; the verdict

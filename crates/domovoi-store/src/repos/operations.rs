@@ -202,6 +202,27 @@ impl OperationRepo for Store {
         Ok(u32::try_from(count).unwrap_or(u32::MAX))
     }
 
+    async fn dispatched_between(
+        &self,
+        host: HostId,
+        from: Timestamp,
+        to: Timestamp,
+    ) -> Result<Vec<ExecutionRecord>, StoreError> {
+        const SQL: &str = concat!(
+            execution_columns!(),
+            " WHERE host_id = ? AND dispatched_at >= ? AND dispatched_at <= ? \
+             ORDER BY dispatched_at, execution_id"
+        );
+        let rows: Vec<ExecutionRow> = sqlx::query_as(SQL)
+            .bind(host.to_string())
+            .bind(ms(from))
+            .bind(ms(to))
+            .fetch_all(&self.read)
+            .await
+            .map_err(db)?;
+        rows.into_iter().map(ExecutionRow::into_record).collect()
+    }
+
     async fn with_status(
         &self,
         statuses: &[&str],
