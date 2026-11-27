@@ -21,6 +21,9 @@ packages_dir = "/var/lib/domovoi-packages"
 # Where the host filesystem is mounted. Set to "/host" when the agent runs in a
 # container with the host's root mounted there.
 host_root = "/"
+# Say whether this agent runs in a container instead of letting it guess. Also settable as
+# DOMOVOI_AGENT__IN_CONTAINER=true or false. Leave it out to detect.
+# in_container = false
 
 # How many mutating capability executions this agent accepts. Local and root-owned: the hub
 # cannot send, widen or override it.

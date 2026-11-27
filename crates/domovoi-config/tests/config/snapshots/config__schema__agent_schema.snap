@@ -94,6 +94,14 @@ expression: "AgentConfig::json_schema()"
           "type": "string",
           "format": "uri"
         },
+        "in_container": {
+          "description": "Says whether the agent runs in a container, instead of letting it guess. It wins over\nthe detection (`/.dockerenv`, cgroup names, `host_root`). Also set with\n`DOMOVOI_AGENT__IN_CONTAINER=true` or `false`. Unset: detect.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
         "mutation_limits": {
           "description": "How many mutating capability executions this agent accepts. Local and root-owned;\nthe hub cannot send, widen or override it.",
           "$ref": "#/$defs/MutationLimits"

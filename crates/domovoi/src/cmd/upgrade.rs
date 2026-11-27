@@ -38,7 +38,10 @@ pub async fn run(args: UpgradeArgs) -> anyhow::Result<ExitCode> {
     let target = target::for_this_machine()?;
     let exe = std::env::current_exe().context("cannot tell where this binary is installed")?;
     let base = fetch::release_base();
-    checks::check_release_base(&base, std::env::var("DOMOVOI_ALLOW_HTTP").as_deref() == Ok("1"))?;
+    checks::check_release_base(
+        &base,
+        std::env::var("DOMOVOI_ALLOW_HTTP").as_deref() == Ok("1"),
+    )?;
     let client = fetch::client()?;
     let tag = match &args.version {
         Some(version) => normalize_tag(version)?,

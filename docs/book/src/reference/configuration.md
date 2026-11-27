@@ -358,6 +358,7 @@ Identity of this agent and where it connects.
 | `host_name` | string | This host's name as shown in Domovoi. |
 | `host_root` | string | Where the host filesystem is mounted; `/host` when running in a container. Default `/`. |
 | `hub_url` | URL | The hub's agent server, such as `wss://hub.example.net:7421`. Must use `wss`. |
+| `in_container` | boolean | Says whether the agent runs in a container, instead of letting it guess. It wins over the detection (`/.dockerenv`, cgroup names, `host_root`). Also set with `DOMOVOI_AGENT__IN_CONTAINER=true` or `false`. Unset: detect. |
 | `packages_dir` | string | Where installed packages live. Must be absolute. Default `/var/lib/domovoi-packages`. |
 | `skills_dir` | string | Where skill manifests are read from. Default `/etc/domovoi/skills`. |
 | `state_dir` | string | Where the agent keeps its key and spool. Default `/var/lib/domovoi-agent`. |

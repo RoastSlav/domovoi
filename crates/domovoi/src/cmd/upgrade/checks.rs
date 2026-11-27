@@ -45,7 +45,10 @@ fn parse(version: &str) -> Option<(u64, u64, u64, bool)> {
     let major = parts.next()??;
     let minor = parts.next()??;
     let patch = parts.next()??;
-    parts.next().is_none().then_some((major, minor, patch, release))
+    parts
+        .next()
+        .is_none()
+        .then_some((major, minor, patch, release))
 }
 
 /// Refuses to replace `installed` with an older `target` unless `allow_downgrade`. The same
@@ -79,6 +82,10 @@ mod tests {
         assert!(check_release_base("http://[::1]:80", false).is_ok());
         assert!(check_release_base("http://mirror.example.net/r", false).is_err());
         assert!(check_release_base("http://mirror.example.net/r", true).is_ok());
+        assert!(
+            check_release_base("http://127.0.0.1.evil.net/r", false).is_err(),
+            "a host that only starts like loopback is not loopback"
+        );
     }
 
     #[test]
@@ -88,7 +95,6 @@ mod tests {
             "mirror.example.net",
             "https://user@host/r",
             "https://a b/r",
-            "http://127.0.0.1.evil.net/r",
             "",
         ] {
             assert!(check_release_base(bad, true).is_err(), "{bad:?}");

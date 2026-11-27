@@ -248,17 +248,14 @@ fn the_documented_in_container_variable_is_accepted_by_the_agent_loader() {
     let text = "[agent]\nhost_name = \"kuker\"\nhub_url = \"wss://hub.example.net:7421\"\n";
     for value in ["true", "false"] {
         let env = MapEnv::new().with("DOMOVOI_AGENT__IN_CONTAINER", value);
-        let parsed: AgentConfig = parse(text, &env).unwrap_or_else(|issues| {
+        let (parsed, _): (AgentConfig, _) = parse(text, &env).unwrap_or_else(|issues| {
             panic!("{value}: {issues:?}");
         });
         assert_eq!(parsed.agent.in_container, Some(value == "true"));
     }
-    let none: AgentConfig = parse(text, &MapEnv::new()).unwrap();
+    let (none, _): (AgentConfig, _) = parse(text, &MapEnv::new()).unwrap();
     assert_eq!(none.agent.in_container, None);
-    let in_file: AgentConfig = parse(
-        &format!("{text}in_container = true\n"),
-        &MapEnv::new(),
-    )
-    .unwrap();
+    let (in_file, _): (AgentConfig, _) =
+        parse(&format!("{text}in_container = true\n"), &MapEnv::new()).unwrap();
     assert_eq!(in_file.agent.in_container, Some(true));
 }
