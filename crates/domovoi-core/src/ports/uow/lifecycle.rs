@@ -109,4 +109,9 @@ pub trait EffectQueue: Send + Sync {
     async fn pull_forward_retry(&self, _now: Timestamp) -> Result<u64, StoreError> {
         Ok(0)
     }
+
+    /// How many parked investigation retries wait for a later time than `now`.
+    async fn parked_retries(&self, _now: Timestamp) -> Result<u64, StoreError> {
+        Ok(0)
+    }
 }

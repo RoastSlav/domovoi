@@ -30,7 +30,7 @@ pub(super) async fn run_recoverer(handle: OperationHandle) {
     };
     let shutdown = shared.deps.shutdown.clone();
     let busy = AtomicBool::new(false);
-    let mut probing = Box::pin(probe_until_answered(&runtime));
+    let mut probing = Box::pin(probe_until_answered(&handle, &runtime));
     let mut probe_done = false;
     loop {
         tokio::select! {
@@ -87,7 +87,7 @@ pub(super) async fn pull_parked_retries(handle: &OperationHandle) {
 /// While the stored notice that the model is unreachable is open, asks the model one tiny
 /// question every few minutes; the first answer resolves the notice. Returns when it did, or
 /// at once when no notice was open at the start.
-async fn probe_until_answered(runtime: &Runtime) -> bool {
+async fn probe_until_answered(handle: &OperationHandle, runtime: &Runtime) -> bool {
     let triage = &runtime.triage;
     let deps = &triage.deps;
     let id = triage_degraded("", deps.clock.now()).id;
@@ -100,6 +100,17 @@ async fn probe_until_answered(runtime: &Runtime) -> bool {
     // works now. One question tells; on an answer the caller pulls parked retries forward,
     // on no answer the retry keeps its own time.
     if !open {
+        let parked = handle
+            .shared
+            .deps
+            .effects
+            .parked_retries(deps.clock.now())
+            .await
+            .unwrap_or(0);
+        if parked == 0 {
+            std::future::pending::<()>().await;
+            return false;
+        }
         let asked = deps.primary.complete(probe_request()).await;
         if asked.is_err() {
             std::future::pending::<()>().await;

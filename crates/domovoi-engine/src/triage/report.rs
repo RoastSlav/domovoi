@@ -52,6 +52,10 @@ pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) 
 pub(crate) const NOT_VERIFIED: &str = "Not verified: the model called this event expected, but \
 no tool result in its report ties it to a recorded action, so it needs a person.";
 
+/// The sentence that opens `details` when a security event was called expected by the model.
+pub(crate) const NOT_DECIDED: &str = "Needs a person: the model called this security event expected, but only a person can \
+decide that (a known condition or an action Domovoi recorded); an earlier incident that looks alike is not evidence.";
+
 /// Keeps a security event from being waved away. An event check (`security.*`) records
 /// something that happened; the model may call it expected or fixed only when its evidence
 /// cites a tool that ran. Otherwise the verdict becomes `MONITOR` and `details` says why.
@@ -69,6 +73,18 @@ pub(crate) fn guard_security_verdict(
         || !matches!(report.verdict, Verdict::Expected | Verdict::Fixed)
     {
         return false;
+    }
+    // `expected` is a person's decision: a known condition they made (those events never reach
+    // triage) or a recorded agent action. A model reading logs, or an earlier incident that
+    // looked alike, cannot make it. It needs a person, whatever the evidence.
+    if report.verdict == Verdict::Expected {
+        report.verdict = Verdict::ActionNeeded;
+        report.details = if report.details.trim().is_empty() {
+            NOT_DECIDED.to_owned()
+        } else {
+            format!("{NOT_DECIDED}\n\n{}", report.details)
+        };
+        return true;
     }
     let tied = report.evidence.iter().any(|item| {
         !item.value.trim().is_empty()
@@ -94,7 +110,15 @@ pub(crate) fn guard_security_verdict(
 /// Whether a tool's output can speak about a security event. Container, disk and overview
 /// reads cannot.
 fn relevant_to_security(tool: &str) -> bool {
-    !(tool.starts_with("docker_") || matches!(tool, "smart_report" | "host_overview"))
+    !(tool.starts_with("docker_")
+        || matches!(
+            tool,
+            "smart_report"
+                | "host_overview"
+                | "search_experience"
+                | "incident_history"
+                | "notes_search"
+        ))
 }
 
 fn strip_fences(text: &str) -> &str {
@@ -142,11 +166,11 @@ mod guard_tests {
     }
 
     #[test]
-    fn expected_security_event_without_tool_evidence_becomes_monitor() {
+    fn expected_security_event_without_tool_evidence_needs_a_person() {
         let mut r = report(Verdict::Expected, "incident signal");
         assert!(guard_security_verdict("security.sudo_failure", &mut r, &[]));
-        assert_eq!(r.verdict, Verdict::Monitor);
-        assert!(r.details.starts_with("Not verified"));
+        assert_eq!(r.verdict, Verdict::ActionNeeded);
+        assert!(r.details.starts_with("Needs a person"));
         assert!(r.details.ends_with("reasoning"));
     }
 
@@ -159,19 +183,38 @@ mod guard_tests {
     }
 
     #[test]
-    fn expected_with_a_tool_result_stands() {
-        let mut r = report(Verdict::Expected, "journal sudo lines");
-        let used = [tool("journal", false)];
-        assert!(!guard_security_verdict("security.ssh_login", &mut r, &used));
-        assert_eq!(r.verdict, Verdict::Expected);
+    fn expected_is_never_the_models_call_for_a_security_event() {
+        // Even with a tool result cited, and for a failed sudo or a new listener alike.
+        for check in [
+            "security.ssh_login",
+            "security.sudo_failure",
+            "security.new_port",
+        ] {
+            let mut r = report(Verdict::Expected, "journal sudo lines");
+            let used = [tool("journal", false)];
+            assert!(guard_security_verdict(check, &mut r, &used));
+            assert_eq!(r.verdict, Verdict::ActionNeeded, "{check}");
+        }
+    }
+
+    #[test]
+    fn fixed_with_a_tool_result_stands_but_an_earlier_incident_is_no_evidence() {
+        let mut r = report(Verdict::Fixed, "listening_ports");
+        let used = [tool("listening_ports", false)];
+        assert!(!guard_security_verdict("security.new_port", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::Fixed);
+        let mut r = report(Verdict::Fixed, "search_experience");
+        let used = [tool("search_experience", false)];
+        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        assert_eq!(r.verdict, Verdict::Monitor);
     }
 
     #[test]
     fn a_tool_that_cannot_speak_about_the_event_or_an_empty_value_is_no_evidence() {
-        let mut r = report(Verdict::Expected, "docker_ps");
+        let mut r = report(Verdict::Fixed, "docker_ps");
         let used = [tool("docker_ps", false)];
         assert!(guard_security_verdict("security.new_port", &mut r, &used));
-        let mut r = report(Verdict::Expected, "journal");
+        let mut r = report(Verdict::Fixed, "journal");
         r.evidence[0].value = "  ".to_owned();
         let used = [tool("journal", false)];
         assert!(guard_security_verdict("security.ssh_login", &mut r, &used));

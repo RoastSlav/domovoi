@@ -155,6 +155,20 @@ impl EffectQueue for Store {
         Ok(done.rows_affected())
     }
 
+    async fn parked_retries(&self, now: Timestamp) -> Result<u64, StoreError> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM effects \
+             WHERE status = 'pending' AND kind = 'build_context' \
+               AND aggregate_type = 'operation' AND not_before > ? \
+               AND dedup_key LIKE 'build:%:retry:%'",
+        )
+        .bind(ms(now))
+        .fetch_one(&self.write)
+        .await
+        .map_err(db)?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     async fn pull_forward_retry(&self, now: Timestamp) -> Result<u64, StoreError> {
         let done = sqlx::query(
             "UPDATE effects SET not_before = ? WHERE id = ( \

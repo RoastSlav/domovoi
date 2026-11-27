@@ -146,6 +146,10 @@ impl EffectQueue for SqliteStore {
         EffectQueue::revert_claimed_at_start(&*self.0, aggregates).await
     }
 
+    async fn parked_retries(&self, now: Timestamp) -> Result<u64, StoreError> {
+        EffectQueue::parked_retries(&*self.0, now).await
+    }
+
     async fn pull_forward_retry(&self, now: Timestamp) -> Result<u64, StoreError> {
         EffectQueue::pull_forward_retry(&*self.0, now).await
     }

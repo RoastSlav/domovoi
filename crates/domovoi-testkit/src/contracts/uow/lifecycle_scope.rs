@@ -283,6 +283,7 @@ pub async fn pulling_a_parked_retry_forward_takes_only_the_soonest_one(
     )
     .await?;
     let now = at(10);
+    assert_eq!(subject.queue().parked_retries(now).await?, 2);
     assert_eq!(subject.queue().pull_forward_retry(now).await?, 1);
     assert_eq!(fetch(subject, sooner).await?.not_before, now);
     assert_eq!(fetch(subject, later).await?.not_before, at(900));

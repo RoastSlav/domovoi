@@ -164,6 +164,24 @@ impl EffectQueue for InMemoryStore {
         Ok(reverted)
     }
 
+    async fn parked_retries(&self, now: Timestamp) -> Result<u64, StoreError> {
+        let state = self.begin()?;
+        let count = state
+            .effects
+            .values()
+            .filter(|e| {
+                e.status == EffectStatus::Pending.as_str()
+                    && e.kind == EffectKind::BuildContext.as_str()
+                    && e.aggregate.kind == AggregateKind::Operation
+                    && e.not_before > now
+                    && e.dedup_key
+                        .as_deref()
+                        .is_some_and(|k| k.starts_with("build:") && k.contains(":retry:"))
+            })
+            .count();
+        Ok(count as u64)
+    }
+
     async fn pull_forward_retry(&self, now: Timestamp) -> Result<u64, StoreError> {
         let mut state = self.begin()?;
         let next = state
