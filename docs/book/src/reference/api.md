@@ -424,7 +424,7 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 | POST | `/api/v1/hosts/{name}/profile` | Collects the profile of `host` again now, and answers with it. 409 when its agent is not connected: there is nobody to ask. |
 | POST | `/api/v1/hosts/{name}/revoke` | Revokes the agent of host `name` and disconnects it. The body must be `{"confirm": "<host name>"}`; any other text is refused with 400. |
 | GET | `/api/v1/hosts/{name}/skills` | The skills host `name`'s agent reported. |
-| PUT | `/api/v1/hosts/{name}/skills/{skill}` | Turns one of a host's skills on or off. The switch is saved in the settings table and takes effect immediately: a disabled skill stays on the host, but the hub never runs it and never offers it to triage. |
+| PUT | `/api/v1/hosts/{name}/skills/{skill}` | Turns one of a host's skills on or off. The switch is saved in the settings table and takes effect immediately: a disabled skill stays on the host, but the hub never runs it and never offers it to triage. Turning a skill on answers 409 when the host's agent has no usable skill runner. |
 
 ### Incidents routes
 

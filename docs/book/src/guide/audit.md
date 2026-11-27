@@ -40,3 +40,7 @@ So copy the head hash and keep it off the host, after a backup or on a schedule.
 - `audit.checkpoint`: older entries were removed. The check starts at this entry, so what came before it is not verified.
 
 The HTTP routes behind the page are in the [HTTP API reference](../reference/api.md#audit-log).
+
+## What gets an audit row
+
+Every change a person makes to the hub's own state writes an audit row in the same database transaction as the change, so there is never a change without a row or a row without a change. This covers known conditions (created, edited, deleted, dismissed), settings (`settings.changed`, and `settings.rolled_back` when a bad apply is undone), skill switches, and capability switches. The hub also records `backup.created` and `backup.failed` for scheduled and manual backups, `backup.restored` after a restore, and `hub.password_set` when `domovoi hub set-password` changes a password. The restore and password commands run with the hub stopped, so their row is written when they finish.
