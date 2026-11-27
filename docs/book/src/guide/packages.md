@@ -10,6 +10,8 @@ Packages are off by default. Turn them on with `[packages] enabled = true` in `h
 
 Open Capabilities, then the Packages tab. After you turn packages on (Settings, Packages, which asks for your password), import the archive and its signature file there. The result names who signed it and says the hub checked the signature; each host checks it again against its own keys. Then choose Install, pick the package and the hosts, review the plan code shown as `Plan` followed by eight characters, and confirm with your password and the package name typed by you. The progress page shows each host and refreshes while one is working. Retry needs a new password and a typed name, and Check host asks the agent what is really installed. The owner key lists and size limits stay in `hub.toml`.
 
+A package install needs three things on the host: `[packages] allow_install = true` in `agent.toml`, a trusted owner key on the host, and a signed package. It needs no `[unattended]` ceiling entry: the ceiling limits only what policy may run without a person, and a package install always waits for your password.
+
 ## Trust comes from the agent
 
 Two lists decide whether a package is accepted, and they do different jobs:
