@@ -9,7 +9,9 @@ use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, Part, Role};
 use domovoi_core::{Incident, IncidentId, ReadToolCall, SkillSummary, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
-use super::admission::{ADMISSION_RETRY, Purpose, Refusal, admit, unpriced_text};
+use super::admission::{
+    ADMISSION_RETRY, BREAKER_FIRST, BREAKER_MAX, Purpose, Refusal, admit, breaker, unpriced_text,
+};
 use super::agent::{self, ToolUse};
 use super::cache::evidence_digest;
 use super::chain::{Attempt, AttemptError, ChainState, run_chain};
@@ -24,6 +26,14 @@ use crate::events::{DomainEvent, EventKind};
 pub(crate) struct Limits {
     pub(crate) failures: u32,
     pub(crate) degraded: bool,
+    /// While set and in the future, the model circuit breaker is open.
+    pub(crate) down_until: Option<Timestamp>,
+    /// When the current run of failures started.
+    pub(crate) down_since: Option<Timestamp>,
+    /// How long the next opening lasts; zero means the first length.
+    pub(crate) down_gap: jiff::SignedDuration,
+    /// The latest failure's reason, redacted.
+    pub(crate) down_cause: String,
 }
 
 /// Guards the run window and failure streak for every gate and outcome path.
@@ -66,12 +76,21 @@ pub(crate) async fn digest(shared: &Shared, incident: &Incident) -> [u8; 32] {
 /// Runs the repeat cache and the admission gate, in that order: an answer that costs no
 /// model call must not take a run of the hour or read the monthly budget. With `fresh` the
 /// cache is skipped.
-pub(crate) async fn prepare(shared: &Shared, incident: &Incident, fresh: bool) -> Prepared {
+pub(crate) async fn prepare(
+    shared: &Shared,
+    incident: &Incident,
+    fresh: bool,
+    probe: bool,
+) -> Prepared {
     if !fresh {
         let digest = digest(shared, incident).await;
         if let Some((report, from)) = cached(shared, incident, &digest).await {
             return Prepared::Cached { report, from };
         }
+    }
+    // A person who asked for triage gets one real attempt even while the breaker is open.
+    if !probe && let Some(refusal) = breaker(shared, shared.deps.clock.now()) {
+        return Prepared::Refused(refusal);
     }
     match admit(shared, Purpose::Triage).await {
         Ok(()) => Prepared::Admitted,
@@ -101,6 +120,18 @@ pub(crate) fn refusal_text(shared: &Shared, refusal: &Refusal) -> (String, Optio
         ),
         // The alert is already out, so the run ends as skipped and is retried once the
         // limits are readable again.
+        Refusal::ModelDown {
+            since,
+            until,
+            cause,
+        } => (
+            format!(
+                "the model has been unreachable since {} ({cause}); it tries again from {}",
+                since.strftime("%H:%M UTC"),
+                until.strftime("%H:%M UTC"),
+            ),
+            Some(*until),
+        ),
         Refusal::Unverifiable => (
             "the model limits could not be checked, so triage did not run; it tries again \
              shortly"
@@ -325,6 +356,18 @@ pub(crate) async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
     let raise = {
         let mut limits = limits(shared);
         limits.failures += 1;
+        if limits.failures >= DEGRADED_AFTER {
+            let now = shared.deps.clock.now();
+            let gap = if limits.down_gap.is_zero() {
+                BREAKER_FIRST
+            } else {
+                limits.down_gap
+            };
+            limits.down_since.get_or_insert(now);
+            limits.down_until = now.checked_add(gap).ok();
+            limits.down_gap = (gap + gap).min(BREAKER_MAX);
+            limits.down_cause = shared.deps.redactor.redact(reason);
+        }
         let raise = limits.failures >= DEGRADED_AFTER && !limits.degraded;
         if raise {
             limits.degraded = true;
@@ -349,6 +392,9 @@ pub(crate) async fn succeeded(shared: &Shared) {
     let clear = {
         let mut limits = limits(shared);
         limits.failures = 0;
+        limits.down_until = None;
+        limits.down_since = None;
+        limits.down_gap = jiff::SignedDuration::ZERO;
         std::mem::take(&mut limits.degraded)
     };
     if clear {

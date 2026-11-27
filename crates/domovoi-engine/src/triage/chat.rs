@@ -253,6 +253,9 @@ pub(crate) async fn answer_with(
             Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
             Refusal::Unverifiable => TriageError::AdmissionUnavailable,
+            Refusal::ModelDown { until, .. } => TriageError::Busy {
+                retry_at: Some(until),
+            },
         });
     }
     let deps = &shared.deps;

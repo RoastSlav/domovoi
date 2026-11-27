@@ -571,6 +571,8 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
     assert_eq!(degraded.len(), 1);
     assert_eq!(degraded[0].incident.id(), w.incident.id());
 
+    // The breaker is open for five minutes; after that the next run is a real attempt.
+    w.clock.advance(SignedDuration::from_mins(6));
     w.primary.push_err(LlmError::Unavailable("down".to_owned()));
     let fourth = another(&w, "mysql").await;
     w.run_on(&fourth).await;
@@ -581,6 +583,8 @@ async fn three_failures_raise_triage_degraded_and_success_clears_it() {
         "one notice, not one per failure"
     );
 
+    // The second opening lasts ten minutes.
+    w.clock.advance(SignedDuration::from_mins(11));
     w.primary.push_text(report());
     let fifth = another(&w, "mongo").await;
     assert!(matches!(w.run_on(&fifth).await, TriageOutcome::Report(_)));

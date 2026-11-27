@@ -96,7 +96,7 @@ pub(crate) fn seed_for(
         }],
         effects: vec![(
             EffectKind::BuildContext,
-            json!({ "v": 1, "cycle": 0, "fresh": fresh, "retry": false }),
+            json!({ "v": 1, "cycle": 0, "fresh": fresh, "retry": false, "manual": manual }),
         )],
         actor: Actor::System(SYSTEM_OPERATIONS.to_owned()),
     }

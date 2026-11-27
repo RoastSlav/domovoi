@@ -40,6 +40,7 @@ tokens = 200000
 - `loop_guard_per_hour` (default `3`) limits how many runs of the same skill on the same host may start in one hour.
 - A budget that runs out pauses the operation. It stays paused until someone raises that limit.
 - A model turn counts against `model_turns` as soon as it is accepted, whether or not it reports its usage.
+- `max_running` bounds the operations that are working, plus any a person paused. An operation that waits for an approval, an answer, an agent or a retry timer holds no slot, so one overnight approval cannot stop other investigations from starting.
 - An operation that is queued because `max_running` is reached keeps the reads and questions it started with. They wait, and run once it has a slot.
 - Every value must be positive, and each duration must be longer than zero.
 
@@ -106,7 +107,7 @@ With `[orchestration] enabled = true` (the default) and `[triage] enabled = true
 - The result is an assessment, a plan and a notification step, and the card.
 - When the model needs something only you know, it can ask you a question. The investigation then waits for your answer, shown on the Operations page, and continues with it; if nobody answers within `question_timeout`, it continues and says that no answer arrived. It asks at most twice, and never while it has a plan staged.
 - Each action the model proposes, and that passes the checks, is an **Execution** step with a plan hash that a person approves on the operation. A proposal that does not pass is listed in the report under "Proposals not offered".
-- When a triage run fails or is skipped (the model is unreachable, a limit is reached), the operation shows **waiting for a timer** and its report says why first, then when it will retry and which attempt that is. A run you start by hand does not retry by itself: it ends **failed** with the cause. An operation also ends **failed**, not succeeded, when the action it led to failed or may not have run.
+- When a triage run fails or is skipped (the model is unreachable, a limit is reached), the operation shows **waiting for a timer** and its report says why first, then when it will retry and which attempt that is. After three failed model calls in a row the model counts as unreachable: queued investigations are skipped with "the model has been unreachable since HH:MM" and retried from the time shown (five minutes, doubling up to thirty), instead of each one failing on its own, and one advisory is raised. A run you start by hand always makes one real attempt, and does not retry by itself: it ends **failed** with the cause. An operation also ends **failed**, not succeeded, when the action it led to failed or may not have run.
 - An investigation closes itself when nothing is left to do. It stays open while a proposed step waits for a person, while a retry is pending, and while it is paused.
 - When the hourly limit is reached the run is skipped with a note and tried again once an hour slot frees; a failed run is tried again after an hour, up to three failed runs.
 

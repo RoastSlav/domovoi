@@ -49,6 +49,17 @@ pub(crate) enum Refusal {
     Hourly { retry_at: Option<Timestamp> },
     /// The budget or the persisted window could not be read: nothing may start.
     Unverifiable,
+    /// The model has failed several runs in a row, so the breaker is open: no run is tried
+    /// before `until`, which saves a slot and an attempt for each queued task to learn the
+    /// same fact.
+    ModelDown {
+        /// When the failures started.
+        since: Timestamp,
+        /// The next time a run is tried.
+        until: Timestamp,
+        /// The redacted reason of the latest failure.
+        cause: String,
+    },
 }
 
 /// The sentence a task shows when a provider cannot be priced under a monthly budget.
@@ -85,6 +96,22 @@ pub(crate) fn slot_after(oldest: Timestamp) -> Option<Timestamp> {
         .ok()
 }
 
+/// How long the breaker stays open after the first failures, and the longest it grows to.
+pub(crate) const BREAKER_FIRST: SignedDuration = SignedDuration::from_mins(5);
+pub(crate) const BREAKER_MAX: SignedDuration = SignedDuration::from_mins(30);
+
+/// The refusal the open breaker gives, if it is open at `now`. The breaker opens in
+/// `run::failed` and closes on the first success.
+pub(crate) fn breaker(shared: &Shared, now: Timestamp) -> Option<Refusal> {
+    let limits = crate::triage::run::limits(shared);
+    let until = limits.down_until?;
+    (now < until).then(|| Refusal::ModelDown {
+        since: limits.down_since.unwrap_or(now),
+        until,
+        cause: limits.down_cause.clone(),
+    })
+}
+
 /// Counts a refusal and returns it.
 fn refuse(refusal: Refusal) -> Refusal {
     let reason = match refusal {
@@ -92,6 +119,7 @@ fn refuse(refusal: Refusal) -> Refusal {
         Refusal::Unpriced { .. } => "unpriced",
         Refusal::Hourly { .. } => "hourly",
         Refusal::Unverifiable => "unverifiable",
+        Refusal::ModelDown { .. } => "model_down",
     };
     crate::telemetry::record_admission_rejection(reason);
     refusal

@@ -264,10 +264,10 @@ async fn closer_finishes_after_denial_expiry_and_failure() {
 }
 
 #[tokio::test]
-async fn closer_never_closes_a_paused_queued_or_waiting_investigation() {
+async fn closer_never_closes_a_paused_or_queued_investigation() {
     let w = inv(InvSetup {
         ops: OperationSettings {
-            max_running: 2,
+            max_running: 1,
             ..OperationSettings::default()
         },
         held: vec![EffectKind::BuildContext],
@@ -287,18 +287,7 @@ async fn closer_never_closes_a_paused_queued_or_waiting_investigation() {
     ));
     assert!(w.llm.requests().is_empty());
 
-    // Waiting for a person.
-    let second = w.add_incident("redis", disk(2.0)).await;
-    w.llm.push_text(restart_report("redis"));
-    let waiting = w.ops.investigate(&second, false).await.unwrap();
-    until_waiting(&w, waiting).await;
-    w.jump(600).await;
-    assert_eq!(
-        w.load(waiting).await.operation.status,
-        OperationStatus::WaitingApproval
-    );
-
-    // Queued: both slots are taken.
+    // Queued: the paused one still holds the only slot.
     let third = w.add_incident("db", disk(3.0)).await;
     let queued = w.ops.investigate(&third, false).await.unwrap();
     w.jump(600).await;
@@ -306,11 +295,7 @@ async fn closer_never_closes_a_paused_queued_or_waiting_investigation() {
         w.load(queued).await.operation.status,
         OperationStatus::Queued
     );
-    assert_eq!(
-        w.llm.requests().len(),
-        1,
-        "only the waiting one asked the model"
-    );
+    assert!(w.llm.requests().is_empty(), "nothing asked the model");
 
     // Resumed, the paused one finishes.
     w.llm.push_text(report());
@@ -329,10 +314,14 @@ async fn queued_operation_defers_build_context() {
             max_running: 1,
             ..OperationSettings::default()
         },
+        held: vec![EffectKind::CallModel],
         ..InvSetup::default()
     })
     .await;
-    let (first, step) = proposed(&w).await;
+    // The first operation is held at its model call: it is running and keeps the only slot.
+    w.llm.push_text(restart_report("nginx"));
+    let first = w.start().await;
+    w.jump(10).await;
     let other = w.add_incident("redis", disk(2.0)).await;
     w.llm.push_text(report());
     let second = w.ops.investigate(&other, false).await.unwrap();
@@ -341,11 +330,6 @@ async fn queued_operation_defers_build_context() {
     assert_eq!(
         w.load(second).await.operation.status,
         OperationStatus::Queued
-    );
-    assert_eq!(
-        w.llm.requests().len(),
-        1,
-        "the queued one waits for its slot"
     );
     let pending = w
         .effects(
@@ -360,15 +344,38 @@ async fn queued_operation_defers_build_context() {
         "its context build is deferred, not dropped"
     );
 
-    // The first one ends; the second is admitted and runs.
-    w.ops
-        .deny(first, step, approvals::human(w.user))
-        .await
-        .unwrap();
+    // The first one reaches its approval wait and frees the slot: the second is admitted.
+    w.gate.open();
+    until_waiting(&w, first).await;
     let snapshot = w.until_closed(second).await;
     assert_eq!(snapshot.operation.status, OperationStatus::Succeeded);
-    assert_eq!(w.llm.requests().len(), 2);
     assert_eq!(w.count(&other, "triage.report").await, 1);
+}
+
+#[tokio::test]
+async fn an_operation_waiting_for_a_person_does_not_hold_a_slot() {
+    let w = inv(InvSetup {
+        ops: OperationSettings {
+            max_running: 1,
+            ..OperationSettings::default()
+        },
+        ..InvSetup::default()
+    })
+    .await;
+    let (first, _step) = proposed(&w).await;
+    assert_eq!(
+        w.load(first).await.operation.status,
+        OperationStatus::WaitingApproval
+    );
+    let other = w.add_incident("redis", disk(2.0)).await;
+    w.llm.push_text(report());
+    let second = w.ops.investigate(&other, false).await.unwrap();
+    let snapshot = w.until_closed(second).await;
+    assert_eq!(
+        snapshot.operation.status,
+        OperationStatus::Succeeded,
+        "one operation waiting for approval must not starve the queue"
+    );
 }
 
 #[tokio::test]

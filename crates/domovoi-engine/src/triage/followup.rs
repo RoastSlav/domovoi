@@ -170,6 +170,9 @@ pub(crate) async fn answer(
             Refusal::Unpriced { provider } => TriageError::Provider(unpriced_text(&provider)),
             Refusal::Hourly { retry_at } => TriageError::Busy { retry_at },
             Refusal::Unverifiable => TriageError::AdmissionUnavailable,
+            Refusal::ModelDown { until, .. } => TriageError::Busy {
+                retry_at: Some(until),
+            },
         });
     }
     let skills = deps.capabilities.enabled_skills(incident.host());

@@ -18,8 +18,9 @@ pub struct OrchestrationSection {
     /// restart.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    /// Operations that may be running, waiting or paused at once; the rest queue.
-    /// Default 4.
+    /// Operations that may be working (or paused by a person) at once; the rest queue. An
+    /// operation that waits for an approval, an answer, an agent or a retry timer holds no
+    /// slot. Default 4.
     #[serde(default = "default_max_running")]
     pub max_running: u16,
     /// How long a proposed action waits for a person to approve it. At most `"7d"`.

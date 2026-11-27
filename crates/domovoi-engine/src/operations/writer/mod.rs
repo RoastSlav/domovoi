@@ -87,8 +87,15 @@ fn held_change(held: Held, operation: OperationId, event: OperationEvent) -> Cha
     change
 }
 
-/// Applies one command and answers its caller, whatever the outcome was.
+/// Applies one command and answers its caller, whatever the outcome was. A slot is held only
+/// by an operation that is working, so any command may have freed one (an operation that
+/// began to wait for a person, an agent or a timer); the queue is looked at after each.
 pub(crate) async fn process(shared: &OpShared, command: OperationCommand) {
+    process_one(shared, command).await;
+    admit_queued(shared).await;
+}
+
+async fn process_one(shared: &OpShared, command: OperationCommand) {
     match command {
         OperationCommand::Create { seed, reply } => {
             let result = create::create(shared, *seed).await;
@@ -445,15 +452,11 @@ async fn finish_held_effect(shared: &OpShared, held: Held) -> Result<(), Operati
     finish_held(shared, held, operation, None).await
 }
 
-/// The statuses that hold one of the `max_running` slots. A paused operation keeps its slot.
-const ACTIVE: [&str; 6] = [
-    "running",
-    "waiting_approval",
-    "waiting_user",
-    "waiting_agent",
-    "waiting_timer",
-    "paused",
-];
+/// The statuses that hold one of the `max_running` slots: an operation doing work, or one a
+/// person paused (resuming it must always find its slot). One that waits for a person, an
+/// approval, an agent or a timer (a parked retry can wait for 55 minutes) does no work and
+/// holds no slot, so it cannot starve the queue.
+const ACTIVE: [&str; 2] = ["running", "paused"];
 
 /// Starts queued operations, oldest first, while a slot is free. Runs inside the writer (or
 /// before it starts), never through its queue.

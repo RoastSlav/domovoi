@@ -158,7 +158,7 @@ async fn run(setup: Setup) -> Reported {
         Setup::OpenHour => {}
     }
     let shared = shared_of(deps, settings);
-    let reported = match prepare(&shared, &incident, fresh).await {
+    let reported = match prepare(&shared, &incident, fresh, false).await {
         Prepared::Cached { from, .. } => {
             assert_ne!(
                 from,

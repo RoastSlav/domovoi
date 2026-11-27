@@ -40,6 +40,8 @@ impl BuildContext {
 struct Ask {
     cycle: u32,
     fresh: bool,
+    /// A person asked for this run: it probes a dead model once.
+    manual: bool,
     retry: bool,
     resume: Option<Resume>,
 }
@@ -50,6 +52,10 @@ fn parse(effect: &EffectRecord) -> Option<Ask> {
         cycle: u32::try_from(payload.get("cycle")?.as_u64()?).ok()?,
         fresh: payload
             .get("fresh")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        manual: payload
+            .get("manual")
             .and_then(Value::as_bool)
             .unwrap_or(false),
         retry: payload
@@ -216,7 +222,7 @@ async fn run(
         }
     }
     let skip_cache = ask.fresh || ask.cycle > 0 || ask.retry || ask.resume.is_some();
-    match prepare(triage, &incident, skip_cache).await {
+    match prepare(triage, &incident, skip_cache, ask.manual && !ask.retry).await {
         Prepared::Cached { report, from } => {
             let mut output = TurnOutput::of(TurnKind::Cached);
             output.from = Some(from);

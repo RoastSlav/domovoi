@@ -201,7 +201,7 @@ The operation service: durable multi-step work with approvals. On by default; `e
 | `approval_ttl` | duration | How long a proposed action waits for a person to approve it. At most `"7d"`. Default `"24h"`. |
 | `enabled` | boolean | Investigate new incidents as operations and approve proposed actions per step on the Operations page. Default true. Set to false to switch off automatic investigation (alert cards still go out) and the operation service; follow-up questions, chat and any old pending actions keep working. Read once at start; changing it needs a restart. |
 | `loop_guard_per_hour` | integer | Runs of one skill on one host allowed per hour before the loop guard refuses the next. Default 3. |
-| `max_running` | integer | Operations that may be running, waiting or paused at once; the rest queue. Default 4. |
+| `max_running` | integer | Operations that may be working (or paused by a person) at once; the rest queue. An operation that waits for an approval, an answer, an agent or a retry timer holds no slot. Default 4. |
 | `question_timeout` | duration | How long a question waits for an answer. Default `"24h"`. |
 
 #### `[orchestration.budgets]`

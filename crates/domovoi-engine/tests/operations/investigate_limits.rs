@@ -339,3 +339,68 @@ async fn manual_run_that_is_skipped_ends_failed_without_a_retry() {
     );
     assert_eq!(w.count(&w.incident, "triage.skipped").await, 1);
 }
+
+/// Three failed model calls in a row, so the breaker is open.
+async fn model_down(w: &Inv) {
+    for _ in 0..3 {
+        w.llm
+            .push_err(LlmError::Unavailable("connection refused".to_owned()));
+    }
+    let op = w.start().await;
+    w.until_stepping(op, 300, |s| s.operation.status.is_terminal())
+        .await;
+    assert_eq!(w.llm.requests().len(), 3);
+}
+
+#[tokio::test]
+async fn a_dead_model_is_one_fact_not_a_failure_per_queued_operation() {
+    let w = inv(hourly(10)).await;
+    model_down(&w).await;
+
+    let other = w.add_incident("redis", disk(50.0)).await;
+    let op = w.ops.investigate(&other, false).await.unwrap();
+    let snapshot = until_skipped(&w, op).await;
+
+    assert_eq!(
+        w.llm.requests().len(),
+        3,
+        "the open breaker spared the model another failed call"
+    );
+    let text = output_text(&snapshot);
+    assert!(text.contains("unreachable since"), "{text}");
+    assert!(text.contains("connection refused"), "{text}");
+    assert!(text.contains("tries again from"), "{text}");
+    assert_eq!(
+        w.advisories().await.len(),
+        1,
+        "one notice, not one per operation"
+    );
+}
+
+#[tokio::test]
+async fn a_person_asking_for_triage_probes_a_dead_model_once() {
+    let w = inv(hourly(10)).await;
+    model_down(&w).await;
+
+    let other = w.add_incident("redis", disk(50.0)).await;
+    w.llm.push_text(report());
+    let (ops, asked) = (w.ops.clone(), other.clone());
+    let waiting =
+        tokio::spawn(async move { ops.investigate_on_request_and_wait(&asked, false).await });
+    w.settle().await;
+    let _ = waiting.await;
+    assert_eq!(
+        w.llm.requests().len(),
+        4,
+        "the manual run reached the model"
+    );
+}
+
+/// The text of the first turn that was skipped.
+fn output_text(snapshot: &domovoi_core::OperationSnapshot) -> String {
+    turns(snapshot)
+        .iter()
+        .find(|t| t.progress.outcome == StepOutcome::NotRun)
+        .and_then(|t| t.progress.reason.clone())
+        .unwrap_or_default()
+}
