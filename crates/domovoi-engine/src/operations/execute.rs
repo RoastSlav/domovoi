@@ -285,8 +285,12 @@ async fn finished(
     let text = shared.deps.redactor.redact(&text);
     let mut ending = match output.exit_code {
         Some(0) => Ending::new(row.operation, row.step, StepOutcome::Succeeded),
-        Some(code) => Ending::new(row.operation, row.step, StepOutcome::Failed)
-            .because(format!("exit code {code}")),
+        Some(code) => Ending::new(row.operation, row.step, StepOutcome::Failed).because(
+            match last_stderr_line(&shared.deps.redactor.redact(&output.stderr)) {
+                Some(line) => format!("exit code {code}: {line}"),
+                None => format!("exit code {code}"),
+            },
+        ),
         None => Ending::new(row.operation, row.step, StepOutcome::Failed)
             .because("the skill was killed"),
     };
@@ -358,4 +362,29 @@ pub(super) async fn still_dispatched(
         .and_then(|stored| stored.value.dispatched)
         .map(|(recorded, _)| recorded);
     running && recorded == Some(epoch)
+}
+
+/// The last non-empty line of a skill's standard error, redacted by the runner and cut to 300
+/// characters: the reason a failed step shows instead of a bare exit code.
+fn last_stderr_line(stderr: &str) -> Option<String> {
+    let line = stderr
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())?;
+    Some(line.chars().take(300).collect())
+}
+
+#[cfg(test)]
+mod stderr_tests {
+    use super::last_stderr_line;
+
+    #[test]
+    fn a_failed_skill_step_carries_the_last_stderr_line() {
+        assert_eq!(
+            last_stderr_line("a\nFailed to restart x.service: Access denied\n").as_deref(),
+            Some("Failed to restart x.service: Access denied")
+        );
+        assert_eq!(last_stderr_line(""), None);
+    }
 }

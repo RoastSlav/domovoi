@@ -97,6 +97,14 @@ pub enum UnavailableReason {
     /// runner. The true cause of a refusal that would otherwise read as a missing helper
     /// or runner.
     AgentInContainer,
+    /// A skill that changes the host on an agent that does not run as root: the skill
+    /// runner's account cannot change the host.
+    WriteSkillNeedsRoot,
+    /// The helper is running but offers no `systemd` write group, so it cannot restart a unit
+    /// or run `unit.identity`.
+    HelperSystemdGroupMissing,
+    /// The helper is running but offers no complete `nft` group, so it cannot contain a source.
+    HelperNftGroupMissing,
 }
 
 impl Availability {
@@ -213,6 +221,9 @@ impl UnavailableReason {
             Self::ContainerRuntimeUnavailable => "container_runtime_unavailable",
             Self::DockerWriteUnsupported => "docker_write_unsupported",
             Self::AgentInContainer => "agent_in_container",
+            Self::WriteSkillNeedsRoot => "write_skill_needs_root",
+            Self::HelperSystemdGroupMissing => "helper_systemd_group_missing",
+            Self::HelperNftGroupMissing => "helper_nft_group_missing",
         }
     }
 
@@ -237,6 +248,22 @@ impl UnavailableReason {
             }
             Self::AgentInContainer => {
                 "this agent runs in a container and cannot reach the host's helper or skill runner"
+            }
+            Self::WriteSkillNeedsRoot => {
+                "write skills change the host as root, and the skill runner account on this \
+                 host is not root; to restart a unit here, use `unit.restart` through the \
+                 helper (it needs the `systemd` group in /etc/domovoi/helper.toml)"
+            }
+            Self::HelperSystemdGroupMissing => {
+                "the helper on this host does not offer unit restarts: add `systemd` to `groups` \
+                 and set `[systemd] restart_units` in /etc/domovoi/helper.toml, then restart the \
+                 helper (on a platform the helper has not been tested on, also set \
+                 `allow_write_groups_on_untested`)"
+            }
+            Self::HelperNftGroupMissing => {
+                "the helper on this host does not offer containment: add `nft` to `groups` in \
+                 /etc/domovoi/helper.toml, then restart the helper (on a platform the helper has \
+                 not been tested on, also set `allow_write_groups_on_untested`)"
             }
         }
     }

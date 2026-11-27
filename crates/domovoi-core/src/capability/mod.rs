@@ -60,4 +60,7 @@ pub use target::{
     canonical_container_identity, canonical_host_identity, canonical_network_identity,
     validate_container_name,
 };
-pub use unit::{EXECUTABLE_BUILTINS, POLICY_DISPATCHABLE, is_policy_dispatchable, unit_contracts};
+pub use unit::{
+    EXECUTABLE_BUILTINS, POLICY_DISPATCHABLE, POLICY_ONLY, is_policy_dispatchable, is_policy_only,
+    unit_contracts,
+};

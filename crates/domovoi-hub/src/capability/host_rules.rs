@@ -3,7 +3,7 @@
 
 use domovoi_core::capability::{
     Availability, CapabilityContract, EffectClass, ExecutionPath, NotAllowedOnHost, TargetKind,
-    UnavailableReason,
+    UnavailableReason, is_policy_only,
 };
 use domovoi_core::ports::{HelperState, HostWords, RunnerState};
 
@@ -33,7 +33,10 @@ pub(super) fn host_allows(
     contract: &CapabilityContract,
     words: &HostWords,
 ) -> Result<(), Availability> {
-    if contract.effect != EffectClass::Read {
+    // The ceiling is the limit for unattended runs. A contract a person approves needs no
+    // entry: the agent checks the ceiling only for a policy permit. Only a contract that runs
+    // through policy alone (containment) is refused without one.
+    if contract.effect != EffectClass::Read && is_policy_only(&contract.id) {
         ceiling_allows(contract, words)?;
     }
     if contract.execution == ExecutionPath::Helper && words.helper == HelperState::Failed {
@@ -47,14 +50,18 @@ pub(super) fn host_allows(
         && matches!(contract.id.as_str(), "unit.identity" | "unit.restart")
         && !words.helper_ops.iter().any(|op| op == contract.id.as_str())
     {
-        return Err(Availability::NotInstalled);
+        return Err(Availability::Unavailable {
+            reason: UnavailableReason::HelperSystemdGroupMissing,
+        });
     }
     // A containment contract needs the whole `nft` group: a block has three phases.
     if contract.execution == ExecutionPath::Helper
         && domovoi_core::containment::ops::is_containment_contract(contract.id.as_str())
         && !domovoi_core::containment::ops::offers_nft_group(&words.helper_ops)
     {
-        return Err(Availability::NotInstalled);
+        return Err(Availability::Unavailable {
+            reason: UnavailableReason::HelperNftGroupMissing,
+        });
     }
     if contract.target_kind == TargetKind::Container && !words.container_runtime {
         return Err(Availability::Unavailable {

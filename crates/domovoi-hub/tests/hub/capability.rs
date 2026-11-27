@@ -396,11 +396,11 @@ async fn disabled_skill_is_disabled_by_hub() {
 
 #[tokio::test]
 async fn mutating_contract_without_a_ceiling_is_not_allowed_on_host() {
-    let fixture = Fixture::new(vec![mutable("container.restart")]).await;
-    fixture.complete(&[("container.logs", 1), ("container.restart", 1)]);
+    let fixture = Fixture::new(vec![mutable("firewall.block_source")]).await;
+    fixture.complete(&[("container.logs", 1), ("firewall.block_source", 1)]);
 
     assert_eq!(
-        fixture.availability("container.restart").await,
+        fixture.availability("firewall.block_source").await,
         absent(NotAllowedOnHost::CeilingAbsent)
     );
     assert_eq!(
@@ -411,24 +411,35 @@ async fn mutating_contract_without_a_ceiling_is_not_allowed_on_host() {
 
 #[tokio::test]
 async fn ceiling_entry_must_match_the_exact_contract() {
-    let fixture = Fixture::new(vec![
-        mutable("container.restart"),
-        mutable("container.prune"),
-    ])
-    .await;
-    fixture.complete(&[("container.restart", 1), ("container.prune", 1)]);
+    let fixture = Fixture::new(vec![mutable("firewall.block_source")]).await;
+    fixture.complete(&[("firewall.block_source", 1)]);
     fixture.words(HostWords {
-        ceiling_summary: Some(ceiling(&[("container.restart", 3)])),
+        ceiling_summary: Some(ceiling(&[("firewall.block_source", 3)])),
         ..HostWords::default()
     });
-
     assert_eq!(
-        fixture.availability("container.restart").await,
+        fixture.availability("firewall.block_source").await,
         Availability::Available
     );
+    fixture.words(HostWords {
+        ceiling_summary: Some(ceiling(&[("unit.restart", 3)])),
+        ..HostWords::default()
+    });
     assert_eq!(
-        fixture.availability("container.prune").await,
+        fixture.availability("firewall.block_source").await,
         absent(NotAllowedOnHost::CeilingEntryMissing)
+    );
+}
+
+#[tokio::test]
+async fn a_mutating_contract_a_person_approves_needs_no_ceiling_entry() {
+    // Package contracts and the like run only on a person's approval: the ceiling limits
+    // unattended runs, so its absence must not make them unavailable.
+    let fixture = Fixture::new(vec![mutable("agent.package.install")]).await;
+    fixture.complete(&[("agent.package.install", 1)]);
+    assert_eq!(
+        fixture.availability("agent.package.install").await,
+        Availability::Available
     );
 }
 
@@ -827,14 +838,14 @@ async fn malformed_ceiling_is_not_permissive() {
         "{\"enabled\":true,\"entries\":[{\"contract\":\"container.restart\",\"targets\":{\"kind\":\"any\"},\"max_per_hour\":-1,\"args\":{}}]}",
     ];
     for summary in malformed {
-        let fixture = Fixture::new(vec![mutable("container.restart")]).await;
-        fixture.complete(&[("container.restart", 1)]);
+        let fixture = Fixture::new(vec![mutable("firewall.block_source")]).await;
+        fixture.complete(&[("firewall.block_source", 1)]);
         fixture.words(HostWords {
             ceiling_summary: Some(summary.to_owned()),
             ..HostWords::default()
         });
         assert_eq!(
-            fixture.availability("container.restart").await,
+            fixture.availability("firewall.block_source").await,
             absent(NotAllowedOnHost::CeilingAbsent),
             "{summary} was read as permission"
         );
@@ -1356,7 +1367,10 @@ async fn registry_requires_the_nft_ops_in_the_helper_status() {
         .link
         .set_host_words(fixture.host_id(), words(&["unit.restart"]));
     for id in ["firewall.block_source", "firewall.list_blocks"] {
-        assert_eq!(fixture.availability(id).await, Availability::NotInstalled);
+        assert_eq!(
+            fixture.availability(id).await,
+            missing(UnavailableReason::HelperNftGroupMissing)
+        );
     }
     // Part of the group is not enough: a block has three phases.
     fixture.link.set_host_words(
@@ -1365,7 +1379,7 @@ async fn registry_requires_the_nft_ops_in_the_helper_status() {
     );
     assert_eq!(
         fixture.availability("firewall.block_source").await,
-        Availability::NotInstalled
+        missing(UnavailableReason::HelperNftGroupMissing)
     );
     // The whole group makes both available.
     fixture.link.set_host_words(
@@ -1400,12 +1414,16 @@ async fn registry_reads_helper_ops() {
     );
     assert_eq!(
         fixture.availability("unit.restart").await,
-        Availability::NotInstalled
+        missing(UnavailableReason::HelperSystemdGroupMissing)
     );
     assert_eq!(
         fixture.availability("unit.identity").await,
-        Availability::NotInstalled
+        missing(UnavailableReason::HelperSystemdGroupMissing)
     );
+    // The reason names the file and the setting, not the agent.
+    let said = UnavailableReason::HelperSystemdGroupMissing.describe();
+    assert!(said.contains("/etc/domovoi/helper.toml") && said.contains("groups"));
+    assert!(!said.contains("agent does not implement"));
     // Once the helper lists them, they are available.
     fixture.link.set_host_words(
         fixture.host_id(),
@@ -1434,13 +1452,13 @@ async fn registry_reads_helper_ops() {
         fixture.availability("unit.restart").await,
         missing(UnavailableReason::HelperError)
     );
-    // The ceiling still matters: no entry for the restart, no availability.
+    // No ceiling entry only means unattended restarts are off: a person can still approve it.
     let mut no_entry = helper_words(HelperState::Ready, &["unit.restart"]);
     no_entry.ceiling_summary = Some(ceiling(&[("unit.other", 1)]));
     fixture.link.set_host_words(fixture.host_id(), no_entry);
     assert_eq!(
         fixture.availability("unit.restart").await,
-        absent(NotAllowedOnHost::CeilingEntryMissing)
+        Availability::Available
     );
 }
 
@@ -1551,5 +1569,39 @@ async fn write_skill_is_available_without_a_ceiling() {
     assert_eq!(
         fixture.skill_state("restart_unit").await,
         Availability::Available
+    );
+}
+
+#[tokio::test]
+async fn write_skill_on_an_agent_that_is_not_root_is_unavailable_with_the_reason() {
+    // The three-identities layout: the runner is ready but its account is not root, so a
+    // write skill would fail at run time. It must not read as Available.
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.link.set_skills(
+        fixture.host_id(),
+        vec![
+            summary("restart_unit", Risk::Write),
+            summary("disk_report", Risk::Read),
+        ],
+    );
+    fixture.complete(&[("skill.restart_unit", 1), ("skill.disk_report", 1)]);
+    fixture.words(HostWords {
+        runs_as_root: false,
+        runner: domovoi_core::ports::RunnerState::Ready,
+        ..HostWords::default()
+    });
+
+    assert_eq!(
+        fixture.skill_state("restart_unit").await,
+        missing(UnavailableReason::WriteSkillNeedsRoot)
+    );
+    assert_eq!(
+        fixture.skill_state("disk_report").await,
+        Availability::Available
+    );
+    assert!(
+        UnavailableReason::WriteSkillNeedsRoot
+            .describe()
+            .contains("unit.restart")
     );
 }

@@ -22,6 +22,16 @@ pub fn is_policy_dispatchable(id: &ContractId) -> bool {
     POLICY_DISPATCHABLE.contains(&id.as_str())
 }
 
+/// The policy-dispatchable contracts a person can never run by hand: containment is driven
+/// by policy only, so the host's unattended limit is what makes it available at all.
+pub const POLICY_ONLY: &[&str] = &["firewall.block_source"];
+
+/// Whether `id` runs only through policy, so a missing unattended limit refuses it.
+#[must_use]
+pub fn is_policy_only(id: &ContractId) -> bool {
+    POLICY_ONLY.contains(&id.as_str())
+}
+
 /// The built-in contracts a plan may execute, besides skills.
 pub const EXECUTABLE_BUILTINS: &[&str] = &["unit.restart", "firewall.block_source"];
 

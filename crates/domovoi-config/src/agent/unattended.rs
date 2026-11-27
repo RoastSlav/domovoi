@@ -84,6 +84,13 @@ impl UnattendedSection {
             let firewall = entry.capability == BLOCK_SOURCE_ID;
             for target in &entry.targets {
                 if target == "*" {
+                    if !firewall {
+                        issues.push(ConfigIssue::warning(
+                            at("targets"),
+                            "\"*\" lets policy restart every unit on this host unattended; \
+                             name the units instead",
+                        ));
+                    }
                     continue;
                 }
                 if firewall {

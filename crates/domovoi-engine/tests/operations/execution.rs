@@ -293,7 +293,8 @@ async fn failed_run_settles_failed_and_creates_no_verification() {
 
     let snapshot = w.until_outcome(op, step, StepOutcome::Failed).await;
 
-    assert_eq!(reason(&w, op, step).await, "exit code 1");
+    // The reason says why: the last stderr line follows the exit code.
+    assert_eq!(reason(&w, op, step).await, "exit code 1: no such container");
     assert!(
         snapshot
             .steps

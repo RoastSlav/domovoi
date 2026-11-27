@@ -130,3 +130,15 @@ fn hub_policy_guardrails_have_defaults_and_bounds() {
     );
     assert!(hub("[policy]\nmax_permits_per_hour = 0\n").is_ok());
 }
+
+#[test]
+fn a_wildcard_unit_target_warns_that_it_allows_every_unit() {
+    let text = with(&OK.replace("\"example.service\"", "\"*\""));
+    let (_, issues) = agent(&text).unwrap();
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.path == "unattended.allow[0].targets" && i.message.contains("every unit")),
+        "{issues:#?}"
+    );
+}

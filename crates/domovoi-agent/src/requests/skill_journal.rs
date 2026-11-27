@@ -42,6 +42,17 @@ fn error(code: &str, message: &str) -> Message {
     })
 }
 
+/// The last non-empty line of a skill's (already redacted) standard error, cut to 300 chars.
+/// It is the reason a failed skill shows instead of a bare exit status.
+fn last_stderr_line(stderr: &str) -> Option<String> {
+    let line = stderr
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())?;
+    Some(line.chars().take(300).collect())
+}
+
 /// What the journal keeps of a finished run.
 fn journal_result(outcome: &SkillOutcome) -> CapabilityResult {
     match outcome {
@@ -57,7 +68,10 @@ fn journal_result(outcome: &SkillOutcome) -> CapabilityResult {
         SkillOutcome::Ok(out) => failed(
             CapabilityFailureCode::ExitedNonZero,
             match out.exit_code {
-                Some(code) => format!("the skill exited with status {code}"),
+                Some(code) => match last_stderr_line(&out.stderr) {
+                    Some(line) => format!("the skill exited with status {code}: {line}"),
+                    None => format!("the skill exited with status {code}"),
+                },
                 None => "the skill was killed by a signal".to_owned(),
             },
         ),
@@ -160,5 +174,24 @@ fn duplicate(state: ActionState) -> Message {
             "outcome_unknown",
             "this execution id was used before and its outcome is unknown; check the host and retry with a new id",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_stderr_line;
+
+    #[test]
+    fn the_last_non_empty_stderr_line_is_the_reason() {
+        let stderr = "starting\nFailed to restart x.service: Access denied\n\n";
+        assert_eq!(
+            last_stderr_line(stderr).as_deref(),
+            Some("Failed to restart x.service: Access denied")
+        );
+        assert_eq!(last_stderr_line("  \n"), None);
+        assert_eq!(
+            last_stderr_line(&"x".repeat(500)).map(|l| l.len()),
+            Some(300)
+        );
     }
 }

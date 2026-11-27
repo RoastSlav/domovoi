@@ -22,7 +22,7 @@ use domovoi_core::ports::{
     Clock, HelperState, HostAvailability, HostRepo, HostView, HostWords, RunnerState, SettingsRepo,
     StoreError,
 };
-use domovoi_core::{Host, HostId, SkillName, SkillSummary};
+use domovoi_core::{Host, HostId, Risk, SkillName, SkillSummary};
 use jiff::Timestamp;
 
 use super::catalogue::CatalogueCache;
@@ -316,10 +316,18 @@ impl HubRegistry {
         // for a skill. Gating here refused every approved write skill, because the agent
         // config cannot name a `skill.*` ceiling entry.
         // Row 12: where a skill would actually run.
-        match runner_refusal(&seen.words) {
-            Some(reason) => Availability::Unavailable { reason },
-            None => Availability::Available,
+        if let Some(reason) = runner_refusal(&seen.words) {
+            return Availability::Unavailable { reason };
         }
+        // A skill that changes the host runs as root. The skill runner's account is not root
+        // and has no way to switch user, so on the three-identities layout it would fail at
+        // run time with nothing to say why: it is not offered.
+        if summary.risk != Risk::Read && !seen.words.runs_as_root {
+            return Availability::Unavailable {
+                reason: UnavailableReason::WriteSkillNeedsRoot,
+            };
+        }
+        Availability::Available
     }
 }
 

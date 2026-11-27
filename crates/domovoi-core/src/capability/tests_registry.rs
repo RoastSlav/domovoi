@@ -95,6 +95,18 @@ fn availability_reasons_have_codes() {
             UnavailableReason::DockerWriteUnsupported,
             "docker_write_unsupported",
         ),
+        (
+            UnavailableReason::WriteSkillNeedsRoot,
+            "write_skill_needs_root",
+        ),
+        (
+            UnavailableReason::HelperSystemdGroupMissing,
+            "helper_systemd_group_missing",
+        ),
+        (
+            UnavailableReason::HelperNftGroupMissing,
+            "helper_nft_group_missing",
+        ),
     ];
     for (reason, code) in unavailable {
         let state = Availability::Unavailable { reason };

@@ -332,7 +332,8 @@ async fn step_audit_trail_of_a_failed_run_is_ordered() {
     let entries = w.journal(op).await;
     assert!(entries.windows(2).all(|pair| pair[0].seq < pair[1].seq));
     for event in audit_all(&w).await {
-        assert!(!event.detail.to_string().contains("no such container"));
+        // The audit row keeps the one-line reason; the whole output never enters it.
+        assert!(!event.detail.to_string().contains("--- stderr ---"));
     }
 }
 
