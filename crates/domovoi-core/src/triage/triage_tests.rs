@@ -189,3 +189,12 @@ fn a_command_in_the_middle_of_next_step_is_named() {
     r.next_step = "Free space on the data volume and look at the backup job.".to_owned();
     assert!(r.field_problems().is_empty());
 }
+
+#[test]
+fn journal_takes_a_priority_from_a_closed_list() {
+    let call = ReadToolCall::from_json("journal", json!({ "priority": "err" })).unwrap();
+    assert!(matches!(call, ReadToolCall::Journal { priority: Some(ref p), .. } if p == "err"));
+    let none = ReadToolCall::from_json("journal", json!({})).unwrap();
+    assert!(matches!(none, ReadToolCall::Journal { priority: None, .. }));
+    assert!(ReadToolCall::from_json("journal", json!({ "priority": "err; id" })).is_err());
+}

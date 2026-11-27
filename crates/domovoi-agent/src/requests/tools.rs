@@ -191,6 +191,7 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
             since_minutes,
             lines,
             kernel,
+            priority,
         } => {
             let unit = unit
                 .as_deref()
@@ -199,7 +200,13 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
                 .map_err(invalid)?;
             let spec = ctx
                 .commands
-                .journal(unit.as_ref(), *since_minutes, *lines, *kernel)
+                .journal(
+                    unit.as_ref(),
+                    *since_minutes,
+                    *lines,
+                    *kernel,
+                    priority.as_deref(),
+                )
                 .map_err(template)?;
             if *kernel && unit.is_none() {
                 kernel_journal(ctx, spec, *since_minutes, *lines).await

@@ -90,6 +90,10 @@ pub enum ReadToolCall {
         lines: u16,
         /// Kernel messages only.
         kernel: bool,
+        /// Only lines of this priority or worse: `emerg`, `alert`, `crit`, `err`, `warning`,
+        /// `notice`, `info` or `debug`. `None` returns every priority.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        priority: Option<String>,
     },
     /// Listening sockets.
     ListeningPorts,
@@ -160,6 +164,11 @@ struct EventsArgs {
     since_minutes: u32,
 }
 
+/// The priorities `journal` accepts, from `journalctl --priority`.
+pub const JOURNAL_PRIORITIES: [&str; 8] = [
+    "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug",
+];
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JournalArgs {
@@ -171,6 +180,8 @@ struct JournalArgs {
     lines: u16,
     #[serde(default)]
     kernel: bool,
+    #[serde(default)]
+    priority: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -345,6 +356,16 @@ impl ReadToolCall {
                     )?,
                     lines: c.in_range("lines", a.lines, 1, MAX_LINES)?,
                     kernel: a.kernel,
+                    priority: match a.priority {
+                        None => None,
+                        Some(text) if JOURNAL_PRIORITIES.contains(&text.as_str()) => Some(text),
+                        Some(_) => {
+                            return Err(c.fail(&format!(
+                                "priority must be one of {}",
+                                JOURNAL_PRIORITIES.join(", ")
+                            )));
+                        }
+                    },
                 }
             }
             ReadTool::ListeningPorts => {

@@ -72,6 +72,11 @@ impl ReadTool {
                     "since_minutes": since_field(),
                     "lines": lines_field(),
                     "kernel": { "type": "boolean", "default": false, "description": "Kernel messages only." },
+                    "priority": {
+                        "type": "string",
+                        "enum": super::tool_call::JOURNAL_PRIORITIES,
+                        "description": "Only lines of this priority or worse (for errors use err). Leave out for every priority.",
+                    },
                 }),
                 &[],
             ),

@@ -298,6 +298,7 @@ pub(crate) fn prefetch(incident: &Incident) -> Vec<ReadToolCall> {
         since_minutes: 30,
         lines: 100,
         kernel: false,
+        priority: None,
     });
     calls.push(ReadToolCall::HostOverview);
     calls

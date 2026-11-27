@@ -26,7 +26,7 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
     let c = &h.commands;
     let unit = UnitName::parse("docker.service").unwrap();
 
-    let spec = c.journal(Some(&unit), 30, 100, false).unwrap();
+    let spec = c.journal(Some(&unit), 30, 100, false, None).unwrap();
     assert_eq!(spec.program, "/usr/bin/journalctl");
     assert_eq!(
         args(&spec),
@@ -123,11 +123,11 @@ async fn templates_put_every_slot_in_its_own_argv_element_and_reject_invalid_slo
     }
     assert!(UnitProperty::parse("Active=State").is_err());
     assert!(matches!(
-        c.journal(None, 0, 10, true),
+        c.journal(None, 0, 10, true, None),
         Err(CommandError::InvalidSlot { .. })
     ));
     assert!(matches!(
-        c.journal(None, 10, 501, true),
+        c.journal(None, 10, 501, true, None),
         Err(CommandError::InvalidSlot { .. })
     ));
     assert!(c.systemctl_show(&unit, &[]).is_err());
@@ -315,4 +315,18 @@ async fn real_fs_stats_reads_the_root_filesystem() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn a_journal_priority_is_one_checked_argument() {
+    let h = Harness::new("tools").await;
+    let spec = h.commands.journal(None, 30, 5, false, Some("err")).unwrap();
+    assert!(args(&spec).contains(&"--priority=err"));
+    assert!(
+        h.commands
+            .journal(None, 30, 5, false, Some("err; rm"))
+            .is_err()
+    );
+    let none = h.commands.journal(None, 30, 5, false, None).unwrap();
+    assert!(args(&none).iter().all(|a| !a.starts_with("--priority")));
 }

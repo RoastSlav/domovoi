@@ -112,6 +112,7 @@ fn host_read_calls() -> Vec<ReadToolCall> {
             since_minutes: 30,
             lines: 100,
             kernel: false,
+            priority: None,
         },
         ReadToolCall::HostOverview,
     ]
@@ -232,6 +233,25 @@ fn claims_absence(answer: &str) -> bool {
     .any(|phrase| lower.contains(phrase))
 }
 
+/// An answer that is a bare JSON object (a model that copied a tool-result shape instead of
+/// writing prose) as readable lines, one `key: value` each. Prose is returned unchanged.
+fn plain_answer(answer: &str) -> String {
+    let Ok(serde_json::Value::Object(map)) =
+        serde_json::from_str::<serde_json::Value>(answer.trim())
+    else {
+        return answer.to_owned();
+    };
+    let mut out = String::new();
+    for (key, value) in &map {
+        let value = match value {
+            serde_json::Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
+        out.push_str(&format!("- {}: {value}\n", key.replace('_', " ")));
+    }
+    out.trim_end().to_owned()
+}
+
 /// Answers `question` about the operator's hosts in general. With `host`, the model may use
 /// that host's read tools and read skills; with `None` it answers from `overview`, the
 /// summary of every host, in one turn with no tools. A provider that cannot call tools
@@ -335,7 +355,9 @@ pub(crate) async fn answer_with(
         .await
         .map_err(|reasons| provider_failure(deps.redactor.as_ref(), &reasons))?;
     let mut text = clip(
-        deps.redactor.redact(answer.as_str()).as_str(),
+        deps.redactor
+            .redact(&plain_answer(answer.as_str()))
+            .as_str(),
         MAX_ANSWER_CHARS,
     );
     // Set in code, so the model cannot leave it out: an answer without a tool is not a read
@@ -362,6 +384,14 @@ mod tests {
     use super::{
         CHAT_PROMPT, ChatRole, ChatTurn, MAX_TURNS, TURN_BYTES, claims_absence, cut, remembered,
     };
+
+    #[test]
+    fn a_bare_json_answer_becomes_readable_lines() {
+        let text = super::plain_answer(r#"{"cause": "ip missing", "next_step": "check"}"#);
+        assert_eq!(text, "- cause: ip missing\n- next step: check");
+        assert_eq!(super::plain_answer("Plain prose."), "Plain prose.");
+        assert_eq!(super::plain_answer("[1, 2]"), "[1, 2]");
+    }
 
     #[test]
     fn a_claim_that_something_is_missing_is_recognised() {

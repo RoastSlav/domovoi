@@ -314,6 +314,7 @@ impl Commands {
         since_minutes: u32,
         lines: u16,
         kernel: bool,
+        priority: Option<&str>,
     ) -> Result<ProcessSpec, CommandError> {
         let program = Self::tool(&self.journalctl, "journalctl")?;
         if !(1..=MAX_JOURNAL_MINUTES).contains(&since_minutes) {
@@ -333,6 +334,19 @@ impl Commands {
         args.push(format!("--lines={lines}"));
         if kernel {
             args.push("--dmesg".to_owned());
+        }
+        if let Some(priority) = priority {
+            if ![
+                "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug",
+            ]
+            .contains(&priority)
+            {
+                return Err(invalid(
+                    "priority",
+                    "must be a journal priority name".to_owned(),
+                ));
+            }
+            args.push(format!("--priority={priority}"));
         }
         if let Some(unit) = unit {
             args.push("--unit".to_owned());

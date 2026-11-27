@@ -174,6 +174,7 @@ pub(crate) async fn collect(deps: &ProfileDeps, host: &Host) -> Result<HostProfi
             since_minutes: JOURNAL_SINCE_MINUTES,
             lines: JOURNAL_LINES,
             kernel: true,
+            priority: None,
         },
     )
     .await;

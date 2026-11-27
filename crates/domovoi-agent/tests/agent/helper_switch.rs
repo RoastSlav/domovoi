@@ -292,6 +292,7 @@ fn kernel_call() -> ReadToolCall {
         since_minutes: 60,
         lines: 100,
         kernel: true,
+        priority: None,
     }
 }
 

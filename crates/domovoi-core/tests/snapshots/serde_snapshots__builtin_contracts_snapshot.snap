@@ -404,6 +404,20 @@ expression: contracts
           "minimum": 1,
           "type": "integer"
         },
+        "priority": {
+          "description": "Only lines of this priority or worse (for errors use err). Leave out for every priority.",
+          "enum": [
+            "emerg",
+            "alert",
+            "crit",
+            "err",
+            "warning",
+            "notice",
+            "info",
+            "debug"
+          ],
+          "type": "string"
+        },
         "since_minutes": {
           "default": 60,
           "description": "How many minutes back to look.",

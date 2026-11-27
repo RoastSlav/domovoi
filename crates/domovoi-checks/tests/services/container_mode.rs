@@ -71,7 +71,7 @@ async fn tools_are_looked_up_in_the_filesystem_given_not_the_host() {
         "/usr/bin/systemctl"
     );
     assert_eq!(
-        on_host.journal(None, 10, 10, true).unwrap().program,
+        on_host.journal(None, 10, 10, true, None).unwrap().program,
         "/usr/bin/journalctl"
     );
 }
