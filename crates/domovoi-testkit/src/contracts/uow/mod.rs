@@ -42,6 +42,7 @@ pub use lifecycle_scope::{
     cancel_effects_cancels_only_pending_effects_of_the_aggregate, claim_filters_by_aggregate_kind,
     claimed_of_filters_by_kind_aggregate_and_status,
     pending_of_filters_by_kind_aggregate_and_status,
+    pulling_a_parked_retry_forward_takes_only_the_soonest_one,
     revert_claimed_at_start_is_scoped_to_aggregates,
 };
 pub use rollback::failed_effect_completion_rolls_back_every_stage;

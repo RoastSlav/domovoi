@@ -195,6 +195,27 @@ impl Registry {
         }
     }
 
+    /// Records why the agent refused the hub's check overrides for `session`.
+    pub fn set_override_refusals(&self, host: HostId, session: SessionId, refused: Vec<String>) {
+        if let Some(live) = self
+            .lock()
+            .get_mut(&host)
+            .and_then(|entry| entry.live.as_mut())
+            .filter(|live| live.session == session)
+        {
+            live.override_refusals = refused;
+        }
+    }
+
+    /// What the live agent refused of the hub's check overrides; empty offline.
+    pub fn override_refusals(&self, host: HostId) -> Vec<String> {
+        self.lock()
+            .get(&host)
+            .and_then(|e| e.live.as_ref())
+            .map(|l| l.override_refusals.clone())
+            .unwrap_or_default()
+    }
+
     /// Records a frame from the host at `at`.
     pub fn seen(&self, host: HostId, at: Timestamp) {
         if let Some(entry) = self.lock().get_mut(&host) {

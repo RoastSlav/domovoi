@@ -133,6 +133,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
         journal_epoch: Uuid::nil(),
         authoritative_absence: true,
         agent_status: None,
+        override_refusals: Vec::new(),
         outbox,
         pending: HashMap::new(),
         cancel: CancellationToken::new(),

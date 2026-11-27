@@ -20,6 +20,8 @@ pub struct HostChecks {
     pub reported: Vec<CheckInfo>,
     /// The overrides saved for the host.
     pub overrides: BTreeMap<CheckKey, CheckOverride>,
+    /// What the connected agent refused of them, with the reason.
+    pub refused: Vec<String>,
 }
 
 impl SettingsService {
@@ -30,6 +32,7 @@ impl SettingsService {
         Ok(HostChecks {
             connected: reported.is_some(),
             reported: reported.unwrap_or_default(),
+            refused: deps.agents.override_refusals(host.id),
             overrides: crate::agent_server::stored_overrides(&*deps.store, host.name.as_str())
                 .await,
         })
@@ -45,11 +48,12 @@ impl SettingsService {
     ) -> Result<bool, SettingsError> {
         let mut issues = Vec::new();
         for (key, item) in &overrides {
-            if item.interval_seconds == Some(0) {
-                issues.push(ConfigIssue::error(
-                    format!("{key}.interval_seconds"),
-                    "must be at least 1 second",
-                ));
+            if let Err(message) = domovoi_checks::framework::validate_override(
+                key.as_str(),
+                item.interval_seconds,
+                &item.thresholds,
+            ) {
+                issues.push(ConfigIssue::error(key.to_string(), message));
             }
         }
         if !issues.is_empty() {

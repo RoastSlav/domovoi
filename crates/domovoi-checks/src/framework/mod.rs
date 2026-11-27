@@ -1,5 +1,6 @@
 //! What a check is, what it may touch and what it reports.
 
+mod limits;
 mod report;
 mod settings;
 
@@ -13,6 +14,7 @@ use jiff::SignedDuration;
 
 use crate::commands::{CommandError, Commands};
 
+pub use limits::{MAX_INTERVAL_SECONDS, min_interval_seconds, validate_override};
 pub use report::{CheckReport, Observation, number_fact, round2, text_fact};
 pub use settings::{CheckSettings, CheckState};
 

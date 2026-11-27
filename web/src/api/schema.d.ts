@@ -3307,6 +3307,11 @@ export interface components {
             checks: components["schemas"]["HostCheckDto"][];
             /** @description Whether the agent is connected. */
             connected: boolean;
+            /**
+             * @description What the agent refused of the saved overrides, each with the reason; empty when it
+             *     took them all.
+             */
+            refused: string[];
         };
         /** @description Whether the agent got the change now. */
         HostChecksSaved: {

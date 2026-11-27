@@ -35,12 +35,16 @@ pub(super) async fn run_recoverer(handle: OperationHandle) {
     loop {
         tokio::select! {
             () = shutdown.cancelled() => return,
-            () = &mut probing, if !probe_done => {
+            was_open = &mut probing, if !probe_done => {
                 probe_done = true;
-                if !busy.swap(true, Ordering::SeqCst) {
+                if was_open && !busy.swap(true, Ordering::SeqCst) {
                     sweep(&handle, &runtime).await;
                     busy.store(false, Ordering::SeqCst);
                 }
+                pull_parked_retries(&handle).await;
+            }
+            () = runtime.triage.pull_parked.notified() => {
+                pull_parked_retries(&handle).await;
             }
             () = runtime.triage.recovered.notified() => {
                 if !busy.swap(true, Ordering::SeqCst) {
@@ -52,10 +56,38 @@ pub(super) async fn run_recoverer(handle: OperationHandle) {
     }
 }
 
+/// Gap between two parked retries pulled forward, so they run one at a time and the hourly
+/// limit and monthly budget are checked at each start.
+const PULL_GAP: SignedDuration = SignedDuration::from_mins(1);
+
+/// Makes parked retries due now, one every [`PULL_GAP`], until none is left waiting.
+pub(super) async fn pull_parked_retries(handle: &OperationHandle) {
+    let deps = &handle.shared.deps;
+    loop {
+        match deps.effects.pull_forward_retry(deps.clock.now()).await {
+            Ok(0) => return,
+            Ok(_) => {
+                tracing::info!("the model answers again; a parked triage retry runs now");
+            }
+            Err(err) => {
+                tracing::warn!(%err, "could not pull a parked retry forward");
+                return;
+            }
+        }
+        let Ok(next) = deps.clock.now().checked_add(PULL_GAP) else {
+            return;
+        };
+        tokio::select! {
+            () = deps.shutdown.cancelled() => return,
+            () = deps.clock.sleep_until(next) => {}
+        }
+    }
+}
+
 /// While the stored notice that the model is unreachable is open, asks the model one tiny
 /// question every few minutes; the first answer resolves the notice. Returns when it did, or
 /// at once when no notice was open at the start.
-async fn probe_until_answered(runtime: &Runtime) {
+async fn probe_until_answered(runtime: &Runtime) -> bool {
     let triage = &runtime.triage;
     let deps = &triage.deps;
     let id = triage_degraded("", deps.clock.now()).id;
@@ -64,23 +96,18 @@ async fn probe_until_answered(runtime: &Runtime) {
         .list_open()
         .await
         .is_ok_and(|open| open.iter().any(|a| a.id == id));
+    // No notice is open: a retry parked before this start may still wait for a model that
+    // works now. One question tells; on an answer the caller pulls parked retries forward,
+    // on no answer the retry keeps its own time.
     if !open {
-        std::future::pending::<()>().await;
-        return;
+        let asked = deps.primary.complete(probe_request()).await;
+        if asked.is_err() {
+            std::future::pending::<()>().await;
+        }
+        return false;
     }
     loop {
-        let asked = deps
-            .primary
-            .complete(LlmRequest {
-                system: "You are a connection test. Reply with OK.".to_owned(),
-                messages: vec![LlmMessage {
-                    role: Role::User,
-                    parts: vec![Part::Text("Reply with OK.".to_owned())],
-                }],
-                tools: Vec::new(),
-                max_output_tokens: 16,
-            })
-            .await;
+        let asked = deps.primary.complete(probe_request()).await;
         match asked {
             Ok(_) => {
                 tracing::info!("the model answers again; the unreachable notice is cleared");
@@ -89,14 +116,14 @@ async fn probe_until_answered(runtime: &Runtime) {
                 if let Err(err) = deps.advisories.resolve(id, deps.clock.now()).await {
                     tracing::debug!(%err, "no open triage advisory to resolve");
                 }
-                return;
+                return true;
             }
             Err(err) => {
                 tracing::info!(%err, "the model still does not answer");
                 let next = deps.clock.now().checked_add(PROBE_EVERY);
                 match next {
                     Ok(at) => deps.clock.sleep_until(at).await,
-                    Err(_) => return,
+                    Err(_) => return false,
                 }
             }
         }
@@ -224,5 +251,17 @@ async fn wait_for_end(handle: &OperationHandle, operation: domovoi_core::Operati
             () = deps.shutdown.cancelled() => return,
             () = deps.clock.sleep_until(next) => {}
         }
+    }
+}
+
+fn probe_request() -> LlmRequest {
+    LlmRequest {
+        system: "You are a connection test. Reply with OK.".to_owned(),
+        messages: vec![LlmMessage {
+            role: Role::User,
+            parts: vec![Part::Text("Reply with OK.".to_owned())],
+        }],
+        tools: Vec::new(),
+        max_output_tokens: 16,
     }
 }

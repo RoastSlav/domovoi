@@ -75,11 +75,16 @@ impl EffectiveChecks {
     }
 
     /// Applies everything the hub sent: the container runtime choice and the overrides.
-    pub fn apply_settings(&self, settings: &AgentSettings) {
+    ///
+    /// Returns what it refused, one line per check; the link reports it to the hub. A refused
+    /// override is not applied at all, so a mistyped key never looks armed.
+    pub fn apply_settings(&self, settings: &AgentSettings) -> Vec<String> {
         if let Some(docker) = &self.docker {
             docker.choose(settings.docker);
         }
-        self.apply(&settings.check_overrides);
+        let (accepted, refused) = split_valid(&settings.check_overrides);
+        self.apply(&accepted);
+        refused
     }
 
     /// The settings in effect, and every later change.
@@ -153,6 +158,29 @@ pub fn merge(base: &SettingsMap, overrides: &BTreeMap<CheckKey, CheckOverride>) 
     out
 }
 
+/// The overrides that pass the same rules the hub applies, and one refusal line for each
+/// that does not.
+#[must_use]
+pub fn split_valid(
+    overrides: &BTreeMap<CheckKey, CheckOverride>,
+) -> (BTreeMap<CheckKey, CheckOverride>, Vec<String>) {
+    let mut accepted = BTreeMap::new();
+    let mut refused = Vec::new();
+    for (key, change) in overrides {
+        match domovoi_checks::framework::validate_override(
+            key.as_str(),
+            change.interval_seconds,
+            &change.thresholds,
+        ) {
+            Ok(()) => {
+                accepted.insert(key.clone(), change.clone());
+            }
+            Err(message) => refused.push(message),
+        }
+    }
+    (accepted, refused)
+}
+
 /// What `hello` reports for every check in `registry`: its local settings, before any
 /// override.
 #[must_use]
@@ -185,7 +213,32 @@ mod tests {
     use domovoi_proto::messages::CheckOverride;
     use serde_json::json;
 
-    use super::{EffectiveChecks, merge};
+    use super::{EffectiveChecks, merge, split_valid};
+
+    #[test]
+    fn a_bad_override_is_refused_with_its_reason_and_not_applied() {
+        let disk = CheckKey::parse("disk.free").unwrap();
+        let bad = BTreeMap::from([(
+            disk.clone(),
+            CheckOverride {
+                enabled: None,
+                interval_seconds: Some(1),
+                thresholds: BTreeMap::from([("bogus_key".to_owned(), json!(1))]),
+            },
+        )]);
+        let (accepted, refused) = split_valid(&bad);
+        assert!(accepted.is_empty());
+        assert_eq!(refused.len(), 1);
+        assert!(refused[0].contains("interval_seconds"), "{refused:?}");
+        let effective = EffectiveChecks::new(BTreeMap::new());
+        let settings = domovoi_proto::messages::AgentSettings {
+            heartbeat_seconds: 10,
+            check_overrides: bad,
+            docker: None,
+        };
+        assert_eq!(effective.apply_settings(&settings).len(), 1);
+        assert!(effective.view().borrow().get(&disk).is_none());
+    }
 
     #[test]
     fn overrides_replace_fields_and_merge_thresholds() {

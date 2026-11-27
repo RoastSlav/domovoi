@@ -408,7 +408,10 @@ pub(crate) async fn failed(shared: &Shared, incident: &Incident, reason: &str) {
 pub(crate) async fn succeeded(shared: &Shared) {
     let clear = {
         let mut limits = limits(shared);
-        limits.failures = 0;
+        let had_failures = std::mem::take(&mut limits.failures) > 0;
+        if had_failures {
+            shared.pull_parked.notify_one();
+        }
         limits.down_until = None;
         limits.down_since = None;
         limits.down_gap = jiff::SignedDuration::ZERO;

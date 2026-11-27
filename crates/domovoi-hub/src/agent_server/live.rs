@@ -61,6 +61,8 @@ pub(crate) struct Live {
     pub authoritative_absence: bool,
     /// The last `agent_status` the agent sent, if any.
     pub agent_status: Option<AgentStatus>,
+    /// Why the agent refused the hub's last check overrides; empty when it took them.
+    pub override_refusals: Vec<String>,
     pub outbox: mpsc::Sender<String>,
     pub pending: HashMap<RequestId, oneshot::Sender<Message>>,
     pub cancel: CancellationToken,

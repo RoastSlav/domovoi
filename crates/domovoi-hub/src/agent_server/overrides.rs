@@ -83,6 +83,12 @@ impl AgentServer {
         self.inner.registry.checks(host)
     }
 
+    /// What the host's agent refused of the check overrides; empty when it took them all.
+    #[must_use]
+    pub fn override_refusals(&self, host: HostId) -> Vec<String> {
+        self.inner.registry.override_refusals(host)
+    }
+
     /// Sends the host's current settings, overrides included, to its live agent. False
     /// when the agent is offline; it gets them at its next handshake.
     pub async fn push_settings(&self, host: HostId) -> bool {

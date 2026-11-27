@@ -101,4 +101,12 @@ pub trait EffectQueue: Send + Sync {
         &self,
         aggregates: &[AggregateKind],
     ) -> Result<u64, StoreError>;
+
+    /// Makes the one parked investigation retry that is due soonest (a `pending`
+    /// `build_context` effect of an operation whose dedup key marks it as a retry, due later
+    /// than `now`) due at `now`. Returns how many were pulled forward: 0 or 1. The run still
+    /// passes every limit when it starts.
+    async fn pull_forward_retry(&self, _now: Timestamp) -> Result<u64, StoreError> {
+        Ok(0)
+    }
 }

@@ -163,4 +163,28 @@ impl EffectQueue for InMemoryStore {
         }
         Ok(reverted)
     }
+
+    async fn pull_forward_retry(&self, now: Timestamp) -> Result<u64, StoreError> {
+        let mut state = self.begin()?;
+        let next = state
+            .effect_order
+            .iter()
+            .filter_map(|id| state.effects.get(id))
+            .filter(|e| {
+                e.status == EffectStatus::Pending.as_str()
+                    && e.kind == EffectKind::BuildContext.as_str()
+                    && e.aggregate.kind == AggregateKind::Operation
+                    && e.not_before > now
+                    && e.dedup_key
+                        .as_deref()
+                        .is_some_and(|k| k.starts_with("build:") && k.contains(":retry:"))
+            })
+            .min_by_key(|e| e.not_before)
+            .map(|e| e.id);
+        let Some(id) = next else { return Ok(0) };
+        if let Some(effect) = state.effects.get_mut(&id) {
+            effect.not_before = now;
+        }
+        Ok(1)
+    }
 }

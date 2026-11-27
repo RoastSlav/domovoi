@@ -11919,7 +11919,8 @@
         "description": "A host's checks.",
         "required": [
           "connected",
-          "checks"
+          "checks",
+          "refused"
         ],
         "properties": {
           "checks": {
@@ -11932,6 +11933,13 @@
           "connected": {
             "type": "boolean",
             "description": "Whether the agent is connected."
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the agent refused of the saved overrides, each with the reason; empty when it\ntook them all."
           }
         }
       },

@@ -112,6 +112,9 @@ pub struct HostChecksDto {
     pub connected: bool,
     /// Every check the agent reported or the hub overrides, by key.
     pub checks: Vec<HostCheckDto>,
+    /// What the agent refused of the saved overrides, each with the reason; empty when it
+    /// took them all.
+    pub refused: Vec<String>,
 }
 
 /// New overrides for a host's checks, replacing the previous ones.
@@ -394,6 +397,7 @@ pub(super) async fn host_checks(
     Ok(Json(HostChecksDto {
         connected: checks.connected,
         checks: rows.into_values().collect(),
+        refused: checks.refused,
     }))
 }
 

@@ -319,7 +319,8 @@ impl Link {
         );
         let mut beat = heartbeat(&welcome.config);
         if let Some(overrides) = &self.parts.overrides {
-            overrides.apply_settings(&welcome.config);
+            let refused = overrides.apply_settings(&welcome.config);
+            report_refused_overrides(&mut *transport, &refused).await?;
         }
         let mut sent = None;
         // The hub pings; the agent answers `pong`. A silent link for three intervals is dead.
@@ -427,7 +428,8 @@ impl Link {
             Message::ConfigUpdate(update) => {
                 *beat = heartbeat(&update.config);
                 if let Some(overrides) = &self.parts.overrides {
-                    overrides.apply_settings(&update.config);
+                    let refused = overrides.apply_settings(&update.config);
+                    report_refused_overrides(transport, &refused).await?;
                 }
                 return Ok(());
             }
@@ -483,4 +485,22 @@ fn write_status(dir: Option<&Path>, status: &LinkStatus) {
     if let Err(err) = self::status::write(dir, status) {
         tracing::warn!(%err, "could not write the link status file");
     }
+}
+
+/// Tells the hub which check overrides this agent refused, so the owner sees why a setting
+/// did not take effect. Sends nothing when none were refused.
+async fn report_refused_overrides(
+    transport: &mut dyn Transport,
+    refused: &[String],
+) -> Result<(), LinkError> {
+    if refused.is_empty() {
+        return Ok(());
+    }
+    tracing::warn!(refused = ?refused, "refused check overrides from the hub");
+    let message = Message::Error(domovoi_proto::messages::ErrorMessage {
+        code: "check_override_refused".to_owned(),
+        message: refused.join("; "),
+    });
+    frame::send(transport, &message, None).await?;
+    Ok(())
 }

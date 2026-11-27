@@ -495,7 +495,7 @@ async fn testing_the_secondary_slot_without_a_secondary_says_no_fallback_is_set_
 async fn host_check_overrides_are_stored_and_reported_offline() {
     let a = api().await;
     let login = a.admin().await;
-    let body = json!({ "overrides": { "disk.usage": { "interval_seconds": 120, "thresholds": { "warn_percent": 70 } } } });
+    let body = json!({ "overrides": { "disk.free": { "interval_seconds": 120, "thresholds": { "warning_free_pct": 70 } } } });
     let reply = a
         .send(
             Method::PUT,
@@ -508,12 +508,12 @@ async fn host_check_overrides_are_stored_and_reported_offline() {
     assert_eq!(reply.body["delivered"], false, "the agent is offline");
     let checks = a.get("/api/v1/hosts/nas/checks", &login).await;
     assert_eq!(checks.body["connected"], false);
-    assert_eq!(checks.body["checks"][0]["key"], "disk.usage");
+    assert_eq!(checks.body["checks"][0]["key"], "disk.free");
     assert_eq!(
         checks.body["checks"][0]["overrides"]["interval_seconds"],
         120
     );
-    let bad = json!({ "overrides": { "disk.usage": { "interval_seconds": 0 } } });
+    let bad = json!({ "overrides": { "disk.free": { "interval_seconds": 0 } } });
     let reply = a
         .send(
             Method::PUT,
@@ -523,6 +523,25 @@ async fn host_check_overrides_are_stored_and_reported_offline() {
         )
         .await;
     assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    for (bad, needle) in [
+        (json!({ "interval_seconds": 1 }), "interval_seconds"),
+        (json!({ "thresholds": { "bogus_key": 1 } }), "bogus_key"),
+        (
+            json!({ "thresholds": { "warning_free_pct": 500 } }),
+            "0..=100",
+        ),
+    ] {
+        let reply = a
+            .send(
+                Method::PUT,
+                "/api/v1/hosts/nas/checks",
+                Some(&login),
+                Some(json!({ "overrides": { "disk.free": bad } })),
+            )
+            .await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+        assert!(reply.text.contains(needle), "{}", reply.text);
+    }
 }
 
 #[tokio::test]

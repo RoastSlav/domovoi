@@ -222,6 +222,9 @@ pub(crate) struct Shared {
     /// Woken when the model answers again after an outage: the failed investigations
     /// are started again, one at a time.
     pub(crate) recovered: tokio::sync::Notify,
+    /// Woken when the model answers after any failed run: parked retries are pulled forward,
+    /// one at a time.
+    pub(crate) pull_parked: tokio::sync::Notify,
 }
 
 impl Shared {
@@ -263,6 +266,7 @@ impl TriageService {
             limits: std::sync::Mutex::new(run::Limits::default()),
             questions: tokio::sync::Semaphore::new(usize::from(settings.concurrency.max(1))),
             recovered: tokio::sync::Notify::new(),
+            pull_parked: tokio::sync::Notify::new(),
             deps,
             settings,
         });

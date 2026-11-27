@@ -259,3 +259,36 @@ pub async fn pending_of_filters_by_kind_aggregate_and_status(
     assert!(none.is_empty());
     Ok(())
 }
+
+/// A parked investigation retry (a pending `build_context` of an operation with a retry key)
+/// can be pulled forward one at a time, soonest first; other effects are left alone.
+pub async fn pulling_a_parked_retry_forward_takes_only_the_soonest_one(
+    subject: &dyn UowSubject,
+) -> ContractResult {
+    let retry = |secs: i64, key: &str| EffectDraft {
+        aggregate: AggregateRef::operation(OperationId::new()),
+        not_before: at(secs),
+        dedup_key: Some(key.to_owned()),
+        ..draft(EffectKind::BuildContext, 0)
+    };
+    let later = store(subject, retry(900, "build:a:1:retry:x")).await?;
+    let sooner = store(subject, retry(180, "build:b:1:retry:y")).await?;
+    let other = store(
+        subject,
+        EffectDraft {
+            not_before: at(60),
+            aggregate: AggregateRef::operation(OperationId::new()),
+            ..draft(EffectKind::Wake, 0)
+        },
+    )
+    .await?;
+    let now = at(10);
+    assert_eq!(subject.queue().pull_forward_retry(now).await?, 1);
+    assert_eq!(fetch(subject, sooner).await?.not_before, now);
+    assert_eq!(fetch(subject, later).await?.not_before, at(900));
+    assert_eq!(fetch(subject, other).await?.not_before, at(60));
+    assert_eq!(subject.queue().pull_forward_retry(now).await?, 1);
+    assert_eq!(fetch(subject, later).await?.not_before, now);
+    assert_eq!(subject.queue().pull_forward_retry(now).await?, 0);
+    Ok(())
+}

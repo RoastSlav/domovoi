@@ -78,7 +78,25 @@ async fn command(ctx: &RequestCtx, spec: ProcessSpec) -> Result<(String, bool), 
 /// Whether `journalctl --dmesg` could not read the journal, so the kernel ring buffer may be
 /// read through the helper instead.
 fn journal_unreadable(output: &ProcessOutput) -> bool {
-    output.exit_code != Some(0) || output.stderr.contains("could not be opened")
+    output.exit_code != Some(0)
+        || output.stderr.contains("could not be opened")
+        || output.stderr.contains("not seeing messages")
+        || output.stderr.contains("No journal files")
+}
+
+/// A journal read that ran: an unreadable journal is a failure that says so, never the
+/// same empty text as a journal with no matching entries.
+fn journal_result(output: ProcessOutput) -> Result<(String, bool), ToolFail> {
+    if journal_unreadable(&output) && output.stdout.trim().is_empty() {
+        let why = output.stderr.trim();
+        return Err(ToolFail::new(
+            ToolFailureCode::Unavailable,
+            format!(
+                "the journal could not be read by this agent account (add it to the systemd-journal group or use a helper journal read); this is not an empty result. {why}"
+            ),
+        ));
+    }
+    Ok(render(output))
 }
 
 /// The kernel log: `journalctl --dmesg` first, and once through the helper when that cannot
@@ -211,7 +229,7 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
             if *kernel && unit.is_none() {
                 kernel_journal(ctx, spec, *since_minutes, *lines).await
             } else {
-                command(ctx, spec).await
+                journal_result(execute(ctx, spec).await?)
             }
         }
         ReadToolCall::ListeningPorts => {
@@ -254,5 +272,33 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
                 "this tool is answered by the hub, not the agent",
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod journal_tests {
+    use super::*;
+
+    fn out(code: i32, stdout: &str, stderr: &str) -> ProcessOutput {
+        ProcessOutput {
+            exit_code: Some(code),
+            stdout: stdout.to_owned(),
+            stderr: stderr.to_owned(),
+            truncated: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_unreadable_journal_is_an_error_not_an_empty_answer() {
+        let hint = "Hint: You are currently not seeing messages from other users and the system.";
+        assert!(journal_result(out(0, "", hint)).is_err());
+        assert!(journal_result(out(1, "", "No journal files were found.")).is_err());
+    }
+
+    #[test]
+    fn a_readable_empty_journal_is_an_empty_answer() {
+        assert_eq!(journal_result(out(0, "", "")).unwrap().0, "");
+        assert_eq!(journal_result(out(0, "line\n", "")).unwrap().0, "line\n");
     }
 }

@@ -61,6 +61,7 @@ pub(crate) async fn run_session(
             .iter()
             .any(|feature| feature == AUTHORITATIVE_ABSENCE),
         agent_status: None,
+        override_refusals: Vec::new(),
         outbox,
         pending: HashMap::new(),
         cancel: cancel.clone(),
@@ -241,6 +242,15 @@ async fn handle(
         Message::AgentStatus(status) => {
             inner.registry.set_agent_status(host, session, status);
             notify_status(inner, host);
+            Ok(())
+        }
+        Message::Error(err) if err.code == "check_override_refused" && reply_to.is_none() => {
+            tracing::warn!(%host, refused = %err.message, "the agent refused check overrides");
+            inner.registry.set_override_refusals(
+                host,
+                session,
+                err.message.split("; ").map(str::to_owned).collect(),
+            );
             Ok(())
         }
         reply @ (Message::ToolResult(_)

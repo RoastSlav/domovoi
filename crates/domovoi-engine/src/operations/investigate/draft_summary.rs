@@ -260,7 +260,7 @@ fn retry_due(
                 .filter(|record| record.progress.outcome == StepOutcome::Failed)
                 .count();
             (!limits(triage).degraded && failed < FAILED_RETRY_LIMIT)
-                .then(|| after(shared, failed_retry_after(failed)))
+                .then(|| after(shared, failed_retry_after(failed.saturating_sub(1))))
         }
         TurnKind::Skipped => output.retry_at,
         _ => {
