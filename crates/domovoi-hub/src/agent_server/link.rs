@@ -45,6 +45,14 @@ pub struct WsAgentLink {
 }
 
 impl WsAgentLink {
+    /// The package skills the host announced, on or off.
+    pub(super) fn package_skills(
+        &self,
+        host: HostId,
+    ) -> Vec<domovoi_proto::messages::PackageSkillState> {
+        self.registry.package_skills(host)
+    }
+
     pub(crate) fn new(
         registry: Arc<Registry>,
         clock: Arc<dyn Clock>,

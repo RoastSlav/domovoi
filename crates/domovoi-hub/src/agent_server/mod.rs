@@ -192,6 +192,15 @@ impl AgentServer {
         self.inner.link.skills(host)
     }
 
+    /// The package skills `host`'s agent announced, enabled or not.
+    #[must_use]
+    pub fn host_package_skills(
+        &self,
+        host: HostId,
+    ) -> Vec<domovoi_proto::messages::PackageSkillState> {
+        self.inner.link.package_skills(host)
+    }
+
     /// The agent's recent log lines, as the log page asks for them.
     pub async fn host_logs(
         &self,

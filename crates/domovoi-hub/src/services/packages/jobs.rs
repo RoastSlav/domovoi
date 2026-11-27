@@ -153,6 +153,33 @@ impl PackageCommands {
         self.view(job).await
     }
 
+    /// Turns the skills of the package stored on `host` on or off. Never automatic: a person
+    /// asks, with the password again and the package name typed out. The agent re-verifies the
+    /// files; the hub audits the decision with the plan hash.
+    ///
+    /// # Errors
+    /// Packages disabled, a missing or wrong password, a typed text that is not the package
+    /// name, or the install service's refusal (agent not connected, refused by the agent).
+    pub async fn set_skills_enabled(
+        &self,
+        caller: &Caller,
+        host: HostId,
+        name: &PackageName,
+        version: &domovoi_core::package::PackageVersion,
+        enable: bool,
+        confirm_text: &str,
+        proof: StepUp<'_>,
+    ) -> Result<domovoi_engine::packages::EnableAnswer, PackageCommandError> {
+        Self::web_session(caller)?;
+        self.require_enabled()?;
+        self.step_up(caller, proof).await?;
+        confirm(confirm_text, name)?;
+        Ok(self
+            .handle
+            .set_package_enabled(host, caller.user(), name, version, enable)
+            .await?)
+    }
+
     /// Runs one host's target of a job again as a new attempt.
     ///
     /// # Errors

@@ -65,6 +65,11 @@ pub struct AgentSection {
     /// Default `/`.
     #[serde(default = "default_host_root")]
     pub host_root: PathBuf,
+    /// Says whether the agent runs in a container, instead of letting it guess. It wins over
+    /// the detection (`/.dockerenv`, cgroup names, `host_root`). Also set with
+    /// `DOMOVOI_AGENT__IN_CONTAINER=true` or `false`. Unset: detect.
+    #[serde(default)]
+    pub in_container: Option<bool>,
     /// Where installed packages live. Must be absolute. Default `/var/lib/domovoi-packages`.
     #[serde(default = "default_packages_dir")]
     pub packages_dir: PathBuf,

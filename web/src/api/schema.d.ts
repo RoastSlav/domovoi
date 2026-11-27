@@ -639,6 +639,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{name}/packages/{package}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Lets the skills of a package stored on host `name` run, or stops them. Asks for the
+         *     password again and for the package name typed out. The agent checks the files again
+         *     before it agrees, and the decision is audited as `package.enabled` or `package.disabled`
+         *     with the plan hash. Installing never enables anything.
+         */
+        put: operations["set_package_skills"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{name}/profile": {
         parameters: {
             query?: never;
@@ -3433,6 +3455,14 @@ export interface components {
             privilege_boundary: string;
             /** @description The names of its skills. */
             skills: string[];
+            /**
+             * @description Whether the package's skills can run: `true` only after a person enabled them and the
+             *     agent's re-check of the files passed. Absent when the agent is not connected or is too
+             *     old to say.
+             */
+            skills_enabled?: boolean | null;
+            /** @description Why the skills are off, in the agent's words. */
+            skills_off_reason?: string | null;
             /** @description `active`, `disabled_untrusted_key` or `missing_files`. */
             status: string;
             /** @description The installed version. */
@@ -4202,6 +4232,30 @@ export interface components {
              * @description The detached `.sig.toml` signature file.
              */
             signature: string;
+        };
+        /** @description What the agent did with a request to enable or disable a package's skills. */
+        PackageSkillsDto: {
+            /** @description Whether anything changed (false when it already was so). */
+            changed: boolean;
+            /** @description Whether the skills can run now. */
+            enabled: boolean;
+            /** @description The package. */
+            name: string;
+            /** @description The plan hash the request was bound to and audited with. */
+            plan_hash: string;
+            /** @description Its version. */
+            version: string;
+        };
+        /** @description Turn the skills of a package stored on one host on or off. */
+        PackageSkillsRequestDto: {
+            /** @description The package name, typed. */
+            confirm_text?: string;
+            /** @description `true` to let the skills run, `false` to stop them. */
+            enabled: boolean;
+            /** @description The owner's password, asked for again. */
+            password?: string | null;
+            /** @description The stored version the owner looked at. */
+            version: string;
         };
         /** @description What the hub holds, how it is limited and which keys it trusts. */
         PackagesStatusDto: {
@@ -5143,14 +5197,26 @@ export interface components {
         SkillDto: {
             /** @description Checks it is relevant to. */
             applies_to: string[];
+            /**
+             * @description Whether the host can run it now. `false` with a reason when, for example, the agent has
+             *     no skill runner or the skill belongs to a stored package nobody enabled.
+             */
+            available: boolean;
             /** @description What it does. */
             description: string;
-            /** @description Whether the hub may run and suggest this skill on the host. */
+            /**
+             * @description Whether the hub may run and suggest this skill on the host and it can really run
+             *     there: the owner's switch and `available` both hold.
+             */
             enabled: boolean;
             /** @description Hash of the full manifest the agent has, as hex. */
             manifest_hash: string;
             /** @description Skill name. */
             name: string;
+            /** @description The package it came from; absent for the owner's own skills. */
+            package?: string | null;
+            /** @description The version of that package. */
+            package_version?: string | null;
             /** @description Declared parameters. */
             params: components["schemas"]["ParamDto"][];
             /** @description The skill folder's README.md, at most 8 KiB; absent when there is none. */
@@ -5162,6 +5228,8 @@ export interface components {
              * @description How long one run may take, in seconds.
              */
             timeout_secs: number;
+            /** @description Why it cannot run, in words; absent when it can. */
+            unavailable_reason?: string | null;
             verify?: components["schemas"]["VerifyDto"] | null;
         };
         /** @description Turning one host skill on or off. */
@@ -7565,6 +7633,89 @@ export interface operations {
             };
             /** @description Packages are disabled, or the agent is not connected or did not answer */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_package_skills: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host name */
+                name: string;
+                /** @description Package name */
+                package: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PackageSkillsRequestDto"];
+            };
+        };
+        responses: {
+            /** @description The agent's answer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PackageSkillsDto"];
+                };
+            };
+            /** @description An unreadable package name or version */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The password is missing or wrong, or the typed name is not the package's */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description No such host */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Packages are disabled, the agent is not connected, or the agent refused (for example its files changed since install) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many wrong passwords */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -29,6 +29,7 @@ mod worker;
 
 pub use deps::{PackageDeps, PackageSettings};
 pub use error::{PackageError, PackageExecError};
+pub use inventory::EnableAnswer;
 pub use plan::{HostPlan, InstallPlan, PlanRequest};
 pub use service::{InstallService, JobRequest, PackageHandle};
 

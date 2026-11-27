@@ -43,6 +43,7 @@ pub(crate) async fn run_session(
         version: hello.agent_version,
         facts: *hello.facts,
         skills: hello.skills,
+        package_skills: hello.package_skills,
         catalog_hash: hello.catalog_hash.map(|hash| hex::encode(hash.as_bytes())),
         runs_as_root: hello.runs_as_root,
         in_container: hello.in_container,

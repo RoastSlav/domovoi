@@ -1086,3 +1086,65 @@ async fn openapi_lists_the_package_routes() {
         .collect();
     assert!(tags.contains(&"packages"));
 }
+
+fn skills_body(enabled: bool, password: Option<&str>, confirm: &str) -> Value {
+    json!({
+        "enabled": enabled, "version": "1.0.0", "password": password, "confirm_text": confirm,
+    })
+}
+
+#[tokio::test]
+async fn enabling_a_stored_package_asks_for_password_and_name_and_is_audited() {
+    let (a, login) = rig().await;
+    let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let log = seen.clone();
+    a.link
+        .on_capability(move |_host, dispatch| match dispatch.call {
+            PackageCall::Enable { .. } => {
+                log.lock().unwrap().push("enable".to_owned());
+                Ok(PackageOutputs(std::collections::BTreeMap::from([
+                    ("enabled".to_owned(), "true".to_owned()),
+                    ("changed".to_owned(), "true".to_owned()),
+                    ("tree_sha256".to_owned(), "ab".repeat(32)),
+                ])))
+            }
+            PackageCall::Disable { .. } => Err(LinkError::Rejected(
+                "tree_changed: the package files differ".to_owned(),
+            )),
+            _ => Err(LinkError::Rejected("agent_refused: unexpected".to_owned())),
+        });
+    let path = "/api/v1/hosts/nas/packages/web-tools/skills";
+    let put = |body: Value| a.send(Method::PUT, path, Some(&login), Some(body));
+    assert_eq!(
+        put(skills_body(true, None, "web-tools")).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        put(skills_body(true, Some("wrong"), "web-tools"))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        put(skills_body(true, Some(PASSWORD), "web-tool"))
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+    assert!(seen.lock().unwrap().is_empty(), "nothing reached the agent");
+    assert!(a.audit_events("package.enabled").await.is_empty());
+
+    let ok = put(skills_body(true, Some(PASSWORD), "web-tools")).await;
+    assert_eq!(ok.status, StatusCode::OK, "{}", ok.text);
+    assert_eq!(ok.body["enabled"], true);
+    assert_eq!(ok.body["plan_hash"].as_str().unwrap().len(), 64);
+    let rows = a.audit_events("package.enabled").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].detail["plan_hash"], ok.body["plan_hash"]);
+    assert_eq!(rows[0].detail["package"], "web-tools");
+
+    let refused = put(skills_body(false, Some(PASSWORD), "web-tools")).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text);
+    assert!(refused.text.contains("tree_changed"));
+    assert_eq!(a.audit_events("package.enable_refused").await.len(), 1);
+}

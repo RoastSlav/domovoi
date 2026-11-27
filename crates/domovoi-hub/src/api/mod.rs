@@ -473,6 +473,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(packages_jobs::cancel))
         .routes(routes!(packages_hosts::list))
         .routes(routes!(packages_hosts::refresh))
+        .routes(routes!(packages_hosts::set_skills))
         .routes(routes!(containment::status))
         .routes(routes!(containment::refresh))
         .routes(routes!(containment::release))

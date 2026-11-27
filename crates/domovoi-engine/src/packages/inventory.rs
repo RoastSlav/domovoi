@@ -193,3 +193,141 @@ fn untrusted(row: &HostPackage, actor: Actor, at: Timestamp) -> domovoi_core::po
         detail,
     )
 }
+
+/// What an enable or a disable did, as the agent answered it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnableAnswer {
+    /// The plan hash the request was bound to.
+    pub plan_hash: domovoi_core::PlanHash,
+    /// Whether the skills can run now.
+    pub enabled: bool,
+    /// Whether the state changed.
+    pub changed: bool,
+}
+
+/// Asks `host`'s agent to enable or disable the skills of its stored package, as a person's
+/// decision. The agent re-verifies the files; the hub records who decided, with the plan hash,
+/// and records a refusal too.
+pub(super) async fn set_enabled(
+    shared: &Shared,
+    host: HostId,
+    user: UserId,
+    name: &domovoi_core::package::PackageName,
+    version: &domovoi_core::package::PackageVersion,
+    enable: bool,
+) -> Result<EnableAnswer, PackageError> {
+    let deps = &shared.deps;
+    let contract_id = if enable {
+        "agent.package.enable"
+    } else {
+        "agent.package.disable"
+    };
+    let contract = shared
+        .contract(contract_id)
+        .ok_or_else(|| PackageError::Conflict("the contract is not known".to_owned()))?;
+    match deps.registry.availability(host, &contract.id).await {
+        Availability::Available => {}
+        Availability::HostUnknown | Availability::HostAbsent { .. } => {
+            return Err(PackageError::Link(LinkError::NotConnected));
+        }
+        Availability::HostIncompatible { .. } => {
+            return Err(PackageError::Link(LinkError::Incompatible));
+        }
+        other => {
+            return Err(PackageError::Conflict(format!(
+                "the host does not offer {contract_id}: {}",
+                other.code()
+            )));
+        }
+    }
+    let snapshot = deps
+        .caps
+        .observer
+        .observe_snapshot(host)
+        .ok_or(PackageError::Link(LinkError::NotConnected))?;
+    let key = plan::host_key(shared, host).await?;
+    let plan_hash = if enable {
+        PackagePlan::enable(name, version, host, &key)
+    } else {
+        PackagePlan::disable(name, version, host, &key)
+    }
+    .hash();
+    let now = deps.clock.now();
+    let call = if enable {
+        PackageCall::Enable {
+            package: name.clone(),
+            version: version.clone(),
+        }
+    } else {
+        PackageCall::Disable {
+            package: name.clone(),
+            version: version.clone(),
+        }
+    };
+    let dispatch = PackageDispatch {
+        execution: ExecutionId::new(),
+        call,
+        plan_hash,
+        expires_at: now.checked_add(contract.timeout).unwrap_or(now),
+    };
+    let execution = dispatch.execution;
+    let deadline = now
+        .checked_add(contract.timeout)
+        .and_then(|at| at.checked_add(shared.settings.result_grace))
+        .unwrap_or(now);
+    let actor = Actor::User(user);
+    let subject = format!("package:{name}@{version}");
+    let detail = |extra: Value| {
+        let mut base = json!({
+            "host": host.to_string(),
+            "package": name.to_string(),
+            "version": version.to_string(),
+            "execution": execution.to_string(),
+            "plan_hash": plan_hash.to_string(),
+        });
+        if let (Some(map), Some(more)) = (base.as_object_mut(), extra.as_object()) {
+            map.extend(more.clone());
+        }
+        base
+    };
+    let answered = execute::list_packages(shared, host, &snapshot, dispatch, deadline).await;
+    let at = deps.clock.now();
+    let (kind, extra, result) = match answered {
+        Ok(outputs) => {
+            let on = outputs.0.get(keys::OUT_ENABLED).map(String::as_str) == Some("true");
+            let changed = outputs.0.get("changed").map(String::as_str) == Some("true");
+            (
+                if enable {
+                    audit::ENABLED
+                } else {
+                    audit::DISABLED
+                },
+                json!({
+                    "changed": changed,
+                    "tree_sha256": outputs.0.get("tree_sha256").cloned().unwrap_or_default(),
+                }),
+                Ok(EnableAnswer {
+                    plan_hash,
+                    enabled: on,
+                    changed,
+                }),
+            )
+        }
+        Err(err) => (
+            audit::ENABLE_REFUSED,
+            json!({ "requested": if enable { "enable" } else { "disable" }, "reason": err.to_string() }),
+            Err(PackageError::Link(err)),
+        ),
+    };
+    let tx = Transaction::new().audit(domovoi_core::ports::AuditDraft::new(
+        actor,
+        at,
+        kind.to_owned(),
+        subject,
+        detail(extra),
+    ));
+    if let Err(err) = settle::commit(shared, tx).await {
+        tracing::warn!(?err, "could not record the package enable decision");
+    }
+    result
+}

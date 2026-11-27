@@ -56,6 +56,36 @@ impl PackagePlan {
         }
     }
 
+    /// The plan to let the skills of the stored `name` `version` run on `host`.
+    #[must_use]
+    pub fn enable(
+        name: &PackageName,
+        version: &PackageVersion,
+        host: HostId,
+        host_key: &KeyFingerprint,
+    ) -> Self {
+        Self {
+            contract: "agent.package.enable",
+            subject: format!("name={name}\nversion={version}"),
+            target: host_target_text(host, host_key),
+        }
+    }
+
+    /// The plan to stop the skills of the stored `name` `version` from running on `host`.
+    #[must_use]
+    pub fn disable(
+        name: &PackageName,
+        version: &PackageVersion,
+        host: HostId,
+        host_key: &KeyFingerprint,
+    ) -> Self {
+        Self {
+            contract: "agent.package.disable",
+            subject: format!("name={name}\nversion={version}"),
+            target: host_target_text(host, host_key),
+        }
+    }
+
     /// The plan to list what is installed on `host`.
     #[must_use]
     pub fn list(host: HostId, host_key: &KeyFingerprint) -> Self {

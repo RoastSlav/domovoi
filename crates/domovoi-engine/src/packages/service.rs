@@ -258,6 +258,18 @@ impl PackageHandle {
         }
     }
 
+    /// Lets a person turn the skills of a stored package on or off on `host`.
+    pub async fn set_package_enabled(
+        &self,
+        host: HostId,
+        actor: UserId,
+        name: &domovoi_core::package::PackageName,
+        version: &domovoi_core::package::PackageVersion,
+        enable: bool,
+    ) -> Result<inventory::EnableAnswer, PackageError> {
+        inventory::set_enabled(&self.shared, host, actor, name, version, enable).await
+    }
+
     /// Asks `host`'s agent what it has installed and replaces the hub's record of it. Only a
     /// person starts a refresh.
     pub async fn refresh_inventory(

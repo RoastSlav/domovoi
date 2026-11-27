@@ -34,6 +34,12 @@ pub(super) const MISMATCH: &str = "package.install_mismatch";
 pub(super) const CANCELLED: &str = "package.cancelled";
 /// A host's inventory was replaced by an `agent.package.list` answer.
 pub(super) const INVENTORY_REFRESHED: &str = "package.inventory_refreshed";
+/// A person enabled a stored package's skills on a host.
+pub(super) const ENABLED: &str = "package.enabled";
+/// A person disabled a stored package's skills on a host.
+pub(super) const DISABLED: &str = "package.disabled";
+/// The agent refused to enable or disable.
+pub(super) const ENABLE_REFUSED: &str = "package.enable_refused";
 /// A listed package's signer is newly untrusted on the host.
 pub(super) const KEY_UNTRUSTED: &str = "package.key_untrusted_detected";
 

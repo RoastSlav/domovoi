@@ -192,6 +192,34 @@ pub struct HostPackageDto {
     pub observed_at: String,
     /// `job` or `refresh`.
     pub observed_by: String,
+    /// Whether the package's skills can run: `true` only after a person enabled them and the
+    /// agent's re-check of the files passed. Absent when the agent is not connected or is too
+    /// old to say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills_enabled: Option<bool>,
+    /// Why the skills are off, in the agent's words.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skills_off_reason: Option<String>,
+}
+
+impl HostPackageDto {
+    /// Fills the enabled state from what the agent announced for this package and version.
+    #[must_use]
+    pub fn with_skill_states(
+        mut self,
+        states: &[domovoi_proto::messages::PackageSkillState],
+    ) -> Self {
+        let mine: Vec<_> = states
+            .iter()
+            .filter(|s| s.package == self.name && s.version == self.version)
+            .collect();
+        if mine.is_empty() {
+            return self;
+        }
+        self.skills_enabled = Some(mine.iter().all(|s| s.enabled));
+        self.skills_off_reason = mine.iter().find_map(|s| s.reason.clone());
+        self
+    }
 }
 
 impl From<&HostPackage> for HostPackageDto {
@@ -212,6 +240,8 @@ impl From<&HostPackage> for HostPackageDto {
                 ObservedBy::Refresh => "refresh",
             }
             .to_owned(),
+            skills_enabled: None,
+            skills_off_reason: None,
         }
     }
 }
@@ -263,6 +293,36 @@ pub struct CreateJobRequestDto {
     /// The package name, typed.
     #[serde(default)]
     pub confirm_text: String,
+}
+
+/// Turn the skills of a package stored on one host on or off.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PackageSkillsRequestDto {
+    /// `true` to let the skills run, `false` to stop them.
+    pub enabled: bool,
+    /// The stored version the owner looked at.
+    pub version: String,
+    /// The owner's password, asked for again.
+    pub password: Option<String>,
+    /// The package name, typed.
+    #[serde(default)]
+    pub confirm_text: String,
+}
+
+/// What the agent did with a request to enable or disable a package's skills.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct PackageSkillsDto {
+    /// The package.
+    pub name: String,
+    /// Its version.
+    pub version: String,
+    /// Whether the skills can run now.
+    pub enabled: bool,
+    /// Whether anything changed (false when it already was so).
+    pub changed: bool,
+    /// The plan hash the request was bound to and audited with.
+    pub plan_hash: String,
 }
 
 /// Run one host's target again.

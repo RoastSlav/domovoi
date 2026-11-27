@@ -211,8 +211,18 @@ pub struct SkillDto {
     pub verify: Option<VerifyDto>,
     /// The skill folder's README.md, at most 8 KiB; absent when there is none.
     pub readme: Option<String>,
-    /// Whether the hub may run and suggest this skill on the host.
+    /// Whether the hub may run and suggest this skill on the host and it can really run
+    /// there: the owner's switch and `available` both hold.
     pub enabled: bool,
+    /// Whether the host can run it now. `false` with a reason when, for example, the agent has
+    /// no skill runner or the skill belongs to a stored package nobody enabled.
+    pub available: bool,
+    /// Why it cannot run, in words; absent when it can.
+    pub unavailable_reason: Option<String>,
+    /// The package it came from; absent for the owner's own skills.
+    pub package: Option<String>,
+    /// The version of that package.
+    pub package_version: Option<String>,
 }
 
 /// A note.

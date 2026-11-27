@@ -263,6 +263,12 @@ pub(super) async fn skills(
     Path(name): Path<String>,
 ) -> Result<Json<Vec<SkillDto>>, ApiError> {
     let host = host_named(&state, &name).await?;
+    let cannot_run: Option<String> = state
+        .deps
+        .capabilities
+        .skills_cannot_run(host.id)
+        .map(|reason| reason.describe().to_owned());
+    let package_states = state.deps.agents.package_skills(host.id);
     let skills = state
         .deps
         .agents
@@ -293,13 +299,52 @@ pub(super) async fn skills(
                 delay_secs: v.delay.as_secs(),
             }),
             readme: s.readme,
-            enabled: state
-                .deps
-                .capabilities
-                .enabled(host.id, &domovoi_core::ContractId::skill(&s.name)),
+            enabled: switch_on(&state, host.id, &s.name) && cannot_run.is_none(),
+            available: cannot_run.is_none(),
+            unavailable_reason: cannot_run.clone(),
+            package: package_of(&package_states, s.name.as_str()).map(|p| p.package.clone()),
+            package_version: package_of(&package_states, s.name.as_str())
+                .map(|p| p.version.clone()),
         })
         .collect();
+    let mut skills: Vec<SkillDto> = skills;
+    // Skills of stored packages that nobody enabled: listed, off, with the agent's reason.
+    for stored in package_states.iter().filter(|p| !p.enabled) {
+        skills.push(SkillDto {
+            name: stored.skill.clone(),
+            description: format!(
+                "A skill of the package {} {}.",
+                stored.package, stored.version
+            ),
+            risk: "unknown".to_owned(),
+            params: Vec::new(),
+            applies_to: Vec::new(),
+            timeout_secs: 0,
+            manifest_hash: String::new(),
+            verify: None,
+            readme: None,
+            enabled: false,
+            available: false,
+            unavailable_reason: stored.reason.clone(),
+            package: Some(stored.package.clone()),
+            package_version: Some(stored.version.clone()),
+        });
+    }
     Ok(Json(skills))
+}
+
+fn switch_on(state: &ApiState, host: domovoi_core::HostId, name: &domovoi_core::SkillName) -> bool {
+    state
+        .deps
+        .capabilities
+        .enabled(host, &domovoi_core::ContractId::skill(name))
+}
+
+fn package_of<'a>(
+    states: &'a [domovoi_proto::messages::PackageSkillState],
+    skill: &str,
+) -> Option<&'a domovoi_proto::messages::PackageSkillState> {
+    states.iter().find(|p| p.skill == skill && p.enabled)
 }
 
 /// Why the browser cannot get an agent's log lines now: it is not connected, did not

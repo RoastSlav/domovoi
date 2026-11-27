@@ -120,6 +120,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
             boot_id: "boot-1".to_owned(),
         },
         skills: Vec::new(),
+        package_skills: Vec::new(),
         catalog_hash: None,
         runs_as_root: false,
         in_container: false,

@@ -34,6 +34,8 @@ pub(crate) struct Live {
     /// What the agent said about its machine, kept so the hub can profile the host.
     pub facts: HostFacts,
     pub skills: Vec<SkillSummary>,
+    /// Every skill of a stored package, enabled or not, as the agent announced them.
+    pub package_skills: Vec<domovoi_proto::messages::PackageSkillState>,
     /// The catalogue hash the agent announced in its handshake, as lowercase hex.
     pub catalog_hash: Option<String>,
     /// `hello.runs_as_root`: a label about the agent, never a refusal by itself.

@@ -24,6 +24,10 @@ pub trait AgentAdmin: Send + Sync {
     fn checks(&self, host: HostId) -> Vec<CheckInfo>;
     /// The skills `host`'s agent reported.
     fn skills(&self, host: HostId) -> Vec<SkillSummary>;
+    /// The skills of the packages stored on `host`, on or off, as its agent announced them.
+    fn package_skills(&self, _host: HostId) -> Vec<domovoi_proto::messages::PackageSkillState> {
+        Vec::new()
+    }
     /// Whether `host`'s live agent reports that it runs in a container.
     fn in_container(&self, _host: HostId) -> bool {
         false
@@ -63,6 +67,10 @@ impl AgentAdmin for AgentServer {
 
     fn skills(&self, host: HostId) -> Vec<SkillSummary> {
         self.host_skills(host)
+    }
+
+    fn package_skills(&self, host: HostId) -> Vec<domovoi_proto::messages::PackageSkillState> {
+        self.host_package_skills(host)
     }
 
     fn in_container(&self, host: HostId) -> bool {

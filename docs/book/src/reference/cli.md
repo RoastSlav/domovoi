@@ -325,7 +325,7 @@ Prints the hub's OpenAPI document to standard output. It is not listed in `--hel
 
 ### `domovoi upgrade`
 
-Replaces this binary with a release and prints the units to restart. `--version <tag>` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced and changes nothing. See [Upgrading and uninstalling](../install/upgrading.md).
+Replaces this binary with a release and prints the units to restart. `--version <tag>` installs that release instead of the latest, and `--dry-run` prints what would be downloaded and replaced and changes nothing. Like `install.sh`, it refuses a release older than the installed one unless you pass `--allow-downgrade`, and it refuses a `DOMOVOI_RELEASE_BASE` that is not `https://` (plain `http` only for loopback, or with `DOMOVOI_ALLOW_HTTP=1`), or that holds a user name or a space. See [Upgrading and uninstalling](../install/upgrading.md).
 
 ### `domovoi version`
 

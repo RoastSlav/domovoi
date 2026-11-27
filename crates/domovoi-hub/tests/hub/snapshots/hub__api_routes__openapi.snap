@@ -3268,6 +3268,20 @@ expression: spec
             },
             "type": "array"
           },
+          "skills_enabled": {
+            "description": "Whether the package's skills can run: `true` only after a person enabled them and the\nagent's re-check of the files passed. Absent when the agent is not connected or is too\nold to say.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "skills_off_reason": {
+            "description": "Why the skills are off, in the agent's words.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "description": "`active`, `disabled_untrusted_key` or `missing_files`.",
             "type": "string"
@@ -5167,6 +5181,69 @@ expression: spec
         "required": [
           "archive",
           "signature"
+        ],
+        "type": "object"
+      },
+      "PackageSkillsDto": {
+        "description": "What the agent did with a request to enable or disable a package's skills.",
+        "properties": {
+          "changed": {
+            "description": "Whether anything changed (false when it already was so).",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether the skills can run now.",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The package.",
+            "type": "string"
+          },
+          "plan_hash": {
+            "description": "The plan hash the request was bound to and audited with.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Its version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "enabled",
+          "changed",
+          "plan_hash"
+        ],
+        "type": "object"
+      },
+      "PackageSkillsRequestDto": {
+        "additionalProperties": false,
+        "description": "Turn the skills of a package stored on one host on or off.",
+        "properties": {
+          "confirm_text": {
+            "description": "The package name, typed.",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "`true` to let the skills run, `false` to stop them.",
+            "type": "boolean"
+          },
+          "password": {
+            "description": "The owner's password, asked for again.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "The stored version the owner looked at.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "version"
         ],
         "type": "object"
       },
@@ -7654,12 +7731,16 @@ expression: spec
             },
             "type": "array"
           },
+          "available": {
+            "description": "Whether the host can run it now. `false` with a reason when, for example, the agent has\nno skill runner or the skill belongs to a stored package nobody enabled.",
+            "type": "boolean"
+          },
           "description": {
             "description": "What it does.",
             "type": "string"
           },
           "enabled": {
-            "description": "Whether the hub may run and suggest this skill on the host.",
+            "description": "Whether the hub may run and suggest this skill on the host and it can really run\nthere: the owner's switch and `available` both hold.",
             "type": "boolean"
           },
           "manifest_hash": {
@@ -7669,6 +7750,20 @@ expression: spec
           "name": {
             "description": "Skill name.",
             "type": "string"
+          },
+          "package": {
+            "description": "The package it came from; absent for the owner's own skills.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "package_version": {
+            "description": "The version of that package.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "params": {
             "description": "Declared parameters.",
@@ -7693,6 +7788,13 @@ expression: spec
             "format": "int64",
             "type": "integer"
           },
+          "unavailable_reason": {
+            "description": "Why it cannot run, in words; absent when it can.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "verify": {
             "oneOf": [
               {
@@ -7713,7 +7815,8 @@ expression: spec
           "applies_to",
           "timeout_secs",
           "manifest_hash",
-          "enabled"
+          "enabled",
+          "available"
         ],
         "type": "object"
       },
@@ -11384,6 +11487,117 @@ expression: spec
           }
         },
         "summary": "Asks host `name`'s agent which packages it has and replaces what the hub holds with the\nanswer. Needs the agent connected.",
+        "tags": [
+          "packages"
+        ]
+      }
+    },
+    "/api/v1/hosts/{name}/packages/{package}/skills": {
+      "put": {
+        "operationId": "set_package_skills",
+        "parameters": [
+          {
+            "description": "Host name",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Package name",
+            "in": "path",
+            "name": "package",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageSkillsRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackageSkillsDto"
+                }
+              }
+            },
+            "description": "The agent's answer"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An unreadable package name or version"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The password is missing or wrong, or the typed name is not the package's"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such host"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Packages are disabled, the agent is not connected, or the agent refused (for example its files changed since install)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
+          }
+        },
+        "summary": "Lets the skills of a package stored on host `name` run, or stops them. Asks for the\npassword again and for the package name typed out. The agent checks the files again\nbefore it agrees, and the decision is audited as `package.enabled` or `package.disabled`\nwith the plan hash. Installing never enables anything.",
         "tags": [
           "packages"
         ]

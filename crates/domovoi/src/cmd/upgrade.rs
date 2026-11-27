@@ -4,6 +4,7 @@
 //! executable in place. It never restarts a service: Domovoi starts no process outside the
 //! runner, so the commands that restart the hub or agent are printed for the operator.
 
+mod checks;
 mod fetch;
 mod install;
 mod package;
@@ -27,6 +28,9 @@ pub struct UpgradeArgs {
     /// Print what would be downloaded and replaced, and change nothing.
     #[arg(long)]
     dry_run: bool,
+    /// Install a release older than this binary. Refused by default, as in `install.sh`.
+    #[arg(long)]
+    allow_downgrade: bool,
 }
 
 /// Runs the upgrade.
@@ -34,11 +38,13 @@ pub async fn run(args: UpgradeArgs) -> anyhow::Result<ExitCode> {
     let target = target::for_this_machine()?;
     let exe = std::env::current_exe().context("cannot tell where this binary is installed")?;
     let base = fetch::release_base();
+    checks::check_release_base(&base, std::env::var("DOMOVOI_ALLOW_HTTP").as_deref() == Ok("1"))?;
     let client = fetch::client()?;
     let tag = match &args.version {
         Some(version) => normalize_tag(version)?,
         None => fetch::latest_tag(&client, &base).await?,
     };
+    checks::check_not_older(env!("CARGO_PKG_VERSION"), &tag, args.allow_downgrade)?;
     let name = format!("domovoi-{tag}-{target}");
     let archive_url = format!("{base}/download/{tag}/{name}.tar.gz");
     let checksum_url = format!("{archive_url}.sha256");
