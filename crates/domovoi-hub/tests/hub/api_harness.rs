@@ -467,6 +467,7 @@ async fn assemble(
                 )),
                 resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
                 incidents: store.clone(),
+                acks: store.clone(),
                 signals: store.clone(),
                 notes: store.clone(),
                 hosts: store.clone(),

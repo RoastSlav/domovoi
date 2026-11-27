@@ -290,6 +290,16 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
         active: Some(true),
         ..IncidentFilter::default()
     };
+    // Known conditions are history: an incident one covers is not investigated, whatever
+    // path it took here.
+    let rules = match runtime.triage.deps.acks.list_rules().await {
+        Ok(rules) => rules,
+        Err(err) => {
+            tracing::warn!(%err, "could not read known conditions; not starting investigations");
+            return;
+        }
+    };
+    let now = runtime.triage.deps.clock.now();
     let mut page = Page::first(Page::MAX_LIMIT);
     let mut started: u32 = 0;
     loop {
@@ -303,6 +313,18 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
         for incident in got.items {
             let status = incident.status();
             if status == IncidentStatus::Pending || (only_open && status != IncidentStatus::Open) {
+                continue;
+            }
+            let covered = rules.iter().any(|rule| {
+                rule.covers_incident(
+                    incident.host(),
+                    incident.check(),
+                    incident.target().map(|t| t.as_str()),
+                    now,
+                )
+            });
+            if covered {
+                tracing::debug!(incident = %incident.id(), "a known condition covers it; no investigation");
                 continue;
             }
             let done = match incidents.timeline(incident.id()).await {

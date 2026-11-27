@@ -86,6 +86,14 @@ impl SignalRepo for StubSignals {
         Ok(())
     }
 
+    async fn list_matched(
+        &self,
+        _host: Option<domovoi_core::HostId>,
+        _limit: u16,
+    ) -> Result<Vec<Signal>, domovoi_core::ports::StoreError> {
+        Ok(Vec::new())
+    }
+
     async fn list_for_incident(
         &self,
         _incident: domovoi_core::IncidentId,

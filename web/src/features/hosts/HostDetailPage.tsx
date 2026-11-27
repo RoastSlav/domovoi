@@ -13,6 +13,7 @@ import {
 } from "../../components";
 import { ChecksTab } from "./ChecksTab";
 import { useFailingChecks } from "./checkState";
+import { ExpectedTab } from "./ExpectedTab";
 import { HostActions } from "./HostActions";
 import { HostMeta, isHubOnly } from "./HostMeta";
 import { HostOverview } from "./HostOverview";
@@ -21,7 +22,7 @@ import { ProfileTab } from "./ProfileTab";
 import { SshLoginsTab } from "./SshLoginsTab";
 
 /** The tabs a host's page has, by the value `?tab=` holds; the first is the default. */
-const TAB_IDS = ["overview", "profile", "checks", "logs", "ssh"] as const;
+const TAB_IDS = ["overview", "profile", "checks", "logs", "ssh", "expected"] as const;
 
 /** Why the hub's own machine has no checks, and how to give it some. */
 function HubOnlyNote({ name }: { name: string }) {
@@ -64,6 +65,7 @@ function HostTabs({ detail }: { detail: HostDetail }) {
     },
     { id: "logs", label: "Logs", content: <LogsTab host={name} /> },
     { id: "ssh", label: "SSH logins", content: <SshLoginsTab host={name} /> },
+    { id: "expected", label: "Expected events", content: <ExpectedTab host={name} /> },
   ];
   return (
     <Tabs

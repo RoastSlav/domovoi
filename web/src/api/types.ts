@@ -99,6 +99,8 @@ export type ProfileSection = Schemas["ProfileSectionDto"];
 export type Issue = Schemas["IssueDto"];
 /** A known condition: incidents that match it are kept in the history and never notify. */
 export type AckRule = Schemas["AckRuleDto"];
+/** An event a known condition explained: stored as history, no incident was made. */
+export type ExpectedSignal = Schemas["ExpectedSignalDto"];
 /** One condition on a signal's evidence. */
 export type Predicate = Schemas["PredicateDto"];
 /** How a condition compares an evidence value with its value. */

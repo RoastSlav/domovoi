@@ -239,6 +239,14 @@ impl SignalRepo for SqliteStore {
         SignalRepo::list_for_incident(&*self.0, incident, limit).await
     }
 
+    async fn list_matched(
+        &self,
+        host: Option<domovoi_core::HostId>,
+        limit: u16,
+    ) -> Result<Vec<Signal>, StoreError> {
+        SignalRepo::list_matched(&*self.0, host, limit).await
+    }
+
     async fn purge_older_than(&self, before: Timestamp) -> Result<u64, StoreError> {
         SignalRepo::purge_older_than(&*self.0, before).await
     }

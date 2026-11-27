@@ -45,6 +45,7 @@ interface Serve {
   operations?: Record<string, { items: OperationSummary[]; next?: string }>;
   past?: unknown;
   rules?: unknown;
+  expected?: unknown;
 }
 
 function serve(options: Serve = {}) {
@@ -60,6 +61,7 @@ function serve(options: Serve = {}) {
     () => options.past ?? { items: [], label: HUB_LABEL, query: "", scope: "global" },
   );
   route("GET /api/v1/ack-rules", () => options.rules ?? []);
+  route("GET /api/v1/expected-signals", () => options.expected ?? []);
   route("GET /api/v1/notes/search", () => options.notes ?? []);
   route("GET /api/v1/knowledge/facts", () => options.facts ?? { items: [], next_cursor: null });
 }
@@ -91,13 +93,14 @@ test("search_groups_run_for_a_query_and_show_their_headings_and_the_scope_senten
     "Facts",
     "Hosts",
     "Known conditions",
+    "Expected events",
   ]) {
     expect(await screen.findByRole("heading", { name })).toBeVisible();
   }
   expect(
     screen.getByText(
-      "Searches incidents, active operations, past operations, notes, facts, hosts and known conditions. " +
-        "Active operations and hosts and known conditions are matched here against complete lists; the rest are " +
+      "Searches incidents, active operations, past operations, notes, facts, hosts, known conditions and expected events. " +
+        "Active operations and hosts and known conditions and expected events are matched here against complete lists; the rest are " +
         "searched by the hub.",
     ),
   ).toBeVisible();
@@ -313,7 +316,7 @@ test("no_match_anywhere_says_nothing_found_only_when_every_group_succeeded", asy
   view("/search?q=zzzz");
   expect(await screen.findByText("Nothing found")).toBeVisible();
   expect(screen.getByText("Nothing matches “zzzz” in the sources above.")).toBeVisible();
-  expect(screen.getAllByText(/match\./)).toHaveLength(7);
+  expect(screen.getAllByText(/match\./)).toHaveLength(8);
 });
 
 test("nothing_found_waits_while_a_group_is_still_loading", async () => {
@@ -351,4 +354,24 @@ test("search_ignores_the_host_selector_and_says_so", async () => {
   for (const call of sent) {
     expect(call.init.params?.query).not.toHaveProperty("host");
   }
+});
+
+test("expected_events_are_searchable_with_the_reason_they_were_fine", async () => {
+  serve({
+    expected: [
+      {
+        id: "s1",
+        host: "nas",
+        check: "security.new_port",
+        target: "tcp:0.0.0.0:22",
+        summary: "new listener 0.0.0.0:22",
+        observed_at: T0,
+        rule_id: "r1",
+        rule_note: "ssh is meant to listen",
+      },
+    ],
+  });
+  view("/search?q=listener");
+  expect(await screen.findByText(/ssh is meant to listen/)).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Expected events" })).toBeVisible();
 });

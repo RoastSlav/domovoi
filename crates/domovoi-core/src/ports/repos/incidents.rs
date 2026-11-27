@@ -25,6 +25,14 @@ pub trait SignalRepo: Send + Sync {
         limit: u16,
     ) -> Result<Vec<Signal>, StoreError>;
 
+    /// Up to `limit` signals that a known condition explained (they carry the `matched_rule`
+    /// evidence and belong to no incident), newest first, for `host` or for every host.
+    async fn list_matched(
+        &self,
+        host: Option<crate::HostId>,
+        limit: u16,
+    ) -> Result<Vec<Signal>, StoreError>;
+
     /// Deletes every signal observed before `before` and returns how many were deleted.
     async fn purge_older_than(&self, before: Timestamp) -> Result<u64, StoreError>;
 }

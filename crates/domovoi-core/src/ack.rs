@@ -177,7 +177,47 @@ pub struct AckRule {
     pub created_by: Option<String>,
 }
 
+/// The evidence key under which a stored signal names the known condition that explained it.
+pub const MATCHED_RULE_KEY: &str = "matched_rule";
+
+/// Whether `check` reports events that happened (a listener appeared, a login, a failed sudo)
+/// rather than a state. A person's "this is expected" for such a check is history, not an
+/// incident: a signal a known condition matches is stored with the rule's id and opens no
+/// incident, no notification and no triage.
+#[must_use]
+pub fn is_expected_history_check(check: &CheckKey) -> bool {
+    matches!(
+        check.as_str(),
+        "security.new_port" | "security.ssh_login" | "security.sudo_failure"
+    )
+}
+
 impl AckRule {
+    /// Whether this rule covers an existing incident of `host` for `check` and `target` at
+    /// `now`, judged without evidence: a rule with predicates is never taken to cover an
+    /// incident, because the incident does not carry the signal's evidence.
+    #[must_use]
+    pub fn covers_incident(
+        &self,
+        host: HostId,
+        check: &CheckKey,
+        target: Option<&str>,
+        now: Timestamp,
+    ) -> bool {
+        if self.expires_at.is_some_and(|at| now >= at)
+            || self.host.is_some_and(|h| h != host)
+            || &self.check != check
+            || !self.predicates.is_empty()
+        {
+            return false;
+        }
+        match (&self.target_pattern, target) {
+            (None, _) => true,
+            (Some(pattern), Some(target)) => pattern.matches(target),
+            (Some(_), None) => false,
+        }
+    }
+
     /// Whether this rule covers `signal` at `now`.
     #[must_use]
     pub fn matches(&self, signal: &Signal, now: Timestamp) -> bool {

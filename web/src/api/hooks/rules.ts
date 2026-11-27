@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../client";
 import { keys } from "../queryClient";
-import { call, type AckRule, type AckRuleInput, type AckRulePatch } from "../types";
+import {
+  call,
+  type AckRule,
+  type ExpectedSignal,
+  type AckRuleInput,
+  type AckRulePatch,
+} from "../types";
 
 /** Every rule, expired ones included; soonest expiry first, rules that never expire last. */
 export function useAckRules(enabled = true) {
@@ -9,6 +15,20 @@ export function useAckRules(enabled = true) {
     enabled,
     queryKey: keys.ackRules,
     queryFn: () => call<AckRule[]>(api.GET("/api/v1/ack-rules")),
+  });
+}
+
+/** Events known conditions explained, newest first, for one host or every host. */
+export function useExpectedSignals(host?: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: keys.expectedSignals(host),
+    queryFn: () =>
+      call<ExpectedSignal[]>(
+        api.GET("/api/v1/expected-signals", {
+          params: { query: { ...(host ? { host } : {}), limit: 500 } },
+        }),
+      ),
   });
 }
 

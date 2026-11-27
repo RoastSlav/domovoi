@@ -33,6 +33,7 @@ mod capability;
 mod capability_ceiling;
 mod containment;
 mod events;
+mod expected;
 mod experience;
 mod followups;
 mod helper;
@@ -430,6 +431,7 @@ pub fn routes_with(upload_limit: usize) -> OpenApiRouter<ApiState> {
         .routes(routes!(notes::search))
         .routes(routes!(notes::get, notes::replace, notes::delete))
         .routes(routes!(preferences::get, preferences::put))
+        .routes(routes!(expected::list))
         .routes(routes!(rules::list, rules::create))
         .routes(routes!(rules::delete, rules_patch::update))
         .routes(routes!(settings::show, settings_write::update))

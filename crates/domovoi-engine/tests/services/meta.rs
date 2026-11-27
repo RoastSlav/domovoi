@@ -722,6 +722,7 @@ fn deps_of(w: &World) -> TriageDeps {
         capabilities: w.capabilities.clone(),
         resolver: Arc::new(FakeTargetResolver::new()),
         incidents: w.store.clone(),
+        acks: w.store.clone(),
         signals: w.store.clone(),
         notes: w.store.clone(),
         hosts: w.store.clone(),

@@ -369,6 +369,7 @@ pub async fn run_with(drill: &Drill, model: Model, carrier: Carrier) -> Outcome 
         )),
         resolver: Arc::new(domovoi_testkit::FakeTargetResolver::new()),
         incidents: store.clone(),
+        acks: store.clone(),
         signals: store.clone(),
         notes: store.clone(),
         hosts: store.clone(),

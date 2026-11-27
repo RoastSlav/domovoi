@@ -6,11 +6,12 @@ import type {
   NoteHit,
   OperationSummary,
   AckRule,
+  ExpectedSignal,
 } from "../../api/types";
 import { useFactSearch } from "../../api/hooks/knowledge";
 import { useExperienceSearch } from "../../api/hooks/experience";
 import { useHostNames, useHosts } from "../../api/hooks/hosts";
-import { useAckRules } from "../../api/hooks/rules";
+import { useAckRules, useExpectedSignals } from "../../api/hooks/rules";
 import { useIncidents } from "../../api/hooks/incidents";
 import { useNoteSearch } from "../../api/hooks/notes";
 import { useOperations } from "../../api/hooks/operations";
@@ -31,8 +32,9 @@ export const SEARCH_GROUPS = [
   { id: "facts", label: "Facts", matched: "hub" },
   { id: "hosts", label: "Hosts", matched: "browser" },
   { id: "rules", label: "Known conditions", matched: "browser" },
+  { id: "expected", label: "Expected events", matched: "browser" },
 ] as const satisfies readonly {
-  id: "incidents" | "operations" | "past" | "notes" | "facts" | "hosts" | "rules";
+  id: "incidents" | "operations" | "past" | "notes" | "facts" | "hosts" | "rules" | "expected";
   label: string;
   matched: "hub" | "browser";
 }[];
@@ -57,6 +59,7 @@ export interface SearchGroups {
   notes: GroupState<NoteHit>;
   operations: GroupState<OperationSummary>;
   rules: GroupState<AckRule>;
+  expected: GroupState<ExpectedSignal>;
   past: GroupState<PastHit>;
 }
 
@@ -137,6 +140,7 @@ export function useSearchGroups(q: string): SearchGroups {
   const notes = useNoteSearch(active ? q : "", undefined);
   const facts = useFactSearch({ q }, active);
   const rules = useAckRules(active);
+  const expected = useExpectedSignals(undefined, active);
 
   const failed = lists.find((list) => list.isError);
   const waiting = lists.some((list) => list.isPending || list.data === undefined);
@@ -172,6 +176,14 @@ export function useSearchGroups(q: string): SearchGroups {
       data.filter((rule) =>
         matchesAll(
           [rule.check, rule.target_pattern ?? "", rule.note, rule.host ?? ""].join(" "),
+          wanted,
+        ),
+      ),
+    ),
+    expected: stateOf(active, expected, (data) =>
+      data.filter((row) =>
+        matchesAll(
+          [row.summary, row.check, row.target ?? "", row.host, row.rule_note ?? ""].join(" "),
           wanted,
         ),
       ),

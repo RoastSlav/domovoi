@@ -26,6 +26,7 @@ export const keys = {
   incidentChange: (id: string) => ["incidents", "change", id] as const,
   followUps: (id: string) => ["incidents", "followups", id] as const,
   ackRules: ["ack-rules"] as const,
+  expectedSignals: (host: string | undefined) => ["expected-signals", host ?? ""] as const,
   actions: ["actions"] as const,
   overview: ["overview"] as const,
   overviewFor: (host: string | undefined) => ["overview", host ?? ""] as const,

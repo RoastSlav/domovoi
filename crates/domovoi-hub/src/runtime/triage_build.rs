@@ -104,6 +104,7 @@ pub(super) async fn build(
             capabilities,
             resolver,
             incidents: store.clone(),
+            acks: store.clone(),
             signals: store.clone(),
             notes: store.clone(),
             hosts: store.clone(),

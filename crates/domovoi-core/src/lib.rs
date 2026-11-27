@@ -48,7 +48,10 @@ pub mod unit;
 pub mod user;
 pub mod verdict;
 
-pub use ack::{AckRule, EvidencePredicate, MaintenanceWindow, TargetPattern};
+pub use ack::{
+    AckRule, EvidencePredicate, MATCHED_RULE_KEY, MaintenanceWindow, TargetPattern,
+    is_expected_history_check,
+};
 pub use action::{
     ApprovalChannel, ApprovalProvenance, Authorization, AuthorizationKind, CapabilityPlan,
     HumanApproval, ImplHash, JournalEpoch, PackagePlan, PermitError, PlanBinding, PlanContract,

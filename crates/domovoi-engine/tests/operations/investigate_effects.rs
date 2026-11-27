@@ -2,14 +2,15 @@
 //! catch-up, and what keeps an investigation open or closes it.
 
 use domovoi_core::ports::{
-    EffectKind, EffectStatus, IncidentRepo, IncidentTimelineEntry, LlmError,
+    AckRepo, EffectKind, EffectStatus, IncidentRepo, IncidentTimelineEntry, LlmError,
 };
 use domovoi_core::{
-    Actor, EdgeKind, OperationId, OperationStatus, StepKind, StepOutcome, VerifySpec,
+    AckRule, AckRuleId, Actor, CheckKey, EdgeKind, OperationId, OperationStatus, StepKind,
+    StepOutcome, TargetPattern, VerifySpec,
 };
 use domovoi_engine::operations::OperationSettings;
 use domovoi_testkit::approvals;
-use domovoi_testkit::build::{T0, incident};
+use domovoi_testkit::build::{T0, incident, open_incident};
 use jiff::SignedDuration;
 use serde_json::json;
 
@@ -168,6 +169,51 @@ async fn catch_up_investigates_open_incidents_without_a_triage_entry() {
         "already triaged"
     );
     assert!(w.operations_of(&pending).await.is_empty(), "still pending");
+}
+
+/// Reproduces the token flood after a restart: a listener a known condition covers already
+/// has an open (quiet) incident, and the start-up pass used to investigate it anyway because
+/// it looked only at the missing triage entry, never at the rules.
+#[tokio::test]
+async fn catch_up_skips_incidents_a_known_condition_covers() {
+    let mut w = inv(InvSetup {
+        held: vec![EffectKind::BuildContext],
+        ..InvSetup::default()
+    })
+    .await;
+    let covered = open_incident(host_id(), "security.new_port", Some("tcp:0.0.0.0:22")).unwrap();
+    IncidentRepo::insert(&*w.store, &covered).await.unwrap();
+    let uncovered =
+        open_incident(host_id(), "security.new_port", Some("tcp:0.0.0.0:4444")).unwrap();
+    IncidentRepo::insert(&*w.store, &uncovered).await.unwrap();
+    AckRepo::put_rule(
+        &*w.store,
+        &AckRule {
+            id: AckRuleId::new(),
+            host: Some(host_id()),
+            check: CheckKey::parse("security.new_port").unwrap(),
+            target_pattern: Some(TargetPattern::parse("tcp:0.0.0.0:22").unwrap()),
+            predicates: Vec::new(),
+            note: "Found on first run (not reviewed)".to_owned(),
+            expires_at: None,
+            created_at: None,
+            created_by: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    w.restart().await;
+
+    assert!(
+        w.operations_of(&covered).await.is_empty(),
+        "a covered incident must not be investigated after a restart"
+    );
+    assert_eq!(
+        w.operations_of(&uncovered).await.len(),
+        1,
+        "an unexplained one still is"
+    );
 }
 
 #[tokio::test]

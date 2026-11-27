@@ -74,6 +74,34 @@ impl SignalRepo for InMemoryStore {
         Ok(signals)
     }
 
+    async fn list_matched(
+        &self,
+        host: Option<domovoi_core::HostId>,
+        max: u16,
+    ) -> Result<Vec<Signal>, StoreError> {
+        let state = self.begin()?;
+        let mut signals: Vec<Signal> = state
+            .signals
+            .values()
+            .filter(|(signal, linked)| {
+                linked.is_none()
+                    && host.is_none_or(|h| h == signal.host())
+                    && signal
+                        .evidence()
+                        .get(domovoi_core::MATCHED_RULE_KEY)
+                        .is_some()
+            })
+            .map(|(signal, _)| signal.clone())
+            .collect();
+        signals.sort_by(|a, b| {
+            b.observed_at()
+                .cmp(&a.observed_at())
+                .then_with(|| b.id().cmp(&a.id()))
+        });
+        signals.truncate(limit(max));
+        Ok(signals)
+    }
+
     async fn purge_older_than(&self, before: Timestamp) -> Result<u64, StoreError> {
         let mut state = self.begin()?;
         let count = state.signals.len();

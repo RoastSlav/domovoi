@@ -511,42 +511,47 @@ async fn a_login_from_an_expected_address_range_never_alerts() {
     );
     assert_eq!(expected["predicates"][0]["value"], "192.168.1.0/24");
 
-    // Two logins inside the range: the incident is kept, and no card goes out.
+    // Two logins inside the range are history: stored with the rule, no incident, no card.
     a.manager
         .ingest(vec![
             ssh_login(&a, "alice", "192.168.1.20", "lan"),
             ssh_login(&a, "alice", "192.168.1.20", "lan"),
+        ])
+        .await
+        .unwrap();
+    let expected_id = expected["id"].as_str().unwrap().to_owned();
+    let seen = a.get("/api/v1/expected-signals?host=nas", &login).await;
+    assert_eq!(seen.status, StatusCode::OK, "{}", seen.text);
+    let rows = seen.body.as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{}", seen.text);
+    assert!(rows.iter().all(|row| row["rule_id"] == expected_id));
+    assert_eq!(rows[0]["check"], "security.ssh_login");
+
+    // The same user from outside the range is not expected: an incident opens and alerts.
+    a.manager
+        .ingest(vec![
+            ssh_login(&a, "alice", "203.0.113.9", "wan"),
+            ssh_login(&a, "alice", "203.0.113.9", "wan"),
         ])
         .await
         .unwrap();
     let opened = next_opened(&mut events).await;
-    assert_eq!(
-        opened.incident.check().as_str(),
-        "security.ssh_login",
-        "the login the rule is about"
-    );
+    assert_eq!(opened.incident.check().as_str(), "security.ssh_login");
     assert!(
-        !opened.notify,
-        "an expected login is recorded without a card: {opened:?}"
-    );
-
-    // The same user from outside the range is not expected, so the card goes out.
-    a.manager
-        .ingest(vec![
-            ssh_login(&a, "alice", "203.0.113.9", "wan"),
-            ssh_login(&a, "alice", "203.0.113.9", "wan"),
-        ])
-        .await
-        .unwrap();
-    let change = next_change(&mut events).await;
-    assert_eq!(
-        change.incident.check().as_str(),
-        "security.ssh_login",
-        "the login the rule is about"
-    );
-    assert!(
-        change.notify,
+        opened.notify,
         "a login from outside the expected range alerts"
+    );
+    let incidents = a.get("/api/v1/incidents", &login).await;
+    let logins = incidents.body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["check"] == "security.ssh_login")
+        .count();
+    assert_eq!(
+        logins, 1,
+        "the expected logins made no incident: {}",
+        incidents.text
     );
 }
 
@@ -582,16 +587,8 @@ async fn a_login_from_the_one_expected_address_is_known() {
         ])
         .await
         .unwrap();
-    let opened = next_opened(&mut events).await;
-    assert_eq!(
-        opened.incident.check().as_str(),
-        "security.ssh_login",
-        "the login the rule is about"
-    );
-    assert!(
-        !opened.notify,
-        "the expected address is recorded without a card: {opened:?}"
-    );
+    let seen = a.get("/api/v1/expected-signals", &login).await;
+    assert_eq!(seen.body.as_array().map(Vec::len), Some(2), "{}", seen.text);
 
     // The neighbouring address is a different machine, so it is not expected.
     a.manager
@@ -601,14 +598,10 @@ async fn a_login_from_the_one_expected_address_is_known() {
         ])
         .await
         .unwrap();
-    let change = next_change(&mut events).await;
-    assert_eq!(
-        change.incident.check().as_str(),
-        "security.ssh_login",
-        "the login the rule is about"
-    );
+    let opened = next_opened(&mut events).await;
+    assert_eq!(opened.incident.check().as_str(), "security.ssh_login");
     assert!(
-        change.notify,
+        opened.notify,
         "a login from an address the rule does not name alerts"
     );
 }

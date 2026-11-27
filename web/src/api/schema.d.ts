@@ -325,6 +325,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/expected-signals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Events that known conditions explained, newest first. They are history: no incident,
+         *     notification or triage was made for them.
+         */
+        get: operations["list_expected_signals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/experience/search": {
         parameters: {
             query?: never;
@@ -3086,6 +3106,25 @@ export interface components {
             /** @description The Execution step id, which is also the execution id. */
             step: string;
             /** @description The target it is about. */
+            target?: string | null;
+        };
+        /** @description One event a known condition explained. */
+        ExpectedSignalDto: {
+            /** @description The check that reported it. */
+            check: string;
+            /** @description The host's name. */
+            host: string;
+            /** @description The signal's id. */
+            id: string;
+            /** @description When the check observed it, RFC 3339. */
+            observed_at: string;
+            /** @description The known condition that explained it. */
+            rule_id: string;
+            /** @description The reason that condition gives, when it still exists. */
+            rule_note?: string | null;
+            /** @description What the check said. */
+            summary: string;
+            /** @description What it was about, such as `tcp:0.0.0.0:22`. */
             target?: string | null;
         };
         /** @description One search hit. */
@@ -6516,6 +6555,49 @@ export interface operations {
             };
             /** @description Too many open event streams */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_expected_signals: {
+        parameters: {
+            query?: {
+                /** @description Only this host, by name. */
+                host?: string;
+                /** @description How many rows to return, 1 to 500. Default 100. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signals a known condition explained, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpectedSignalDto"][];
+                };
+            };
+            /** @description Unknown host */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not logged in */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

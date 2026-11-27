@@ -24,6 +24,8 @@ const CHECK: &str = "security.new_port";
 
 /// A [`SignalSink`] that turns first-run listeners into known conditions.
 pub struct FirstRunSink {
+    /// The day (UTC date text) each known condition last wrote its audit row.
+    audited: std::sync::Mutex<std::collections::HashMap<AckRuleId, String>>,
     inner: Arc<dyn SignalSink>,
     acks: Arc<dyn AckRepo>,
     audit: Arc<dyn AuditLog>,
@@ -40,6 +42,7 @@ impl FirstRunSink {
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
+            audited: std::sync::Mutex::default(),
             inner,
             acks,
             audit,
@@ -54,6 +57,74 @@ fn is_first_run(signal: &Signal) -> bool {
             signal.evidence().get("first_run"),
             Some(EvidenceValue::Bool(true))
         )
+}
+
+impl FirstRunSink {
+    /// Writes one audit row per known condition per day for the event signals it explains.
+    /// The manager stores those signals without an incident; this row is how a person
+    /// sees, in the audit log, that a known condition was used. A restart may write one
+    /// extra row for the day.
+    async fn audit_expected(&self, signals: &[Signal]) -> Result<(), IngestError> {
+        let candidates: Vec<&Signal> = signals
+            .iter()
+            .filter(|s| {
+                s.status() == domovoi_core::SignalStatus::Firing
+                    && domovoi_core::is_expected_history_check(s.check())
+            })
+            .collect();
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let now = self.clock.now();
+        let rules = self
+            .acks
+            .list_rules()
+            .await
+            .map_err(|e| IngestError::Unavailable(e.to_string()))?;
+        let day = now.to_string().chars().take(10).collect::<String>();
+        let mut counts: Vec<(AckRule, u32, String)> = Vec::new();
+        for signal in candidates {
+            let Some(rule) = rules.iter().find(|rule| rule.matches(signal, now)) else {
+                continue;
+            };
+            match counts.iter_mut().find(|(r, _, _)| r.id == rule.id) {
+                Some(entry) => entry.1 += 1,
+                None => counts.push((
+                    rule.clone(),
+                    1,
+                    signal
+                        .target()
+                        .map(|t| t.as_str().to_owned())
+                        .unwrap_or_default(),
+                )),
+            }
+        }
+        for (rule, count, target) in counts {
+            {
+                let mut seen = self.audited.lock().unwrap_or_else(|e| e.into_inner());
+                if seen.get(&rule.id) == Some(&day) {
+                    continue;
+                }
+                seen.insert(rule.id, day.clone());
+            }
+            self.audit
+                .append(&AuditEvent {
+                    at: now,
+                    actor: "hub:known-condition".to_owned(),
+                    kind: "ack_rule.matched".to_owned(),
+                    subject: format!("ack_rule:{}", rule.id),
+                    detail: json!({
+                        "check": rule.check.as_str(),
+                        "target": target,
+                        "note": rule.note,
+                        "signals": count,
+                    }),
+                })
+                .await
+                .map_err(|e| IngestError::Unavailable(e.to_string()))?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -120,6 +191,7 @@ impl SignalSink for FirstRunSink {
         if rest.is_empty() {
             return Ok(());
         }
+        self.audit_expected(&rest).await?;
         self.inner.submit(rest).await
     }
 }
@@ -192,5 +264,29 @@ mod tests {
             .unwrap();
         assert!(store.list_rules().await.unwrap().is_empty());
         assert_eq!(inner.batches().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_known_condition_writes_one_audit_row_per_day_however_many_runs_match() {
+        use domovoi_core::ports::{AuditFilter, AuditLog, Page};
+        let (sink, store, _inner) = rig();
+        let host = HostId::new();
+        sink.submit(vec![listener(host, "0.0.0.0:22/tcp", true)])
+            .await
+            .unwrap();
+        for _ in 0..5 {
+            sink.submit(vec![listener(host, "0.0.0.0:22/tcp", false)])
+                .await
+                .unwrap();
+        }
+        let rows = AuditLog::list(&*store, &AuditFilter::default(), &Page::first(100))
+            .await
+            .unwrap();
+        let matched = rows
+            .items
+            .iter()
+            .filter(|row| row.kind == "ack_rule.matched")
+            .count();
+        assert_eq!(matched, 1);
     }
 }

@@ -335,3 +335,66 @@ fn illegal_ack_is_an_error_without_writes() {
     let unmuted = sim.run(Command::Unmute { incident: id }, 40);
     assert_eq!(kinds(&unmuted), [EventKind::IncidentUnmuted]);
 }
+
+fn rule_for(host: HostId, check: &str, target: Option<&str>) -> AckRule {
+    AckRule {
+        id: AckRuleId::new(),
+        host: Some(host),
+        check: CheckKey::parse(check).unwrap(),
+        target_pattern: target.map(|t| domovoi_core::TargetPattern::parse(t).unwrap()),
+        predicates: Vec::new(),
+        note: "expected".to_owned(),
+        expires_at: None,
+        created_at: None,
+        created_by: None,
+    }
+}
+
+#[test]
+fn an_expected_listener_is_stored_with_its_rule_and_opens_no_incident() {
+    let mut sim = Sim::new(EnginePolicy::default());
+    let host = HostId::new();
+    let rule = rule_for(host, "security.new_port", Some("tcp:0.0.0.0:22"));
+    sim.state.acks.push(rule.clone());
+    let listener = Sig::new(host, "security.new_port", Some("tcp:0.0.0.0:22")).immediate();
+
+    for secs in [0, 60, 120] {
+        let decision = sim.ingest(listener.firing(secs), secs);
+        assert!(decision.events.is_empty(), "no event, so no triage");
+        assert_eq!(decision.writes.len(), 1, "{:?}", decision.writes);
+        let Write::InsertSignal(stored, None) = &decision.writes[0] else {
+            panic!(
+                "expected one signal without an incident: {:?}",
+                decision.writes
+            );
+        };
+        assert_eq!(
+            stored.evidence().get("matched_rule"),
+            Some(&EvidenceValue::Text(rule.id.to_string()))
+        );
+    }
+    assert!(sim.state.active.is_empty(), "nothing became an incident");
+
+    // A listener no rule names is still an incident.
+    let other = Sig::new(host, "security.new_port", Some("tcp:0.0.0.0:4444")).immediate();
+    sim.ingest(other.firing(180), 180);
+    assert_eq!(sim.state.active.len(), 1);
+}
+
+#[test]
+fn a_rule_does_not_close_or_hide_an_incident_that_already_exists() {
+    let mut sim = Sim::new(EnginePolicy::default());
+    let host = HostId::new();
+    let listener = Sig::new(host, "security.new_port", Some("tcp:0.0.0.0:22")).immediate();
+    sim.ingest(listener.firing(0), 0);
+    assert_eq!(sim.state.active.len(), 1);
+    sim.state
+        .acks
+        .push(rule_for(host, "security.new_port", Some("tcp:0.0.0.0:22")));
+    sim.ingest(listener.firing(60), 60);
+    assert_eq!(
+        sim.only_active().status(),
+        IncidentStatus::Open,
+        "a person closes it"
+    );
+}

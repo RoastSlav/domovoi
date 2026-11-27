@@ -1225,6 +1225,72 @@
         }
       }
     },
+    "/api/v1/expected-signals": {
+      "get": {
+        "tags": [
+          "incidents"
+        ],
+        "summary": "Events that known conditions explained, newest first. They are history: no incident,\nnotification or triage was made for them.",
+        "operationId": "list_expected_signals",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "query",
+            "description": "Only this host, by name.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "How many rows to return, 1 to 500. Default 100.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signals a known condition explained, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExpectedSignalDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Unknown host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/experience/search": {
       "get": {
         "tags": [
@@ -11294,6 +11360,58 @@
               "null"
             ],
             "description": "The target it is about."
+          }
+        }
+      },
+      "ExpectedSignalDto": {
+        "type": "object",
+        "description": "One event a known condition explained.",
+        "required": [
+          "id",
+          "host",
+          "check",
+          "summary",
+          "observed_at",
+          "rule_id"
+        ],
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "The check that reported it."
+          },
+          "host": {
+            "type": "string",
+            "description": "The host's name."
+          },
+          "id": {
+            "type": "string",
+            "description": "The signal's id."
+          },
+          "observed_at": {
+            "type": "string",
+            "description": "When the check observed it, RFC 3339."
+          },
+          "rule_id": {
+            "type": "string",
+            "description": "The known condition that explained it."
+          },
+          "rule_note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The reason that condition gives, when it still exists."
+          },
+          "summary": {
+            "type": "string",
+            "description": "What the check said."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What it was about, such as `tcp:0.0.0.0:22`."
           }
         }
       },

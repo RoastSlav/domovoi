@@ -29,9 +29,9 @@ pub(crate) mod tools;
 use std::sync::Arc;
 
 use domovoi_core::ports::{
-    AdmissionRepo, AdvisoryRepo, AnswerSink, CapabilityRegistry, Clock, ContextSource, HostRepo,
-    IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver, TriageCacheRepo,
-    UsageRepo,
+    AckRepo, AdmissionRepo, AdvisoryRepo, AnswerSink, CapabilityRegistry, Clock, ContextSource,
+    HostRepo, IncidentRepo, LlmProvider, NoteRepo, Redactor, SignalRepo, TargetResolver,
+    TriageCacheRepo, UsageRepo,
 };
 use domovoi_core::{HostId, IncidentId, TriageBudget, UserId};
 use tokio::sync::broadcast;
@@ -136,6 +136,8 @@ pub struct TriageDeps {
     pub resolver: Arc<dyn TargetResolver>,
     /// Incidents, read only; changes go through `manager`.
     pub incidents: Arc<dyn IncidentRepo>,
+    /// Known conditions, read only: start-up catch-up must not triage what one covers.
+    pub acks: Arc<dyn AckRepo>,
     /// Recent signals of an incident.
     pub signals: Arc<dyn SignalRepo>,
     /// Host notes.

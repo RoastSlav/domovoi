@@ -273,6 +273,29 @@ impl SignalRepo for Store {
             .collect()
     }
 
+    async fn list_matched(
+        &self,
+        host: Option<domovoi_core::HostId>,
+        limit: u16,
+    ) -> Result<Vec<Signal>, StoreError> {
+        const SQL: &str = "SELECT s.body FROM signals s \
+            WHERE (? IS NULL OR s.host_id = ?) \
+            AND NOT EXISTS (SELECT 1 FROM incident_signals l WHERE l.signal_id = s.id) \
+            AND instr(s.body, 'matched_rule') > 0 \
+            ORDER BY s.observed_at DESC, s.id DESC LIMIT ?";
+        let host = host.map(|h| h.to_string());
+        let rows: Vec<(String,)> = sqlx::query_as(SQL)
+            .bind(host.clone())
+            .bind(host)
+            .bind(i64::from(limit.clamp(1, Page::MAX_LIMIT)))
+            .fetch_all(&self.read)
+            .await
+            .map_err(db)?;
+        rows.into_iter()
+            .map(|(body,)| from_json(&body, "signal"))
+            .collect()
+    }
+
     async fn purge_older_than(&self, before: Timestamp) -> Result<u64, StoreError> {
         const SQL: &str = "DELETE FROM signals WHERE observed_at < ?";
         let done = sqlx::query(SQL)
