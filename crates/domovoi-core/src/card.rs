@@ -82,6 +82,8 @@ pub enum CardButton {
     Ack,
     /// Mute the incident for one hour.
     Mute1h,
+    /// Lift the mute; shown instead of [`CardButton::Mute1h`] while the incident is muted.
+    Unmute,
     /// Post the full details in the thread.
     Details,
     /// Approve a proposed execution. Only allowlisted users' presses are honoured.

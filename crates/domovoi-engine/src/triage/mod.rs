@@ -214,6 +214,21 @@ pub enum TriageError {
     AdmissionUnavailable,
 }
 
+impl TriageError {
+    /// What to tell a person in chat: plain words, no ids, no store or provider internals.
+    #[must_use]
+    pub fn person_text(&self) -> String {
+        match self {
+            Self::UnknownIncident(_) => "That incident is not open any more.".to_owned(),
+            Self::Provider(_) => {
+                "The model is not available right now; try again later.".to_owned()
+            }
+            Self::Store(_) => "Something went wrong; try again.".to_owned(),
+            other => other.to_string(),
+        }
+    }
+}
+
 /// The triage service's state shared by its workers and handles.
 pub(crate) struct Shared {
     pub(crate) deps: TriageDeps,

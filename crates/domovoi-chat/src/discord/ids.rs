@@ -66,6 +66,7 @@ pub fn custom_id(incident: IncidentId, button: &CardButton) -> Option<String> {
     let id = match button {
         CardButton::Ack => format!("{PREFIX}:k:{inc}"),
         CardButton::Mute1h => format!("{PREFIX}:m:{inc}"),
+        CardButton::Unmute => format!("{PREFIX}:u:{inc}"),
         CardButton::Details => format!("{PREFIX}:d:{inc}"),
         CardButton::Approve {
             execution,
@@ -110,6 +111,7 @@ pub fn parse_custom_id(id: &str) -> Option<(IncidentId, CardButton)> {
     let button = match kind {
         "k" => CardButton::Ack,
         "m" => CardButton::Mute1h,
+        "u" => CardButton::Unmute,
         "d" => CardButton::Details,
         "a" => {
             let (execution, token) = execution_and_token(&mut parts)?;
@@ -163,6 +165,7 @@ mod tests {
         let buttons = [
             CardButton::Ack,
             CardButton::Mute1h,
+            CardButton::Unmute,
             CardButton::Details,
             approve(execution, None),
             approve(execution, Some("01ffab")),

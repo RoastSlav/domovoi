@@ -21,9 +21,7 @@ fn command(err: CommandError) -> ApiError {
     match err {
         CommandError::UnknownIncident(_) => ApiError::NotFound,
         CommandError::NotAllowed(why) => ApiError::Conflict(why),
-        CommandError::Unavailable => {
-            ApiError::Unavailable("the incident manager is not running".to_owned())
-        }
+        CommandError::Unavailable => ApiError::Unavailable(CommandError::Unavailable.person_text()),
         CommandError::Store(e) => ApiError::internal("incident command failed", e),
     }
 }

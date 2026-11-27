@@ -299,6 +299,49 @@ async fn ack_and_mute_reach_incident_manager() {
 }
 
 #[tokio::test]
+async fn refused_presses_say_why_in_plain_words() {
+    let a = api().await;
+    a.admin().await;
+    let c = chat(&a).await;
+    let say = |button: CardButton| {
+        let c = &c;
+        let a = &a;
+        async move {
+            let reply = c.authorizer.deliver(press(a, ALLOWED, button)).await;
+            match reply {
+                InteractionReply::Rejected { reason } => reason,
+                InteractionReply::Accepted { message } => message.unwrap_or_default(),
+            }
+        }
+    };
+    let plain = |text: &str| {
+        for bad in [
+            "Debug", "UserId", "Ack {", "Mute {", "Muted {", "{", "}", "event ", "01",
+        ] {
+            assert!(!text.contains(bad), "{text:?} leaks {bad:?}");
+        }
+    };
+
+    assert_eq!(say(CardButton::Unmute).await, "This incident is not muted.");
+    assert_eq!(say(CardButton::Ack).await, "Acknowledged");
+    let again = say(CardButton::Ack).await;
+    assert_eq!(again, "This incident is already acknowledged.");
+    plain(&again);
+
+    assert_eq!(say(CardButton::Mute1h).await, "Muted for an hour");
+    let again = say(CardButton::Mute1h).await;
+    assert!(again.starts_with("Already muted until "), "{again}");
+    plain(&again);
+
+    assert_eq!(say(CardButton::Unmute).await, "Unmuted");
+    let incident = IncidentRepo::get(&*a.store, a.incident.id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(incident.status(), IncidentStatus::Open);
+}
+
+#[tokio::test]
 async fn details_posts_in_the_thread() {
     let a = api().await;
     a.admin().await;

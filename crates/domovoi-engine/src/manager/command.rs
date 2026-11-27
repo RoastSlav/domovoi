@@ -109,6 +109,9 @@ pub enum Command {
 }
 
 /// Why a command was not carried out. Nothing was stored and nothing was published.
+///
+/// `Display` is for logs and may name ids; [`CommandError::person_text`] is what a person
+/// is told, in chat or the web UI.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CommandError {
     /// No active incident (or, for triage, no incident at all) has that id.
@@ -123,4 +126,48 @@ pub enum CommandError {
     /// The incident manager has stopped.
     #[error("the incident manager is not running")]
     Unavailable,
+}
+
+impl CommandError {
+    /// What to tell a person whose action was refused: plain words, no ids, no internal
+    /// type names, and what they can do instead.
+    #[must_use]
+    pub fn person_text(&self) -> String {
+        match self {
+            Self::UnknownIncident(_) => {
+                "That incident is not open any more; it may have resolved.".to_owned()
+            }
+            Self::NotAllowed(why) => why.clone(),
+            Self::Store(_) => "Something went wrong; try again.".to_owned(),
+            Self::Unavailable => {
+                "The incident service is restarting; try again in a moment.".to_owned()
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_a_person_is_told_never_names_ids_or_internals() {
+        let id = IncidentId::new();
+        for err in [
+            CommandError::UnknownIncident(id),
+            CommandError::Store("sqlite: disk I/O error".to_owned()),
+            CommandError::Unavailable,
+        ] {
+            let text = err.person_text();
+            assert!(!text.contains(&id.to_string()), "{text}");
+            assert!(
+                !text.contains("sqlite") && !text.contains("store error"),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            CommandError::NotAllowed("Already muted until 23:35 UTC.".to_owned()).person_text(),
+            "Already muted until 23:35 UTC."
+        );
+    }
 }

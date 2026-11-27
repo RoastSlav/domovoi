@@ -51,6 +51,7 @@ pub fn button(card: &Card, button: &CardButton, settings: &DiscordSettings) -> O
     let (label, style) = match button {
         CardButton::Ack => ("Ack".to_owned(), ButtonStyle::Secondary),
         CardButton::Mute1h => ("Mute 1h".to_owned(), ButtonStyle::Secondary),
+        CardButton::Unmute => ("Unmute".to_owned(), ButtonStyle::Secondary),
         CardButton::Details => ("Details".to_owned(), ButtonStyle::Secondary),
         CardButton::Approve { execution, .. } => (
             plan_label(card, *execution, "Approve"),

@@ -278,7 +278,9 @@ pub fn build_card(
         if status.is_none() {
             buttons.push(CardButton::Ack);
         }
-        if !matches!(incident.status(), IncidentStatus::Muted { .. }) {
+        if matches!(incident.status(), IncidentStatus::Muted { .. }) {
+            buttons.push(CardButton::Unmute);
+        } else {
             buttons.push(CardButton::Mute1h);
         }
     }

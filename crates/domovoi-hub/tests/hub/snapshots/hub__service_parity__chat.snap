@@ -72,7 +72,7 @@ expression: "json!({\n    \"replies\": out, \"digests\": digest_titles, \"audit\
     "accepted: ",
     "accepted: Muted <short> for 4h",
     "accepted: Digest sent",
-    "rejected: Not possible: Already muted until 16:00 UTC.",
+    "rejected: Already muted until 16:00 UTC.",
     "rejected: Not allowed"
   ]
 }

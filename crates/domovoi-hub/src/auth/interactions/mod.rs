@@ -168,7 +168,9 @@ impl InteractionAuthorizer {
         {
             Ok(answer) => answer,
             Err(FollowUpError::TriageOff) => "Triage is off, so there is no one to ask.".to_owned(),
-            Err(FollowUpError::Triage(err)) => format!("I could not answer that: {err}"),
+            Err(FollowUpError::Triage(err)) => {
+                format!("I could not answer that: {}", err.person_text())
+            }
         };
         let posted = self.post_in_thread(incident, &answer).await;
         let accepted = Accepted::new("follow_up", subject, answer);

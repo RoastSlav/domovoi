@@ -113,7 +113,7 @@ impl InteractionAuthorizer {
                     .incidents
                     .ack(&actor.caller(), incident)
                     .await
-                    .map_err(|e| format!("Not possible: {e}"))?;
+                    .map_err(|e| e.person_text())?;
                 Ok(Accepted::new("ack", subject, "Acknowledged"))
             }
             CardButton::Mute1h => {
@@ -123,9 +123,17 @@ impl InteractionAuthorizer {
                     .incidents
                     .mute(&actor.caller(), incident, until)
                     .await
-                    .map_err(|e| format!("Not possible: {e}"))?;
+                    .map_err(|e| e.person_text())?;
                 Ok(Accepted::new("mute", subject, "Muted for an hour")
                     .with_detail(json!({ "minutes": 60 })))
+            }
+            CardButton::Unmute => {
+                self.services
+                    .incidents
+                    .unmute(&actor.caller(), incident)
+                    .await
+                    .map_err(|e| e.person_text())?;
+                Ok(Accepted::new("unmute", subject, "Unmuted"))
             }
             CardButton::Details => self.details(incident, subject).await,
             CardButton::Approve {

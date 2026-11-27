@@ -190,7 +190,7 @@ impl InteractionAuthorizer {
             .incidents
             .mute(&actor.caller(), incident, until)
             .await
-            .map_err(|e| format!("Not possible: {e}"))?;
+            .map_err(|e| e.person_text())?;
         Ok(Accepted::new(
             "mute",
             format!("incident:{incident}"),
@@ -216,10 +216,10 @@ impl InteractionAuthorizer {
             markdown: digest.markdown,
             severity: None,
         };
-        notifier
-            .send(&message)
-            .await
-            .map_err(|e| format!("Sending failed: {e}"))?;
+        notifier.send(&message).await.map_err(|err| {
+            tracing::warn!(%err, "could not send the digest");
+            "Could not send the digest to the chat; try again later.".to_owned()
+        })?;
         Ok(Accepted::new("digest", subject, "Digest sent"))
     }
 }

@@ -475,5 +475,5 @@ fn an_acked_or_muted_card_says_so_and_drops_the_buttons_that_would_be_refused() 
     .unwrap();
     let muted = plain(&incident);
     assert_eq!(muted.status.as_deref(), Some("Muted until 23:35 UTC"));
-    assert_eq!(muted.buttons, [CardButton::Details]);
+    assert_eq!(muted.buttons, [CardButton::Unmute, CardButton::Details]);
 }
