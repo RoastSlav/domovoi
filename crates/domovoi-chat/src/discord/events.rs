@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use domovoi_core::ports::{ChatError, Clock, InteractionSink};
+use domovoi_core::ports::{ChatError, Clock, GatewayStatus, InteractionSink};
 use domovoi_core::{IncidentId, Interaction, InteractionKind, InteractionReply};
 use twilight_gateway::{Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt as _};
 use twilight_http::Client;
@@ -242,6 +242,7 @@ pub async fn run(
     settings: DiscordSettings,
     sink: Arc<dyn InteractionSink>,
     clock: Arc<dyn Clock>,
+    status: Option<Arc<dyn GatewayStatus>>,
 ) -> Result<(), ChatError> {
     let shared = Arc::new(Shared {
         sink,
@@ -263,6 +264,9 @@ pub async fn run(
             Err(err) => {
                 tracing::warn!(%err, "discord connection trouble");
                 last_trouble = Some(err.to_string());
+                if let Some(status) = &status {
+                    status.trouble("discord", &err.to_string()).await;
+                }
                 continue;
             }
         };
@@ -270,6 +274,9 @@ pub async fn run(
         match event {
             Event::Ready(ready) => {
                 tracing::info!(bot = %ready.user.name, "connected to discord");
+                if let Some(status) = &status {
+                    status.connected("discord").await;
+                }
                 if let Err(err) = shared.register(&ready).await {
                     tracing::warn!(%err, "could not register slash commands");
                 }

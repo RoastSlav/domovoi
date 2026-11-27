@@ -30,4 +30,5 @@ Advisories are hygiene findings that are worth knowing but not worth waking up f
 | Saved secrets unreadable | A secret saved in the web UI cannot be decrypted, because `secret.key` is missing or differs. Enter the secret again in **Settings**. |
 | Saved settings not applied | A change from the Settings page failed to apply, and the hub went back to the previous settings. It clears after the next successful apply. |
 | Nightly backup failed | The nightly backup failed or did not verify. The newest earlier backup is still in the backups folder. |
+| Chat gateway not connected | The Discord gateway is retrying after a connection error (it reconnects by itself, with a growing pause), or it closed for good because the bot token was refused or an intent is not enabled. It clears when the gateway connects. After a closed-for-good gateway, fix the token or the intent in the Discord developer portal and restart the hub (saving settings does that). |
 | Background task failed | A background task, such as the re-check after an action, used up its attempts. See [Troubleshooting](../troubleshooting.md#advisories). |

@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use domovoi_config::hub::HubConfig;
 use domovoi_config::{Provenance, Source};
 
+mod fd_limit;
+
 use super::HubRuntime;
 
 /// How many setting names the banner lists before it says how many more there are.
@@ -114,7 +116,7 @@ impl HubRuntime {
         let public_url = super::support_public_url(config)
             .map(|url| url.to_string())
             .unwrap_or_else(|err| format!("unusable ({err})"));
-        let fds = super::fd_limit::current();
+        let fds = fd_limit::current();
         tracing::info!(
             version = %crate::version::HUB_VERSION,
             commit = %commit,
@@ -131,11 +133,11 @@ impl HubRuntime {
             settings_revision = self.startup.revision.unwrap_or(0),
             settings_from_file_or_env = %self.startup.keys_text(),
             user = %account_name(),
-            open_files_soft_hard = %fds.as_ref().map_or_else(|| "unknown".to_owned(), super::fd_limit::FdLimit::text),
+            open_files_soft_hard = %fds.as_ref().map_or_else(|| "unknown".to_owned(), fd_limit::FdLimit::text),
             "domovoi hub starting",
         );
         if let Some(limit) = &fds {
-            super::fd_limit::warn_if_low(limit);
+            fd_limit::warn_if_low(limit);
         }
     }
 }

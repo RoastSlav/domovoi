@@ -45,7 +45,7 @@ pub(crate) struct Schedulers {
     /// After a failed digest, when to try again.
     digest_retry_at: Arc<Mutex<Option<Timestamp>>>,
     /// Removes configured secrets from text before it is logged or stored.
-    redactor: Arc<dyn Redactor>,
+    pub(crate) redactor: Arc<dyn Redactor>,
 }
 
 /// What every job shares beyond the configuration: time, the store, and the redactor.
@@ -253,6 +253,7 @@ impl Schedulers {
                             | AdvisoryKind::SettingsApplyFailed
                             | AdvisoryKind::EffectDead
                             | AdvisoryKind::BackupFailed
+                            | AdvisoryKind::ChatGatewayDown
                     )
                 })
         });

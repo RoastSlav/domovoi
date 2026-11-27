@@ -34,6 +34,9 @@ pub enum AdvisoryKind {
     BackupFailed,
     /// A background effect failed permanently and was dead-lettered.
     EffectDead,
+    /// A chat gateway is not connected: it is retrying after a transport error, or it
+    /// closed for good (bad token, missing intent) and needs a person.
+    ChatGatewayDown,
 }
 
 /// One hygiene finding.

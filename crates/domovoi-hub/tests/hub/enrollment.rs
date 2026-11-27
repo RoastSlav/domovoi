@@ -586,10 +586,12 @@ async fn reenrolling_a_host_revokes_the_previous_agent() {
 }
 
 #[tokio::test]
-async fn first_frame_must_arrive_within_ten_seconds() {
+async fn first_frame_must_arrive_within_five_seconds() {
     let hub = Hub::start().await;
     let mut agent = FakeAgent::connect(hub.addr).await;
     let started = hub.clock.now();
     pump(&hub.clock, SignedDuration::from_millis(500), agent.closed()).await;
-    assert!(hub.clock.now().duration_since(started) >= SignedDuration::from_secs(10));
+    let waited = hub.clock.now().duration_since(started);
+    assert!(waited >= SignedDuration::from_secs(5), "{waited}");
+    assert!(waited < SignedDuration::from_secs(10), "{waited}");
 }

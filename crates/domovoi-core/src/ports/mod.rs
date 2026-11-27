@@ -47,7 +47,8 @@ pub use caps::{
     HostRead, JournalStatus, PackageCaps, PackageRelay,
 };
 pub use chat::{
-    ChatError, ChatGateway, InteractionSink, MessageRef, Notifier, OutboundMessage, ThreadRef,
+    ChatError, ChatGateway, GatewayStatus, InteractionSink, MessageRef, Notifier, OutboundMessage,
+    ThreadRef,
 };
 pub use clock::Clock;
 pub use contain_relay::{ContainCaps, ContainRelay};

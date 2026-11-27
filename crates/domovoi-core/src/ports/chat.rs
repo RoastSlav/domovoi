@@ -55,6 +55,18 @@ pub trait InteractionSink: Send + Sync {
     async fn deliver(&self, i: Interaction) -> InteractionReply;
 }
 
+/// What a chat gateway tells the hub about its connection, so a gateway that is not
+/// connected shows as a finding and a log line instead of being silent.
+#[async_trait]
+pub trait GatewayStatus: Send + Sync {
+    /// The gateway connected (or reconnected) and is receiving events.
+    async fn connected(&self, platform: &str);
+
+    /// The connection is failing. The gateway keeps retrying by itself, with a growing
+    /// pause; `reason` says what went wrong.
+    async fn trouble(&self, platform: &str, reason: &str);
+}
+
 /// A two-way chat platform: cards with buttons, threads, and incoming interactions.
 ///
 /// The gateway only translates. It never authorizes; every interaction goes to the sink.
@@ -79,6 +91,10 @@ pub trait ChatGateway: Send + Sync {
     /// Receives platform events and delivers each as an [`Interaction`] to `sink`, answering
     /// the user with the reply. Runs until the gateway shuts down or fails for good.
     async fn run(&self, sink: Arc<dyn InteractionSink>) -> Result<(), ChatError>;
+
+    /// Where [`run`](Self::run) reports connects and connection trouble. Set before `run`;
+    /// a gateway with nothing to report ignores it.
+    fn set_status(&self, _status: Arc<dyn GatewayStatus>) {}
 }
 
 /// A one-way message such as a digest or an alert.

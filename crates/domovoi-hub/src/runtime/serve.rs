@@ -6,6 +6,13 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+mod gateway_health;
+
+use std::sync::Arc;
+
+use domovoi_core::ports::{ChatError, ChatGateway, InteractionSink};
+
+use self::gateway_health::GatewayHealth;
 use super::{HubRuntime, RuntimeError};
 
 pub(super) async fn run(
@@ -52,6 +59,12 @@ pub(super) async fn run(
         gateways = gateways.len(),
         "ready: listening for the web UI and for agents",
     );
+    let health = Arc::new(GatewayHealth::new(
+        store.clone(),
+        store.clone(),
+        clock.clone(),
+        schedulers.redactor.clone(),
+    ));
     let (stopped_tx, mut stopped_rx) = mpsc::channel(4);
     let mut intake_tasks = Vec::new();
     intake_tasks.extend(schedulers.spawn(intake_shutdown.clone()));
@@ -81,20 +94,9 @@ pub(super) async fn run(
     }));
     for (gateway, sink) in gateways {
         let stop = intake_shutdown.clone();
-        intake_tasks.push(tokio::spawn(async move {
-            tokio::select! {
-                () = stop.cancelled() => {}
-                result = gateway.run(sink) => {
-                    if let Err(err) = result {
-                        tracing::error!(
-                            %err,
-                            gateway = %gateway.platform(),
-                            "chat gateway stopped; chat on this platform is off until the hub is restarted, it does not retry"
-                        );
-                    }
-                }
-            }
-        }));
+        gateway.set_status(health.clone());
+        let health = health.clone();
+        intake_tasks.push(tokio::spawn(run_gateway(gateway, sink, stop, health)));
     }
     drop(stopped_tx);
     let delivery_task = tokio::spawn(dispatcher.run(events, delivery_shutdown.clone()));
@@ -171,6 +173,33 @@ pub(super) async fn run(
         outcome
     } else {
         Err(RuntimeError::ShutdownTimeout)
+    }
+}
+
+/// Runs one chat gateway until the hub stops or the gateway ends for good. A gateway that ends
+/// is logged once and recorded as a finding, because nothing restarts it.
+pub(super) async fn run_gateway(
+    gateway: Arc<dyn ChatGateway>,
+    sink: Arc<dyn InteractionSink>,
+    stop: CancellationToken,
+    health: Arc<GatewayHealth>,
+) {
+    tokio::select! {
+        () = stop.cancelled() => {}
+        result = gateway.run(sink) => {
+            if let Err(err) = result {
+                tracing::error!(
+                    %err,
+                    gateway = %gateway.platform(),
+                    "chat gateway stopped; chat on this platform is off until the hub is restarted, it does not retry"
+                );
+                let reason = match &err {
+                    ChatError::Transport(text) | ChatError::Rejected(text) => text.clone(),
+                    other => other.to_string(),
+                };
+                health.down(gateway.platform(), &reason).await;
+            }
+        }
     }
 }
 

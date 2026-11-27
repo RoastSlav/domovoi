@@ -2,13 +2,13 @@
 //! Discord's HTTP API; [`ChatGateway::run`] hands events to [`super::events`]. It is also a
 //! [`Notifier`], so one-way messages such as the digest can go out without a webhook.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use domovoi_core::Card;
 use domovoi_core::ports::{
-    ChatError, ChatGateway, Clock, InteractionSink, MessageRef, Notifier, OutboundMessage,
-    ThreadRef,
+    ChatError, ChatGateway, Clock, GatewayStatus, InteractionSink, MessageRef, Notifier,
+    OutboundMessage, ThreadRef,
 };
 use secrecy::{ExposeSecret, SecretString};
 use twilight_http::Client;
@@ -41,6 +41,8 @@ pub struct DiscordGateway {
     http: Arc<Client>,
     settings: DiscordSettings,
     clock: Arc<dyn Clock>,
+    /// Told when the gateway connects or has trouble; set by the hub before `run`.
+    status: OnceLock<Arc<dyn GatewayStatus>>,
 }
 
 impl std::fmt::Debug for DiscordGateway {
@@ -111,6 +113,7 @@ impl DiscordGateway {
             http,
             settings,
             clock,
+            status: OnceLock::new(),
         }
     }
 
@@ -196,8 +199,14 @@ impl ChatGateway for DiscordGateway {
             self.settings.clone(),
             sink,
             self.clock.clone(),
+            self.status.get().cloned(),
         )
         .await
+    }
+
+    fn set_status(&self, status: Arc<dyn GatewayStatus>) {
+        // Set once, before `run`; a second call keeps the first.
+        let _ = self.status.set(status);
     }
 }
 
@@ -279,6 +288,7 @@ mod tests {
             http: Arc::new(http),
             settings: settings(),
             clock: clock(),
+            status: OnceLock::new(),
         }
     }
 
