@@ -97,6 +97,16 @@ function Checks({ host, data }: { data: HostChecks; host: string }) {
               Changes are saved and sent when it reconnects.
             </InlineMessage>
           )}
+          {data.refused.length > 0 && (
+            <InlineMessage tone="danger" title="The agent refused some saved overrides">
+              <ul>
+                {data.refused.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+              They are not in effect. Edit the check to fix them, or remove the override.
+            </InlineMessage>
+          )}
           {save.error && (
             <InlineMessage tone="danger" title={save.error.title}>
               <ErrorDetail error={save.error} />

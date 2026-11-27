@@ -144,6 +144,35 @@ pub fn validate_override(
         };
         check_value(&format!("{check}.thresholds.{name}"), *kind, value)?;
     }
+    check_order(check, thresholds)
+}
+
+/// A `warning_X` and `critical_X` given together must be in the order that makes the warning
+/// come first: the critical level is lower for "free" and "available" amounts (the check
+/// gets worse as they fall) and higher for everything else.
+fn check_order(
+    check: &str,
+    thresholds: &std::collections::BTreeMap<String, Value>,
+) -> Result<(), String> {
+    for (name, warn) in thresholds {
+        let Some(rest) = name.strip_prefix("warning_") else {
+            continue;
+        };
+        let Some(crit) = thresholds.get(&format!("critical_{rest}")) else {
+            continue;
+        };
+        let (Some(w), Some(c)) = (warn.as_f64(), crit.as_f64()) else {
+            continue;
+        };
+        let falls = rest.contains("free") || rest.contains("available");
+        if (falls && c > w) || (!falls && c < w) {
+            return Err(format!(
+                "{check}.thresholds.critical_{rest}: {c} is {} warning_{rest} ({w}); the critical level must be {} the warning level",
+                if falls { "above" } else { "below" },
+                if falls { "at or below" } else { "at or above" },
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -192,6 +221,39 @@ fn mount_entry(path: &str, entry: &Map<String, Value>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inverted_warning_and_critical_levels_are_refused() {
+        use std::collections::BTreeMap;
+        let given = |pairs: &[(&str, f64)]| -> BTreeMap<String, serde_json::Value> {
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), serde_json::json!(v)))
+                .collect()
+        };
+        let bad = super::validate_override(
+            "disk.free",
+            None,
+            &given(&[("warning_free_pct", 10.0), ("critical_free_pct", 20.0)]),
+        )
+        .unwrap_err();
+        assert!(
+            bad.contains("critical_free_pct") && bad.contains("above"),
+            "{bad}"
+        );
+        super::validate_override(
+            "disk.free",
+            None,
+            &given(&[("warning_free_pct", 20.0), ("critical_free_pct", 10.0)]),
+        )
+        .unwrap();
+        let hot = super::validate_override(
+            "temperature.cpu",
+            None,
+            &given(&[("warning_c", 90.0), ("critical_c", 80.0)]),
+        );
+        assert!(hot.is_err(), "{hot:?}");
+    }
+
     use std::collections::BTreeMap;
 
     use serde_json::{Value, json};

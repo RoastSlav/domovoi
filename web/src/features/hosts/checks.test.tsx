@@ -12,9 +12,10 @@ vi.mock("../../api/client", () => import("../../test/apiMock"));
 const PUT = "PUT /api/v1/hosts/{name}/checks";
 
 /** The checks a connected agent reports: one saved override, one failing, one off. */
-function serve(connected = true) {
+function serve(connected = true, refusals: string[] = []) {
   route("GET /api/v1/hosts/{name}/checks", () => ({
     connected,
+    refused: refusals,
     checks: [
       {
         key: "disk.usage",
@@ -190,7 +191,7 @@ test("checks_that_fail_to_load_show_retry_and_not_an_empty_table", async () => {
 
 test("a_host_with_no_checks_says_why_and_what_to_look_at", async () => {
   serve();
-  route("GET /api/v1/hosts/{name}/checks", () => ({ connected: false, checks: [] }));
+  route("GET /api/v1/hosts/{name}/checks", () => ({ connected: false, refused: [], checks: [] }));
   show();
   expect(await screen.findByText("No checks yet")).toBeVisible();
   expect(screen.getByText(/The agent is offline, so its checks are not known yet/)).toBeVisible();
@@ -222,4 +223,13 @@ test("a_draft_reads_back_as_the_override_it_describes", () => {
   ).toEqual({
     thresholds: "x",
   });
+});
+
+test("an_override_the_agent_refused_is_printed_with_its_reason", async () => {
+  serve(true, ["disk.usage: warn_percent 95 is above critical_percent 90"]);
+  show();
+  expect(await screen.findByText("The agent refused some saved overrides")).toBeVisible();
+  expect(
+    screen.getByText("disk.usage: warn_percent 95 is above critical_percent 90"),
+  ).toBeVisible();
 });
