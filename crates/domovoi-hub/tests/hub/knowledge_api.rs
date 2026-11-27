@@ -601,3 +601,14 @@ async fn a_relation_to_something_that_does_not_exist_is_refused() {
         assert!(reply.text.contains("does not exist"), "{}", reply.text);
     }
 }
+
+/// 38c: a value that is no network is refused before any password is asked for or checked.
+#[tokio::test]
+async fn an_invalid_network_is_refused_before_the_password() {
+    let a = api().await;
+    let login = a.admin().await;
+    for password in [None, Some("nope")] {
+        let reply = assert_fact(&a, &login, path_body(&a, "not a network", password)).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{}", reply.text);
+    }
+}

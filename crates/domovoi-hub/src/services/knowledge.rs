@@ -116,6 +116,8 @@ impl KnowledgeCommands {
         proof: StepUp<'_>,
     ) -> Result<Recorded, KnowledgeCommandError> {
         draft.source = domovoi_core::knowledge::FactSource::User;
+        // Say that a value cannot be saved before asking for a password to save it.
+        self.service.check_owner_draft(&draft)?;
         if draft.predicate.is_safety_critical() {
             self.step_up(caller, proof).await?;
         }

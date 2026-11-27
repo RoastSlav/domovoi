@@ -286,6 +286,12 @@ impl KnowledgeService {
         self.write_record(&valid, actor, None).await
     }
 
+    /// Whether the owner could state `draft`, without writing anything: what a caller checks
+    /// before it asks for a password.
+    pub fn check_owner_draft(&self, draft: &FactDraft) -> Result<(), KnowledgeError> {
+        self.validate(draft, FactSource::User).map(drop)
+    }
+
     /// Records a fact the owner states. The source is `user` whatever the draft says.
     pub async fn assert_fact(
         &self,

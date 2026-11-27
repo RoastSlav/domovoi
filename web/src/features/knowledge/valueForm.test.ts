@@ -1,4 +1,4 @@
-import { buildValue, type ValueDraft } from "./valueForm";
+import { buildValue, isNetwork, type ValueDraft } from "./valueForm";
 
 const draft = (over: Partial<ValueDraft>): ValueDraft => ({
   predicate: "role",
@@ -55,6 +55,30 @@ describe("buildValue", () => {
     expect(buildValue(draft({ predicate: "trusted_cidr", cidr: "" })).ok).toBe(false);
     expect(buildValue(draft({ predicate: "host_platform" })).ok).toBe(false);
     expect(buildValue(draft({ predicate: "from_a_newer_hub", text: "x" })).ok).toBe(false);
+  });
+
+  it("says that a value is not a network before anything is sent", () => {
+    for (const cidr of ["not a network", "10.0.0.0/33", "010.0.0.1", "10.0.0/8", "fd00::/129"]) {
+      expect(buildValue(draft({ predicate: "management_path", cidr })), cidr).toEqual({
+        ok: false,
+        problem: "That is not a network. Write one such as 192.168.1.0/24 or fd00::/64.",
+      });
+    }
+    // What the hub reads: bare addresses, compressed and mapped IPv6.
+    for (const cidr of [
+      "192.168.1.20",
+      "10.0.0.0/8",
+      "fd00::/64",
+      "fd00::20",
+      "2001:DB8:0:0:0:0:0:0/32",
+      "::ffff:192.168.1.20",
+      "1:0:0:2:0:0:0:3",
+    ]) {
+      expect(isNetwork(cidr), cidr).toBe(true);
+    }
+    for (const cidr of ["::ffff:10.0.0.7/64", "1::2::3", "1:2:3:4:5:6:7:8::", "10.0.0.0/8/1"]) {
+      expect(isNetwork(cidr), cidr).toBe(false);
+    }
   });
 
   it("a maintenance window is read as UTC and must end after it starts", () => {

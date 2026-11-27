@@ -106,12 +106,13 @@ test("adding_a_safety_critical_fact_swaps_the_form_for_the_password_prompt_and_c
   });
 });
 
+// The page checks the form of a network itself; what only the hub refuses still reads here.
 test("the_hubs_400_for_a_bad_cidr_shows_inside_the_dialog", async () => {
   route(ASSERT, () => failure(400, "bad_request", "that is not a network in CIDR form"));
   const { user, dialog } = await openDialog();
   await user.selectOptions(within(dialog).getByRole("combobox", { name: "Kind" }), "trusted_cidr");
   await pickNas(dialog, user);
-  await user.type(within(dialog).getByRole("textbox", { name: "Network" }), "not-a-network");
+  await user.type(within(dialog).getByRole("textbox", { name: "Network" }), "10.0.0.0/8");
   await user.click(within(dialog).getByRole("button", { name: "Save fact" }));
 
   const prompt = await screen.findByRole("dialog", { name: "Confirm with your password" });

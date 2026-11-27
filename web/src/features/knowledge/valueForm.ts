@@ -50,6 +50,65 @@ function window(draft: ValueDraft): BuiltValue {
     : { ok: true, value: { starts_at, ends_at, note } };
 }
 
+function isIpv4(text: string): boolean {
+  const octets = text.split(".");
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => /^(0|[1-9]\d{0,2})$/.test(octet) && Number(octet) <= 255)
+  );
+}
+
+/** The groups one side of `::` stands for (an IPv4 tail counts as two), or -1 when malformed. */
+function ipv6Groups(side: string): number {
+  if (side === "") {
+    return 0;
+  }
+  const words = side.split(":");
+  let groups = 0;
+  for (const [index, word] of words.entries()) {
+    if (index === words.length - 1 && isIpv4(word)) {
+      groups += 2;
+    } else if (/^[0-9a-f]{1,4}$/i.test(word)) {
+      groups += 1;
+    } else {
+      return -1;
+    }
+  }
+  return groups;
+}
+
+function isIpv6(text: string): boolean {
+  const sides = text.split("::");
+  const counts = sides.map(ipv6Groups);
+  if (sides.length > 2 || counts.includes(-1)) {
+    return false;
+  }
+  const total = counts.reduce((sum, n) => sum + n, 0);
+  // `::` stands for at least one group; an IPv4 tail may only end the whole address.
+  return sides.length === 2 ? total <= 7 && !sides[0]?.includes(".") : total === 8;
+}
+
+/**
+ * Whether the hub will read `text` as a network: an IPv4 or IPv6 address with an optional
+ * prefix length. It mirrors the hub's parser so a typo is said before the password prompt;
+ * the hub still decides.
+ */
+export function isNetwork(text: string): boolean {
+  const [address = "", prefix, ...rest] = text.split("/");
+  if (rest.length > 0) {
+    return false;
+  }
+  const host = address.trim();
+  const v6 = host.includes(":");
+  if (v6 ? !isIpv6(host) : !isIpv4(host)) {
+    return false;
+  }
+  // An IPv4-mapped IPv6 address is read as the IPv4 address it maps.
+  const mapped = v6 && /^(::|(0{1,4}:){5})ffff:[^:]*(\.|:)[^:]*$/i.test(host);
+  const width = v6 && !mapped ? 128 : 32;
+  return prefix === undefined || (/^\+?\d+$/.test(prefix) && Number(prefix) <= width);
+}
+
 /**
  * Builds the value of a fact from the form, or says what is wrong. A cidr is sent as typed:
  * the hub writes it in its standard form and the page then shows what it stored.
@@ -80,6 +139,9 @@ export function buildValue(draft: ValueDraft): BuiltValue {
       const cidr = draft.cidr.trim();
       if (cidr === "") {
         return bad("Enter a network, for example 192.168.1.0/24.");
+      }
+      if (!isNetwork(cidr)) {
+        return bad("That is not a network. Write one such as 192.168.1.0/24 or fd00::/64.");
       }
       if (/^[^/]+\/0$/.test(cidr)) {
         return bad(
