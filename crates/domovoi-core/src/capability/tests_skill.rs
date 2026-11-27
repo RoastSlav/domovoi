@@ -214,6 +214,7 @@ fn builtin_contracts_cover_every_read_tool() {
         "disk.smart_report",
         "incident.history",
         "notes.search",
+        "host.binary",
     ];
     let ids: Vec<String> = builtin_contracts()
         .iter()
@@ -242,7 +243,7 @@ fn builtin_contracts_validate_and_index() {
         contract.validate().unwrap();
     }
     let index = ContractIndex::new(contracts).unwrap();
-    assert_eq!(index.len(), 10);
+    assert_eq!(index.len(), 11);
 }
 
 #[test]

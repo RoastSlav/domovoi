@@ -754,7 +754,7 @@ async fn hub_executed_contracts_are_not_in_agent_catalogue() {
             "{hub} is both a hub and an agent contract"
         );
     }
-    assert_eq!(agent_path.len(), 8, "the agent path is not eight contracts");
+    assert_eq!(agent_path.len(), 9, "the agent path is not nine contracts");
 }
 
 #[tokio::test]

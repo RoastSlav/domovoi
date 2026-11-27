@@ -236,6 +236,10 @@ pub async fn run_tool(ctx: &RequestCtx, call: &ReadToolCall) -> Result<(String, 
             let spec = ctx.commands.smartctl_all(&device).map_err(template)?;
             command(ctx, spec).await
         }
+        ReadToolCall::HostBinary { name, package } => Ok((
+            super::binary::host_binary(&*ctx.fs, name, package.as_deref()).await,
+            false,
+        )),
         ReadToolCall::RunReadSkill { skill, args } => run_read_skill(ctx, skill, args).await,
         ReadToolCall::IncidentHistory { .. } | ReadToolCall::NotesSearch { .. } => {
             Err(ToolFail::new(

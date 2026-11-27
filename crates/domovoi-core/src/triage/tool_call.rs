@@ -13,6 +13,8 @@ pub const MAX_LINES: u16 = 500;
 pub const MAX_SINCE_MINUTES: u32 = 1440;
 /// Longest container or unit name.
 pub const MAX_NAME_CHARS: usize = 128;
+/// Longest program or package name `host_binary` accepts.
+pub const MAX_BINARY_CHARS: usize = 64;
 /// Longest disk device path.
 pub const MAX_DEVICE_CHARS: usize = 64;
 /// Longest notes search query.
@@ -96,6 +98,13 @@ pub enum ReadToolCall {
         /// Device path under `/dev/`.
         device: String,
     },
+    /// Whether a program file or a package is present on the host.
+    HostBinary {
+        /// The program file name, such as `ip`.
+        name: String,
+        /// A package name to look up in the package database, when it differs from `name`.
+        package: Option<String>,
+    },
     /// Past incidents with the same fingerprint.
     IncidentHistory {
         /// Incidents to return, at most [`MAX_HISTORY`].
@@ -172,6 +181,14 @@ struct SmartArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+struct BinaryArgs {
+    name: String,
+    #[serde(default)]
+    package: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HistoryArgs {
     #[serde(default = "default_history")]
     limit: u16,
@@ -207,6 +224,17 @@ fn default_history() -> u16 {
 
 fn default_notes() -> u16 {
     DEFAULT_NOTES
+}
+
+/// Whether `name` is a plain file or package name: no path separator, no dots-only name, no
+/// leading dash.
+#[must_use]
+pub fn is_program_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
 }
 
 struct Checker {
@@ -331,6 +359,22 @@ impl ReadToolCall {
                 }
                 Self::SmartReport { device }
             }
+            ReadTool::HostBinary => {
+                let a: BinaryArgs = c.parse(args)?;
+                let name = c.text("name", a.name, MAX_BINARY_CHARS)?;
+                if !is_program_name(&name) {
+                    return Err(c.fail(
+                        "name must be a plain file or package name: letters, digits and . _ + -",
+                    ));
+                }
+                let package = c.optional_text("package", a.package, MAX_BINARY_CHARS)?;
+                if package.as_deref().is_some_and(|p| !is_program_name(p)) {
+                    return Err(c.fail(
+                        "package must be a plain package name: letters, digits and . _ + -",
+                    ));
+                }
+                Self::HostBinary { name, package }
+            }
             ReadTool::IncidentHistory => {
                 let a: HistoryArgs = c.parse(args)?;
                 Self::IncidentHistory {
@@ -367,6 +411,7 @@ impl ReadToolCall {
             Self::Journal { .. } => ReadTool::Journal,
             Self::ListeningPorts => ReadTool::ListeningPorts,
             Self::SmartReport { .. } => ReadTool::SmartReport,
+            Self::HostBinary { .. } => ReadTool::HostBinary,
             Self::IncidentHistory { .. } => ReadTool::IncidentHistory,
             Self::NotesSearch { .. } => ReadTool::NotesSearch,
             Self::RunReadSkill { .. } => ReadTool::RunReadSkill,

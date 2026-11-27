@@ -184,16 +184,17 @@ mod tests {
     const NO_SKILLS: [&str; 0] = [];
 
     #[test]
-    fn catalog_lists_exactly_the_eight_agent_builtins() {
+    fn catalog_lists_exactly_the_nine_agent_builtins() {
         let (root, catalog) = loaded(&NO_SKILLS);
         let ids = listed(&catalog);
-        assert_eq!(ids.len(), 8, "an empty skill catalogue answers {ids:?}");
+        assert_eq!(ids.len(), 9, "an empty skill catalogue answers {ids:?}");
         for name in [
             "container.events",
             "container.inspect",
             "container.list",
             "container.logs",
             "disk.smart_report",
+            "host.binary",
             "host.overview",
             "network.listening_ports",
             "system.journal",
@@ -231,7 +232,7 @@ mod tests {
     fn catalog_lists_every_loaded_skill() {
         let (root, catalog) = loaded(&["beta_skill", "alpha_skill", "gamma_skill"]);
         let size = catalog_entries(&catalog, PackageSurface::default()).len();
-        assert_eq!(size, 11, "the fixture answers {size} entries not 11");
+        assert_eq!(size, 12, "the fixture answers {size} entries not 12");
         for name in ["alpha_skill", "beta_skill", "gamma_skill"] {
             let wanted = &format!("skill.{name}");
             let shown = listed(&catalog);
@@ -254,8 +255,8 @@ mod tests {
         let (root, catalog) = loaded(&["beta_skill"]);
         let size = catalog_entries(&catalog, PackageSurface::default()).len();
         assert_eq!(
-            size, 8,
-            "the Windows fixture answers {size} entries, the 8 built-ins only"
+            size, 9,
+            "the Windows fixture answers {size} entries, the 9 built-ins only"
         );
         let shown = listed(&catalog);
         assert!(
@@ -270,24 +271,24 @@ mod tests {
         let (root, catalog) = loaded(&NO_SKILLS);
         let entries = catalog_entries(&catalog, PackageSurface::default());
         let size = entries.len();
-        assert_eq!(size, 8, "the fixture has {size} entries");
+        assert_eq!(size, 9, "the fixture has {size} entries");
         let first = page(
             &entries,
             &GetCatalog {
                 page: 0,
-                page_size: 4,
+                page_size: 5,
             },
         );
         let second = page(
             &entries,
             &GetCatalog {
                 page: 1,
-                page_size: 4,
+                page_size: 5,
             },
         );
         let first_count = first.entries.len();
         let second_count = second.entries.len();
-        assert_eq!(first_count, 4, "the first page holds {first_count} entries");
+        assert_eq!(first_count, 5, "the first page holds {first_count} entries");
         assert_eq!(
             second_count, 4,
             "the second page holds {second_count} entries"
@@ -300,7 +301,7 @@ mod tests {
             &entries,
             &GetCatalog {
                 page: 0,
-                page_size: 4,
+                page_size: 5,
             },
         );
         assert_eq!(
@@ -358,7 +359,7 @@ mod tests {
         let last_single = page(
             &entries,
             &GetCatalog {
-                page: 7,
+                page: 8,
                 page_size: 0,
             },
         );
@@ -366,15 +367,15 @@ mod tests {
         let last_next = last_single.next_page;
         assert_eq!(
             last_count, 1,
-            "page 7 of a clamped single-entry page serves {last_count}"
+            "page 8 of a clamped single-entry page serves {last_count}"
         );
         assert_eq!(
             last_next, None,
             "the last single-entry page answers {last_next:?}"
         );
         assert_eq!(
-            huge_count, 8,
-            "page_size 1000 clamps to the wire cap and serves {huge_count} of 8"
+            huge_count, 9,
+            "page_size 1000 clamps to the wire cap and serves {huge_count} of 9"
         );
         assert_eq!(huge_next, None, "a clamped page answers {huge_next:?}");
         let _ = root;

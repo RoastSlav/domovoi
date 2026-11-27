@@ -1305,6 +1305,7 @@ fn model_cannot_reach_the_operation_writer() {
             "smart_report",
             "incident_history",
             "notes_search",
+            "host_binary",
             "run_read_skill",
         ],
         "the tool catalogue changed; every new tool needs a security review",
@@ -2184,7 +2185,7 @@ fn jobs_never_come_from_the_model_or_chat() {
 fn model_cannot_trigger_containment() {
     // The catalogues: closed, and none of the names is about firewalls or blocking.
     assert_eq!(MetaTool::ALL.len(), 7);
-    assert_eq!(ReadTool::ALL.len(), 11);
+    assert_eq!(ReadTool::ALL.len(), 12);
     let names: Vec<&str> = MetaTool::ALL
         .iter()
         .map(MetaTool::name)

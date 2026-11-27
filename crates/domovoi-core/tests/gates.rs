@@ -26,6 +26,7 @@ fn read_tool_catalogue_is_read_only() {
         "smart_report",
         "incident_history",
         "notes_search",
+        "host_binary",
         "run_read_skill",
     ];
     let names: Vec<&str> = ReadTool::ALL.iter().map(ReadTool::name).collect();
@@ -52,7 +53,7 @@ fn read_derived_contracts_are_read_only() {
     let contracts = domovoi_core::capability::builtin::builtin_contracts();
     assert_eq!(
         contracts.len(),
-        10,
+        11,
         "the built-in read contract set changed"
     );
     for contract in &contracts {

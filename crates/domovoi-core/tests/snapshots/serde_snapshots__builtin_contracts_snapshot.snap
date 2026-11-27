@@ -201,6 +201,50 @@ expression: contracts
     },
     "version": 1
   },
+  "host.binary": {
+    "category": "host.observe",
+    "constrainable_args": [],
+    "description": "Check whether a program file exists in the standard program directories of the incident host, and whether a package of that name is recorded by dpkg or pacman. Only a hit proves presence; no hit means not found in those places, not proof of absence.",
+    "effect": "read",
+    "execution": "agent",
+    "id": "host.binary",
+    "idempotency": "idempotent",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Program file name, for example ip.",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+          "type": "string"
+        },
+        "package": {
+          "description": "Package name to look up, for example iproute2, when it differs from the file name.",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "output_limit_bytes": 8192,
+    "reversibility": "not_applicable",
+    "safety_facts": [],
+    "source": {
+      "kind": "built_in"
+    },
+    "target_arg": null,
+    "target_kind": "host",
+    "timeout": "15s",
+    "title": "Host binary",
+    "verification": {
+      "kind": "none"
+    },
+    "version": 1
+  },
   "host.overview": {
     "category": "host.observe",
     "constrainable_args": [],

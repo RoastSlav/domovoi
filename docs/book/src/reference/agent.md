@@ -137,6 +137,7 @@ Tool output is redacted, then capped at 64 KiB.
 | `host_overview` | Uptime, load, memory, swap and disks from `/proc` and `statvfs`. |
 | `journal`, `smart_report` | `journalctl` and `smartctl` through the fixed command templates. On the three-identities layout `smart_report` asks the helper, and `journal` with the kernel option asks the helper's kernel log when `journalctl --dmesg` cannot open the journal. |
 | `listening_ports` | `/proc/1/net/*`, loopback excluded. On the three-identities layout each listener also shows its owning process when the helper's `net.read` group answers; if it does not, the list is shown without it. |
+| `host_binary` | Whether a program file exists in `/usr/local/sbin`, `/usr/local/bin`, `/usr/sbin`, `/usr/bin`, `/sbin` and `/bin`, and whether dpkg or pacman records a package of that name (its `info/<name>.list` or `local/<name>-<version>`). No process runs and no privilege is used. A hit proves presence. A miss only means "not found in these places": it never says a program is not installed, and rpm is not read. Mode and owner are not read, so a hit does not prove the file can run. |
 | `run_read_skill` | A skill from the local catalogue whose risk is `read`; any other risk is refused. |
 
 `incident_history` and `notes_search` are answered by the hub, so the agent replies `unknown_tool`.

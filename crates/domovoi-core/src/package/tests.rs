@@ -205,6 +205,6 @@ fn builtin_contracts_are_unchanged_by_package_contracts() {
         .iter()
         .map(|c| c.id.to_string())
         .collect();
-    assert_eq!(ids.len(), 10);
+    assert_eq!(ids.len(), 11);
     assert!(ids.iter().all(|id| !id.starts_with("agent.package.")));
 }

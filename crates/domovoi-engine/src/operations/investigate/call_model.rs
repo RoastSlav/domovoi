@@ -257,6 +257,8 @@ mod tests {
             ("smart_report", json!({"device": "/dev/sda"})),
             ("incident_history", json!({})),
             ("incident_history", json!({"limit": 3})),
+            ("host_binary", json!({"name": "ip"})),
+            ("host_binary", json!({"name": "ip", "package": "iproute2"})),
             ("notes_search", json!({"query": "disk"})),
             ("notes_search", json!({"query": "disk", "limit": 2})),
             ("run_read_skill", json!({"skill": "disk_report"})),

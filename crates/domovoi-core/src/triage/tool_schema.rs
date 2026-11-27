@@ -8,9 +8,9 @@
 use serde_json::{Value, json};
 
 use super::tool_call::{
-    DEFAULT_HISTORY, DEFAULT_LINES, DEFAULT_NOTES, DEFAULT_SINCE_MINUTES, MAX_DEVICE_CHARS,
-    MAX_HISTORY, MAX_LINES, MAX_NAME_CHARS, MAX_NOTES, MAX_QUERY_CHARS, MAX_SINCE_MINUTES,
-    MAX_SKILL_ARGS,
+    DEFAULT_HISTORY, DEFAULT_LINES, DEFAULT_NOTES, DEFAULT_SINCE_MINUTES, MAX_BINARY_CHARS,
+    MAX_DEVICE_CHARS, MAX_HISTORY, MAX_LINES, MAX_NAME_CHARS, MAX_NOTES, MAX_QUERY_CHARS,
+    MAX_SINCE_MINUTES, MAX_SKILL_ARGS,
 };
 use super::tools::ReadTool;
 
@@ -96,6 +96,23 @@ impl ReadTool {
                     "limit": { "type": "integer", "minimum": 1, "maximum": MAX_NOTES, "default": DEFAULT_NOTES },
                 }),
                 &["query"],
+            ),
+            Self::HostBinary => object(
+                json!({
+                    "name": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+                        "maxLength": MAX_BINARY_CHARS,
+                        "description": "Program file name, for example ip.",
+                    },
+                    "package": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+                        "maxLength": MAX_BINARY_CHARS,
+                        "description": "Package name to look up, for example iproute2, when it differs from the file name.",
+                    },
+                }),
+                &["name"],
             ),
             Self::RunReadSkill => object(
                 json!({

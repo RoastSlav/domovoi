@@ -26,13 +26,15 @@ pub enum ReadTool {
     IncidentHistory,
     /// Search runbook notes.
     NotesSearch,
+    /// Whether a binary or package is present on the host.
+    HostBinary,
     /// Run a skill whose manifest declares `risk = "read"`.
     RunReadSkill,
 }
 
 impl ReadTool {
     /// Every tool, in catalogue order.
-    pub const ALL: [ReadTool; 11] = [
+    pub const ALL: [ReadTool; 12] = [
         ReadTool::DockerPs,
         ReadTool::DockerLogs,
         ReadTool::DockerInspect,
@@ -43,6 +45,7 @@ impl ReadTool {
         ReadTool::SmartReport,
         ReadTool::IncidentHistory,
         ReadTool::NotesSearch,
+        ReadTool::HostBinary,
         ReadTool::RunReadSkill,
     ];
 
@@ -60,6 +63,7 @@ impl ReadTool {
             Self::SmartReport => "smart_report",
             Self::IncidentHistory => "incident_history",
             Self::NotesSearch => "notes_search",
+            Self::HostBinary => "host_binary",
             Self::RunReadSkill => "run_read_skill",
         }
     }
@@ -78,6 +82,9 @@ impl ReadTool {
             Self::SmartReport => "Show SMART health attributes for one disk.",
             Self::IncidentHistory => "List past incidents with the same fingerprint.",
             Self::NotesSearch => "Search runbook notes for this host and global notes.",
+            Self::HostBinary => {
+                "Check whether a program file exists in the standard program directories of the incident host, and whether a package of that name is recorded by dpkg or pacman. Only a hit proves presence; no hit means not found in those places, not proof of absence."
+            }
             Self::RunReadSkill => {
                 "Run a read-only skill on the incident host and return its output."
             }

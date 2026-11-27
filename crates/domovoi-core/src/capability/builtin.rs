@@ -48,6 +48,7 @@ pub fn contract_id_of(tool: ReadTool) -> Option<ContractId> {
         ReadTool::SmartReport => "disk.smart_report",
         ReadTool::IncidentHistory => "incident.history",
         ReadTool::NotesSearch => "notes.search",
+        ReadTool::HostBinary => "host.binary",
         ReadTool::RunReadSkill => return None,
     };
     Some(ContractId::from_static(id))
@@ -125,6 +126,13 @@ fn contract_for(tool: ReadTool) -> Option<CapabilityContract> {
             TargetKind::Host,
             None,
             ExecutionPath::Hub,
+        ),
+        ReadTool::HostBinary => (
+            "host.binary",
+            "host.observe",
+            TargetKind::Host,
+            None,
+            ExecutionPath::Agent,
         ),
         ReadTool::RunReadSkill => return None,
     };

@@ -71,6 +71,27 @@ expression: schemas
     "required": [],
     "type": "object"
   },
+  "host_binary": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "description": "Program file name, for example ip.",
+        "maxLength": 64,
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+        "type": "string"
+      },
+      "package": {
+        "description": "Package name to look up, for example iproute2, when it differs from the file name.",
+        "maxLength": 64,
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._+-]*$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
   "host_overview": {
     "additionalProperties": false,
     "properties": {},

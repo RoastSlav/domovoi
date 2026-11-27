@@ -107,6 +107,9 @@ fn tool_calls_apply_defaults_and_bounds() {
         ("notes_search", json!({ "query": "x".repeat(201) })),
         ("incident_history", json!({ "limit": 51 })),
         ("host_overview", json!({ "verbose": true })),
+        ("host_binary", json!({ "name": "../bin/sh" })),
+        ("host_binary", json!({ "name": "ip", "package": "a b" })),
+        ("host_binary", json!({ "name": "-rf" })),
         ("run_read_skill", json!({ "skill": "Bad Name" })),
     ];
     for (tool, args) in bad {
@@ -124,6 +127,7 @@ fn every_tool_accepts_its_minimal_arguments() {
         ReadTool::DockerLogs | ReadTool::DockerInspect => json!({ "container": "plex" }),
         ReadTool::SmartReport => json!({ "device": "/dev/sda" }),
         ReadTool::NotesSearch => json!({ "query": "zfs" }),
+        ReadTool::HostBinary => json!({ "name": "ip" }),
         ReadTool::RunReadSkill => json!({ "skill": "zpool_status" }),
         _ => json!(null),
     };

@@ -6,6 +6,7 @@
 //! and tool output is redacted, then capped at [`MAX_TOOL_OUTPUT`].
 
 mod attest;
+mod binary;
 mod capability;
 mod catalog;
 mod firewall;
