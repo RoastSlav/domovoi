@@ -81,7 +81,14 @@ pub async fn run(args: RunArgs, logs: Arc<LogRing>) -> anyhow::Result<ExitCode> 
             }
             Err(err) => return Err(err.into()),
         };
+        runtime.log_banner(env!("DOMOVOI_GIT_COMMIT"));
         if let Some(link) = runtime.setup_link().await? {
+            // The link is for the person at the terminal. The structured log gets only a
+            // short prefix, so the token does not stay in the journal.
+            tracing::info!(
+                token_prefix = %domovoi_hub::runtime::banner::setup_token_prefix(&link),
+                "no account exists yet; the one-time setup link (valid 24 hours) was printed on standard output, not logged"
+            );
             println!("No account exists yet. Finish setup in the web UI within 24 hours:");
             println!("  {link}");
             println!("(or run `domovoi hub set-password` while the hub is stopped)");

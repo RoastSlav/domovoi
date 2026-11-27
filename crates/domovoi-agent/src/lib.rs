@@ -12,6 +12,7 @@
 //!   the runner sees it.
 //! - [`runtime::AgentRuntime`] wires it all together.
 
+pub mod banner;
 pub mod boot;
 pub mod checks;
 pub mod config_file;

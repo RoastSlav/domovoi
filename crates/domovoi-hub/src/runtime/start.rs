@@ -29,6 +29,8 @@ pub(crate) struct Opened {
     pub(crate) store: Arc<Store>,
     /// The secret key and layer sources, when settings are managed from the UI.
     pub(crate) settings: Option<(Arc<SecretKey>, ConfigSources)>,
+    /// What the banner reports about the loaded settings.
+    pub(crate) startup: super::banner::StartupFacts,
 }
 
 impl HubRuntime {
@@ -47,8 +49,13 @@ impl HubRuntime {
         let store = Arc::new(
             adapters::open_store_at(&data_dir, None, 7, keep_pre_migrate, &*deps.clock).await?,
         );
-        let (layered, _) =
+        let (layered, stored) =
             crate::settings::apply::load_layers(&store, &key, &sources, &*deps.clock).await?;
+        let startup = super::banner::StartupFacts::from_layers(
+            sources.file.clone(),
+            stored.doc.revision,
+            &layered.provenance,
+        );
         for issue in &layered.issues {
             tracing::warn!(%issue, "settings");
         }
@@ -56,6 +63,7 @@ impl HubRuntime {
             lock,
             store,
             settings: Some((key, sources)),
+            startup,
         };
         Self::assemble(opened, layered.config, deps, AdapterOverrides::default()).await
     }

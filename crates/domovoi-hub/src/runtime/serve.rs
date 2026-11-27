@@ -48,6 +48,12 @@ pub(super) async fn run(
             source,
         })?;
     let agents = agent_server.bind().await?;
+    tracing::info!(
+        web = %web.local_addr().map_or_else(|_| "unknown".to_owned(), |a| a.to_string()),
+        agents = %agents.local_addr().map_or_else(|_| "unknown".to_owned(), |a| a.to_string()),
+        gateways = gateways.len(),
+        "ready: listening for the web UI and for agents",
+    );
     let (stopped_tx, mut stopped_rx) = mpsc::channel(4);
     let mut intake_tasks = Vec::new();
     intake_tasks.extend(schedulers.spawn(intake_shutdown.clone()));

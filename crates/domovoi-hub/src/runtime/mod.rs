@@ -1,6 +1,7 @@
 //! Assembly and lifecycle of a complete hub.
 
 pub(crate) mod adapters;
+pub mod banner;
 pub mod caps;
 mod contain;
 mod conversations_build;
@@ -108,6 +109,8 @@ pub struct HubRuntime {
     pub(crate) worker_shutdown: CancellationToken,
     pub(crate) manager_shutdown: CancellationToken,
     pub(crate) delivery_shutdown: CancellationToken,
+    /// What the settings load learned, for the start-up banner.
+    pub(crate) startup: banner::StartupFacts,
 }
 
 impl HubRuntime {
@@ -128,6 +131,7 @@ impl HubRuntime {
             lock,
             store,
             settings: None,
+            startup: banner::StartupFacts::default(),
         };
         Self::assemble(opened, config, deps, overrides).await
     }
@@ -142,6 +146,7 @@ impl HubRuntime {
             lock,
             store,
             settings,
+            startup,
         } = opened;
         crate::packages::keys::PackageKeys::from_config(&config.packages)?;
         let mut secrets = Vec::new();
@@ -472,6 +477,7 @@ impl HubRuntime {
             worker_shutdown,
             manager_shutdown,
             delivery_shutdown,
+            startup,
         })
     }
 

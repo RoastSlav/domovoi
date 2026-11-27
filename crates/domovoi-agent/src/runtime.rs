@@ -91,6 +91,8 @@ pub struct AgentRuntime {
     in_container: bool,
     /// The build named in `hello`.
     build: Option<String>,
+    /// What the start-up banner reports.
+    banner: crate::banner::Banner,
 }
 
 /// The container policy from `[containers]`.
@@ -258,8 +260,15 @@ impl AgentRuntime {
             }
             None => None,
         };
+        let banner = crate::banner::Banner {
+            host_name: config.agent.host_name.to_string(),
+            hub_url: config.agent.hub_url.to_string(),
+            config_file: None,
+            state_dir: state_dir.clone(),
+        };
         Ok(Self {
             build: None,
+            banner,
             effective,
             check_infos,
             identity,
@@ -289,6 +298,13 @@ impl AgentRuntime {
         self
     }
 
+    /// Names the configuration file the agent was started from, for the start-up banner.
+    #[must_use]
+    pub fn with_config_file(mut self, path: &Path) -> Self {
+        self.banner.config_file = Some(path.to_path_buf());
+        self
+    }
+
     /// Uses `connector` instead of dialling the hub over TLS, as single-box mode does with
     /// an in-memory link.
     #[must_use]
@@ -301,6 +317,13 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
+        self.banner.log(
+            self.build.as_deref().unwrap_or("unknown"),
+            host,
+            self.identity.agent_id,
+            self.check_infos.iter().filter(|c| c.enabled).count(),
+            self.check_infos.len(),
+        );
         let entries = crate::requests::catalog_entries_with(
             &self.requests.catalog,
             self.requests.package_surface(),
