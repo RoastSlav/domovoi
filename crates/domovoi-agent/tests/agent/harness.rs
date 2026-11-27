@@ -178,6 +178,8 @@ fn start_link_ext(
         jitter: Box::new(|| 1.0),
         status_dir: Some(dir.path().to_path_buf()),
         transfers,
+        package_skills: None,
+        resync: None,
     };
     let (link, handle, requests) = Link::new(parts);
     let shutdown = CancellationToken::new();

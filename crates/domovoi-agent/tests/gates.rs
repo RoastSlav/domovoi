@@ -250,7 +250,7 @@ fn snapshot(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
 /// and `run_skill` does not find them.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn package_skills_are_not_runnable_before_the_skill_runner() {
+async fn a_stored_package_skill_is_not_runnable_until_enabled() {
     use domovoi_proto::messages::TransferKind;
     use domovoi_testkit::PackageFixture;
     use package_rig::{Options, Rig};
@@ -266,7 +266,7 @@ async fn package_skills_are_not_runnable_before_the_skill_runner() {
     assert!(rig.fixture.skills().read_dir().unwrap().next().is_none());
     let listed = rig.service.as_ref().unwrap().list().unwrap().outputs();
     assert!(listed["packages"].contains("nginx_reload"));
-    assert!(listed["packages"].contains("skill_runner_not_integrated"));
+    assert!(listed["packages"].contains("not enabled"));
 
     let skill = SkillName::parse("nginx_reload").unwrap();
     assert!(rig.ctx.catalog.get(&skill).is_none());
@@ -346,6 +346,43 @@ fn legacy_skill_route_is_built_only_for_root_agents() {
     );
 }
 
+/// After `agent.package.enable` the skill is found, listed and echoed in the catalogue; after
+/// `agent.package.disable` it is gone again. Nothing enables a package by itself.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn enabling_a_package_makes_its_skill_findable_and_disabling_removes_it() {
+    use domovoi_testkit::PackageFixture;
+    use package_rig::{Options, Rig};
+
+    let built = PackageFixture::new("nginx-tools", "1.2.0")
+        .unwrap()
+        .skill("nginx_reload")
+        .build();
+    let rig = Rig::new(&[&built], Options::default());
+    let args = rig.install_args(&built, "nginx-tools", "1.2.0");
+    rig.call(rig.run("agent.package.install", &args)).await;
+    let skill = SkillName::parse("nginx_reload").unwrap();
+    assert!(
+        rig.ctx.find_skill(&skill).is_none(),
+        "install never enables"
+    );
+    assert!(rig.ctx.package_skills().states.iter().all(|s| !s.enabled));
+    let pair = [
+        ("package", "nginx-tools".to_owned()),
+        ("version", "1.2.0".to_owned()),
+    ];
+    rig.call(rig.run("agent.package.enable", &pair)).await;
+    let found = rig.ctx.find_skill(&skill).expect("enabled skill is found");
+    assert!(matches!(
+        found.source,
+        domovoi_core::skill_runner::SkillSource::Package { .. }
+    ));
+    assert_eq!(rig.ctx.enabled_package_skill_names(), vec![skill.clone()]);
+    drop(found);
+    rig.call(rig.run("agent.package.disable", &pair)).await;
+    assert!(rig.ctx.find_skill(&skill).is_none());
+}
+
 /// The request handlers reach skills only through the route, never through the catalogue's
 /// own run method (which spawns in this process).
 #[test]
@@ -361,5 +398,10 @@ fn requests_never_call_catalog_run_skill_directly() {
         );
     }
     let skills = std::fs::read_to_string(src.join("skills.rs")).unwrap();
-    assert_eq!(skills.matches("ctx.skills.run(").count(), 2);
+    assert_eq!(skills.matches("ctx.skills.run").count(), 0);
+    let found = std::fs::read_to_string(src.join("package_skills.rs")).unwrap();
+    assert_eq!(
+        found.matches("self.skills\n            .run_from(").count(),
+        1
+    );
 }

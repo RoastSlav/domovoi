@@ -103,6 +103,44 @@ impl InstallOutcome {
     }
 }
 
+/// Arguments of `agent.package.enable` and `agent.package.disable`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnableRequest {
+    /// The stored package.
+    pub package: PackageName,
+    /// The version that must be the stored one.
+    pub version: PackageVersion,
+}
+
+/// What an enable or a disable did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnableOutcome {
+    /// The package.
+    pub package: PackageName,
+    /// Its version.
+    pub version: PackageVersion,
+    /// Whether the skills can run now.
+    pub enabled: bool,
+    /// Whether the state changed (false when it already was as asked).
+    pub changed: bool,
+    /// The tree digest the files matched when enabled; empty on disable.
+    pub tree_sha256: String,
+}
+
+impl EnableOutcome {
+    /// The `outputs` map of the capability result.
+    #[must_use]
+    pub fn outputs(&self) -> BTreeMap<String, String> {
+        BTreeMap::from([
+            (OUT_PACKAGE.to_owned(), self.package.to_string()),
+            (OUT_VERSION.to_owned(), self.version.to_string()),
+            (OUT_ENABLED.to_owned(), flag(self.enabled)),
+            ("changed".to_owned(), flag(self.changed)),
+            ("tree_sha256".to_owned(), self.tree_sha256.clone()),
+        ])
+    }
+}
+
 /// What an uninstall did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UninstallOutcome {

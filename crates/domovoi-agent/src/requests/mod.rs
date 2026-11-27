@@ -11,6 +11,7 @@ mod capability;
 mod catalog;
 mod firewall;
 mod overview;
+mod package_skills;
 mod skill_journal;
 mod skills;
 mod tools;
@@ -40,8 +41,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 pub use self::attest::attest_reply;
-pub use self::catalog::{catalog_entries, page};
+pub use self::catalog::{catalog_entries, catalog_entries_with, page};
 pub use self::overview::parse_loadavg;
+pub use self::package_skills::Found;
 pub use self::skills::{run_read_skill, run_skill};
 pub use self::tools::{EVENTS_CHECK, run_tool};
 use crate::checks::CheckSet;
@@ -243,7 +245,11 @@ fn catalog_reply(ctx: &RequestCtx, query: &GetCatalog) -> Message {
         });
     }
     Message::CatalogPage(catalog::page(
-        &catalog_entries(&ctx.catalog, ctx.package_surface()),
+        &catalog_entries_with(
+            &ctx.catalog,
+            ctx.package_skills_surface(),
+            &ctx.enabled_package_skill_names(),
+        ),
         query,
     ))
 }

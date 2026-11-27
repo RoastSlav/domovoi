@@ -164,6 +164,13 @@ pub fn all() -> Vec<Message> {
                 enabled: true,
                 problem: None,
             }),
+            package_skills: vec![PackageSkillState {
+                package: "nginx-tools".to_owned(),
+                version: "1.2.0".to_owned(),
+                skill: "nginx_reload".to_owned(),
+                enabled: false,
+                reason: Some("stored, not enabled".to_owned()),
+            }],
         }
         .into(),
         Challenge {

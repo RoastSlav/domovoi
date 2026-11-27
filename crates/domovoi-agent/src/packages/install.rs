@@ -205,9 +205,11 @@ impl PackageService {
             installed_at,
             execution_id: exec,
             skills: skills.clone(),
+            tree_sha256: Some(super::enable::tree_digest(&dest)?),
         };
         self.commit(&registry.with(entry), exec, &req.package, &dest)?;
         self.fault(InstallStep::AfterRegistry)?;
+        self.skills_changed.notify_one();
 
         if let Some(old) = &replaced {
             let _ = std::fs::remove_dir_all(package_dir.join(old.as_str()));

@@ -11,6 +11,8 @@ pub(crate) use support::SteppingClock;
 #[cfg(target_os = "linux")]
 mod crash;
 #[cfg(target_os = "linux")]
+mod enable;
+#[cfg(target_os = "linux")]
 mod env;
 #[cfg(target_os = "linux")]
 mod install;

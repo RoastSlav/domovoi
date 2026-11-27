@@ -23,8 +23,8 @@ pub use catalog::{CatalogEntry, CatalogPage, GetCatalog};
 pub use domovoi_core::attest::ExpectedSafety;
 pub use handshake::{
     AUTHORITATIVE_ABSENCE, AgentSettings, Challenge, ChallengeResponse, CheckInfo, CheckOverride,
-    DockerReport, Enroll, Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts, Reject,
-    RejectReason, SessionId, SkillRunnerStatus, Welcome,
+    DockerReport, Enroll, Enrolled, Hello, HelperIdentity, HelperStatus, HostFacts,
+    PackageSkillState, Reject, RejectReason, SessionId, SkillRunnerStatus, Welcome,
 };
 pub use stream::{
     AgentStatus, AttestSafety, ConfigUpdate, DigestFacts, ErrorMessage, Ping, Pong,

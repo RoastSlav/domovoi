@@ -161,6 +161,8 @@ pub struct Announce<'a> {
     pub facts: HostFacts,
     /// Summaries of the skills in the local catalogue.
     pub skills: &'a [SkillSummary],
+    /// Every skill of a stored package, on or off.
+    pub package_skills: &'a [domovoi_proto::messages::PackageSkillState],
     /// Every check with its local settings.
     pub checks: &'a [CheckInfo],
     /// What was found out about the container runtime.
@@ -206,6 +208,7 @@ pub async fn handshake(
         skills: announce.skills.to_vec(),
         checks: announce.checks.to_vec(),
         docker: announce.docker.cloned(),
+        package_skills: announce.package_skills.to_vec(),
     };
     frame::send(transport, &Message::Hello(hello), None).await?;
     let challenge = match frame::expect(transport).await?.message {

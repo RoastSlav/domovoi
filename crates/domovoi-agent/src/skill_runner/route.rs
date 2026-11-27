@@ -74,13 +74,25 @@ impl SkillRoute {
         catalog: &SkillCatalog,
         args: &ValidatedArgs,
     ) -> Result<SkillOutput, RouteError> {
+        self.run_from(skill, catalog, &SkillSource::SkillsDir, args)
+            .await
+    }
+
+    /// Runs `skill` from `source`: the owner's skills directory or an enabled package.
+    pub async fn run_from(
+        &self,
+        skill: &LoadedSkill,
+        catalog: &SkillCatalog,
+        source: &SkillSource,
+        args: &ValidatedArgs,
+    ) -> Result<SkillOutput, RouteError> {
         match self {
             Self::Legacy(executor) => match catalog.run_skill(skill, args, &**executor).await {
                 Ok(output) => Ok(output),
                 Err(RunError::TimedOut { output }) => Err(RouteError::TimedOut(output)),
                 Err(err) => Err(RouteError::Exec(err.to_string())),
             },
-            Self::Runner(route) => route.run(skill, args).await,
+            Self::Runner(route) => route.run_from(skill, source, args).await,
         }
     }
 }
@@ -133,6 +145,16 @@ impl RunnerRoute {
         skill: &LoadedSkill,
         args: &ValidatedArgs,
     ) -> Result<SkillOutput, RouteError> {
+        self.run_from(skill, &SkillSource::SkillsDir, args).await
+    }
+
+    /// Runs one skill through the runner from `source`.
+    pub async fn run_from(
+        &self,
+        skill: &LoadedSkill,
+        source: &SkillSource,
+        args: &ValidatedArgs,
+    ) -> Result<SkillOutput, RouteError> {
         let manifest = skill.manifest();
         if let Some(user) = manifest.run_as.as_deref()
             && user != SKILL_ACCOUNT
@@ -152,7 +174,7 @@ impl RunnerRoute {
         let request = RunRequest {
             protocol: RUNNER_PROTOCOL,
             execution_id: ExecutionId::new(),
-            source: SkillSource::SkillsDir,
+            source: source.clone(),
             skill: manifest.name.clone(),
             impl_hash: ImplHash::from_parts(skill.manifest_hash(), skill.entry_script_digest()),
             args: args.to_map(),

@@ -75,6 +75,8 @@ failure_codes! {
     NoSpace => "no_space",
     StoreCorrupt => "store_corrupt",
     Storage => "storage",
+    TreeChanged => "tree_changed",
+    NotInstalled => "not_installed",
 }
 
 impl std::fmt::Display for PackageFailureCode {

@@ -5,11 +5,6 @@ use domovoi_core::package::{KeyState, PackageListEntry, PackageStatus};
 use super::error::PackageError;
 use super::{ListOutcome, PackageService};
 
-/// Why no package is executable yet. The skill runner can serve a package's skills, but the
-/// agent sends it only the skills directory; a test pins this token until a later change
-/// enables package skills.
-pub const EXECUTABLE_REASON: &str = "skill_runner_not_integrated";
-
 impl PackageService {
     /// Lists the installed packages with their status.
     ///
@@ -36,6 +31,7 @@ impl PackageService {
                 } else {
                     PackageStatus::DisabledUntrustedKey
                 };
+                let enabled = self.is_enabled(entry);
                 PackageListEntry {
                     name: entry.name.clone(),
                     version: entry.version.clone(),
@@ -45,8 +41,8 @@ impl PackageService {
                     skills: entry.skills.clone(),
                     status,
                     key_state,
-                    executable: false,
-                    executable_reason: Some(EXECUTABLE_REASON.to_owned()),
+                    executable: enabled.is_ok() && status == PackageStatus::Active,
+                    executable_reason: enabled.err(),
                 }
             })
             .collect();

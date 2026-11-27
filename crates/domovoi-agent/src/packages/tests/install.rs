@@ -14,7 +14,6 @@ use uuid::Uuid;
 use super::env::{Env, install, request};
 use super::support::code_of;
 use crate::packages::events::EventKind;
-use crate::packages::list::EXECUTABLE_REASON;
 use crate::packages::registry::{Registry, RegistryEntry};
 use crate::packages::{ExecutionDenied, InstallRequest, UninstallRequest};
 
@@ -358,6 +357,7 @@ fn fill_registry(env: &Env, count: usize, skills: usize) {
             skills: (0..skills)
                 .map(|n| format!("skill_{index:02}_{n:030}"))
                 .collect(),
+            tree_sha256: None,
         });
     }
     std::fs::create_dir_all(env.packages()).unwrap();
@@ -472,8 +472,10 @@ fn list_reports_status_key_state_and_missing_files() {
     assert_eq!(entry.status, PackageStatus::Active);
     assert_eq!(entry.key_state, KeyState::Trusted);
     assert!(!entry.executable);
-    assert_eq!(entry.executable_reason.as_deref(), Some(EXECUTABLE_REASON));
-    assert_eq!(EXECUTABLE_REASON, "skill_runner_not_integrated");
+    assert_eq!(
+        entry.executable_reason.as_deref(),
+        Some(crate::packages::enable::REASON_NOT_ENABLED)
+    );
     std::fs::remove_dir_all(env.packages().join("pkg-a/1.0.0")).unwrap();
     assert_eq!(
         service.list().unwrap().packages[0].status,

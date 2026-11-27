@@ -21,11 +21,13 @@ use uuid::Uuid;
 use super::{RequestCtx, refused};
 use crate::journal::{AcceptOutcome, AcceptedRequest};
 use crate::packages::{
-    InstallRequest, PackageError, PackageService, PackageSurface, UninstallRequest,
+    EnableRequest, InstallRequest, PackageError, PackageService, PackageSurface, UninstallRequest,
 };
 
 const INSTALL: &str = "agent.package.install";
 const UNINSTALL: &str = "agent.package.uninstall";
+const ENABLE: &str = "agent.package.enable";
+const DISABLE: &str = "agent.package.disable";
 const LIST: &str = "agent.package.list";
 
 /// Which package capability a request names.
@@ -33,6 +35,8 @@ const LIST: &str = "agent.package.list";
 enum Operation {
     Install(InstallRequest),
     Uninstall(UninstallRequest),
+    Enable(EnableRequest),
+    Disable(EnableRequest),
     List,
 }
 
@@ -113,6 +117,18 @@ fn parse_operation(run: &RunCapability) -> Result<Operation, String> {
                 version: version()?,
             }))
         }
+        ENABLE | DISABLE => {
+            exact_args(run, &[keys::ARG_PACKAGE, keys::ARG_VERSION])?;
+            let request = EnableRequest {
+                package: name()?,
+                version: version()?,
+            };
+            Ok(if run.contract == ENABLE {
+                Operation::Enable(request)
+            } else {
+                Operation::Disable(request)
+            })
+        }
         _ => {
             exact_args(run, &[])?;
             Ok(Operation::List)
@@ -146,6 +162,8 @@ async fn execute(
             match operation {
                 Operation::Install(req) => service.install(execution_id, req).map(|o| o.outputs()),
                 Operation::Uninstall(req) => service.uninstall(req).map(|o| o.outputs()),
+                Operation::Enable(req) => service.enable(req).map(|o| o.outputs()),
+                Operation::Disable(req) => service.disable(req).map(|o| o.outputs()),
                 Operation::List => service.list().map(|o| o.outputs()),
             }
         })
@@ -185,7 +203,7 @@ pub async fn run_capability(ctx: &RequestCtx, run: &RunCapability) -> Message {
     if super::firewall::is_firewall_contract(contract) {
         return super::firewall::run_firewall(ctx, run).await;
     }
-    if ![INSTALL, UNINSTALL, LIST].contains(&contract) {
+    if ![INSTALL, UNINSTALL, ENABLE, DISABLE, LIST].contains(&contract) {
         return refused(
             "contract_unknown",
             RefusalCode::ContractUnknown,

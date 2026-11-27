@@ -24,6 +24,10 @@ pub enum EventKind {
     Recovered,
     /// A transfer was refused or failed.
     TransferRejected,
+    /// A stored package's skills were enabled.
+    Enabled,
+    /// A stored package's skills were disabled.
+    Disabled,
 }
 
 impl EventKind {
@@ -38,6 +42,8 @@ impl EventKind {
             Self::KeyUntrusted => "package.key_untrusted",
             Self::Recovered => "package.recovered",
             Self::TransferRejected => "package.transfer_rejected",
+            Self::Enabled => "package.enabled",
+            Self::Disabled => "package.disabled",
         }
     }
 }

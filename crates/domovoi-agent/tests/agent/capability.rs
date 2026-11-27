@@ -297,6 +297,8 @@ async fn get_catalog_advertises_package_contracts_per_config() {
     assert_eq!(
         offered(&full),
         vec![
+            "agent.package.disable",
+            "agent.package.enable",
             "agent.package.install",
             "agent.package.list",
             "agent.package.uninstall"

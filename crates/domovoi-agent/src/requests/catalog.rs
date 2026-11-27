@@ -42,6 +42,16 @@ pub fn catalog_entries(
     catalog: &SkillCatalog,
     surface: PackageSurface,
 ) -> BTreeMap<ContractId, ContractVersion> {
+    catalog_entries_with(catalog, surface, &[])
+}
+
+/// Like [`catalog_entries`], with one more `skill.<name>` echo per enabled package skill.
+#[must_use]
+pub fn catalog_entries_with(
+    catalog: &SkillCatalog,
+    surface: PackageSurface,
+    package_skills: &[domovoi_core::SkillName],
+) -> BTreeMap<ContractId, ContractVersion> {
     let packages = package_contracts().into_iter().filter(|contract| {
         if contract.id.as_str() == "agent.package.list" {
             surface.list
@@ -67,6 +77,11 @@ pub fn catalog_entries(
                 })
                 .filter_map(|(id, version)| version.map(|loaded| (id.clone(), loaded))),
         )
+        .chain(package_skills.iter().filter_map(|name| {
+            ContractVersion::new(1)
+                .ok()
+                .map(|version| (ContractId::skill(name), version))
+        }))
         .collect::<BTreeMap<ContractId, ContractVersion>>()
 }
 

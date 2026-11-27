@@ -5,6 +5,7 @@
 //! and only then extracts. Nothing here enables or runs a package's skills.
 
 pub mod archive;
+pub mod enable;
 pub mod entry;
 pub mod error;
 pub mod events;
@@ -27,8 +28,8 @@ pub use events::{EventKind, EventSink, PackageEvent, TracingEvents};
 pub use keys::KeySet;
 pub use layout::StatvfsSpace;
 pub use outcome::{
-    ExecutionDenied, InstallOutcome, InstallRequest, ListOutcome, ResolvedPackage,
-    UninstallOutcome, UninstallRequest,
+    EnableOutcome, EnableRequest, ExecutionDenied, InstallOutcome, InstallRequest, ListOutcome,
+    ResolvedPackage, UninstallOutcome, UninstallRequest,
 };
 pub use staging::{ClaimedTransfer, Staging};
 pub use transfer::TransferReceiver;
@@ -170,6 +171,8 @@ pub struct PackageService {
     staging: Option<Arc<Staging>>,
     fence: Mutex<Option<PackageError>>,
     ops: Mutex<()>,
+    /// Fires when the set of runnable package skills changed, so the link announces again.
+    skills_changed: Arc<tokio::sync::Notify>,
     uid: u32,
     #[cfg(test)]
     pub(crate) faults: Mutex<Faults>,
@@ -220,6 +223,7 @@ impl PackageService {
             staging,
             fence: Mutex::new(fence),
             ops: Mutex::new(()),
+            skills_changed: Arc::new(tokio::sync::Notify::new()),
             uid,
             #[cfg(test)]
             faults: Mutex::new(Faults::default()),
@@ -228,6 +232,13 @@ impl PackageService {
             recover::run(&service);
         }
         Ok(service)
+    }
+
+    /// Signalled whenever enabling, disabling, installing or removing changed which package
+    /// skills can run.
+    #[must_use]
+    pub fn skills_changed(&self) -> Arc<tokio::sync::Notify> {
+        self.skills_changed.clone()
     }
 
     /// What this agent offers.

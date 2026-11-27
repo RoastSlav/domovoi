@@ -136,6 +136,7 @@ fn hello(agent: AgentId) -> Message {
         skills: Vec::new(),
         checks: Vec::new(),
         docker: None,
+        package_skills: Vec::new(),
     })
 }
 

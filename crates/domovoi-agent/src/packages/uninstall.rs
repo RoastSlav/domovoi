@@ -58,6 +58,8 @@ impl PackageService {
                 }
             }
         }
+        self.forget_enabled(&req.package);
+        self.skills_changed.notify_one();
         self.fault(InstallStep::AfterUninstallRegistry)?;
         let package_dir = self.dirs.packages_dir.join(req.package.as_str());
         let _ = std::fs::remove_dir_all(package_dir.join(req.version.as_str()));

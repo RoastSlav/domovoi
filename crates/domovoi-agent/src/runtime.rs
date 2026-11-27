@@ -290,9 +290,10 @@ impl AgentRuntime {
     pub async fn run(self, shutdown: CancellationToken) -> Result<(), AgentError> {
         let stop = shutdown.child_token();
         let host = self.identity.host_id;
-        let entries = crate::requests::catalog_entries(
+        let entries = crate::requests::catalog_entries_with(
             &self.requests.catalog,
             self.requests.package_surface(),
+            &self.requests.enabled_package_skill_names(),
         );
         let helper = self.requests.helper.client().clone();
         let helper_status = crate::helper_client::probe_status(&helper, &*self.deps.clock).await;
@@ -368,6 +369,12 @@ impl AgentRuntime {
             jitter: self.jitter,
             status_dir: Some(self.state_dir),
             transfers,
+            package_skills: Some(self.requests.clone()),
+            resync: self
+                .requests
+                .packages
+                .as_ref()
+                .map(|service| service.skills_changed()),
         };
         let (link, handle, requests) = Link::new(parts);
         let scheduler = Scheduler::new(

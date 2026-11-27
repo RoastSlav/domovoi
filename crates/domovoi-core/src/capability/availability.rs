@@ -261,15 +261,20 @@ impl UnavailableReason {
                  helper (it needs the `systemd.write` group in /etc/domovoi/helper.toml)"
             }
             Self::HelperSystemdGroupMissing => {
-                "the helper on this host does not offer unit restarts: add `systemd.write` to \
-                 `groups` and set `[systemd] restart_units` in /etc/domovoi/helper.toml, then restart the \
-                 helper (on a platform the helper has not been tested on, also set \
-                 `allow_write_groups_on_untested`)"
+                "the helper on this host does not offer unit restarts. All three must hold: \
+                 (1) /etc/domovoi/helper.toml names `systemd.write` in `groups` and lists the \
+                 unit under `[systemd] restart_units`; (2) the platform has a passed self-test \
+                 record (run `sudo systemctl start domovoi-helper-selftest.service` and read \
+                 `journalctl -u domovoi-helper-selftest.service` if it fails); (3) on a platform \
+                 not yet release-tested, `allow_write_groups_on_untested = true` is set in \
+                 helper.toml. Restart the helper afterwards"
             }
             Self::HelperNftGroupMissing => {
-                "the helper on this host does not offer containment: add `nft` to `groups` in \
-                 /etc/domovoi/helper.toml, then restart the helper (on a platform the helper has \
-                 not been tested on, also set `allow_write_groups_on_untested`)"
+                "the helper on this host does not offer containment. All three must hold: (1) \
+                 /etc/domovoi/helper.toml names `nft` in `groups`; (2) the platform has a passed \
+                 self-test record (`sudo systemctl start domovoi-helper-selftest.service`); (3) \
+                 on a platform not yet release-tested, `allow_write_groups_on_untested = true` is \
+                 set. Restart the helper afterwards"
             }
         }
     }

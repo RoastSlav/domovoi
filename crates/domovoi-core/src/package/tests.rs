@@ -154,7 +154,7 @@ fn failure_codes_are_unique_and_round_trip() {
         let json = serde_json::to_string(code).unwrap();
         assert_eq!(json, format!("\"{}\"", code.as_str()));
     }
-    assert_eq!(PackageFailureCode::ALL.len(), 35);
+    assert_eq!(PackageFailureCode::ALL.len(), 37);
     assert!(PackageFailureCode::from_str("nope").is_err());
 }
 
@@ -184,6 +184,8 @@ fn package_contracts_validate_and_index() {
         [
             "agent.package.install",
             "agent.package.uninstall",
+            "agent.package.enable",
+            "agent.package.disable",
             "agent.package.list"
         ]
     );
@@ -193,7 +195,7 @@ fn package_contracts_validate_and_index() {
         assert_eq!(contract.input_schema["additionalProperties"], false);
     }
     assert_eq!(contracts[0].effect, EffectClass::Mutate);
-    assert_eq!(contracts[2].effect, EffectClass::Read);
+    assert_eq!(contracts[4].effect, EffectClass::Read);
     let mut all = builtin_contracts();
     all.extend(contracts);
     ContractIndex::new(all).unwrap();

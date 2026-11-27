@@ -148,6 +148,11 @@ pub struct LinkParts {
     pub status_dir: Option<PathBuf>,
     /// Where `transfer_*` frames go; `None` answers them as not enabled.
     pub transfers: Option<mpsc::Sender<IncomingTransfer>>,
+    /// Where enabled package skills and the state of stored ones come from, read at every
+    /// connection; `None` announces only `skills`.
+    pub package_skills: Option<Arc<crate::requests::RequestCtx>>,
+    /// Fires when the package skills changed; the link then announces again.
+    pub resync: Option<Arc<tokio::sync::Notify>>,
 }
 
 /// The hub link task.
@@ -286,9 +291,21 @@ impl Link {
             mut transport,
             session_hint,
         } = connected;
+        let package_view = self
+            .parts
+            .package_skills
+            .as_ref()
+            .map(|ctx| ctx.package_skills());
+        let mut skills = self.parts.skills.clone();
+        let mut package_states = Vec::new();
+        if let Some(view) = package_view {
+            skills.extend(view.runnable.iter().flat_map(|r| r.catalog.summaries()));
+            package_states = view.states;
+        }
         let announce = Announce {
             facts: host_facts(&*self.parts.fs).await,
-            skills: &self.parts.skills,
+            skills: &skills,
+            package_skills: &package_states,
             checks: &self.parts.checks,
             docker: self.parts.docker.as_ref(),
             extensions: &self.parts.extensions,
@@ -342,9 +359,31 @@ impl Link {
             .saturating_add(STATUS_PROBE_INTERVAL)
             .unwrap_or(clock.now());
         self.flush(transport.as_mut(), &mut sent).await?;
+        let resync = self.parts.resync.clone();
+        let mut resync_at: Option<jiff::Timestamp> = None;
         loop {
             tokio::select! {
                 () = shutdown.cancelled() => return Ok(()),
+                () = async {
+                    match &resync {
+                        Some(notify) => notify.notified().await,
+                        None => std::future::pending().await,
+                    }
+                }, if resync_at.is_none() => {
+                    // Give the answer to the request that changed the skills time to leave
+                    // first, then connect again so the hub is told the new list.
+                    resync_at = clock.now().saturating_add(SignedDuration::from_secs(2)).ok();
+                }
+                () = async {
+                    match resync_at {
+                        Some(at) => clock.sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                }, if resync_at.is_some() => {
+                    return Err(LinkError::Lost(
+                        "the package skills changed; announcing them again".to_owned(),
+                    ));
+                }
                 frame = frame::recv(transport.as_mut()) => {
                     let Some(decoded) = frame? else {
                         return Err(LinkError::Lost("the hub closed the connection".to_owned()));

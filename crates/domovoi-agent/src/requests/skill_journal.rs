@@ -18,7 +18,6 @@ use domovoi_proto::messages::{
     ActionState, AuthorizationKind, CapabilityFailureCode, CapabilityOutcome, CapabilityResult,
     ErrorMessage, RunSkill, SkillFailureCode, SkillOutcome, SkillResult,
 };
-use domovoi_runner::LoadedSkill;
 
 use super::RequestCtx;
 use super::capability::failed;
@@ -90,7 +89,7 @@ fn journal_result(outcome: &SkillOutcome) -> CapabilityResult {
 pub(super) async fn run_journaled(
     ctx: &RequestCtx,
     run: &RunSkill,
-    skill: &LoadedSkill,
+    found: &super::Found<'_>,
     validated: &ValidatedArgs,
 ) -> Message {
     let name = run.skill.as_str();
@@ -143,7 +142,7 @@ pub(super) async fn run_journaled(
         ));
     }
     tracing::info!(skill = name, action = %run.action_id, "running an approved skill");
-    let outcome = match ctx.skills.run(skill, &ctx.catalog, validated).await {
+    let outcome = match ctx.run_found(found, validated).await {
         Ok(output) => {
             tracing::info!(skill = name, exit_code = ?output.exit_code, "skill finished");
             SkillOutcome::Ok(redacted(ctx, output).into())

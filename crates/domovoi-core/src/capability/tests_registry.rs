@@ -389,6 +389,7 @@ fn group_names_in_reason_texts_are_known_helper_groups() {
             let before = parts[index - 1];
             let after = parts.get(index + 1).copied().unwrap_or("");
             let names_group = before.trim_end().ends_with("add")
+                || before.trim_end().ends_with("names")
                 || before.trim_end().ends_with("needs the")
                 || after.starts_with(" group");
             if names_group {

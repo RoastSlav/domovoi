@@ -16,9 +16,8 @@ use domovoi_core::{PlanHash, Risk, SkillName, ValidatedArgs};
 use domovoi_proto::messages::{
     RunSkill, SkillFailure, SkillFailureCode, SkillOutcome, SkillSuccess, ToolFailureCode,
 };
-use domovoi_runner::LoadedSkill;
 
-use super::{RequestCtx, ToolFail};
+use super::{Found, RequestCtx, ToolFail};
 use crate::skill_runner::RouteError;
 use domovoi_proto::Message;
 use domovoi_proto::messages::SkillResult;
@@ -42,8 +41,9 @@ fn admit<'a>(
     ctx: &'a RequestCtx,
     name: &SkillName,
     args: &std::collections::BTreeMap<String, String>,
-) -> Result<(&'a LoadedSkill, ValidatedArgs), Refusal> {
-    let skill = ctx.catalog.get(name).ok_or(Refusal::NotFound)?;
+) -> Result<(Found<'a>, ValidatedArgs), Refusal> {
+    let found = ctx.find_skill(name).ok_or(Refusal::NotFound)?;
+    let skill = &found.skill;
     let risk = skill.manifest().risk;
     if !ctx.allow_risk.contains(&risk) {
         return Err(Refusal::RiskNotAllowed(risk));
@@ -52,7 +52,7 @@ fn admit<'a>(
         .manifest()
         .validate_args(args)
         .map_err(|e| Refusal::InvalidArgs(e.to_string()))?;
-    Ok((skill, validated))
+    Ok((found, validated))
 }
 
 pub(super) fn redacted(ctx: &RequestCtx, mut output: SkillOutput) -> SkillOutput {
@@ -80,7 +80,7 @@ fn reply(outcome: SkillOutcome) -> Message {
 /// Handles `run_skill`. Skills that change the host run through the action journal.
 pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> Message {
     let skill_name = run.skill.as_str();
-    let (skill, validated) = match admit(ctx, &run.skill, &run.args) {
+    let (found, validated) = match admit(ctx, &run.skill, &run.args) {
         Ok(admitted) => admitted,
         Err(Refusal::NotFound) => {
             tracing::warn!(
@@ -114,6 +114,7 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> Message {
             return reply(fail(SkillFailureCode::InvalidArgs, reason));
         }
     };
+    let skill = &*found.skill;
     let expected =
         PlanHash::agent_check(&run.skill, skill.manifest_hash(), ctx.host_id, &validated);
     if expected != run.plan_hash {
@@ -129,10 +130,10 @@ pub async fn run_skill(ctx: &RequestCtx, run: &RunSkill) -> Message {
     }
     if skill.manifest().risk != Risk::Read {
         // A skill that changes the host goes through the action journal.
-        return super::skill_journal::run_journaled(ctx, run, skill, &validated).await;
+        return super::skill_journal::run_journaled(ctx, run, &found, &validated).await;
     }
     tracing::info!(skill = skill_name, action = %run.action_id, "running an approved skill");
-    let outcome = match ctx.skills.run(skill, &ctx.catalog, &validated).await {
+    let outcome = match ctx.run_found(&found, &validated).await {
         Ok(output) => {
             tracing::info!(skill = skill_name, exit_code = ?output.exit_code, "skill finished");
             SkillOutcome::Ok(SkillSuccess::from(redacted(ctx, output)))
@@ -156,13 +157,13 @@ pub async fn run_read_skill(
     name: &SkillName,
     args: &std::collections::BTreeMap<String, String>,
 ) -> Result<(String, bool), ToolFail> {
-    let skill = ctx.catalog.get(name).ok_or_else(|| {
+    let skill = ctx.find_skill(name).ok_or_else(|| {
         ToolFail::new(
             ToolFailureCode::InvalidArgs,
             format!("no skill named {name} on this host"),
         )
     })?;
-    if skill.manifest().risk != Risk::Read {
+    if skill.skill.manifest().risk != Risk::Read {
         tracing::warn!(
             skill = name.as_str(),
             "refused a non-read skill as a read tool"
@@ -172,7 +173,7 @@ pub async fn run_read_skill(
             format!("{name} changes the host; it needs an approved action"),
         ));
     }
-    let (skill, validated) = admit(ctx, name, args).map_err(|refusal| match refusal {
+    let (found, validated) = admit(ctx, name, args).map_err(|refusal| match refusal {
         Refusal::NotFound => ToolFail::new(ToolFailureCode::InvalidArgs, "no such skill"),
         Refusal::RiskNotAllowed(_) => ToolFail::new(
             ToolFailureCode::Unavailable,
@@ -180,7 +181,7 @@ pub async fn run_read_skill(
         ),
         Refusal::InvalidArgs(reason) => ToolFail::new(ToolFailureCode::InvalidArgs, reason),
     })?;
-    match ctx.skills.run(skill, &ctx.catalog, &validated).await {
+    match ctx.run_found(&found, &validated).await {
         Ok(output) => {
             let mut text = output.stdout;
             if !output.stderr.is_empty() {

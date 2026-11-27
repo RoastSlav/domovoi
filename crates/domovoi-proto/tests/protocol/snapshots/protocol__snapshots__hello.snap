@@ -50,6 +50,15 @@ expression: "pretty(&message, reply)"
     },
     "in_container": true,
     "journal_epoch": "01900000-0000-7000-8000-0000000000f0",
+    "package_skills": [
+      {
+        "enabled": false,
+        "package": "nginx-tools",
+        "reason": "stored, not enabled",
+        "skill": "nginx_reload",
+        "version": "1.2.0"
+      }
+    ],
     "protocol": {
       "major": 1,
       "minor": 2

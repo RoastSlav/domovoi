@@ -41,6 +41,11 @@ pub struct RegistryEntry {
     pub execution_id: Uuid,
     /// Names of its skills, sorted.
     pub skills: Vec<String>,
+    /// SHA-256 over the installed tree (paths, executable bits, contents), taken right after
+    /// the files were placed. `enable` compares the disk with it. Absent for a package an
+    /// older agent installed: it must be installed again before it can be enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree_sha256: Option<String>,
 }
 
 /// The registry file.
