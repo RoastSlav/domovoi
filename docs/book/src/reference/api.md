@@ -354,6 +354,8 @@ Incident lists, an incident and the overview each return `as_of_seq`, the journa
   {"ready": false, "failing": ["store_writable", "incident_manager"]}
   ```
 
+  `store_writable` is a real write: the hub commits one page to its database, so a full disk or a read-only data directory fails it. The 503 answer also carries an `X-Domovoi-Not-Ready` header with one fixed sentence per failing check, for example `store_writable: the hub cannot write to its database (the disk is full or read-only)`. The sentence never repeats the error's own text. While the database cannot be written, every change answers `503` with the code `store_unwritable` and a message saying the disk is probably full and what to do (a login with the right password included: it is not counted as a failed login), and the log has one ERROR line a minute with the cause and the remedy.
+
   Use `/readyz` to gate traffic and `/healthz` to decide whether to restart the process. Details of a failure go to the hub's log, never to the response.
 - `GET /metrics` serves Prometheus text to a logged-in session, or to a request carrying `Authorization: Bearer <token>` when `[metrics] token` is set. Without either it answers `401` with no metrics text. See the [CLI reference](cli.md#metrics) for a scrape configuration.
 - Bodies are limited to 1 MiB, except the package import, which allows `[packages] max_artifact_bytes` plus 64 KiB (at most 256 MiB plus 64 KiB). Requests other than the event stream time out after 120 seconds, with `408`. Two kinds get 15 minutes: the package import, and an incident's `ask` and `triage`, which run a full model conversation inside the response.

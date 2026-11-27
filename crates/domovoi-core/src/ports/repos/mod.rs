@@ -58,6 +58,10 @@ pub enum StoreError {
     /// The store failed.
     #[error("store error: {0}")]
     Backend(String),
+    /// The database cannot take a write because the disk is full or the file is read-only.
+    /// Reads still work and the cause is the host's, not a bug, so callers say so plainly.
+    #[error("the database cannot be written: {0}")]
+    Unwritable(String),
 }
 
 /// Which page of a listing to read.

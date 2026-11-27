@@ -67,3 +67,94 @@ async fn a_data_directory_anyone_can_enter_loses_the_other_bits_on_open() {
     assert_eq!(mode & 0o750, 0o750, "the owner and group keep their access");
     reopened.close().await;
 }
+
+#[tokio::test]
+async fn readiness_fails_when_the_database_cannot_take_a_write() {
+    use domovoi_core::ports::{StoreError, StoreHealth};
+
+    let fresh = Fresh::new().await;
+    fresh.store.writable().await.unwrap();
+    // The one writer connection now refuses every write, as a read-only file would.
+    sqlx::query("PRAGMA query_only = 1")
+        .execute(fresh.store.pool_for_tests())
+        .await
+        .unwrap();
+    let err = fresh.store.writable().await.unwrap_err();
+    assert!(
+        matches!(err, StoreError::Unwritable(_)),
+        "a store that cannot write answered {err:?}"
+    );
+    fresh.store.close().await;
+}
+
+#[tokio::test]
+async fn a_full_database_is_reported_as_unwritable_not_as_a_generic_failure() {
+    use domovoi_core::ports::{SettingsRepo, StoreError};
+
+    let fresh = Fresh::new().await;
+    // A database that may not grow any more: the same SQLITE_FULL a full disk gives.
+    let (pages,): (i64,) = sqlx::query_as("PRAGMA page_count")
+        .fetch_one(fresh.store.pool_for_tests())
+        .await
+        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "PRAGMA max_page_count = {pages}"
+    )))
+    .fetch_all(fresh.store.pool_for_tests())
+    .await
+    .unwrap();
+    let big = serde_json::Value::String("x".repeat(400_000));
+    let err = fresh
+        .store
+        .set_many(&[("probe.big".to_owned(), Some(big))])
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, StoreError::Unwritable(reason) if reason.contains("full")),
+        "a full database answered {err:?}"
+    );
+    fresh.store.close().await;
+}
+
+/// Fills the file system holding `dir` until a write fails.
+fn fill_disk(dir: &std::path::Path) {
+    use std::io::Write;
+
+    let mut filler = std::fs::File::create(dir.join("filler")).unwrap();
+    let chunk = vec![0u8; 4096];
+    while filler
+        .write_all(&chunk)
+        .and_then(|()| filler.flush())
+        .is_ok()
+    {}
+}
+
+/// The real thing: a store on a file system with no space left. It needs a small file system
+/// that the test may fill, so it only runs on request:
+/// `unshare -rm sh -c 'mount -t tmpfs -o size=2m tmpfs /mnt/small && DOMOVOI_FULL_DISK_DIR=/mnt/small cargo test -p domovoi-store --test sqlite -- --ignored full_disk'`.
+#[tokio::test]
+#[ignore = "needs a small file system to fill: set DOMOVOI_FULL_DISK_DIR"]
+async fn readiness_fails_on_a_file_system_with_no_space_left() {
+    use domovoi_core::ports::{StoreError, StoreHealth};
+    use domovoi_store::{Store, StoreOptions};
+    use domovoi_testkit::build::T0;
+
+    let dir = std::env::var("DOMOVOI_FULL_DISK_DIR").expect("DOMOVOI_FULL_DISK_DIR");
+    let dir = std::path::Path::new(&dir).join("full-disk-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let path = dir.join("domovoi.db");
+    let store = Store::open(&path, StoreOptions::beside(&path, T0))
+        .await
+        .unwrap();
+    store.writable().await.unwrap();
+    fill_disk(&dir);
+    let err = store.writable().await.unwrap_err();
+    assert!(
+        matches!(err, StoreError::Unwritable(_)),
+        "a full disk answered {err:?}"
+    );
+    std::fs::remove_file(dir.join("filler")).unwrap();
+    store.writable().await.unwrap();
+    store.close().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

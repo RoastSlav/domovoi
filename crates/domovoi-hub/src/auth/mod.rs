@@ -60,6 +60,9 @@ pub enum AuthError {
     /// The store failed.
     #[error("store error: {0}")]
     Store(String),
+    /// The database cannot take a write: the disk is full or read-only. Not the caller's fault.
+    #[error("the database cannot be written: {0}")]
+    Unwritable(String),
     /// Hashing failed.
     #[error("could not hash the password")]
     Hash,
@@ -67,7 +70,10 @@ pub enum AuthError {
 
 impl From<StoreError> for AuthError {
     fn from(err: StoreError) -> Self {
-        Self::Store(err.to_string())
+        match err {
+            StoreError::Unwritable(cause) => Self::Unwritable(cause),
+            other => Self::Store(other.to_string()),
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use super::audit_note::note;
 use super::dto_admin::{LoginRequest, SessionDto, SetupRequest, UserDto};
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed};
-use crate::auth::{NewSession, csrf, proxy, session};
+use crate::auth::{AuthError, NewSession, csrf, proxy, session};
 
 fn session_dto(user: &domovoi_core::User, csrf_token: String) -> SessionDto {
     SessionDto {
@@ -75,6 +75,9 @@ pub(super) async fn login(
             .await;
             Ok(with_cookie(&state, new))
         }
+        // The disk, not the caller, refused: that is not a failed login, so no audit row (it
+        // could not be written anyway) and no count against the user.
+        Err(err @ (AuthError::Store(_) | AuthError::Unwritable(_))) => Err(err.into()),
         Err(err) => {
             // The name is what the caller typed: cut it, and never record the password.
             let name: String = req.username.chars().take(64).collect();

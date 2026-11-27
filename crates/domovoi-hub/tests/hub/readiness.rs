@@ -107,3 +107,38 @@ async fn readyz_reports_a_stopped_service() {
     );
     assert_eq!(reply.body["failing"], json!(["incident_manager"]));
 }
+
+#[tokio::test]
+async fn readyz_says_in_a_sentence_that_the_database_cannot_be_written() {
+    let (logs, _guard) = domovoi_testkit::log_capture::LogCapture::start();
+    let a = api().await;
+    let app = a.with_store_health(Arc::new(Stub {
+        writable: Err(StoreError::Unwritable(
+            "database or disk is full".to_owned(),
+        )),
+        current: Ok(true),
+    }));
+    let reply = a.send_to(app, Method::GET, "/readyz", None, None).await;
+    assert_eq!(
+        reply.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        reply.text
+    );
+    assert_eq!(reply.body["failing"], json!(["store_writable"]));
+    let why = reply.headers["x-domovoi-not-ready"].to_str().unwrap();
+    assert!(
+        why.contains("the hub cannot write to its database (the disk is full or read-only)"),
+        "{why}"
+    );
+    // The sentence is fixed text; the error's own words stay in the log.
+    assert!(!why.contains("database or disk is full"), "{why}");
+    assert!(!reply.text.contains("full"), "{}", reply.text);
+    let line = logs.lines_with("the hub cannot write to its database; every change");
+    assert_eq!(line.len(), 1, "{}", logs.text());
+    assert!(
+        line[0].contains("cause=\"database or disk is full\""),
+        "{}",
+        line[0]
+    );
+}

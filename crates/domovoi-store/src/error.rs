@@ -54,8 +54,19 @@ pub(crate) fn db(err: sqlx::Error) -> StoreError {
         sqlx::Error::Database(e) if e.is_unique_violation() => {
             StoreError::Conflict(e.message().to_owned())
         }
+        sqlx::Error::Database(e) if is_unwritable(e.code().as_deref()) => {
+            StoreError::Unwritable(e.message().to_owned())
+        }
         _ => StoreError::Backend(err.to_string()),
     }
+}
+
+/// Whether a SQLite result code (primary or extended) means the database cannot take writes:
+/// `SQLITE_FULL` (13), the disk is full, or `SQLITE_READONLY` (8), the file or its directory
+/// is read-only. The primary code is the low byte of an extended one.
+fn is_unwritable(code: Option<&str>) -> bool {
+    code.and_then(|code| code.parse::<i64>().ok())
+        .is_some_and(|code| matches!(code & 0xff, 8 | 13))
 }
 
 /// Maps a query error where a foreign key violation means the parent row is missing.

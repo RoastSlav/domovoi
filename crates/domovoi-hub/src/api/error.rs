@@ -10,6 +10,40 @@ use jiff::Timestamp;
 
 use crate::auth::AuthError;
 
+/// What a person is told when the database cannot take a write.
+pub(crate) const STORE_UNWRITABLE_MESSAGE: &str = "The hub cannot write to its database: the disk is probably full or the data directory is read-only. Free space on the volume that holds the hub's data, then try again. Nothing was changed.";
+
+/// What the log says to do about it, in the same words everywhere.
+pub(crate) const STORE_UNWRITABLE_REMEDY: &str = "free disk space on the volume that holds the hub's data_dir (or make it writable); no restart is needed";
+
+/// One line per minute and cause while the database cannot be written, however many requests fail.
+static UNWRITABLE_LOG: std::sync::LazyLock<domovoi_core::log_gate::RateLimitedLog> =
+    std::sync::LazyLock::new(|| {
+        domovoi_core::log_gate::RateLimitedLog::new(std::time::Duration::from_secs(60))
+    });
+
+/// Logs, at most once a minute per cause, that the database cannot be written: the cause and the fix.
+pub(crate) fn log_store_unwritable(cause: &str) {
+    if let domovoi_core::log_gate::Gate::Log { suppressed } = UNWRITABLE_LOG.hit_now(cause) {
+        tracing::error!(
+            cause,
+            remedy = STORE_UNWRITABLE_REMEDY,
+            suppressed,
+            "the hub cannot write to its database; every change is refused until this is fixed"
+        );
+    }
+}
+
+/// The 503 for a database that cannot take a write.
+fn store_unwritable(cause: &str) -> ApiError {
+    log_store_unwritable(cause);
+    ApiError::Coded {
+        status: StatusCode::SERVICE_UNAVAILABLE,
+        code: "store_unwritable",
+        message: STORE_UNWRITABLE_MESSAGE.to_owned(),
+    }
+}
+
 /// The body of every error response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct ErrorBody {
@@ -166,6 +200,7 @@ impl From<AuthError> for ApiError {
             AuthError::WeakPassword | AuthError::InvalidUsername => {
                 Self::BadRequest(err.to_string())
             }
+            AuthError::Unwritable(cause) => store_unwritable(&cause),
             AuthError::Store(e) => Self::internal("auth store failed", e),
             AuthError::Hash => Self::internal("password hashing failed", "argon2"),
         }
@@ -177,6 +212,7 @@ impl From<domovoi_core::ports::StoreError> for ApiError {
         match err {
             domovoi_core::ports::StoreError::NotFound => Self::NotFound,
             domovoi_core::ports::StoreError::Conflict(m) => Self::Conflict(m),
+            domovoi_core::ports::StoreError::Unwritable(cause) => store_unwritable(&cause),
             other => Self::internal("store failed", other),
         }
     }

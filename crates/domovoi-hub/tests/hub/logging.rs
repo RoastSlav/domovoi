@@ -201,3 +201,63 @@ async fn a_saved_setting_logs_keys_actor_revision_and_an_audit_pointer_without_v
         "a secret never reaches the log"
     );
 }
+
+#[tokio::test]
+async fn a_correct_login_on_a_full_disk_is_a_clear_503_and_not_a_failed_login() {
+    use domovoi_core::ports::{AuditFilter, AuditLog, Page};
+
+    use crate::api_harness::PASSWORD;
+
+    let a = api().await;
+    a.admin().await;
+    // The one writer connection now refuses every write, as it does on a full disk.
+    sqlx::query("PRAGMA query_only = 1")
+        .execute(a.store.pool_for_tests())
+        .await
+        .unwrap();
+    let (logs, _guard) = LogCapture::start();
+    let reply = a
+        .send(
+            Method::POST,
+            "/api/v1/auth/login",
+            None,
+            Some(serde_json::json!({ "username": USERNAME, "password": PASSWORD })),
+        )
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        reply.text
+    );
+    assert_eq!(reply.body["error"], "store_unwritable");
+    let message = reply.body["message"].as_str().unwrap();
+    assert!(message.contains("disk is probably full"), "{message}");
+    assert!(message.contains("Free space"), "{message}");
+
+    let lines = logs.lines_with("the hub cannot write to its database");
+    assert_eq!(
+        lines.len(),
+        1,
+        "one line, not one per failure: {}",
+        logs.text()
+    );
+    assert!(lines[0].contains("ERROR"), "{}", lines[0]);
+    assert!(lines[0].contains("cause="), "{}", lines[0]);
+    assert!(lines[0].contains("free disk space"), "{}", lines[0]);
+
+    let failed = AuditFilter {
+        kind: Some("auth.login_failed".to_owned()),
+        ..AuditFilter::default()
+    };
+    let rows = a.store.list(&failed, &Page::first(10)).await.unwrap().items;
+    assert!(
+        rows.is_empty(),
+        "a disk failure is not a failed login: {rows:?}"
+    );
+    assert!(
+        logs.lines_with("failed login").is_empty(),
+        "{}",
+        logs.text()
+    );
+}

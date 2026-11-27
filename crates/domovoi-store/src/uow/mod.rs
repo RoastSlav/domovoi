@@ -24,7 +24,9 @@ pub(crate) fn map_store(err: StoreError) -> CommitError {
     match err {
         StoreError::Conflict(message) => CommitError::Constraint(message),
         StoreError::NotFound => CommitError::Constraint("the record does not exist".to_owned()),
-        StoreError::Backend(message) => CommitError::Backend(message),
+        StoreError::Backend(message) | StoreError::Unwritable(message) => {
+            CommitError::Backend(message)
+        }
     }
 }
 
