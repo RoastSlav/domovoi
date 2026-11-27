@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAcceptFact, useConfirmPath, useRetractFact } from "../../api/hooks/knowledgeWrites";
 import { keys } from "../../api/queryClient";
 import type { ManagementPath } from "../../api/types";
 import { Button, ConfirmDialog, useActionFeedback } from "../../components";
 import { needsPassword } from "../../design/knowledgeText";
 import { FailureMessage } from "./FailureMessage";
+import { useRememberedRefusal } from "./rememberedRefusal";
 import { useStepUp } from "./useStepUp";
 import styles from "./paths.module.css";
 
@@ -96,9 +97,20 @@ export function PathActions({
     retract.reset();
   };
 
+  const refusal = useRememberedRefusal(path.fact.id, acceptStep.inline ?? confirmStep.inline);
   const state = path.state;
   const canAccept = state === "candidate";
   const canConfirm = state === "unconfirmed" || state === "stale";
+  const waiting = canAccept || canConfirm;
+  const { clear } = refusal;
+  useEffect(() => {
+    // A path that moved on (confirmed, retracted) has nothing left to be refused.
+    if (!waiting) {
+      clear();
+    }
+    // `clear` is stable per render only through its inputs; the state change is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting]);
 
   return (
     <div className={styles.actions}>
@@ -129,7 +141,7 @@ export function PathActions({
       <Button size="sm" onClick={() => setRetracting(true)}>
         Retract
       </Button>
-      <FailureMessage error={acceptStep.inline ?? confirmStep.inline} />
+      <FailureMessage error={waiting ? refusal.shown : undefined} />
       {acceptStep.dialog}
       {confirmStep.dialog}
       {retracting && (
