@@ -222,7 +222,7 @@ The files under `/etc/domovoi` are readable by root and the agent account only, 
 sudo domovoi agent selftest
 sudo -u domovoi-agent domovoi agent status -c /etc/domovoi/agent.toml
 sudo -u domovoi-agent domovoi check run -c /etc/domovoi/agent.toml --only disk.free
-sudo -u domovoi-agent domovoi check skills /etc/domovoi/skills
+sudo -u domovoi-agent domovoi check skills
 ```
 
 Run the self-test with `sudo`. Root runs the root checks itself and the agent's checks as `domovoi-agent`, so the tier describes the install. Any other account, `domovoi-agent` included, cannot run the root checks and prints "tier: not decided".

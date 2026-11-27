@@ -198,12 +198,12 @@ domovoi check config agent.toml --kind agent
 sudo domovoi check config /etc/domovoi/helper.toml
 ```
 
-### `domovoi check skills <dir>`
+### `domovoi check skills [dir]`
 
-Loads a skills folder (one sub-folder per skill, each with a `skill.toml`) and lists the valid skills and every problem. Exits 1 if any skill has a problem.
+Loads a skills folder (one sub-folder per skill, each with a `skill.toml`) and lists the valid skills and every problem. Exits 1 if any skill has a problem. Without a folder it reads `skills_dir` of `/etc/domovoi/agent.toml` (or `DOMOVOI_AGENT_CONFIG`) when that file can be read, else `/etc/domovoi/skills`; the last line names the folder it read. A command that is refused a file says so and suggests `sudo`.
 
 ```sh
-domovoi check skills /etc/domovoi/skills
+sudo domovoi check skills
 ```
 
 ### `domovoi check run`

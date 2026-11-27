@@ -137,6 +137,78 @@ mod tests {
             .stdout(contains("ok (0 warning(s))"));
     }
 
+    #[test]
+    fn check_skills_without_a_folder_uses_the_agents_skills_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("my-skills");
+        fs::create_dir(&skills).unwrap();
+        let config = dir.path().join("agent.toml");
+        fs::write(
+            &config,
+            format!(
+                "[agent]\nhost_name = \"box\"\nhub_url = \"wss://hub.example:7421\"\nskills_dir = '{}'\n",
+                skills.display()
+            ),
+        )
+        .unwrap();
+        domovoi()
+            .args(["check", "skills"])
+            .env("DOMOVOI_AGENT_CONFIG", &config)
+            .assert()
+            .success()
+            .stdout(contains(format!("{}: 0 valid", skills.display())));
+        domovoi()
+            .args(["check", "skills"])
+            .env("DOMOVOI_AGENT_CONFIG", dir.path().join("none.toml"))
+            .assert()
+            .stdout(contains("/etc/domovoi/skills: "));
+    }
+
+    /// Root reads everything, so there is nothing to refuse.
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_file_is_answered_with_a_sudo_hint() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let skills = dir.path().join("skills");
+        fs::create_dir(&skills).unwrap();
+        let config = dir.path().join("agent.toml");
+        fs::write(&config, "[agent]\n").unwrap();
+        for path in [&skills, &config] {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        if fs::read_to_string(&config).is_ok() {
+            return;
+        }
+        for command in [
+            &["check", "run", "--config"][..],
+            &["agent", "status", "--config"],
+        ] {
+            domovoi()
+                .args(command)
+                .arg(&config)
+                .assert()
+                .failure()
+                .stderr(contains("Permission denied"))
+                .stderr(contains("sudo -u domovoi-agent"));
+        }
+        for command in [&["check", "skills"][..], &["check", "config"]] {
+            let path = if command[1] == "skills" {
+                &skills
+            } else {
+                &config
+            };
+            domovoi()
+                .args(command)
+                .arg(path)
+                .assert()
+                .failure()
+                .stderr(contains("sudo"));
+        }
+        fs::set_permissions(&skills, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn check_skills_lists_valid_and_invalid() {

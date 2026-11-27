@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use clap::{Subcommand, ValueEnum};
 use domovoi_agent::dry_run::{self, CheckRun};
+use domovoi_config::agent::AgentSection;
 use domovoi_config::{AgentConfig, ConfigIssue, SystemEnv};
 use domovoi_core::CheckKey;
 use domovoi_runner::{SandboxExecutor, SkillCatalog};
@@ -26,8 +27,9 @@ pub enum CheckCommand {
     },
     /// Load a skills folder; print the valid skills and every issue.
     Skills {
-        /// The folder of skills, one sub-folder per skill.
-        dir: PathBuf,
+        /// The folder of skills, one sub-folder per skill. Default: `skills_dir` of
+        /// `/etc/domovoi/agent.toml` when it can be read, else `/etc/domovoi/skills`.
+        dir: Option<PathBuf>,
     },
     /// Run every enabled check once on this host and print what it saw. Needs no hub.
     Run {
@@ -57,7 +59,7 @@ pub enum ConfigKind {
 pub fn run(command: CheckCommand) -> anyhow::Result<ExitCode> {
     match command {
         CheckCommand::Config { file, kind } => config(&file, kind),
-        CheckCommand::Skills { dir } => skills(&dir),
+        CheckCommand::Skills { dir } => skills(&dir.unwrap_or_else(default_skills_dir)),
         CheckCommand::Run { config, only, json } => super::block_on(run_checks(config, only, json)),
     }
 }
@@ -102,6 +104,7 @@ fn config(file: &Path, kind: Option<ConfigKind>) -> anyhow::Result<ExitCode> {
     for issue in &issues {
         println!("{issue}");
     }
+    hint_permissions(issues.iter().map(ToString::to_string));
     let errors = issues.iter().filter(|i| i.is_error()).count();
     if errors > 0 {
         println!("{}: {errors} error(s)", file.display());
@@ -116,6 +119,16 @@ fn issues<T>(result: Result<(T, Vec<ConfigIssue>), Vec<ConfigIssue>>) -> Vec<Con
         Ok((_, warnings)) => warnings,
         Err(issues) => issues,
     }
+}
+
+/// The skills folder of this host: where the agent's own configuration says, else the default.
+fn default_skills_dir() -> PathBuf {
+    let path = std::env::var_os("DOMOVOI_AGENT_CONFIG")
+        .map_or_else(|| PathBuf::from(DEFAULT_AGENT_CONFIG), PathBuf::from);
+    domovoi_config::load_agent(&path, &SystemEnv).map_or_else(
+        |_| AgentSection::default_dirs().skills_dir,
+        |(config, _)| config.agent.skills_dir,
+    )
 }
 
 fn skills(dir: &Path) -> anyhow::Result<ExitCode> {
@@ -138,11 +151,20 @@ fn skills(dir: &Path) -> anyhow::Result<ExitCode> {
         summaries.len(),
         issues.len()
     );
+    hint_permissions(issues.iter().map(ToString::to_string));
     Ok(if issues.is_empty() {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// Says once what to do when any of `messages` reports a refused file.
+fn hint_permissions(messages: impl Iterator<Item = String>) {
+    let mut messages = messages;
+    if let Some(hint) = messages.find_map(|message| super::permission_hint(&message)) {
+        super::warn(hint);
+    }
 }
 
 async fn run_checks(path: PathBuf, only: Option<String>, json: bool) -> anyhow::Result<ExitCode> {

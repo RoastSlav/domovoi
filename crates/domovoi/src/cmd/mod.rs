@@ -153,7 +153,25 @@ pub fn fail(err: &anyhow::Error) -> ExitCode {
     for cause in err.chain().skip(1) {
         let _ = writeln!(stderr, "  caused by: {cause}");
     }
+    let denied = err
+        .chain()
+        .any(|cause| permission_hint(&cause.to_string()).is_some());
+    if denied {
+        let _ = writeln!(stderr, "{PERMISSION_HINT}");
+    }
     ExitCode::FAILURE
+}
+
+/// What to do after a command was refused a file.
+const PERMISSION_HINT: &str = "hint: this account may not read that path. Run the command with \
+     sudo; for the agent's files use `sudo -u domovoi-agent domovoi ...`, which sees what the \
+     agent sees.";
+
+/// The hint for a message that reports a refused file, else `None`.
+fn permission_hint(message: &str) -> Option<&'static str> {
+    message
+        .contains("Permission denied")
+        .then_some(PERMISSION_HINT)
 }
 
 /// Prints a warning line on standard error.
