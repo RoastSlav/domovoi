@@ -5,6 +5,7 @@
 //! host, `WsAgentLink` for the engine, and presence checks that tell host down, agent
 //! down and the hub's own network trouble apart.
 
+mod accept_log;
 mod admin;
 mod compat;
 mod conn;
@@ -363,19 +364,7 @@ impl AgentServer {
     /// Accepts agents on `listener` until [`shutdown`](Self::shutdown). Run
     /// [`run_presence`](Self::run_presence) next to it.
     pub async fn serve(&self, listener: TcpListener) -> Result<(), AgentServerError> {
-        loop {
-            let accepted = tokio::select! {
-                () = self.inner.shutdown.cancelled() => return Ok(()),
-                accepted = listener.accept() => accepted,
-            };
-            match accepted {
-                Ok((tcp, peer)) => {
-                    let server = self.clone();
-                    tokio::spawn(async move { conn::accept(&server.inner, tcp, peer).await });
-                }
-                Err(err) => tracing::warn!(%err, "could not accept an agent connection"),
-            }
-        }
+        accept_log::serve(self, listener).await
     }
 
     /// Stops accepting, ends every session and stops the presence checks.
