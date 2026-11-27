@@ -259,6 +259,7 @@ impl FromRequestParts<ApiState> for Authed {
         if let Some(id) = csrf::session_id(&parts.headers)
             && let Some(current) = state.auth.current(id).await?
         {
+            crate::middleware::request_log::note_user(&parts.extensions, &current.user.username);
             return Ok(Self(current));
         }
         if state.auth.setup_required().await? {

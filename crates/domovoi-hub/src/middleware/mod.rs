@@ -12,6 +12,8 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::csp;
 
+pub mod request_log;
+
 /// The largest API request body.
 pub const MAX_BODY_BYTES: usize = 1 << 20;
 

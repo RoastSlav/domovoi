@@ -6,7 +6,6 @@ use axum::extract::DefaultBodyLimit;
 use tower::ServiceBuilder;
 use tower_http::compression::CompressionLayer;
 use tower_http::sensitive_headers::SetSensitiveHeadersLayer;
-use tower_http::trace::TraceLayer;
 
 use crate::api::{self, ApiState};
 use crate::auth::csrf;
@@ -35,13 +34,15 @@ pub fn router(api: ApiState, ingest: Option<IngestState>) -> Router {
         .layer(
             ServiceBuilder::new()
                 .layer(SetSensitiveHeadersLayer::new(middleware::SENSITIVE))
-                .layer(TraceLayer::new_for_http())
                 .layer(CompressionLayer::new()),
         )
         .layer(csp)
         .layer(nosniff)
         .layer(referrer)
         .layer(permissions)
+        .layer(axum::middleware::from_fn(
+            crate::middleware::request_log::log_requests,
+        ))
 }
 
 /// The OpenAPI document of the API.

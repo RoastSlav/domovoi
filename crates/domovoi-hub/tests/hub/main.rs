@@ -63,6 +63,7 @@ mod helper_trust;
 mod interactions;
 #[cfg(test)]
 mod knowledge_api;
+mod logging;
 #[cfg(test)]
 #[cfg(test)]
 mod operation_controls;
