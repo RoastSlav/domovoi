@@ -13704,6 +13704,17 @@
               }
             ]
           },
+          "question": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PendingQuestionDto",
+                "description": "The question the operation waits on, only while it waits for a person's answer."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "resolution": {
             "oneOf": [
               {
@@ -14241,6 +14252,29 @@
           "reason": {
             "type": "string",
             "description": "Why, 1 to 280 characters."
+          }
+        }
+      },
+      "PendingQuestionDto": {
+        "type": "object",
+        "description": "A question that triage asked the owner and still waits on.",
+        "required": [
+          "step",
+          "text",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "string",
+            "description": "When it stops waiting. After that the operation carries on without an answer."
+          },
+          "step": {
+            "type": "string",
+            "description": "The question step; answer it with `POST /api/v1/operations/{id}/steps/{step}/answer`."
+          },
+          "text": {
+            "type": "string",
+            "description": "The question as asked, redacted."
           }
         }
       },

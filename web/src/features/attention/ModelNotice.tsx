@@ -26,8 +26,9 @@ export function ModelNotice() {
       }
     >
       <span>
-        {degraded.detail} Since <RelativeTime at={degraded.created_at} />. Incidents that need triage
-        wait for the model and carry on when it answers; Run triage on an incident tries it by hand.
+        {degraded.detail} Since <RelativeTime at={degraded.created_at} />. Incidents that need
+        triage wait for the model and carry on when it answers; Run triage on an incident tries it
+        by hand.
       </span>
     </InlineMessage>
   );

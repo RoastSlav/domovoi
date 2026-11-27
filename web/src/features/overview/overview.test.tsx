@@ -35,10 +35,20 @@ test("tiles_show_attention_running_approvals_and_hosts_and_lead_to_their_lists",
 
   expect(await tile(/^Needs you 6/)).toHaveAttribute("href", "/attention");
   expect(await tile(/^Running now 1/)).toHaveAttribute("href", "/operations?status=running");
-  expect(await tile(/^Waiting for approval 3/)).toHaveAttribute("href", "/attention");
+  expect(await tile(/^Waiting for you 3/)).toHaveAttribute("href", "/attention");
   const hosts = await tile(/^Hosts online 1 of 2/);
   expect(hosts).toHaveAttribute("href", "/hosts");
   expect(hosts, "what is down is said in words, not only by colour").toHaveTextContent("1 offline");
+});
+
+test("the_waiting_tile_counts_questions_as_well_as_approvals", async () => {
+  route("GET /api/v1/overview", () =>
+    overview({ operations_waiting_approval: 1, operations_waiting_user: 2 }),
+  );
+  open();
+
+  const waiting = await tile(/^Waiting for you 3/);
+  expect(waiting).toHaveTextContent("1 to approve, 2 questions to answer");
 });
 
 test("hosts_online_counts_connected_agents_and_says_who_never_connected", async () => {

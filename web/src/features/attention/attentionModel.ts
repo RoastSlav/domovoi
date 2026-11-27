@@ -194,9 +194,10 @@ export function attentionItems(inputs: AttentionInputs): AttentionItem[] {
     ...operationItems(inputs.waitingUser, (op) =>
       item(6, {
         ...operationBase(op),
+        title: op.question ? `Question: ${op.question.text}` : op.goal,
         kind: "question",
         meta: operationStatusMeta("waiting_user"),
-        why: attentionWhy({ kind: "question" }),
+        why: attentionWhy({ kind: "question", expiresAt: op.question?.expires_at }),
       }),
     ),
   ];

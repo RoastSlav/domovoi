@@ -25,7 +25,8 @@ describe("attention page", () => {
           id: "adv-1",
           kind: "triage_degraded",
           title: "Triage is degraded",
-          detail: "The last 3 triage runs failed, most recently: connection refused. Alerts still go out without triage.",
+          detail:
+            "The last 3 triage runs failed, most recently: connection refused. Alerts still go out without triage.",
           created_at: "2026-11-27T12:10:00Z",
         },
       ],

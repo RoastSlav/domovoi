@@ -4016,6 +4016,7 @@ export interface components {
             /** @description The kind, for example `investigate`. */
             kind: string;
             pause_reason?: components["schemas"]["PauseReasonDto"] | null;
+            question?: components["schemas"]["PendingQuestionDto"] | null;
             resolution?: components["schemas"]["ResolutionBriefDto"] | null;
             /** @description When it started. */
             started_at?: string | null;
@@ -4257,6 +4258,15 @@ export interface components {
         PauseRequest: {
             /** @description Why, 1 to 280 characters. */
             reason: string;
+        };
+        /** @description A question that triage asked the owner and still waits on. */
+        PendingQuestionDto: {
+            /** @description When it stops waiting. After that the operation carries on without an answer. */
+            expires_at: string;
+            /** @description The question step; answer it with `POST /api/v1/operations/{id}/steps/{step}/answer`. */
+            step: string;
+            /** @description The question as asked, redacted. */
+            text: string;
         };
         /** @description The key the owner pinned. */
         PinDto: {

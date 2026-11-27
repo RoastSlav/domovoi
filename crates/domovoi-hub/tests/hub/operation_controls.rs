@@ -386,3 +386,42 @@ async fn find_by_execution_returns_none_for_an_unknown_id_and_the_step_for_an_ex
         .unwrap();
     assert!(unknown.is_none());
 }
+
+#[tokio::test]
+async fn the_operation_list_carries_the_open_question_and_nothing_else_does() {
+    let a = api_with_operations().await;
+    let login = a.admin().await;
+    let (op, question) = with_question(&a).await;
+    let other = a.create_operation("Investigate: another", true).await;
+    let reply = a
+        .send(Method::GET, "/api/v1/operations", Some(&login), None)
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text);
+    let items = reply.body["items"].as_array().unwrap();
+    let find = |id: OperationId| {
+        items
+            .iter()
+            .find(|row| row["id"] == id.to_string())
+            .unwrap_or_else(|| panic!("{id} is not listed"))
+    };
+    let asked = &find(op)["question"];
+    assert_eq!(asked["text"], "Is /srv the backup disk?");
+    assert_eq!(asked["step"], question.to_string());
+    assert!(asked["expires_at"].as_str().unwrap().ends_with('Z'));
+    assert!(find(other)["question"].is_null());
+    // Answered: the question is gone from the row.
+    let answered = post(
+        &a,
+        &login,
+        &format!("{op}/steps/{question}/answer"),
+        Some(json!({ "text": "yes" })),
+    )
+    .await;
+    assert_eq!(answered.status, StatusCode::OK, "{}", answered.text);
+    let reply = a
+        .send(Method::GET, "/api/v1/operations", Some(&login), None)
+        .await;
+    let items = reply.body["items"].as_array().unwrap();
+    let row = items.iter().find(|row| row["id"] == op.to_string()).unwrap();
+    assert!(row["question"].is_null(), "{row}");
+}

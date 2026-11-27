@@ -57,7 +57,9 @@ export function OverviewTiles({ overview, hosts }: { hosts: readonly Host[]; ove
   // An older hub sends no attention count: say nothing about it rather than "all clear".
   const needs = overview.attention_total as number | undefined;
   const running = overview.operations_running ?? 0;
-  const waiting = overview.operations_waiting_approval ?? 0;
+  const approvals = overview.operations_waiting_approval ?? 0;
+  const questions = overview.operations_waiting_user ?? 0;
+  const waiting = approvals + questions;
   const fleet = fleetOf(hosts);
   const down = fleet.offline + fleet.never;
   return (
@@ -77,10 +79,16 @@ export function OverviewTiles({ overview, hosts }: { hosts: readonly Host[]; ove
         to="/operations?status=running"
       />
       <StatTile
-        label="Waiting for approval"
+        label="Waiting for you"
         value={waiting}
         tone={waiting > 0 ? "pending" : undefined}
-        hint={waiting > 0 ? "Nothing runs until you decide" : "Nothing to decide"}
+        hint={
+          waiting === 0
+            ? "Nothing to decide"
+            : questions > 0
+              ? `${approvals} to approve, ${questions} ${questions === 1 ? "question" : "questions"} to answer`
+              : "Nothing runs until you decide"
+        }
         to="/attention"
       />
       <StatTile

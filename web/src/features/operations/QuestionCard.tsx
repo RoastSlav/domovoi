@@ -38,7 +38,7 @@ export function QuestionCard({
   paused,
 }: {
   operationId: string;
-  step: TraceStep;
+  step: Pick<TraceStep, "id" | "summary">;
   paused: boolean;
 }) {
   const detail = useOperationStep(operationId, step.id);

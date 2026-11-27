@@ -191,4 +191,20 @@ describe("attention ranking", () => {
     expect(label("operation:p")?.label).toBe("Paused");
     expect(label("incident:odd")).toMatchObject({ label: "mystery", tone: "neutral" });
   });
+
+  it("a_question_row_shows_the_question_and_says_when_it_carries_on", () => {
+    const asked = {
+      ...summary("q", "waiting_user"),
+      question: {
+        step: "s1",
+        text: "Is /srv meant to be full?",
+        expires_at: "2026-11-01T14:05:00Z",
+      },
+    };
+    const [row] = attentionItems(inputs({ waitingUser: [asked] }));
+    expect(row?.title).toBe("Question: Is /srv meant to be full?");
+    expect(row?.why).toMatch(
+      /Triage asked this and is waiting for your answer\. It carries on at /,
+    );
+  });
 });

@@ -31,6 +31,41 @@ export function sameText(a: string, b: string): boolean {
   return norm(a) !== "" && norm(a) === norm(b);
 }
 
+const OPEN_STATES = [
+  "queued",
+  "running",
+  "waiting_approval",
+  "waiting_user",
+  "waiting_agent",
+  "waiting_timer",
+  "paused",
+] as const;
+
+/** What an investigation that is still open is doing, in a sentence; `undefined` when none is open. */
+export function investigationState(detail: IncidentDetail): string | undefined {
+  const open = (detail.operations ?? []).find(
+    (operation) =>
+      operation.kind === "investigate" &&
+      (OPEN_STATES as readonly string[]).includes(operation.status),
+  );
+  switch (open?.status) {
+    case undefined:
+      return undefined;
+    case "queued":
+      return "Triage is queued and starts when a slot is free.";
+    case "running":
+      return "Triage is running.";
+    case "waiting_user":
+      return "Triage is waiting for your answer (see the question below).";
+    case "waiting_timer":
+      return "Triage is waiting to try again, for example while the model is unreachable.";
+    case "paused":
+      return "Triage is paused.";
+    default:
+      return "Triage is working on this incident.";
+  }
+}
+
 /** What triage said, as far as the incident has it: from the report, or from the chat card. */
 function lead(detail: IncidentDetail) {
   const { report, card, incident } = detail;
@@ -81,6 +116,7 @@ export function WhatsGoingOn({
   });
   const state = mutation.data ?? detail.triage ?? undefined;
   const said = lead(detail);
+  const working = investigationState(detail);
   const hasReport = state?.kind === "report" || state?.kind === "cached";
   const label = hasReport ? "Run triage again" : state ? "Retry triage" : "Run triage";
   const again = (variant: "ghost" | "secondary") => (
@@ -90,7 +126,7 @@ export function WhatsGoingOn({
       icon="refresh"
       hint={RETRY_HINT}
       loading={retry.isPending}
-      disabledReason={off?.reason}
+      disabledReason={off?.reason ?? (hasReport ? undefined : working)}
       // With a report in hand, only a fresh run can say anything new.
       onClick={() =>
         retry.mutate(detail.triage?.kind === "report" || detail.triage?.kind === "cached")
@@ -131,7 +167,9 @@ export function WhatsGoingOn({
       <Card label="What's going on">
         <Cluster justify="between">
           <Text muted>
-            {off ? (
+            {working ? (
+              working
+            ) : off ? (
               <>
                 Triage has not run, and it cannot: {off.line.replace(/\.$/, "").toLowerCase()}.{" "}
                 <Link to={MODEL_SETTINGS}>Open model settings</Link>

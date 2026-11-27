@@ -1,4 +1,10 @@
-import type { Advisory, Host, IncidentSummary, OperationDetail, OperationSummary } from "../api/types";
+import type {
+  Advisory,
+  Host,
+  IncidentSummary,
+  OperationDetail,
+  OperationSummary,
+} from "../api/types";
 import type { ContainmentStatus } from "../api/types";
 import { route } from "./apiMock";
 import { EMPTY_PAGE } from "./attentionFixtures";

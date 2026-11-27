@@ -65,6 +65,42 @@ pub struct OperationSummaryDto {
     pub updated_at: String,
     /// How a finished operation ended; `null` until its summary exists.
     pub resolution: Option<ResolutionBriefDto>,
+    /// The question the operation waits on, only while it waits for a person's answer.
+    pub question: Option<PendingQuestionDto>,
+}
+
+/// A question that triage asked the owner and still waits on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct PendingQuestionDto {
+    /// The question step; answer it with `POST /api/v1/operations/{id}/steps/{step}/answer`.
+    pub step: String,
+    /// The question as asked, redacted.
+    pub text: String,
+    /// When it stops waiting. After that the operation carries on without an answer.
+    pub expires_at: String,
+}
+
+impl PendingQuestionDto {
+    /// The unanswered question of `snapshot`, if there is one.
+    #[must_use]
+    pub fn of(snapshot: &OperationSnapshot) -> Option<Self> {
+        snapshot.steps.iter().find_map(|record| {
+            if record.step.kind != domovoi_core::StepKind::Question
+                || record.progress.outcome.is_final()
+            {
+                return None;
+            }
+            let domovoi_core::StepIntent::Question { text, expires_at } = &record.step.intent
+            else {
+                return None;
+            };
+            Some(Self {
+                step: record.step.id.to_string(),
+                text: text.clone(),
+                expires_at: expires_at.to_string(),
+            })
+        })
+    }
 }
 
 impl OperationSummaryDto {
@@ -97,6 +133,7 @@ impl OperationSummaryDto {
             ended_at: operation.ended_at.map(|t| t.to_string()),
             updated_at: operation.updated_at.to_string(),
             resolution: None,
+            question: snapshot.and_then(PendingQuestionDto::of),
         }
     }
 }
