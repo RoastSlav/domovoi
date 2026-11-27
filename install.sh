@@ -256,6 +256,7 @@ purge=0
 keep_on_failure=0
 keep_units=0
 units_replaced=0
+replaced_sockets=""
 rollback_armed=0
 rolled_back=0
 un_errors=0
@@ -814,35 +815,51 @@ make_dir() {
 }
 
 # Copies each starter skill that is not in the agent's skills directory yet, so a new
-# install gets all of them and an upgrade adds the ones a release has added. A folder
-# that is already there is never touched, so edits to a skill are kept. With a second
-# argument of "normalise" the copy also gets the modes of the three-identities layout, and
-# the starter skills that change the host as root are left out: the skill runner's account
-# has no privilege to restart a unit or a container or to vacuum the journal, so on that
-# layout they could only fail. A unit restart goes through the helper instead. A skill that
-# reads what the runner cannot see names a built-in read the agent answers, or is shown as
-# unavailable with the reason.
+# install gets all of them and an upgrade adds the ones a release has added. A folder that
+# differs from the copy of the release installed before is never touched, so edits to a
+# skill are kept; one that still equals it has no edit to keep and takes this release's
+# copy, so a fix in a starter skill reaches an upgraded host. With a second argument of
+# "normalise" the copy also gets the modes of the three-identities layout, and the starter
+# skills that change the host as root are left out: the skill runner's account has no
+# privilege to restart a unit or a container or to vacuum the journal, so on that layout
+# they could only fail. A unit restart goes through the helper instead. A starter skill
+# that reads what the runner cannot see names a built-in read in its manifest, which the
+# agent answers, or is shown as unavailable with the reason.
 add_starter_skills() {
     for skill in "$1"/*/; do
         [ -d "$skill" ] || continue
+        skill_name="$(basename "$skill")"
         if [ "${2:-}" = "normalise" ]; then
-            case "$(basename "$skill")" in
+            case "$skill_name" in
                 restart_container | restart_unit | vacuum_journal)
-                    say "Skipped the starter skill $(basename "$skill"): it needs a root agent."
+                    say "Skipped the starter skill $skill_name: it needs a root agent."
                     continue
                     ;;
             esac
         fi
-        dest="/etc/domovoi/skills/$(basename "$skill")"
-        [ ! -e "$dest" ] || continue
-        cp -R "$skill" "$dest"
-        manifest_add tree "$dest"
+        dest="/etc/domovoi/skills/$skill_name"
+        if [ -e "$dest" ] || [ -L "$dest" ]; then
+            if [ -L "$dest" ] || diff -r "$skill" "$dest" >/dev/null 2>&1; then
+                continue
+            fi
+            if ! diff -r "$tmp/old-skills/$skill_name" "$dest" >/dev/null 2>&1; then
+                say_always "Kept $dest: it differs from this release's starter skill and was not shown to be unedited."
+                say_always "  To take the new copy, move the folder away and run the installer again."
+                continue
+            fi
+            rm -rf "$dest"
+            cp -R "$skill" "$dest"
+            say_always "Updated the starter skill $dest"
+        else
+            cp -R "$skill" "$dest"
+            manifest_add tree "$dest"
+            say "Added the starter skill $dest"
+        fi
         chown -R root:root "$dest"
         chmod -R go-w "$dest"
         if [ "${2:-}" = "normalise" ]; then
             normalise_tree "$dest"
         fi
-        say "Added the starter skill $dest"
     done
 }
 
@@ -1105,7 +1122,21 @@ place_unit() {
             while IFS= read -r pu_line; do say_always "$pu_line"; done
         say_always "  Re-apply any change of yours as a systemd drop-in, or pass --keep-units to keep the file."
         units_replaced=1
+        case "$pu_name" in
+        *.socket) replaced_sockets="${replaced_sockets:-} $pu_name" ;;
+        esac
     fi
+}
+
+# Restarts the socket $1 when this run replaced its unit file: enable --now leaves a socket
+# that is already listening on its old text.
+restart_replaced_socket() {
+    case " ${replaced_sockets:-} " in
+    *" $1 "*)
+        systemctl restart "$1"
+        say "Restarted $1 to use its new unit."
+        ;;
+    esac
 }
 
 # Fails when the binary would sit where the skill runner cannot execute it: ProtectHome=yes
@@ -1211,6 +1242,7 @@ start_sockets() {
     systemctl enable domovoi-helper-selftest.service || true
     systemctl start --no-block domovoi-helper-selftest.service || say "The firewall self-test did not start; run: sudo $bin helper nft-selftest"
     systemctl enable --now domovoi-helper.socket
+    restart_replaced_socket domovoi-helper.socket
     say "Started domovoi-helper.socket"
     if "$bin" agent selftest --installer --record >"$tmp/selftest.out" 2>&1; then
         show_file "$tmp/selftest.out"
@@ -1222,6 +1254,7 @@ start_sockets() {
         fail_with 50 "the self-test failed (${ss_failed:-see the report above}); the helper socket is disabled, the skill runner socket was not started and nothing else was started"
     fi
     systemctl enable --now domovoi-skill-runner.socket
+    restart_replaced_socket domovoi-skill-runner.socket
     say "Started domovoi-skill-runner.socket"
     if "$bin" agent selftest --installer >"$tmp/runner-selftest.out" 2>&1; then
         show_file "$tmp/runner-selftest.out"
@@ -3344,6 +3377,8 @@ if [ -d "$tmp/$name/examples" ]; then
     if [ ! -e "$examples" ] && [ ! -L "$examples" ]; then examples_new=1; fi
     mkdir_rec "$examples"
     if [ "$examples_new" -eq 1 ]; then manifest_add tree "$examples"; fi
+    # The starter skills as the last install left them, to tell an unedited copy from an edit.
+    if [ -d "$examples/skills" ]; then cp -R "$examples/skills" "$tmp/old-skills"; fi
     cp -R "$tmp/$name/examples/." "$examples/"
 fi
 

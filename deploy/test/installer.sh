@@ -75,10 +75,11 @@ check "an unknown unit name is refused" \
 fns="$work/install-functions.sh"
 grep '^\(say\|say_always\|log_line\|show_file\|show_file_err\|fail\)() {' "$installer" >"$fns" # one-line functions
 for fn in err fail_with failed_checks runner_service_unit render_runner_service runner_prefix_ok \
-    runner_dirs place_unit start_sockets selftest_hint manifest_add mkdir_rec rollback_disarm; do
+    runner_dirs place_unit restart_replaced_socket start_sockets selftest_hint manifest_add mkdir_rec \
+    rollback_disarm; do
     sed -n "/^$fn() {/,/^}/p" "$installer" >>"$fns"
 done
-check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 19
+check "the runner functions were extracted" test "$(grep -c '^[a-z_]*() {' "$fns")" -eq 20
 
 rendered="$work/rendered.service"
 render_with() {
@@ -188,6 +189,38 @@ check "--keep-units says so" grep -q "Kept /etc/systemd/system/domovoi-skill-run
 check "--keep-units saves the new text beside" \
     cmp -s "$work/prefix/share/domovoi/domovoi-skill-runner@.service" "$root/deploy/systemd/domovoi-skill-runner@.service"
 rm -f /etc/systemd/system/domovoi-skill-runner@.service
+
+# A replaced socket unit is restarted, since enable --now keeps a listening socket as it is.
+: >"$work/systemctl.log"
+printf '[Socket]\n' >/etc/systemd/system/domovoi-skill-runner.socket
+sh -c ". '$fns'; systemctl() { echo \"\$*\" >>'$work/systemctl.log'; }; runner_skills_dir=/etc/domovoi/skills; runner_packages_dir=/var/lib/domovoi-packages; bin=/usr/local/bin/domovoi; prefix='$work/prefix'; tmp='$work'; rollback_armed=0; keep_units=0; runner_socket_unit() { sh '$installer' --print-unit runner-socket; }; place_unit domovoi-skill-runner.socket runner_socket_unit; restart_replaced_socket domovoi-skill-runner.socket; restart_replaced_socket domovoi-helper.socket" \
+    >"$work/place.out" 2>&1 || true
+check "a replaced socket unit is restarted" \
+    grep -qx 'restart domovoi-skill-runner.socket' "$work/systemctl.log"
+check "an unchanged socket is not restarted" \
+    sh -c "! grep -q 'restart domovoi-helper.socket' '$work/systemctl.log'"
+rm -f /etc/systemd/system/domovoi-skill-runner.socket
+
+# An upgrade replaces a starter skill that nobody edited and keeps an edited one.
+skills_fns="$work/skill-functions.sh"
+grep '^\(say\|say_always\|log_line\)() {' "$installer" >"$skills_fns"
+for fn in add_starter_skills normalise_tree manifest_add; do
+    sed -n "/^$fn() {/,/^}/p" "$installer" >>"$skills_fns"
+done
+mkdir -p "$work/new-skills/zz_same" "$work/new-skills/zz_edited" "$work/up/old-skills/zz_same" \
+    "$work/up/old-skills/zz_edited" /etc/domovoi/skills/zz_same /etc/domovoi/skills/zz_edited
+for name in zz_same zz_edited; do
+    echo new >"$work/new-skills/$name/run"
+    echo old >"$work/up/old-skills/$name/run"
+done
+echo old >/etc/domovoi/skills/zz_same/run
+echo mine >/etc/domovoi/skills/zz_edited/run
+sh -c ". '$skills_fns'; tmp='$work/up'; rollback_armed=0; add_starter_skills '$work/new-skills' normalise" \
+    >"$work/skills.out" 2>&1 || true
+check "an unedited starter skill is updated" grep -qx new /etc/domovoi/skills/zz_same/run
+check "an edited starter skill is kept" grep -qx mine /etc/domovoi/skills/zz_edited/run
+check "the kept skill is reported" grep -q "Kept /etc/domovoi/skills/zz_edited" "$work/skills.out"
+rm -rf /etc/domovoi
 
 case "$(uname -m)" in
 x86_64 | amd64) target="x86_64-unknown-linux-musl" ;;

@@ -151,7 +151,7 @@ fn restart_hint_lines(unit_dir: &Path) -> Vec<String> {
         all.join(", ")
     ));
     lines.push(
-        "If this release changes them, run the installer again (sudo sh install.sh --role <role>); it replaces a differing unit, saves the old text and prints what changed. Until then `domovoi agent selftest` reports `unit_modified` when a unit is out of date."
+        "If this release changes them, run the installer again (sudo sh install.sh --role <role>); it replaces a differing unit, saves the old text and prints what changed. Until then a sandbox fix in this release does not reach this host, the starter skills are not updated, and `domovoi agent selftest` reports `unit_modified` when a unit is out of date."
             .to_owned(),
     );
     lines
@@ -195,5 +195,6 @@ mod tests {
         assert!(text.contains("domovoi-skill-runner@.service"), "{text}");
         assert!(!text.contains("other.service"), "{text}");
         assert!(text.contains("install.sh --role"), "{text}");
+        assert!(text.contains("sandbox fix"), "{text}");
     }
 }
