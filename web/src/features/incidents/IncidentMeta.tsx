@@ -35,7 +35,7 @@ export function IncidentMeta({ detail }: { detail: IncidentDetail }) {
         {detail.known_condition && (
           <>
             {" "}
-            · dismissed as a <Link to="/rules">known condition</Link>
+            · dismissed as a <Link to={`/rules?rule=${encodeURIComponent(detail.known_condition)}`}>known condition</Link>
           </>
         )}
       </Text>

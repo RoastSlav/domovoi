@@ -496,3 +496,13 @@ test("rules_say_who_created_them_and_when_and_admit_when_that_is_unknown", async
   expect(within(backup).getByText("admin")).toBeVisible();
   expect(within(rowOf("Security ssh login")).getByText("Unknown")).toBeVisible();
 });
+
+test("a_link_from_a_dismissed_incident_shows_only_the_condition_it_made", async () => {
+  stored = [BACKUP, OLD, FOREVER];
+  renderAt(`/rules?rule=${OLD.id}`, "/rules", <RulesPage />);
+
+  expect(await screen.findByText("Security ssh login")).toBeVisible();
+  expect(screen.queryByText("Memory available")).toBeNull();
+  expect(screen.getByText(/made when the incident was dismissed/)).toBeVisible();
+  expect(screen.getByRole("link", { name: "Show all known conditions" })).toBeVisible();
+});

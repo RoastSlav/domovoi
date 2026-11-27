@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { useAckRules } from "../../api/hooks/rules";
 import type { AckRule } from "../../api/types";
 import { useSelectedHost } from "../../app/HostContext";
@@ -29,6 +30,9 @@ export function RulesPage() {
   const rules = useAckRules();
   const [selected] = useSelectedHost();
   const [adding, setAdding] = useState(false);
+  const [params] = useSearchParams();
+  // A dismissed incident links here with the id of the condition it made.
+  const only = params.get("rule");
   const add = () => setAdding(true);
 
   return (
@@ -61,6 +65,18 @@ export function RulesPage() {
             loading={<Skeleton shape="rows" count={4} />}
           >
             {(data) => {
+              const opened = only ? data.filter((rule) => rule.id === only) : [];
+              if (only && opened.length > 0) {
+                return (
+                  <Stack gap={3}>
+                    <InlineMessage tone="info">
+                      This is the known condition made when the incident was dismissed.{" "}
+                      <Link to="/rules">Show all known conditions</Link>
+                    </InlineMessage>
+                    <RulesTable rules={opened} />
+                  </Stack>
+                );
+              }
               const items = data.filter((rule) => appliesTo(rule, selected));
               const hidden = data.length - items.length;
               if (items.length === 0) {
