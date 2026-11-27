@@ -46,7 +46,7 @@ pub const RUNNER_UNIT_DIRECTIVES: &[(&str, &str)] = &[
     ("PrivateTmp", "yes"),
     ("PrivateDevices", "yes"),
     ("ProtectProc", "invisible"),
-    ("ProcSubset", "pid"),
+    ("ProcSubset", "all"),
     ("TemporaryFileSystem", RUNNER_MASK),
     ("RuntimeMaxSec", "3720s"),
     ("KillMode", "control-group"),

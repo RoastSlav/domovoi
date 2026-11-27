@@ -5,9 +5,8 @@ use std::collections::BTreeMap;
 
 use domovoi_core::ports::{IncidentTimelineEntry, JournalDraft};
 use domovoi_core::{
-    AckRule, EvidenceValue, Fingerprint, Incident, IncidentChange, IncidentEvent, IncidentId,
-    IncidentStatus, MATCHED_RULE_KEY, MaintenanceWindow, Signal, SignalStatus, TransitionError,
-    apply, is_expected_history_check,
+    AckRule, Fingerprint, Incident, IncidentChange, IncidentEvent, IncidentId, IncidentStatus,
+    MaintenanceWindow, Signal, SignalStatus, TransitionError, apply,
 };
 use jiff::Timestamp;
 use serde_json::json;
@@ -201,23 +200,10 @@ impl Builder<'_> {
             };
             correlate(signal, &candidates, self.policy, self.now)
         };
-        // Expected is history, not an incident: a firing event signal that a known condition
-        // covers is stored with the rule's id and goes no further. An incident that already
-        // exists is the person's to close, so folding into it is left alone.
         if matches!(target, Target::New | Target::Reopen(_))
-            && signal.status() == SignalStatus::Firing
-            && is_expected_history_check(signal.check())
-            && let Some(rule) = self
-                .state
-                .acks
-                .iter()
-                .find(|rule| rule.matches(signal, self.now))
+            && let Some(kept) = super::expected::explained(&self.state.acks, signal, self.now)
         {
-            let mut evidence = signal.evidence().clone();
-            evidence.insert(MATCHED_RULE_KEY, EvidenceValue::Text(rule.id.to_string()));
-            let stored = signal.clone().with_evidence(evidence);
-            self.out.writes.push(Write::InsertSignal(stored, None));
-            return;
+            return self.out.writes.push(Write::InsertSignal(kept, None));
         }
         match target {
             Target::Ignore => {

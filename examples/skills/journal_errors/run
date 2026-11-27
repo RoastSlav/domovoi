@@ -4,5 +4,9 @@ set -u
 
 unit="$1"
 minutes="$2"
+if ! journalctl --no-pager --quiet --lines=1 >/dev/null 2>&1; then
+    echo "host view hidden: this account cannot read the journal (it needs the systemd-journal group)" >&2
+    exit 3
+fi
 exec journalctl --no-pager --quiet --output=short-iso --priority=err \
     --unit="$unit" --since="-${minutes}min" --lines=200

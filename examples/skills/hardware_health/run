@@ -2,6 +2,12 @@
 # Temperatures, recent kernel hardware errors and a SMART health summary. Reads only.
 set -u
 
+# The journal part below must not read as "no errors" when the journal is not readable.
+if command -v journalctl >/dev/null 2>&1 && ! journalctl -k --no-pager --quiet --lines=1 >/dev/null 2>&1; then
+    echo "host view hidden: this account cannot read the kernel journal (it needs the systemd-journal group)" >&2
+    exit 3
+fi
+
 echo "== temperatures"
 if command -v sensors >/dev/null 2>&1; then
     sensors || :

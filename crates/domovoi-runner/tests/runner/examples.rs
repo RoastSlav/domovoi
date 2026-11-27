@@ -68,3 +68,51 @@ fn every_starter_skill_loads_and_is_documented() {
         );
     }
 }
+
+/// Runs a starter skill's `run` with fake programs first on `PATH`, so a hidden host view
+/// (an unreadable journal, an unreachable service bus, a process list without pid 1) can
+/// be reproduced on any machine.
+fn run_with_fakes(skill: &str, args: &[&str], fakes: &[(&str, &str)]) -> (i32, String) {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, body) in fakes {
+        let path = dir.path().join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let script = workspace().join("examples/skills").join(skill).join("run");
+    let output = std::process::Command::new("sh")
+        .arg(script)
+        .args(args)
+        .env_clear()
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.path().display()))
+        .output()
+        .unwrap();
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn starter_read_skills_fail_loudly_when_the_host_view_is_hidden() {
+    let blind_journal = [("journalctl", "echo 'No journal files were found.'; exit 1")];
+    for (skill, args) in [
+        ("log_summary", vec![]),
+        ("journal_errors", vec!["nginx.service", "10"]),
+        ("hardware_health", vec![]),
+    ] {
+        let (code, stderr) = run_with_fakes(skill, &args, &blind_journal);
+        assert_eq!(code, 3, "{skill} exited {code}: {stderr}");
+        assert!(stderr.contains("host view hidden"), "{skill}: {stderr}");
+    }
+    let (code, stderr) = run_with_fakes(
+        "service_list",
+        &[],
+        &[("systemctl", "echo 'Failed to connect to bus'; exit 1")],
+    );
+    assert_eq!(code, 3, "{stderr}");
+    assert!(stderr.contains("host view hidden"), "{stderr}");
+    let (code, stderr) = run_with_fakes("top_processes", &[], &[("ps", "exit 1")]);
+    assert_eq!(code, 3, "{stderr}");
+    assert!(stderr.contains("pid 1 is not visible"), "{stderr}");
+}

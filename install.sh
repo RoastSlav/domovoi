@@ -664,7 +664,7 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectProc=invisible
-ProcSubset=pid
+ProcSubset=all
 TemporaryFileSystem=/etc/domovoi:ro /var/lib:ro /run:ro
 BindReadOnlyPaths=/etc/domovoi/skills /var/lib/domovoi-packages
 RuntimeMaxSec=3720s
@@ -814,7 +814,9 @@ make_dir() {
 # argument of "normalise" the copy also gets the modes of the three-identities layout, and
 # the starter skills that change the host as root are left out: the skill runner's account
 # has no privilege to restart a unit or a container or to vacuum the journal, so on that
-# layout they could only fail. A unit restart goes through the helper instead.
+# layout they could only fail. A unit restart goes through the helper instead. The skills
+# that read the service bus, other users' processes or the journal are left out as well:
+# the runner's account sees none of those, so they would answer with empty sections.
 add_starter_skills() {
     for skill in "$1"/*/; do
         [ -d "$skill" ] || continue
@@ -822,6 +824,10 @@ add_starter_skills() {
             case "$(basename "$skill")" in
                 restart_container | restart_unit | vacuum_journal)
                     say "Skipped the starter skill $(basename "$skill"): it needs a root agent."
+                    continue
+                    ;;
+                service_list | top_processes | hardware_health | log_summary | journal_errors)
+                    say "Skipped the starter skill $(basename "$skill"): the skill runner account cannot see the service bus, other users' processes or the journal, so it would return nothing. Read these through the helper instead."
                     continue
                     ;;
             esac

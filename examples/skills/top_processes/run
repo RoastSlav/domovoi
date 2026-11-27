@@ -4,6 +4,12 @@ set -u
 
 fields=pid,user,%cpu,%mem,rss,etime,comm
 
+# A process list that cannot see pid 1 is a hidden view, not a quiet host.
+if ! ps -p 1 >/dev/null 2>&1; then
+    echo "host view hidden: pid 1 is not visible, so the process list is incomplete" >&2
+    exit 3
+fi
+
 # procps ps sorts itself; busybox ps has no --sort, so fall back to sort(1).
 top() {
     if ps -eo "$fields" --sort="-$1" >/dev/null 2>&1; then
