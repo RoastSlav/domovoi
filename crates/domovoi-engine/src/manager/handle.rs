@@ -130,6 +130,11 @@ impl ManagerHandle {
         self.send(Command::SetVerdict { incident, verdict }).await
     }
 
+    /// Withdraws a stored `EXPECTED` verdict no person gave from a security incident.
+    pub async fn recap_security_verdict(&self, incident: IncidentId) -> Result<(), CommandError> {
+        self.send(Command::RecapSecurityVerdict { incident }).await
+    }
+
     /// Adds a follow-up question and its answer to `incident`'s timeline. `asked_at` and
     /// `generation` are what the request saw when it started; if a clear landed while
     /// the model was running, the answer is dropped instead of recorded.

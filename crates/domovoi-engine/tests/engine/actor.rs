@@ -1,5 +1,6 @@
 //! The manager task against the in-memory store and the fake clock.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +16,7 @@ use domovoi_core::{
     Verdict, apply,
 };
 use domovoi_engine::redact::REDACTED;
+use domovoi_engine::triage::recap_security_verdicts;
 use domovoi_engine::{
     CommandError, DomainEvent, EnginePolicy, EventKind, IncidentManager, ManagerDeps,
     ManagerHandle, PatternRedactor,
@@ -820,5 +822,66 @@ async fn a_resolved_incident_that_reopens_before_the_versioned_read_is_folded_in
         3,
         "the new signal is linked to the existing incident"
     );
+    run.shutdown.cancel();
+}
+
+/// 13b: nothing stores a security event as expected except a person, a verdict does not
+/// survive the event firing again, and an older stored one is withdrawn.
+#[tokio::test]
+async fn a_security_event_is_expected_only_while_a_person_said_so() {
+    let run = start(EnginePolicy::default());
+    let sudo = immediate(HostId::new(), "security.sudo_failure", None);
+    run.handle.ingest(vec![sudo.firing(0)]).await.unwrap();
+    let id = active(&run.store).await[0].id();
+    let verdict = async |run: &Running| {
+        IncidentRepo::get(&*run.store, id)
+            .await
+            .unwrap()
+            .expect("the incident")
+            .verdict()
+    };
+
+    let report: TriageReport = serde_json::from_value(serde_json::json!({
+        "headline": "Expected agent sudo failure", "summary": "No action required.",
+        "cause": "c", "verdict": "EXPECTED", "next_step": "No action required.",
+    }))
+    .unwrap();
+    let outcome = TriageOutcome::Cached {
+        report,
+        from: IncidentId::new(),
+    };
+    run.handle
+        .attach_triage(id, outcome, BTreeMap::new())
+        .await
+        .unwrap();
+    assert_eq!(verdict(&run).await, Some(Verdict::ActionNeeded));
+    let entries = timeline(&run.store, id).await;
+    let cached = entries.iter().find(|e| e.kind == "triage.cached").unwrap();
+    assert!(cached.summary.starts_with("Needs a person"), "{cached:?}");
+
+    // A verdict an older build stored is withdrawn, and the timeline says why.
+    run.handle.set_verdict(id, Verdict::Expected).await.unwrap();
+    recap_security_verdicts(&*run.store, &run.handle)
+        .await
+        .unwrap();
+    assert_eq!(verdict(&run).await, Some(Verdict::ActionNeeded));
+    assert!(
+        timeline(&run.store, id)
+            .await
+            .iter()
+            .any(|e| e.kind == "verdict.recapped")
+    );
+
+    // A person's dismissal stands, until the event fires again.
+    run.handle
+        .dismiss(id, UserId::new(), "me".to_owned())
+        .await
+        .unwrap();
+    recap_security_verdicts(&*run.store, &run.handle)
+        .await
+        .unwrap();
+    assert_eq!(verdict(&run).await, Some(Verdict::Expected));
+    run.handle.ingest(vec![sudo.firing(60)]).await.unwrap();
+    assert_eq!(verdict(&run).await, None, "a new event has no verdict yet");
     run.shutdown.cancel();
 }

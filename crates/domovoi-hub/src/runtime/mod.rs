@@ -168,6 +168,11 @@ impl HubRuntime {
             bus: bus.clone(),
             shutdown: manager_shutdown.clone(),
         });
+        // Verdicts an older build stored on security events are withdrawn before anyone
+        // reads them.
+        if let Err(err) = domovoi_engine::triage::recap_security_verdicts(&*store, &manager).await {
+            tracing::warn!(%err, "could not check stored security verdicts");
+        }
         let server = AgentServer::new(
             ServerSettings::from_config(&config)?,
             AgentServerDeps {

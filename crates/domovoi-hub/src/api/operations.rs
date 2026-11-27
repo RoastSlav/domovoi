@@ -242,6 +242,11 @@ pub(super) async fn step(
     let is_block = snapshot
         .execution_of(step)
         .is_some_and(|stored| stored.value.contract.as_str() == "firewall.block_source");
+    // A turn an older build stored may still call a security event expected.
+    if let Some(subject) = snapshot.operation.pinned.first() {
+        let title = snapshot.operation.goal.trim_start_matches("Investigate: ");
+        dto.show_security(&subject.check, title);
+    }
     if is_block {
         let view = state
             .services()

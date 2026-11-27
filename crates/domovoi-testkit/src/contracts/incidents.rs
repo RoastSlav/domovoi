@@ -321,6 +321,42 @@ async fn timeline(repo: &dyn IncidentRepo) -> ContractResult {
         .collect();
     assert_eq!(kinds, ["signal.folded", "status.changed"], "append order");
     assert!(repo.timeline(IncidentId::new()).await?.is_empty());
+    security_timeline(repo).await
+}
+
+/// A security event stored as expected, or answered with another event's report, is never
+/// read back as that.
+async fn security_timeline(repo: &dyn IncidentRepo) -> ContractResult {
+    let incident = incident(HostId::new(), "security.sudo_failure", None)?;
+    repo.insert(&incident).await?;
+    let stored = json!({
+        "type": "cached",
+        "data": {
+            "from": IncidentId::new(),
+            "report": {
+                "headline": "Expected sudo failure", "summary": "No action required.",
+                "cause": "c", "verdict": "EXPECTED", "next_step": "No action required.",
+            },
+        },
+    });
+    repo.append_event(&IncidentTimelineEntry {
+        incident: incident.id(),
+        at: at(1),
+        kind: "triage.cached".to_owned(),
+        summary: "Expected sudo failure".to_owned(),
+        detail: stored,
+    })
+    .await?;
+    let shown = repo.timeline(incident.id()).await?;
+    let entry = &shown[0];
+    assert!(entry.summary.starts_with("Needs a person"), "{entry:?}");
+    assert_eq!(entry.detail["data"]["report"]["verdict"], "ACTION_NEEDED");
+    assert_eq!(
+        entry.detail["data"]["report"]["next_step"]
+            .as_str()
+            .map(|text| text.contains("No action required")),
+        Some(false)
+    );
     Ok(())
 }
 

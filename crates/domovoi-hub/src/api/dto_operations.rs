@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::{CheckKey, IncidentId, TriageOutcome, TriageReport};
 use domovoi_core::{ExecutionRecord, Operation, OperationSnapshot, StepRecord};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -323,6 +324,36 @@ pub struct StepDetailDto {
     /// A containment step only: its phase, source, TTL and how the helper's safety stood.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub containment: Option<super::dto_containment::ContainmentStepDto>,
+}
+
+impl StepDetailDto {
+    /// Rewrites a stored report of a security check as it may be shown.
+    pub(super) fn show_security(&mut self, check: &CheckKey, title: &str) {
+        let Some(mut output) = self
+            .output
+            .as_deref()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        else {
+            return;
+        };
+        let Ok(report) = serde_json::from_value::<TriageReport>(output["report"].clone()) else {
+            return;
+        };
+        let from = serde_json::from_value::<IncidentId>(output["from"].clone()).ok();
+        let mut outcome = match from {
+            Some(from) => TriageOutcome::Cached { report, from },
+            None => TriageOutcome::Report(report),
+        };
+        if !outcome.cap_security(check, title) {
+            return;
+        }
+        let (TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. }) = outcome else {
+            return;
+        };
+        self.summary = self.summary.as_ref().map(|_| report.headline.clone());
+        output["report"] = serde_json::to_value(&report).unwrap_or_default();
+        self.output = Some(output.to_string());
+    }
 }
 
 impl From<&StepRecord> for StepDetailDto {

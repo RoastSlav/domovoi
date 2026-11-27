@@ -1,8 +1,11 @@
 //! Reading the model's final answer as a [`TriageReport`], and redacting it.
 
 use domovoi_core::ports::Redactor;
-use domovoi_core::triage::{HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, NEXT_STEP_MAX_CHARS};
-use domovoi_core::{TriageReport, Verdict};
+use domovoi_core::triage::{
+    HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, NEXT_STEP_MAX_CHARS, NOT_DECIDED, NOT_VERIFIED,
+    is_security_check,
+};
+use domovoi_core::{CheckKey, TriageReport, Verdict};
 
 use crate::cards::clip;
 
@@ -48,14 +51,6 @@ pub(crate) fn redact_report(redactor: &dyn Redactor, report: &mut TriageReport) 
     report.details = redactor.redact(&report.details);
 }
 
-/// The sentence that opens `details` when the guard below changed a verdict.
-pub(crate) const NOT_VERIFIED: &str = "Not verified: the model called this event expected, but \
-no tool result in its report ties it to a recorded action, so it needs a person.";
-
-/// The sentence that opens `details` when a security event was called expected by the model.
-pub(crate) const NOT_DECIDED: &str = "Needs a person: the model called this security event expected, but only a person can \
-decide that (a known condition or an action Domovoi recorded); an earlier incident that looks alike is not evidence.";
-
 /// Keeps a security event from being waved away. An event check (`security.*`) records
 /// something that happened; the model may call it expected or fixed only when its evidence
 /// cites a tool that ran. Otherwise the verdict becomes `MONITOR` and `details` says why.
@@ -65,25 +60,19 @@ decide that (a known condition or an action Domovoi recorded); an earlier incide
 /// a listener or a `sudo` use: a container list or a disk report cannot tie one to a recorded
 /// action, whatever it returned.
 pub(crate) fn guard_security_verdict(
-    check: &str,
+    check: &CheckKey,
+    title: &str,
     report: &mut TriageReport,
     used: &[crate::triage::agent::ToolUse],
 ) -> bool {
-    if !check.starts_with("security.")
-        || !matches!(report.verdict, Verdict::Expected | Verdict::Fixed)
-    {
+    if !is_security_check(check) || !matches!(report.verdict, Verdict::Expected | Verdict::Fixed) {
         return false;
     }
     // `expected` is a person's decision: a known condition they made (those events never reach
     // triage) or a recorded agent action. A model reading logs, or an earlier incident that
     // looked alike, cannot make it. It needs a person, whatever the evidence.
     if report.verdict == Verdict::Expected {
-        report.verdict = Verdict::ActionNeeded;
-        report.details = if report.details.trim().is_empty() {
-            NOT_DECIDED.to_owned()
-        } else {
-            format!("{NOT_DECIDED}\n\n{}", report.details)
-        };
+        report.withhold(Verdict::ActionNeeded, NOT_DECIDED, title);
         return true;
     }
     let tied = report.evidence.iter().any(|item| {
@@ -98,12 +87,7 @@ pub(crate) fn guard_security_verdict(
     if tied {
         return false;
     }
-    report.verdict = Verdict::Monitor;
-    report.details = if report.details.trim().is_empty() {
-        NOT_VERIFIED.to_owned()
-    } else {
-        format!("{NOT_VERIFIED}\n\n{}", report.details)
-    };
+    report.withhold(Verdict::Monitor, NOT_VERIFIED, title);
     true
 }
 
@@ -137,6 +121,11 @@ mod guard_tests {
     use super::*;
     use crate::triage::agent::ToolUse;
 
+    fn guard(check: &str, report: &mut TriageReport, used: &[ToolUse]) -> bool {
+        let check = CheckKey::parse(check).unwrap();
+        guard_security_verdict(&check, "an event", report, used)
+    }
+
     fn report(verdict: Verdict, source: &str) -> TriageReport {
         TriageReport {
             headline: "Failed sudo likely a self-test".to_owned(),
@@ -168,17 +157,18 @@ mod guard_tests {
     #[test]
     fn expected_security_event_without_tool_evidence_needs_a_person() {
         let mut r = report(Verdict::Expected, "incident signal");
-        assert!(guard_security_verdict("security.sudo_failure", &mut r, &[]));
+        assert!(guard("security.sudo_failure", &mut r, &[]));
         assert_eq!(r.verdict, Verdict::ActionNeeded);
         assert!(r.details.starts_with("Needs a person"));
         assert!(r.details.ends_with("reasoning"));
+        assert_eq!(r.headline, "Needs a person: an event");
     }
 
     #[test]
     fn a_tool_that_failed_is_no_evidence() {
         let mut r = report(Verdict::Fixed, "journal");
         let used = [tool("journal", true)];
-        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        assert!(guard("security.new_port", &mut r, &used));
         assert_eq!(r.verdict, Verdict::Monitor);
     }
 
@@ -192,7 +182,7 @@ mod guard_tests {
         ] {
             let mut r = report(Verdict::Expected, "journal sudo lines");
             let used = [tool("journal", false)];
-            assert!(guard_security_verdict(check, &mut r, &used));
+            assert!(guard(check, &mut r, &used));
             assert_eq!(r.verdict, Verdict::ActionNeeded, "{check}");
         }
     }
@@ -201,11 +191,11 @@ mod guard_tests {
     fn fixed_with_a_tool_result_stands_but_an_earlier_incident_is_no_evidence() {
         let mut r = report(Verdict::Fixed, "listening_ports");
         let used = [tool("listening_ports", false)];
-        assert!(!guard_security_verdict("security.new_port", &mut r, &used));
+        assert!(!guard("security.new_port", &mut r, &used));
         assert_eq!(r.verdict, Verdict::Fixed);
         let mut r = report(Verdict::Fixed, "search_experience");
         let used = [tool("search_experience", false)];
-        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        assert!(guard("security.new_port", &mut r, &used));
         assert_eq!(r.verdict, Verdict::Monitor);
     }
 
@@ -213,20 +203,20 @@ mod guard_tests {
     fn a_tool_that_cannot_speak_about_the_event_or_an_empty_value_is_no_evidence() {
         let mut r = report(Verdict::Fixed, "docker_ps");
         let used = [tool("docker_ps", false)];
-        assert!(guard_security_verdict("security.new_port", &mut r, &used));
+        assert!(guard("security.new_port", &mut r, &used));
         let mut r = report(Verdict::Fixed, "journal");
         r.evidence[0].value = "  ".to_owned();
         let used = [tool("journal", false)];
-        assert!(guard_security_verdict("security.ssh_login", &mut r, &used));
+        assert!(guard("security.ssh_login", &mut r, &used));
         assert_eq!(r.verdict, Verdict::Monitor);
     }
 
     #[test]
     fn other_checks_and_other_verdicts_are_left_alone() {
         let mut r = report(Verdict::Expected, "none");
-        assert!(!guard_security_verdict("disk.free", &mut r, &[]));
+        assert!(!guard("disk.free", &mut r, &[]));
         let mut r = report(Verdict::ActionNeeded, "none");
-        assert!(!guard_security_verdict("security.new_port", &mut r, &[]));
+        assert!(!guard("security.new_port", &mut r, &[]));
     }
 }
 

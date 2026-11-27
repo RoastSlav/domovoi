@@ -505,6 +505,9 @@ pub fn decide(
         Command::ClearFollowUps { incident, by } => {
             return Ok(super::annotate::clear_follow_ups(*incident, *by, now));
         }
+        Command::RecapSecurityVerdict { incident } => {
+            return super::annotate::recap_security(state, *incident, now);
+        }
         Command::SetVerdict { incident, verdict } => {
             return super::annotate::set_verdict(state, *incident, *verdict, now);
         }

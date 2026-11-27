@@ -6,6 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use domovoi_core::meta::PlanStepInput;
 use domovoi_core::ports::{LlmError, LlmMessage, LlmProvider, Part, Role};
+use domovoi_core::triage::is_security_check;
 use domovoi_core::{Incident, IncidentId, ReadToolCall, SkillSummary, TriageReport};
 use jiff::{SignedDuration, Timestamp};
 
@@ -77,15 +78,16 @@ pub(crate) async fn digest(shared: &Shared, incident: &Incident) -> [u8; 32] {
 }
 
 /// Runs the repeat cache and the admission gate, in that order: an answer that costs no
-/// model call must not take a run of the hour or read the monthly budget. With `fresh` the
-/// cache is skipped.
+/// model call must not take a run of the hour or read the monthly budget. With `fresh`, and
+/// for every security check, the cache is skipped.
 pub(crate) async fn prepare(
     shared: &Shared,
     incident: &Incident,
     fresh: bool,
     probe: bool,
 ) -> Prepared {
-    if !fresh {
+    // A security event is triaged on its own evidence, never answered from another one.
+    if !fresh && !is_security_check(incident.check()) {
         let digest = digest(shared, incident).await;
         if let Some((report, from)) = cached(shared, incident, &digest).await {
             return Prepared::Cached { report, from };
@@ -197,7 +199,12 @@ pub(crate) async fn generate(
             match output.end {
                 LoopEnd::Report(mut report) => {
                     redact_report(deps.redactor.as_ref(), &mut report);
-                    if guard_security_verdict(incident.check().as_str(), &mut report, &state.used) {
+                    if guard_security_verdict(
+                        incident.check(),
+                        incident.title(),
+                        &mut report,
+                        &state.used,
+                    ) {
                         tracing::info!(
                             incident = %incident.id(),
                             "a security event was called expected without tool evidence; \

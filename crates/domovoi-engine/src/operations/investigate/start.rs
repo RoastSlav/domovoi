@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use domovoi_core::ports::{AggregateRef, EffectKind, EffectStatus, IncidentFilter, Page, Redactor};
+use domovoi_core::triage::current_episode;
 use domovoi_core::{
     Actor, BudgetLimits, Incident, IncidentStatus, OperationId, OperationKind, PinnedSubject,
     SYSTEM_OPERATIONS, StepId, StepIntent, StepKind, TriageOutcome,
@@ -328,12 +329,14 @@ async fn catch_up(handle: &OperationHandle, runtime: &Runtime, only_open: bool) 
                 continue;
             }
             let done = match incidents.timeline(incident.id()).await {
-                Ok(entries) => entries.iter().any(|entry| {
-                    matches!(
-                        entry.kind.as_str(),
-                        "triage.report" | "triage.cached" | "triage.skipped" | "triage.failed"
-                    )
-                }),
+                Ok(entries) => current_episode(incident.check(), &entries)
+                    .iter()
+                    .any(|entry| {
+                        matches!(
+                            entry.kind.as_str(),
+                            "triage.report" | "triage.cached" | "triage.skipped" | "triage.failed"
+                        )
+                    }),
                 Err(err) => {
                     tracing::warn!(%err, incident = %incident.id(), "could not inspect triage history");
                     continue;

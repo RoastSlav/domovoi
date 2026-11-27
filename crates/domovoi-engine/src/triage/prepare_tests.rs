@@ -29,6 +29,8 @@ use crate::redact::PatternRedactor;
 #[derive(Clone, Copy, Debug)]
 enum Setup {
     CachedFromResolvedTwin,
+    /// The same cache hit, for a security event.
+    CachedSecurityTwin,
     SpentBudget,
     FullHour,
     UnreadableWindow,
@@ -76,7 +78,11 @@ async fn run(setup: Setup) -> Reported {
     let store = Arc::new(InMemoryStore::new());
     let clock = Arc::new(FakeClock::new(T0));
     let link = Arc::new(FakeAgentLink::new());
-    let incident: Incident = open_incident(host(), "docker.container", Some("nginx")).unwrap();
+    let check = match setup {
+        Setup::CachedSecurityTwin => "security.sudo_failure",
+        _ => "docker.container",
+    };
+    let incident: Incident = open_incident(host(), check, Some("nginx")).unwrap();
     IncidentRepo::insert(&*store, &incident).await.unwrap();
     let (bus, _events) = broadcast::channel(16);
     let shutdown = CancellationToken::new();
@@ -130,11 +136,10 @@ async fn run(setup: Setup) -> Reported {
     let mut settings = TriageSettings::default();
     let mut fresh = true;
     match setup {
-        Setup::CachedFromResolvedTwin => {
+        Setup::CachedFromResolvedTwin | Setup::CachedSecurityTwin => {
             fresh = false;
             let twin_resolved = clock.now() - SignedDuration::from_mins(10);
-            let twin = resolved_incident(host(), "docker.container", Some("nginx"), twin_resolved)
-                .unwrap();
+            let twin = resolved_incident(host(), check, Some("nginx"), twin_resolved).unwrap();
             IncidentRepo::insert(&*store, &twin).await.unwrap();
             let shared = shared_of(deps.clone(), settings);
             let evidence = digest(&shared, &incident).await;
@@ -181,6 +186,8 @@ async fn run(setup: Setup) -> Reported {
 async fn prepare_reports_cached_refused_and_admitted() {
     let table = [
         (Setup::CachedFromResolvedTwin, Reported::Cached),
+        // A security event is never answered with another event's report.
+        (Setup::CachedSecurityTwin, Reported::Admitted),
         (Setup::SpentBudget, Reported::Refused(Refusal::BudgetSpent)),
         (
             Setup::FullHour,

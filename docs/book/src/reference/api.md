@@ -442,7 +442,7 @@ Every route in the OpenAPI document, by area. The sections above describe the ro
 | GET | `/api/v1/incidents/{id}/followups` | The questions and answers the model still remembers for an incident, oldest first. Answers recorded before the last clear are not in the list. An id that parses but is not a stored incident gets 404, so a cleared conversation is never read as a mistyped one. |
 | POST | `/api/v1/incidents/{id}/followups/clear` | Forgets the conversation: the next question will not be shown the earlier ones. Works whether triage is on or off, and on a resolved incident too; it writes one timeline line and publishes nothing. |
 | POST | `/api/v1/incidents/{id}/mute` | Mutes an incident for a while. |
-| POST | `/api/v1/incidents/{id}/triage` | Investigates an incident again as an operation, with the same caps, and reports how it went. A report already cached for unchanged evidence is reused unless `fresh` is true. |
+| POST | `/api/v1/incidents/{id}/triage` | Investigates an incident again as an operation, with the same caps, and reports how it went. A report already cached for unchanged evidence is reused unless `fresh` is true; a `security.*` incident is always investigated anew. |
 | POST | `/api/v1/incidents/{id}/unmute` | Lifts a mute. |
 
 ### Knowledge routes

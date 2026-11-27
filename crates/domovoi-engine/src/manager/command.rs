@@ -61,6 +61,13 @@ pub enum Command {
         /// The new verdict.
         verdict: Verdict,
     },
+    /// Withdraws a stored `EXPECTED` verdict no person gave from a security incident: it
+    /// becomes `ACTION_NEEDED` and the timeline says why. Does nothing for any other
+    /// incident. Publishes nothing.
+    RecapSecurityVerdict {
+        /// Which incident.
+        incident: IncidentId,
+    },
     /// A follow-up question and its answer, for the timeline. Publishes nothing.
     RecordFollowUp {
         /// Which incident.

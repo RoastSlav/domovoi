@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectKind, EffectRecord};
+use domovoi_core::triage::current_episode;
 use domovoi_core::{
     EdgeKind, FinishOutcome, IncidentStatus, OperationSnapshot, OperationStatus, StepId,
     StepIntent, StepKind, StepOutcome,
@@ -339,7 +340,7 @@ async fn retry_gate(
             });
         }
     };
-    let newest = entries
+    let newest = current_episode(incident.check(), &entries)
         .iter()
         .rev()
         .map(|entry| entry.kind.as_str())

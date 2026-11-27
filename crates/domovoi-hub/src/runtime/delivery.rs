@@ -9,9 +9,8 @@ use domovoi_core::ports::{
     AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo, MessageRef, Notifier,
     NotifyStateRepo, OutboundMessage, SignalRepo, StoreError,
 };
-use domovoi_core::{
-    Advisory, AdvisoryKind, Card, ChatRefs, Incident, IncidentId, NotifyState, TriageOutcome,
-};
+use domovoi_core::triage::current_episode;
+use domovoi_core::{Advisory, AdvisoryKind, Card, ChatRefs, Incident, NotifyState, TriageOutcome};
 use domovoi_engine::advisories::advisory_id;
 use domovoi_engine::cards::{CardLinks, MAX_PLANS, build_card};
 use domovoi_engine::events::{DomainEvent, EventKind};
@@ -317,7 +316,7 @@ impl Delivery {
             .await
             .ok()
             .and_then(|signals| signals.into_iter().next());
-        let report = self.latest_report(incident.id()).await;
+        let report = self.latest_report(incident).await;
         let steps = waiting_steps(&*self.store, incident, &host.name, MAX_PLANS)
             .await
             .unwrap_or_else(|err| {
@@ -337,9 +336,10 @@ impl Delivery {
         ))
     }
 
-    async fn latest_report(&self, incident: IncidentId) -> Option<domovoi_core::TriageReport> {
-        let entries = self.store.timeline(incident).await.ok()?;
-        entries.into_iter().rev().find_map(|entry| {
+    async fn latest_report(&self, incident: &Incident) -> Option<domovoi_core::TriageReport> {
+        let entries = self.store.timeline(incident.id()).await.ok()?;
+        let current = current_episode(incident.check(), &entries);
+        current.iter().rev().cloned().find_map(|entry| {
             if !matches!(entry.kind.as_str(), "triage.report" | "triage.cached") {
                 return None;
             }

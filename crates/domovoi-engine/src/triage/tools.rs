@@ -2,6 +2,7 @@
 //! the one evidence boundary, classified, redacted and cut.
 
 use domovoi_core::ports::{IncidentFilter, Page};
+use domovoi_core::triage::is_security_check;
 use domovoi_core::{HostId, Incident, IncidentId, ReadToolCall};
 use jiff::{SignedDuration, Timestamp};
 
@@ -178,6 +179,15 @@ where
         .map_err(|_| EvidenceClass::Failed(TIMEOUT_TEXT.to_owned()))
 }
 
+/// What an earlier incident is said to have come to. A past security event is not evidence
+/// about another one, so its verdict is never passed on.
+pub(crate) fn history_verdict(incident: &Incident) -> &'static str {
+    if is_security_check(incident.check()) {
+        return "a separate security event; not evidence about any other";
+    }
+    incident.verdict().map_or("no verdict", |v| v.label())
+}
+
 fn store_failed(error: impl std::fmt::Display) -> EvidenceClass {
     EvidenceClass::Failed(error.to_string())
 }
@@ -206,7 +216,7 @@ async fn execute(
                 .iter()
                 .filter(|i| scope.incident.is_none_or(|current| i.id() != current))
                 .map(|i| {
-                    let verdict = i.verdict().map_or("no verdict", |v| v.label());
+                    let verdict = history_verdict(i);
                     format!(
                         "- {} {} [{}] {} ({verdict})",
                         i.opened_at(),

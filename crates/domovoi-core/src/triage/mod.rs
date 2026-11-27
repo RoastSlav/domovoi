@@ -1,6 +1,7 @@
 //! Triage: the read-only tools the model may use and the report it must return.
 
 mod report;
+mod security;
 mod tool_call;
 mod tool_schema;
 mod tools;
@@ -11,6 +12,10 @@ pub use report::{
     ActionProposal, EvidenceRef, HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, MAX_EVIDENCE,
     MAX_MANUAL_STEPS, MAX_PROPOSALS, NEXT_STEP_MAX_CHARS, TriageBudget, TriageOutcome,
     TriageReport,
+};
+pub use security::{
+    NOT_DECIDED, NOT_REUSED, NOT_VERIFIED, cached_summary, current_episode, is_security_check,
+    show_timeline,
 };
 pub use tool_call::{
     MAX_DEVICE_CHARS, MAX_HISTORY, MAX_LINES, MAX_NAME_CHARS, MAX_NOTES, MAX_QUERY_CHARS,

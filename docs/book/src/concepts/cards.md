@@ -14,7 +14,8 @@ plex is crash-looping after the 1.41 image update
 Next: Pin the previous image tag and restart.
 ```
 
-- **Security events:** triage may not call a `security.*` event EXPECTED or FIXED unless its report cites a tool result; otherwise the verdict is lowered to MONITOR and the details say "Not verified".
+- **Security events:** triage never calls a `security.*` event EXPECTED: only a person does, with a known condition or by dismissing the incident. Such a verdict becomes ACTION NEEDED. FIXED needs a cited tool result; otherwise it is lowered to MONITOR. In both cases the headline, summary and next step are rewritten to match, and the details keep the model's own text, marked as not accepted.
+- **Every security event is triaged on its own evidence.** A cached report is never used for a `security.*` check, an earlier incident is not evidence, and an incident that reopens starts without a verdict. A stored EXPECTED verdict that no person gave is withdrawn when the hub starts.
 - **Badge:** the triage verdict (ACTION NEEDED, MONITOR, EXPECTED, FIXED) or, before triage, the severity. A resolved card keeps its badge and is marked as resolved; the web UI shows a Resolved badge instead, with the verdict as secondary text.
 - **Headline:** one line, at most 120 characters.
 - **Up to three bullets:** evidence from triage, or from the latest signal when there is no triage yet.

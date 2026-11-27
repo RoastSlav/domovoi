@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 
 use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, ToolUse, count_clear};
 use domovoi_core::ports::IncidentTimelineEntry;
-use domovoi_core::{ExecutionId, Incident, IncidentId, TriageOutcome, UserId, Verdict};
+use domovoi_core::triage::{cached_summary, current_episode, is_security_check};
+use domovoi_core::{
+    ExecutionId, Incident, IncidentId, IncidentStatus, TriageOutcome, UserId, Verdict,
+};
 use jiff::Timestamp;
 
 use super::command::{Command, CommandError};
@@ -48,14 +51,44 @@ pub(crate) fn set_verdict(
     Ok(out)
 }
 
+/// Withdraws an `EXPECTED` verdict from a security incident unless a person gave it by
+/// dismissing the incident since it last opened.
+pub(crate) fn recap_security(
+    state: &State,
+    incident: IncidentId,
+    now: Timestamp,
+) -> Result<Decision, CommandError> {
+    let mut found = loaded(state, incident)?;
+    let mut out = Decision::default();
+    let dismissed = found.status() == IncidentStatus::Resolved
+        && current_episode(found.check(), &state.timeline)
+            .iter()
+            .any(|entry| entry.kind == "human.dismissed");
+    if !is_security_check(found.check()) || found.verdict() != Some(Verdict::Expected) || dismissed
+    {
+        return Ok(out);
+    }
+    found.set_verdict(Some(Verdict::ActionNeeded));
+    out.writes.push(Write::UpdateIncident(found));
+    out.writes.push(Write::Timeline(IncidentTimelineEntry {
+        incident,
+        at: now,
+        kind: "verdict.recapped".to_owned(),
+        summary: "the stored EXPECTED verdict was withdrawn: no person gave it, and only a \
+                  person can call a security event expected"
+            .to_owned(),
+        detail: serde_json::Value::Null,
+    }));
+    Ok(out)
+}
+
 /// The timeline kind and summary for `outcome`.
 fn timeline_line(outcome: &TriageOutcome) -> (&'static str, String) {
     match outcome {
         TriageOutcome::Report(report) => ("triage.report", report.headline.clone()),
-        TriageOutcome::Cached { report, from } => (
-            "triage.cached",
-            format!("{} (reused from {from})", report.headline),
-        ),
+        TriageOutcome::Cached { report, from } => {
+            ("triage.cached", cached_summary(&report.headline, *from))
+        }
         TriageOutcome::Skipped { reason } => ("triage.skipped", reason.clone()),
         TriageOutcome::Failed { reason } => ("triage.failed", reason.clone()),
     }
@@ -73,6 +106,11 @@ pub(crate) fn attach(
 ) -> Result<Decision, CommandError> {
     let mut found = loaded(state, incident)?;
     let mut out = Decision::default();
+    // Every outcome passes here, however it was made: nothing stores a security event as
+    // expected or answers it with another event's report.
+    let mut outcome = outcome.clone();
+    outcome.cap_security(found.check(), found.title());
+    let outcome = &outcome;
     if let TriageOutcome::Report(report) | TriageOutcome::Cached { report, .. } = outcome {
         found.set_verdict(Some(report.verdict));
         out.writes.push(Write::UpdateIncident(found.clone()));

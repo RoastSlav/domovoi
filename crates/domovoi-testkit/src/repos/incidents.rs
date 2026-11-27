@@ -5,6 +5,7 @@ use domovoi_core::ports::{
     AggregateRef, IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo,
     StoreError,
 };
+use domovoi_core::triage::show_timeline;
 use domovoi_core::{Fingerprint, HostId, Incident, IncidentId, IncidentStatus, Signal};
 use jiff::Timestamp;
 
@@ -237,7 +238,12 @@ impl IncidentRepo for InMemoryStore {
     }
 
     async fn timeline(&self, id: IncidentId) -> Result<Vec<IncidentTimelineEntry>, StoreError> {
-        Ok(self.begin()?.timeline.get(&id).cloned().unwrap_or_default())
+        let state = self.begin()?;
+        let mut entries = state.timeline.get(&id).cloned().unwrap_or_default();
+        if let Some(incident) = state.incidents.get(&id) {
+            show_timeline(incident.check(), incident.title(), &mut entries);
+        }
+        Ok(entries)
     }
 
     async fn search(

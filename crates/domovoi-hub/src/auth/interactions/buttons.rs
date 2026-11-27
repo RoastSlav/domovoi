@@ -1,6 +1,7 @@
 //! Card buttons: Ack, Mute 1h, Details, and Approve or Deny with the action's single-use
 //! token. Only operation steps can be decided; a press naming a retired action is refused.
 
+use domovoi_core::triage::current_episode;
 use domovoi_core::{
     CardButton, ExecutionError, ExecutionId, IncidentId, PlanBinding, Risk, TriageOutcome,
     TriageReport,
@@ -149,7 +150,9 @@ impl InteractionAuthorizer {
             .timeline(incident)
             .await
             .map_err(|_| "Something went wrong; try again".to_owned())?;
-        let text = match latest_triage(&timeline) {
+        let found = self.chat.incidents.get(incident).await.ok().flatten();
+        let current = found.map_or(&timeline[..], |i| current_episode(i.check(), &timeline));
+        let text = match latest_triage(current) {
             Some(TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. }) => {
                 details_text(&r)
             }

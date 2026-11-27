@@ -181,6 +181,11 @@ pub fn apply(
             }
             incident.severity = severity;
             incident.resolved_at = None;
+            // A security event that fires again is a new event: no earlier verdict, not even a
+            // person's dismissal, speaks for it.
+            if crate::triage::is_security_check(&incident.check) {
+                incident.verdict = None;
+            }
             absorb_firing(incident, severity, observed_at, value, &mut changes);
             changes.push(IncidentChange::Reopened);
             set_status(incident, IncidentStatus::Open, &mut changes);

@@ -7,6 +7,7 @@ use domovoi_core::context::{
     ContextBatch, ContextLayer, ContextQuery, ContextSelector, ContextSourceId, ItemStatus, Origin,
 };
 use domovoi_core::ports::{ContextSource, IncidentTimelineEntry};
+use domovoi_core::triage::current_episode;
 
 use super::{Maker, Spec, incident_of};
 use crate::triage::{CLEAR_KIND, FOLLOW_UP_KIND, TriageDeps};
@@ -98,7 +99,11 @@ impl ContextSource for ThreadSource {
                 .gaps
                 .push(maker.gap("the incident timeline could not be read")),
             Ok(timeline) => {
-                report = Some(report_body(&timeline)).filter(|text| !text.is_empty());
+                let current = match self.deps.incidents.get(id).await {
+                    Ok(Some(found)) => current_episode(found.check(), &timeline),
+                    _ => &timeline[..],
+                };
+                report = Some(report_body(current)).filter(|text| !text.is_empty());
                 lines = Some(timeline_body(&timeline)).filter(|text| !text.is_empty());
             }
         }

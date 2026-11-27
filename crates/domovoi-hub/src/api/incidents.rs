@@ -24,6 +24,7 @@ use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
 use crate::services::{FollowUpError, RetriageError, Retriaged, latest_report, latest_triage};
+use domovoi_core::triage::current_episode;
 
 /// The longest follow-up question, in characters.
 pub const MAX_QUESTION_CHARS: usize = 1000;
@@ -126,12 +127,14 @@ pub(super) async fn detail(
         .await?
         .ok_or(ApiError::NotFound)?;
     let timeline = deps.incidents.timeline(incident.id()).await?;
-    let outcome = latest_triage(&timeline);
+    // A reopened security incident is a new event: an earlier report does not answer it.
+    let current = current_episode(incident.check(), &timeline);
+    let outcome = latest_triage(current);
     // A skipped or failed run is the newest outcome while its retry waits; the earlier report
     // stays visible next to it.
     let report = match &outcome {
         Some(TriageOutcome::Report(r) | TriageOutcome::Cached { report: r, .. }) => Some(r.clone()),
-        _ => latest_report(&timeline),
+        _ => latest_report(current),
     };
     let triage = outcome.as_ref().map(TriageStateDto::from);
     let latest = deps

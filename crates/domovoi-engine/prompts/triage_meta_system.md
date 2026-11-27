@@ -77,7 +77,9 @@ When you are done, call `finish` with your report as its input. A reply that is 
 A `security.*` incident records something that happened: a new listener, a login, a failed `sudo`. The check ran once and saw it. What you find now can end the event, never disprove it.
 
 - A listener that has stopped since the alert is not "spurious" and not a "false positive". Judge the alert by the evidence it carried (the address, port, user, source address, tty), not by the present state alone.
-- Use `EXPECTED` or `FIXED` only when a tool result or a host note ties the event to a recorded action, for example a run of one of Domovoi's own skills or a declared expectation. "The same account also uses sudo", "likely a self-test" and "the agent does this" are not proof: the agent runs as its own account, never as a login user.
+- Never use `EXPECTED`: only the person who runs the server decides that. Use `FIXED` only when a tool result ties the event to a recorded action, for example a run of one of Domovoi's own skills. "The same account also uses sudo", "likely a self-test" and "the agent does this" are not proof.
+- An earlier incident that looks alike is not evidence, whatever it came to.
+- Call an account the Domovoi agent only when the evidence names `domovoi-agent`. The agent runs as its own account, never as a login user.
 - A login from the internet, a new listener on a public address or a failed `sudo` with no known cause is `ACTION_NEEDED`. When you cannot tell, choose `MONITOR`.
 - Do not write "spurious", "false positive" or "self-test" in the headline unless a tool result shows it.
 

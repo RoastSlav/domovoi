@@ -22,6 +22,7 @@ pub(crate) mod meta;
 mod prepare_tests;
 mod prompt;
 pub(crate) mod proposals;
+mod recap;
 pub(crate) mod report;
 pub(crate) mod run;
 pub(crate) mod tools;
@@ -51,6 +52,7 @@ pub use chat::{
 pub use followup::{FOLLOW_UP_PROMPT, MAX_ANSWER_CHARS};
 pub use history::{CLEAR_KIND, FOLLOW_UP_KIND, Turn, count_clear, since_clear};
 pub use meta::{ExperienceAccess, META_SYSTEM_PROMPT, offered_tools};
+pub use recap::recap_security_verdicts;
 pub use report::parse_report;
 pub use tools::{MAX_RESULT_BYTES, TOOL_DEADLINE, UNKNOWN_NOTE};
 

@@ -9,6 +9,7 @@ use domovoi_core::{Incident, IncidentStatus};
 
 use super::{Maker, Spec, incident_of};
 use crate::triage::TriageDeps;
+use crate::triage::tools::history_verdict;
 
 /// Similar incidents shown.
 const SIMILAR: usize = 3;
@@ -83,7 +84,7 @@ impl ContextSource for SimilarIncidentsSource {
             })
             .take(shown)
             .map(|i| {
-                let verdict = i.verdict().map_or("no verdict", |v| v.label());
+                let verdict = history_verdict(i);
                 maker.item(Spec {
                     key: &i.id().to_string(),
                     title: &format!("{}: {}", i.check(), i.title()),

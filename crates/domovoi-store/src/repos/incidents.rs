@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use domovoi_core::ports::{
     IncidentFilter, IncidentRepo, IncidentTimelineEntry, Page, Paged, SignalRepo, StoreError,
 };
+use domovoi_core::triage::show_timeline;
 use domovoi_core::{
     Fingerprint, HostId, Incident, IncidentGroup, IncidentId, IncidentStatus, Signal, SignalStatus,
 };
@@ -435,7 +436,8 @@ impl IncidentRepo for Store {
             .fetch_all(&self.read)
             .await
             .map_err(db)?;
-        rows.into_iter()
+        let mut entries = rows
+            .into_iter()
             .map(|(at, kind, summary, detail)| {
                 Ok(IncidentTimelineEntry {
                     incident: id,
@@ -445,7 +447,13 @@ impl IncidentRepo for Store {
                     detail: from_json(&detail, "timeline detail")?,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, StoreError>>()?;
+        // The one place stored entries are read, so a security event stored as expected, or
+        // answered with another event's report, is never shown as that.
+        if let Some(incident) = IncidentRepo::get(self, id).await? {
+            show_timeline(incident.check(), incident.title(), &mut entries);
+        }
+        Ok(entries)
     }
 
     async fn search(

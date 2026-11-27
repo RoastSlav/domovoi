@@ -40,6 +40,7 @@ const KINDS: Record<string, Entry> = {
   "human.dismissed": { phrase: "Dismissed as a known condition", tone: "neutral", icon: "check" },
   "triage.report": { phrase: "Triage reported", tone: "info", icon: "note" },
   "triage.cached": { phrase: "Triage reused an earlier report", tone: "info", icon: "note" },
+  "verdict.recapped": { phrase: "Verdict withdrawn", tone: "warning", icon: "ban" },
   "triage.skipped": { phrase: "Triage was skipped", tone: "warning", icon: "pause" },
   "triage.failed": { phrase: "Triage failed", tone: "danger", icon: "x-circle" },
   "triage.tools": { phrase: "Tools were used", tone: "neutral", icon: "tool" },

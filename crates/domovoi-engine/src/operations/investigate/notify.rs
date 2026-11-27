@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{ClaimToken, EffectRecord};
+use domovoi_core::triage::is_security_check;
 use domovoi_core::{ExecutionId, Incident, OperationId, StepKind, StepOutcome, TriageOutcome};
 
 use super::close::try_close;
@@ -146,7 +147,11 @@ impl EffectHandler for Notify {
         };
         let triage = &runtime.triage;
         let deps = &triage.deps;
-        if let TriageOutcome::Report(report) = &outcome {
+        // A turn stored by an older build may still carry a reused or uncapped report.
+        outcome.cap_security(incident.check(), incident.title());
+        if let TriageOutcome::Report(report) = &outcome
+            && !is_security_check(incident.check())
+        {
             let evidence = digest(triage, &incident).await;
             if let Err(err) = deps
                 .cache

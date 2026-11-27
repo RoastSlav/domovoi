@@ -294,7 +294,12 @@ impl IncidentManager {
             Command::RecordFollowUp { incident, .. } => {
                 timeline = self.deps.incidents.timeline(*incident).await?;
             }
-            Command::AttachTriage { incident, .. } | Command::SetVerdict { incident, .. } => {
+            Command::AttachTriage { incident, .. }
+            | Command::SetVerdict { incident, .. }
+            | Command::RecapSecurityVerdict { incident } => {
+                if matches!(command, Command::RecapSecurityVerdict { .. }) {
+                    timeline = self.deps.incidents.timeline(*incident).await?;
+                }
                 if !self.active.iter().any(|i| i.id() == *incident)
                     && let Some(read) = self.deps.versions.incident(*incident).await?
                 {
