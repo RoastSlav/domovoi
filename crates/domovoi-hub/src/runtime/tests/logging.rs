@@ -49,3 +49,23 @@ async fn a_finished_backup_logs_its_path_and_size() {
     assert!(line.contains(&file.display().to_string()), "{line}");
     assert!(line.contains("size_bytes=321"), "{line}");
 }
+
+#[tokio::test]
+async fn the_backup_audit_row_carries_the_file_name_and_size() {
+    use domovoi_core::ports::{AuditFilter, AuditLog, Page};
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("domovoi-20261127T000000Z.db");
+    std::fs::write(&file, vec![0u8; 321]).unwrap();
+    let store = domovoi_testkit::InMemoryStore::new();
+    crate::runtime::backup_job::audit_backup(&store, at("2026-11-27T00:00:00Z"), &Ok(file)).await;
+    let rows = store
+        .list(&AuditFilter::default(), &Page::first(10))
+        .await
+        .unwrap()
+        .items;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].kind, "backup.created");
+    assert_eq!(rows[0].detail["file"], "domovoi-20261127T000000Z.db");
+    assert_eq!(rows[0].detail["size_bytes"], 321);
+}

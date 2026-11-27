@@ -10,7 +10,7 @@ fn backup_advisory_id() -> domovoi_core::AdvisoryId {
     advisory_id(AdvisoryKind::BackupFailed, None, "nightly")
 }
 
-/// Writes the audit row of one backup run: `backup.created` with the file name, or
+/// Writes the audit row of one backup run: `backup.created` with the file name and size, or
 /// `backup.failed`. The reason text is not stored here (it is in the advisory, redacted).
 pub(crate) async fn audit_backup(
     audit: &dyn domovoi_core::ports::AuditLog,
@@ -20,7 +20,10 @@ pub(crate) async fn audit_backup(
     let (kind, detail) = match result {
         Ok(path) => (
             "backup.created",
-            serde_json::json!({ "file": path.file_name().map(|n| n.to_string_lossy().into_owned()) }),
+            serde_json::json!({
+                "file": path.file_name().map(|n| n.to_string_lossy().into_owned()),
+                "size_bytes": tokio::fs::metadata(path).await.map(|m| m.len()).ok(),
+            }),
         ),
         Err(_) => ("backup.failed", serde_json::Value::Null),
     };

@@ -39,6 +39,20 @@ pub(crate) async fn vacuum_into(
         .map(|_| ())
 }
 
+/// Makes a new backup readable by its owner only. `VACUUM INTO` creates the file with the
+/// process umask (usually 0644), and the copy holds the password hash, session ids and notes.
+pub(crate) fn restrict_backup(path: &Path) -> Result<(), StoreOpenError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|err| io(path, err))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
 pub(crate) fn io(path: &Path, err: impl std::fmt::Display) -> StoreOpenError {
     StoreOpenError::Io {
         path: path.to_owned(),
@@ -236,6 +250,7 @@ impl Store {
             .await
             .map_err(|e| io(&target, e))?;
         drop(conn);
+        restrict_backup(&target)?;
         verify_or_track(&target).await?;
         prune(dir, self.options.keep_backups)?;
         prune_pre_migrate(dir, self.options.keep_pre_migrate)?;

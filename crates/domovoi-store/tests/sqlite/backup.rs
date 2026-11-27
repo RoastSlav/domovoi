@@ -405,3 +405,18 @@ async fn a_backup_that_cannot_be_removed_says_so() {
     );
     assert!(stuck.exists(), "nothing was deleted");
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_new_backup_is_readable_by_its_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fresh = Fresh::new().await;
+    let dir = fresh.dir.path().join("nightly");
+    let path = fresh.store.backup_to(&dir, at(0)).await.unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "backup mode is {mode:o}");
+    let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(dir_mode, 0o700, "backup directory mode is {dir_mode:o}");
+    fresh.store.close().await;
+}

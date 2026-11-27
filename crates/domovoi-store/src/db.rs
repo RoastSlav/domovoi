@@ -12,7 +12,7 @@ use sqlx::sqlite::{
 };
 use sqlx::{ConnectOptions, Connection};
 
-use crate::backup::{pre_migrate_name, prune_pre_migrate, vacuum_into};
+use crate::backup::{pre_migrate_name, prune_pre_migrate, restrict_backup, vacuum_into};
 use crate::codec::ms;
 use crate::compat;
 use crate::error::StoreOpenError;
@@ -226,6 +226,7 @@ impl Store {
             vacuum_into(&mut conn, &target)
                 .await
                 .map_err(|e| io(&target, e))?;
+            restrict_backup(&target)?;
             conn.close().await.map_err(database)?;
             tracing::info!(backup = %target.display(), "backed up the database before migrating");
             // The copy just taken is the newest, so it survives while older ones go.
