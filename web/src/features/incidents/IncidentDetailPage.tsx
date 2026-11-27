@@ -22,6 +22,7 @@ import { IncidentEvidence } from "./IncidentEvidence";
 import { IncidentTimeline, ToolsUsed } from "./IncidentHistory";
 import { IncidentMeta } from "./IncidentMeta";
 import { ManualSteps } from "./ManualSteps";
+import { UncoveredNotice } from "./UncoveredNotice";
 import { MODEL_SETTINGS, useModelOff } from "./useModelOff";
 import { useStatusNews } from "./useStatusNews";
 import { WhatsGoingOn } from "./WhatsGoingOn";
@@ -106,7 +107,10 @@ export function IncidentDetailPage() {
             {data.blind ? (
               <BlindNotice blind={data.blind} resolved={summary.status === "resolved"} />
             ) : (
-              <WhatsGoingOn detail={data} off={modelOff} />
+              <Stack gap={2}>
+                {data.uncovered && <UncoveredNotice uncovered={data.uncovered} />}
+                <WhatsGoingOn detail={data} off={modelOff} />
+              </Stack>
             )}
           </div>
           <div className={styles.slot} data-slot="operations">

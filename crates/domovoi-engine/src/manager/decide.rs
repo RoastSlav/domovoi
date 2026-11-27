@@ -74,8 +74,8 @@ fn not_allowed(err: TransitionError) -> CommandError {
 pub(super) struct Builder<'a> {
     state: State,
     policy: &'a EnginePolicy,
-    now: Timestamp,
-    out: Decision,
+    pub(super) now: Timestamp,
+    pub(super) out: Decision,
 }
 
 impl Builder<'_> {
@@ -328,6 +328,12 @@ impl Builder<'_> {
             .writes
             .push(Write::InsertSignal(signal.clone(), Some(id)));
         self.record(&incident, &changes, Some(signal), notify);
+        if changes
+            .iter()
+            .any(|c| matches!(c, IncidentChange::Folded { .. }))
+        {
+            self.security_event(&incident, signal);
+        }
         if incident.status() == IncidentStatus::Resolved {
             self.state.active.remove(pos);
             self.state.resolved.insert(incident.fingerprint(), incident);
@@ -372,6 +378,8 @@ impl Builder<'_> {
             .writes
             .push(Write::InsertSignal(signal.clone(), Some(id)));
         self.record(&incident, &changes, Some(signal), notify);
+        // After the status change, so the event belongs to the new episode.
+        self.security_event(&incident, signal);
         self.state.resolved.remove(&fingerprint);
         self.state.active.push(incident);
     }
@@ -495,7 +503,14 @@ pub fn decide(
             incident,
             outcome,
             tokens,
-        } => return super::annotate::attach(state, *incident, outcome, tokens, now),
+            seen_until,
+        } => {
+            let mut out = super::annotate::attach(state, *incident, outcome, tokens, now)?;
+            if let Some(seen) = seen_until {
+                super::events::mark_seen(&mut out, *seen);
+            }
+            return Ok(out);
+        }
         Command::RecordFollowUp { .. } => {
             return Ok(super::annotate::record_follow_up(command, state, now));
         }

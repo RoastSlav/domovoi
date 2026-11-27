@@ -541,6 +541,20 @@ test("a_blind_check_says_why_and_how_to_fix_it_and_offers_no_triage", async () =
   expect(screen.queryByText(/Triage has not run/)).toBeNull();
 });
 
+test("a_verdict_says_which_later_security_events_it_does_not_cover", async () => {
+  const d = detail();
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...d,
+    uncovered: { events: 2, latest: "failed sudo authentication for bob" },
+  }));
+  open();
+
+  expect(
+    await screen.findByText("This verdict does not cover 2 later security events"),
+  ).toBeVisible();
+  expect(screen.getByText(/failed sudo authentication for bob/)).toBeVisible();
+});
+
 test("triage_that_was_skipped_says_why", async () => {
   const d = detail();
   route("GET /api/v1/incidents/{id}", () => ({

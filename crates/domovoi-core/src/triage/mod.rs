@@ -1,5 +1,6 @@
 //! Triage: the read-only tools the model may use and the report it must return.
 
+mod coverage;
 mod report;
 mod security;
 mod tool_call;
@@ -8,6 +9,10 @@ mod tools;
 #[cfg(test)]
 mod triage_tests;
 
+pub use coverage::{
+    SECURITY_EVENT_KIND, SEEN_UNTIL_KEY, is_security_event, reports_security_events,
+    uncovered_events,
+};
 pub use report::{
     ActionProposal, EvidenceRef, HEADLINE_MAX_CHARS, MANUAL_STEP_MAX_CHARS, MAX_EVIDENCE,
     MAX_MANUAL_STEPS, MAX_PROPOSALS, NEXT_STEP_MAX_CHARS, TriageBudget, TriageOutcome,

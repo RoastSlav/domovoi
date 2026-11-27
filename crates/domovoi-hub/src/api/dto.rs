@@ -288,6 +288,9 @@ pub struct IncidentDetail {
     pub known_condition: Option<String>,
     /// Set when the incident says a check cannot read what it watches: why, and the fix.
     pub blind: Option<BlindDto>,
+    /// Set when security events came after the latest report: its verdict does not cover
+    /// them. They are on the timeline.
+    pub uncovered: Option<UncoveredDto>,
 }
 
 /// Why a check is blind and how to make it see again.
@@ -297,6 +300,15 @@ pub struct BlindDto {
     pub why: String,
     /// What to do on the host.
     pub fix: String,
+}
+
+/// Security events the latest report has not seen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct UncoveredDto {
+    /// How many.
+    pub events: u32,
+    /// The newest one, as its timeline line says it.
+    pub latest: String,
 }
 
 /// One skill or tool used while triaging or answering a follow-up.

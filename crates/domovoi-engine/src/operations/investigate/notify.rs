@@ -173,11 +173,22 @@ impl EffectHandler for Notify {
         if web_only > 0 {
             add_pointer(&mut outcome);
         }
-        if let Err(err) = deps
-            .manager
-            .attach_triage(incident.id(), outcome.clone(), tokens)
-            .await
-        {
+        // The turn was opened just before the run read the incident, so what came later is
+        // not covered by the report.
+        let attached = match step_of(&snapshot, turn_id) {
+            Some(turn) => {
+                let seen = turn.step.created_at;
+                deps.manager
+                    .attach_triage_seen(incident.id(), outcome.clone(), tokens, seen)
+                    .await
+            }
+            None => {
+                deps.manager
+                    .attach_triage(incident.id(), outcome.clone(), tokens)
+                    .await
+            }
+        };
+        if let Err(err) = attached {
             return EffectOutcome::Retry {
                 error: err.to_string(),
             };

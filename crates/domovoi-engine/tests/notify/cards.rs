@@ -48,6 +48,7 @@ fn step_links(steps: Vec<WaitingStep>, with_tokens: bool) -> CardLinks {
         web_url: None,
         tokens,
         steps,
+        uncovered: None,
     }
 }
 

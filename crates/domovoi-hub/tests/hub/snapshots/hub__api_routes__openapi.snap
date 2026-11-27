@@ -3601,6 +3601,17 @@ expression: spec
                 "type": "null"
               }
             ]
+          },
+          "uncovered": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UncoveredDto",
+                "description": "Set when security events came after the latest report: its verdict does not cover\nthem. They are on the timeline."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -8644,6 +8655,26 @@ expression: spec
         "required": [
           "turn",
           "message"
+        ],
+        "type": "object"
+      },
+      "UncoveredDto": {
+        "description": "Security events the latest report has not seen.",
+        "properties": {
+          "events": {
+            "description": "How many.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "latest": {
+            "description": "The newest one, as its timeline line says it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "latest"
         ],
         "type": "object"
       },

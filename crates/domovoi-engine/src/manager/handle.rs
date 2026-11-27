@@ -117,6 +117,24 @@ impl ManagerHandle {
             incident,
             outcome,
             tokens,
+            seen_until: None,
+        })
+        .await
+    }
+
+    /// [`Self::attach_triage`] for a run that read the incident at `seen_until`.
+    pub async fn attach_triage_seen(
+        &self,
+        incident: IncidentId,
+        outcome: TriageOutcome,
+        tokens: BTreeMap<ExecutionId, String>,
+        seen_until: Timestamp,
+    ) -> Result<(), CommandError> {
+        self.send(Command::AttachTriage {
+            incident,
+            outcome,
+            tokens,
+            seen_until: Some(seen_until),
         })
         .await
     }

@@ -12681,6 +12681,17 @@
                 "type": "null"
               }
             ]
+          },
+          "uncovered": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UncoveredDto",
+                "description": "Set when security events came after the latest report: its verdict does not cover\nthem. They are on the timeline."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -17714,6 +17725,26 @@
           "turn": {
             "type": "string",
             "description": "The turn."
+          }
+        }
+      },
+      "UncoveredDto": {
+        "type": "object",
+        "description": "Security events the latest report has not seen.",
+        "required": [
+          "events",
+          "latest"
+        ],
+        "properties": {
+          "events": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many.",
+            "minimum": 0
+          },
+          "latest": {
+            "type": "string",
+            "description": "The newest one, as its timeline line says it."
           }
         }
       },

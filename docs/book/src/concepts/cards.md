@@ -16,6 +16,7 @@ Next: Pin the previous image tag and restart.
 
 - **Security events:** triage never calls a `security.*` event EXPECTED: only a person does, with a known condition or by dismissing the incident. Such a verdict becomes ACTION NEEDED. FIXED needs a cited tool result; otherwise it is lowered to MONITOR. In both cases the headline, summary and next step are rewritten to match, and the details keep the model's own text, marked as not accepted.
 - **Every security event is triaged on its own evidence.** A cached report is never used for a `security.*` check, an earlier incident is not evidence, and an incident that reopens starts without a verdict. A stored EXPECTED verdict that no person gave is withdrawn when the hub starts.
+- **Later security events:** when events arrived after the run behind the report, the first bullet says how many the verdict does not cover and what the latest was.
 - **Blind checks:** a card for a check that cannot read the journal says why, and its next step is the fix.
 - **Badge:** the triage verdict (ACTION NEEDED, MONITOR, EXPECTED, FIXED) or, before triage, the severity. A resolved card keeps its badge and is marked as resolved; the web UI shows a Resolved badge instead, with the verdict as secondary text.
 - **Headline:** one line, at most 120 characters.

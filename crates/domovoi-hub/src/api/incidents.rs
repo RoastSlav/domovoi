@@ -8,15 +8,16 @@ use domovoi_core::{
     AckRule, AckRuleId, Incident, IncidentGroup, IncidentId, IncidentStatus, Severity,
     TargetPattern, TriageOutcome, blind_notice,
 };
-use domovoi_engine::cards::{CardLinks, build_card, card_signal, signals_for_card};
+use domovoi_engine::cards::{CardLinks, Uncovered, build_card, card_signal, signals_for_card};
 use domovoi_engine::triage::TriageError;
 use jiff::SignedDuration;
 
 use super::audit_note::note;
+use super::dismissal::dismissed_rule;
 use super::dto::{
     AskRequest, AskResponse, BlindDto, CardDto, DismissRequest, IncidentDetail, IncidentPage,
     IncidentQuery, IncidentSummary, MuteRequest, ReportDto, RetryQuery, TimelineEntryDto,
-    TriageStateDto,
+    TriageStateDto, UncoveredDto,
 };
 use super::error::{ApiError, ErrorBody, busy};
 use super::operation_errors::{command, operation_error};
@@ -25,7 +26,7 @@ use super::snapshot::snapshot_seq;
 use super::tool_usage::tool_usage;
 use super::{ApiState, Authed, host_named, page};
 use crate::services::{FollowUpError, RetriageError, Retriaged, latest_report, latest_triage};
-use domovoi_core::triage::current_episode;
+use domovoi_core::triage::{current_episode, uncovered_events};
 
 /// The longest follow-up question, in characters.
 pub const MAX_QUESTION_CHARS: usize = 1000;
@@ -144,6 +145,7 @@ pub(super) async fn detail(
         .await?;
     let blind = blind_notice(&incident, &host.name, &signals);
     let latest = card_signal(&incident, &signals);
+    let uncovered = uncovered_events(incident.check(), &timeline);
     let steps = domovoi_engine::operations::waiting_steps(
         &*deps.operation_repo,
         &incident,
@@ -157,6 +159,7 @@ pub(super) async fn detail(
         &host.name,
         &CardLinks {
             steps,
+            uncovered: Uncovered::of(&uncovered),
             ..CardLinks::default()
         },
         latest,
@@ -176,33 +179,11 @@ pub(super) async fn detail(
             why: notice.why,
             fix: notice.fix,
         }),
+        uncovered: Uncovered::of(&uncovered).map(|found| UncoveredDto {
+            events: found.events,
+            latest: found.latest,
+        }),
     }))
-}
-
-/// The newest known condition made for a dismissed incident: same host and check, and a
-/// target pattern equal to the incident's target. A dismissal without a period makes none.
-async fn dismissed_rule(
-    state: &ApiState,
-    incident: &Incident,
-    timeline: &[domovoi_core::ports::IncidentTimelineEntry],
-) -> Result<Option<String>, ApiError> {
-    if !timeline.iter().any(|entry| entry.kind == "human.dismissed") {
-        return Ok(None);
-    }
-    let target = incident.target().map(|t| t.as_str().to_owned());
-    Ok(state
-        .deps
-        .acks
-        .list_rules()
-        .await?
-        .into_iter()
-        .filter(|rule| {
-            rule.host == Some(incident.host())
-                && rule.check == *incident.check()
-                && rule.target_pattern.as_ref().map(ToString::to_string) == target
-        })
-        .max_by_key(|rule| rule.created_at)
-        .map(|rule| rule.id.to_string()))
 }
 
 /// Acknowledges an incident.

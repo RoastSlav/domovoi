@@ -11,6 +11,7 @@ use crate::ports::IncidentTimelineEntry;
 use crate::signal::CheckKey;
 use crate::verdict::Verdict;
 
+use super::coverage::SEEN_UNTIL_KEY;
 use super::report::{HEADLINE_MAX_CHARS, TriageOutcome, TriageReport};
 
 /// Opens `details` when a model called a security event expected.
@@ -165,7 +166,11 @@ pub fn show_timeline(check: &CheckKey, title: &str, entries: &mut [IncidentTimel
             TriageOutcome::Cached { report, from } => cached_summary(&report.headline, *from),
             TriageOutcome::Skipped { reason } | TriageOutcome::Failed { reason } => reason.clone(),
         };
+        let seen = entry.detail.get(SEEN_UNTIL_KEY).cloned();
         entry.detail = serde_json::to_value(&outcome).unwrap_or(serde_json::Value::Null);
+        if let (Some(seen), Some(detail)) = (seen, entry.detail.as_object_mut()) {
+            detail.insert(SEEN_UNTIL_KEY.to_owned(), seen);
+        }
     }
 }
 

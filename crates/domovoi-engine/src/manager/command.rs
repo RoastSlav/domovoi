@@ -52,6 +52,9 @@ pub enum Command {
         outcome: TriageOutcome,
         /// Plain chat tokens of the proposed actions, passed on in the event.
         tokens: BTreeMap<ExecutionId, String>,
+        /// When the run read the incident; security events after it are not covered by the
+        /// report. `None` means the moment the outcome is stored.
+        seen_until: Option<Timestamp>,
     },
     /// Sets the incident's verdict, for example `Fixed` once an action is verified. Works on
     /// resolved incidents too; publishes nothing.

@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 
+use domovoi_core::ports::IncidentTimelineEntry;
 use domovoi_core::{
     BLIND_REASON_KEY, Card, CardBadge, CardButton, CardPlan, EvidenceValue, ExecutionId, HostName,
     Incident, IncidentStatus, Risk, Signal, TriageReport, blind_notice,
@@ -34,6 +35,42 @@ pub struct CardLinks {
     pub tokens: BTreeMap<ExecutionId, String>,
     /// Execution steps waiting for approval.
     pub steps: Vec<WaitingStep>,
+    /// Security events the report has not seen.
+    pub uncovered: Option<Uncovered>,
+}
+
+/// Security events that came after the report a card shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Uncovered {
+    /// How many.
+    pub events: u32,
+    /// The newest one, as its timeline line says it.
+    pub latest: String,
+}
+
+impl Uncovered {
+    /// The summary of `entries`, oldest first, as [`uncovered_events`] gives them; `None`
+    /// when there are none.
+    ///
+    /// [`uncovered_events`]: domovoi_core::triage::uncovered_events
+    #[must_use]
+    pub fn of(entries: &[&IncidentTimelineEntry]) -> Option<Self> {
+        entries.last().map(|newest| Self {
+            events: u32::try_from(entries.len()).unwrap_or(u32::MAX),
+            latest: newest.summary.clone(),
+        })
+    }
+
+    fn bullet(&self) -> String {
+        let events = match self.events {
+            1 => "1 later security event".to_owned(),
+            n => format!("{n} later security events"),
+        };
+        format!(
+            "Not covered by this verdict: {events}, latest: {}",
+            self.latest
+        )
+    }
 }
 
 /// How many of an incident's newest signals a card needs: one, except for a blind check,
@@ -255,7 +292,14 @@ pub fn build_card(
         headline,
         bullets: match &blind {
             Some(notice) => vec![clip(&format!("Why: {}", notice.why), REASON_MAX_CHARS)],
-            None => bullets(report, latest),
+            None => {
+                let mut bullets = bullets(report, latest);
+                if let Some(found) = links.uncovered.as_ref().filter(|_| report.is_some()) {
+                    bullets.insert(0, clip(&found.bullet(), REASON_MAX_CHARS));
+                    bullets.truncate(MAX_BULLETS);
+                }
+                bullets
+            }
         },
         next_step: match blind {
             Some(notice) => Some(notice.fix),

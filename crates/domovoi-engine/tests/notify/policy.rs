@@ -10,7 +10,7 @@ use domovoi_engine::notify::{
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 
-use crate::harness::{event, host, open, quiet, resolve, sofia, ts};
+use crate::harness::{event, host, open, open_from, quiet, resolve, signal, sofia, ts};
 
 fn posted(at: Timestamp) -> NotifyState {
     let mut state = NotifyState::default();
@@ -496,4 +496,29 @@ fn a_question_for_an_incident_held_for_quiet_hours_waits_with_it() {
     };
     let out = plan(&event(asked, &incident), &held.state, &settings, at);
     assert!(out.actions.is_empty(), "{:?}", out.actions);
+}
+
+#[test]
+fn a_new_security_event_edits_the_card_even_between_thread_replies() {
+    let start = ts("2026-10-31T12:00:00Z");
+    let login = open_from(
+        &signal(
+            "security.sudo_failure",
+            Some("bob"),
+            Severity::Warning,
+            start,
+        ),
+        1,
+    );
+    let settings = NotifySettings::new(TimeZone::UTC);
+    let mut state = posted(start);
+    state.last_fold_reply_at = Some(start);
+    let now = start + SignedDuration::from_mins(1);
+    let out = plan(&event(folded(2), &login), &state, &settings, now);
+    assert_eq!(
+        out.actions,
+        [NotifyAction::UpdateCard {
+            incident: login.id()
+        }]
+    );
 }

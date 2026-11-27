@@ -1,5 +1,6 @@
 //! What to say about one domain event. Pure.
 
+use domovoi_core::triage::reports_security_events;
 use domovoi_core::{HeldItem, Incident, IncidentId, NotifyState, Severity};
 use jiff::Timestamp;
 
@@ -114,12 +115,20 @@ fn folded(
     if !posted(state) {
         return Vec::new();
     }
+    // A security event is not in the verdict the card shows: the card is edited to say so,
+    // however recently a reply was posted.
+    let mut actions = Vec::new();
+    if reports_security_events(incident.check()) && !incident.is_monitoring_blind() {
+        actions.push(NotifyAction::UpdateCard {
+            incident: incident.id(),
+        });
+    }
     let due = state
         .last_fold_reply_at
         .is_none_or(|last| now.duration_since(last) >= settings.fold_every);
     if !due {
         state.folds_since_reply = state.folds_since_reply.saturating_add(1);
-        return Vec::new();
+        return actions;
     }
     let since = state.first_alert_at.unwrap_or(incident.opened_at());
     let more = match state.folds_since_reply {
@@ -134,10 +143,11 @@ fn folded(
     );
     state.last_fold_reply_at = Some(now);
     state.folds_since_reply = 0;
-    vec![NotifyAction::ThreadReply {
+    actions.push(NotifyAction::ThreadReply {
         incident: incident.id(),
         text,
-    }]
+    });
+    actions
 }
 
 /// What to deliver for `event`, given what was said before (`state`).

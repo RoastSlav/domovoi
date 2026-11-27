@@ -3584,6 +3584,7 @@ export interface components {
             /** @description Skills and tools used while triaging or answering, in first-call order. */
             tools_used: components["schemas"]["ToolUsageDto"][];
             triage?: components["schemas"]["TriageStateDto"] | null;
+            uncovered?: components["schemas"]["UncoveredDto"] | null;
         };
         /** @description How many unresolved incidents are in each group of the incident list. */
         IncidentGroupsDto: {
@@ -5573,6 +5574,16 @@ export interface components {
             message: string;
             /** @description The turn. */
             turn: string;
+        };
+        /** @description Security events the latest report has not seen. */
+        UncoveredDto: {
+            /**
+             * Format: int32
+             * @description How many.
+             */
+            events: number;
+            /** @description The newest one, as its timeline line says it. */
+            latest: string;
         };
         /** @description The owner's request to unpin the helper key. */
         UnpinKeyRequest: {

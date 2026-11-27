@@ -9,10 +9,12 @@ use domovoi_core::ports::{
     AdvisoryRepo, ChatError, ChatGateway, Clock, HostRepo, IncidentRepo, IncidentTimelineEntry,
     MessageRef, Notifier, NotifyStateRepo, OutboundMessage, SignalRepo, StoreError,
 };
-use domovoi_core::triage::current_episode;
+use domovoi_core::triage::{current_episode, uncovered_events};
 use domovoi_core::{Advisory, AdvisoryKind, Card, ChatRefs, Incident, NotifyState, TriageOutcome};
 use domovoi_engine::advisories::advisory_id;
-use domovoi_engine::cards::{CardLinks, MAX_PLANS, build_card, card_signal, signals_for_card};
+use domovoi_engine::cards::{
+    CardLinks, MAX_PLANS, Uncovered, build_card, card_signal, signals_for_card,
+};
 use domovoi_engine::events::{DomainEvent, EventKind};
 use domovoi_engine::notify::{self, NotifyAction, NotifySettings};
 use domovoi_engine::operations::waiting_steps;
@@ -317,6 +319,7 @@ impl Delivery {
             .unwrap_or_default();
         let entries = self.store.timeline(incident.id()).await.unwrap_or_default();
         let report = latest_report(incident, &entries);
+        let uncovered = Uncovered::of(&uncovered_events(incident.check(), &entries));
         let steps = waiting_steps(&*self.store, incident, &host.name, MAX_PLANS)
             .await
             .unwrap_or_else(|err| {
@@ -331,6 +334,7 @@ impl Delivery {
                 web_url: self.config.web.public_url.as_ref().map(ToString::to_string),
                 tokens,
                 steps,
+                uncovered,
             },
             card_signal(incident, &signals),
         ))

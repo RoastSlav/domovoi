@@ -5,6 +5,7 @@
 //! Every endpoint except login, setup, health and metrics needs a session; unsafe methods
 //! also pass the CSRF guard in [`crate::auth::csrf`].
 
+mod dismissal;
 pub mod dto;
 pub mod dto_admin;
 pub mod dto_audit;
