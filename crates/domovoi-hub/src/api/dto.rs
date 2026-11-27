@@ -142,6 +142,9 @@ pub struct ReportDto {
     pub proposals: Vec<ProposalDto>,
     /// Anything else.
     pub details: String,
+    /// Fields that repeat an earlier one or break their job (a command in the next step),
+    /// found when the report was accepted. The page shows a repeated field once.
+    pub field_problems: Vec<String>,
 }
 
 impl From<&TriageReport> for ReportDto {
@@ -172,6 +175,7 @@ impl From<&TriageReport> for ReportDto {
                 })
                 .collect(),
             details: r.details.clone(),
+            field_problems: r.field_problems().into_iter().map(str::to_owned).collect(),
         }
     }
 }

@@ -4637,6 +4637,11 @@ export interface components {
             details: string;
             /** @description Supporting evidence. */
             evidence: components["schemas"]["EvidenceDto"][];
+            /**
+             * @description Fields that repeat an earlier one or break their job (a command in the next step),
+             *     found when the report was accepted. The page shows a repeated field once.
+             */
+            field_problems: string[];
             /** @description What is wrong, in one line. */
             headline: string;
             /** @description Steps a person does by hand, in order. */

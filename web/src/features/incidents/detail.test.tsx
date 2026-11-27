@@ -709,3 +709,26 @@ test("dismiss_is_offered_only_after_the_incident_is_confirmed", async () => {
     "dismissing a pending incident is refused, so the page offers no refusal",
   ).toBeNull();
 });
+
+test("a_cause_the_hub_flags_as_a_repeat_of_the_summary_is_shown_once", async () => {
+  route("GET /api/v1/incidents/{id}", () => ({
+    ...detail(),
+    report: {
+      headline: "ip is missing",
+      summary: "The self-test fails because the ip program is missing from the server",
+      cause: "The ip program is missing from the server so the self-test fails",
+      evidence: [],
+      verdict: "ACTION_NEEDED",
+      next_step: "Look at the unit",
+      manual_steps: [],
+      proposals: [],
+      details: "",
+      field_problems: ["cause repeats summary"],
+    },
+  }));
+  open();
+
+  const going = within(await screen.findByRole("group", { name: "What's going on" }));
+  expect(await going.findByText(/self-test fails because the ip program/)).toBeVisible();
+  expect(going.queryByText(/Cause:/)).toBeNull();
+});

@@ -15290,7 +15290,8 @@
           "next_step",
           "manual_steps",
           "proposals",
-          "details"
+          "details",
+          "field_problems"
         ],
         "properties": {
           "cause": {
@@ -15307,6 +15308,13 @@
               "$ref": "#/components/schemas/EvidenceDto"
             },
             "description": "Supporting evidence."
+          },
+          "field_problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Fields that repeat an earlier one or break their job (a command in the next step),\nfound when the report was accepted. The page shows a repeated field once."
           },
           "headline": {
             "type": "string",

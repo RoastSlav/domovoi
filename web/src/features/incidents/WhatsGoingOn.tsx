@@ -76,6 +76,7 @@ function lead(detail: IncidentDetail) {
       summary: report.summary,
       cause: report.cause,
       next: report.next_step,
+      problems: report.field_problems ?? [],
     };
   }
   const done = detail.triage?.kind === "report" || detail.triage?.kind === "cached";
@@ -89,6 +90,7 @@ function lead(detail: IncidentDetail) {
     summary: "",
     cause: "",
     next: card.next_step ?? "",
+    problems: [] as string[],
   };
 }
 
@@ -210,15 +212,18 @@ export function WhatsGoingOn({
           <Stack gap={3}>
             {retry.isPending && <Progress label="Triage is reading the logs…" />}
             {said.summary && <Text block>{said.summary}</Text>}
-            {said.cause && !sameText(said.cause, said.summary) && (
-              <Text block>
-                <Text muted>Cause: </Text>
-                {said.cause}
-              </Text>
-            )}
+            {said.cause &&
+              !sameText(said.cause, said.summary) &&
+              !said.problems.includes("cause repeats summary") && (
+                <Text block>
+                  <Text muted>Cause: </Text>
+                  {said.cause}
+                </Text>
+              )}
             {said.next &&
               !sameText(said.next, said.cause) &&
-              !sameText(said.next, said.summary) && (
+              !sameText(said.next, said.summary) &&
+              !said.problems.includes("next_step repeats the problem") && (
                 <div className={styles.nextStep}>
                   <strong>Next step:</strong> {said.next}
                 </div>
