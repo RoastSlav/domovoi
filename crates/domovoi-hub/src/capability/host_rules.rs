@@ -28,6 +28,36 @@ pub(super) fn ceiling_allows(
     }
 }
 
+/// Why the helper on this host cannot serve `contract`, when it cannot: the helper failed, or it
+/// does not offer the operation (a group is missing from `helper.toml`). `None` for a contract
+/// that does not run through the helper and for one the helper offers. One function, so the
+/// availability rows and the Limits tab say the same thing.
+pub(crate) fn helper_refusal(
+    contract: &CapabilityContract,
+    words: &HostWords,
+) -> Option<UnavailableReason> {
+    if contract.execution != ExecutionPath::Helper {
+        return None;
+    }
+    if words.helper == HelperState::Failed {
+        return Some(UnavailableReason::HelperError);
+    }
+    // The helper offers an operation only when it says so: a read it serves, or a write whose
+    // group is named and whose platform tier allows it.
+    if matches!(contract.id.as_str(), "unit.identity" | "unit.restart")
+        && !words.helper_ops.iter().any(|op| op == contract.id.as_str())
+    {
+        return Some(UnavailableReason::HelperSystemdGroupMissing);
+    }
+    // A containment contract needs the whole `nft` group: a block has three phases.
+    if domovoi_core::containment::ops::is_containment_contract(contract.id.as_str())
+        && !domovoi_core::containment::ops::offers_nft_group(&words.helper_ops)
+    {
+        return Some(UnavailableReason::HelperNftGroupMissing);
+    }
+    None
+}
+
 /// Rows 11 and 12 for a compiled contract: ceiling, helper, container runtime.
 pub(super) fn host_allows(
     contract: &CapabilityContract,
@@ -39,29 +69,8 @@ pub(super) fn host_allows(
     if contract.effect != EffectClass::Read && is_policy_only(&contract.id) {
         ceiling_allows(contract, words)?;
     }
-    if contract.execution == ExecutionPath::Helper && words.helper == HelperState::Failed {
-        return Err(Availability::Unavailable {
-            reason: UnavailableReason::HelperError,
-        });
-    }
-    // The helper offers an operation only when it says so: a read it serves, or a write whose
-    // group is named and whose platform tier allows it.
-    if contract.execution == ExecutionPath::Helper
-        && matches!(contract.id.as_str(), "unit.identity" | "unit.restart")
-        && !words.helper_ops.iter().any(|op| op == contract.id.as_str())
-    {
-        return Err(Availability::Unavailable {
-            reason: UnavailableReason::HelperSystemdGroupMissing,
-        });
-    }
-    // A containment contract needs the whole `nft` group: a block has three phases.
-    if contract.execution == ExecutionPath::Helper
-        && domovoi_core::containment::ops::is_containment_contract(contract.id.as_str())
-        && !domovoi_core::containment::ops::offers_nft_group(&words.helper_ops)
-    {
-        return Err(Availability::Unavailable {
-            reason: UnavailableReason::HelperNftGroupMissing,
-        });
+    if let Some(reason) = helper_refusal(contract, words) {
+        return Err(Availability::Unavailable { reason });
     }
     if contract.target_kind == TargetKind::Container && !words.container_runtime {
         return Err(Availability::Unavailable {

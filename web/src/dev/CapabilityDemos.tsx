@@ -13,6 +13,7 @@ const ENTRIES: CeilingEntry[] = [
     max_active: null,
     max_ttl_secs: null,
     args: {},
+    helper: { state: "not_applicable" },
   },
   {
     contract: "firewall.block_source",
@@ -21,6 +22,11 @@ const ENTRIES: CeilingEntry[] = [
     max_active: 50,
     max_ttl_secs: 3600,
     args: { min_prefix_len_v4: 24 },
+    helper: {
+      state: "not_offered",
+      reason: "helper_nft_group_missing",
+      text: "the helper on this host does not offer containment: add `nft` to `groups` in /etc/domovoi/helper.toml, then restart the helper",
+    },
   },
 ];
 

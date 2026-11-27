@@ -43,6 +43,27 @@ pub struct CeilingEntryDto {
     pub max_ttl_secs: Option<i64>,
     /// Argument bounds, key to integer bound.
     pub args: BTreeMap<String, i64>,
+    /// Whether the helper on this host would serve it. The ceiling is only one of the three
+    /// decisions (the agent's limit, the helper's offer, a policy rule); a row can be allowed
+    /// here and still end in a helper refusal.
+    pub helper: HelperOfferDto,
+}
+
+/// What the host's helper says about a capability that runs through it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum HelperOfferDto {
+    /// The capability does not run through the helper.
+    NotApplicable,
+    /// The helper offers it.
+    Offered,
+    /// The helper does not offer it, and why, with the file that decides it.
+    NotOffered {
+        /// The availability reason code, for example `helper_systemd_group_missing`.
+        reason: String,
+        /// The reason in words: what to change in `/etc/domovoi/helper.toml`.
+        text: String,
+    },
 }
 
 impl From<&CeilingEntry> for CeilingEntryDto {
@@ -61,6 +82,7 @@ impl From<&CeilingEntry> for CeilingEntryDto {
             max_active: entry.max_active,
             max_ttl_secs: entry.max_ttl.map(|ttl| ttl.as_secs()),
             args: entry.args.clone(),
+            helper: HelperOfferDto::NotApplicable,
         }
     }
 }
@@ -130,8 +152,26 @@ pub(super) async fn get_ceiling(
             dto.unreadable_reason = Some(reason.chars().take(200).collect());
         }
         CeilingState::Reported(summary) => {
-            let mut entries: Vec<CeilingEntryDto> =
-                summary.entries.iter().map(CeilingEntryDto::from).collect();
+            let mut entries: Vec<CeilingEntryDto> = summary
+                .entries
+                .iter()
+                .map(|entry| {
+                    let mut row = CeilingEntryDto::from(entry);
+                    row.helper = match state
+                        .deps
+                        .capabilities
+                        .helper_offer(host.id, &entry.contract)
+                    {
+                        None => HelperOfferDto::NotApplicable,
+                        Some(Ok(())) => HelperOfferDto::Offered,
+                        Some(Err(reason)) => HelperOfferDto::NotOffered {
+                            reason: reason.code().to_owned(),
+                            text: reason.describe().to_owned(),
+                        },
+                    };
+                    row
+                })
+                .collect();
             entries.sort_by(|a, b| a.contract.cmp(&b.contract));
             dto.reporting = CeilingReporting::Reported;
             dto.unattended_enabled = Some(summary.enabled);

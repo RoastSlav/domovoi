@@ -22,6 +22,27 @@ function Targets({ targets }: { targets: CeilingEntry["targets"] }) {
   );
 }
 
+/**
+ * Whether the host's helper would serve this capability. The ceiling is the agent's limit; a
+ * green row there can still end in a helper refusal, so the helper's answer is its own column.
+ */
+export function HelperCell({ offer }: { offer: CeilingEntry["helper"] | undefined }) {
+  if (!offer || offer.state === "not_applicable") {
+    return <Text muted>Not used</Text>;
+  }
+  if (offer.state === "offered") {
+    return <Tag tone="success">Offered</Tag>;
+  }
+  return (
+    <span>
+      <Tag tone="warning">Not offered</Tag>
+      <Text muted size="sm" block>
+        {offer.text}
+      </Text>
+    </span>
+  );
+}
+
 const COLUMNS: Column<CeilingEntry>[] = [
   {
     key: "contract",
@@ -33,6 +54,11 @@ const COLUMNS: Column<CeilingEntry>[] = [
     ),
   },
   { key: "targets", label: "Targets", cell: (entry) => <Targets targets={entry.targets} /> },
+  {
+    key: "helper",
+    label: "Helper",
+    cell: (entry) => <HelperCell offer={entry.helper} />,
+  },
   { key: "hour", label: "Per hour", numeric: true, cell: (entry) => entry.max_per_hour },
   {
     key: "active",

@@ -112,6 +112,30 @@ impl HubRegistry {
         ceiling_of(self.agent.as_ref(), host)
     }
 
+    /// Whether the helper on `host` would serve `contract`, for the Limits tab: `None` when the
+    /// contract does not run through the helper (or the hub does not know it), otherwise
+    /// `Ok(())` when the helper offers it and the reason it does not when it does not. It
+    /// uses the rule the availability rows use.
+    pub fn helper_offer(
+        &self,
+        host: HostId,
+        contract: &ContractId,
+    ) -> Option<Result<(), UnavailableReason>> {
+        let contract = self.contracts.get(contract)?;
+        if contract.execution != ExecutionPath::Helper {
+            return None;
+        }
+        let words = self
+            .agent
+            .view(host)
+            .map(|view| view.words)
+            .unwrap_or_default();
+        Some(match super::host_rules::helper_refusal(contract, &words) {
+            Some(reason) => Err(reason),
+            None => Ok(()),
+        })
+    }
+
     /// One host's whole inventory, already computed. Used by the API.
     ///
     /// The catalogue is walked once for the whole list, never once per row, and no lock is

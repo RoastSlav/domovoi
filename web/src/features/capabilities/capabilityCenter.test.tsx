@@ -26,6 +26,11 @@ const REPORTED = {
       max_active: 50,
       max_ttl_secs: 3600,
       args: { min_prefix_len_v4: 24 },
+      helper: {
+        state: "not_offered" as const,
+        reason: "helper_nft_group_missing",
+        text: "the helper on this host does not offer containment: add `nft` to `groups` in /etc/domovoi/helper.toml",
+      },
     },
     {
       contract: "container.restart",
@@ -34,6 +39,7 @@ const REPORTED = {
       max_active: null,
       max_ttl_secs: null,
       args: {},
+      helper: { state: "offered" as const },
     },
   ],
 };
@@ -134,6 +140,13 @@ test("limits tab is read only", async () => {
   expect(within(panel).queryByRole("switch")).toBeNull();
   expect(within(panel).queryByRole("button", { name: /save|edit/i })).toBeNull();
   expect(calls.every((call) => call.route.startsWith("GET "))).toBe(true);
+});
+
+test("a row the ceiling allows but the helper does not offer says so and names the file", async () => {
+  limits(REPORTED);
+  expect(await screen.findByText("Not offered")).toBeInTheDocument();
+  expect(screen.getByText(/does not offer containment.*helper\.toml/)).toBeInTheDocument();
+  expect(screen.getByText("Offered")).toBeInTheDocument();
 });
 
 test("ceiling not reported says so and does not imply permission", async () => {

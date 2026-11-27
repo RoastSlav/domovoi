@@ -2615,6 +2615,12 @@ export interface components {
             /** @description The exact contract id. */
             contract: string;
             /**
+             * @description Whether the helper on this host would serve it. The ceiling is only one of the three
+             *     decisions (the agent's limit, the helper's offer, a policy rule); a row can be allowed
+             *     here and still end in a helper refusal.
+             */
+            helper: components["schemas"]["HelperOfferDto"];
+            /**
              * Format: int32
              * @description How many runs may be active at once, when the entry sets a limit.
              */
@@ -3236,6 +3242,21 @@ export interface components {
             pin?: components["schemas"]["PinDto"] | null;
             received_key?: components["schemas"]["ReceivedKeyDto"] | null;
             verified?: components["schemas"]["VerifiedDto"] | null;
+        };
+        /** @description What the host's helper says about a capability that runs through it. */
+        HelperOfferDto: {
+            /** @enum {string} */
+            state: "not_applicable";
+        } | {
+            /** @enum {string} */
+            state: "offered";
+        } | {
+            /** @description The availability reason code, for example `helper_systemd_group_missing`. */
+            reason: string;
+            /** @enum {string} */
+            state: "not_offered";
+            /** @description The reason in words: what to change in `/etc/domovoi/helper.toml`. */
+            text: string;
         };
         /** @description What the agent said about the helper. Unverified text. */
         HelperStateDto: {

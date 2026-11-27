@@ -10112,7 +10112,8 @@
           "contract",
           "targets",
           "max_per_hour",
-          "args"
+          "args",
+          "helper"
         ],
         "properties": {
           "args": {
@@ -10129,6 +10130,10 @@
           "contract": {
             "type": "string",
             "description": "The exact contract id."
+          },
+          "helper": {
+            "$ref": "#/components/schemas/HelperOfferDto",
+            "description": "Whether the helper on this host would serve it. The ceiling is only one of the three\ndecisions (the agent's limit, the helper's offer, a policy rule); a row can be allowed\nhere and still end in a helper refusal."
           },
           "max_active": {
             "type": [
@@ -11727,6 +11732,66 @@
             ]
           }
         }
+      },
+      "HelperOfferDto": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "The capability does not run through the helper.",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "not_applicable"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The helper offers it.",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "offered"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The helper does not offer it, and why, with the file that decides it.",
+            "required": [
+              "reason",
+              "text",
+              "state"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "description": "The availability reason code, for example `helper_systemd_group_missing`."
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "not_offered"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "description": "The reason in words: what to change in `/etc/domovoi/helper.toml`."
+              }
+            }
+          }
+        ],
+        "description": "What the host's helper says about a capability that runs through it."
       },
       "HelperStateDto": {
         "type": "object",

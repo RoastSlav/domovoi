@@ -10,7 +10,7 @@ use axum::body::Body;
 use axum::extract::connect_info::MockConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use domovoi_config::{HubConfig, MapEnv};
-use domovoi_core::capability::{ContractIndex, builtin_contracts};
+use domovoi_core::capability::{ContractIndex, known_contracts};
 use domovoi_core::ports::{
     AuditEvent, AuditFilter, AuditLog, Clock, HostRepo, IncidentRepo, IncidentTimelineEntry,
     LinkError, LlmProvider, LogLine, LogSource, Notifier, Page, Presence, StoreHealth,
@@ -274,7 +274,7 @@ async fn test_registry(
     clock: Arc<dyn Clock>,
 ) -> HubRegistry {
     HubRegistry::new(RegistryDeps {
-        contracts: Arc::new(ContractIndex::new(builtin_contracts()).unwrap()),
+        contracts: Arc::new(ContractIndex::new(known_contracts()).unwrap()),
         agent: Arc::new(domovoi_hub::runtime::caps::LinkCapabilities::new(link)),
         hosts: store.clone(),
         store,

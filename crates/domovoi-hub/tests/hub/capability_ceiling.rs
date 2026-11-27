@@ -158,3 +158,49 @@ async fn ceiling_dto_covers_every_field() {
         );
     }
 }
+
+const HELPER_SUMMARY: &str = r#"{"enabled":true,"entries":[
+  {"contract":"container.restart","targets":{"kind":"any"},"max_per_hour":3,"args":{}},
+  {"contract":"unit.restart","targets":{"kind":"names","names":["nginx.service"]},"max_per_hour":3,"args":{}}]}"#;
+
+fn helper_words(ops: &[&str]) -> HostWords {
+    HostWords {
+        ceiling_summary: Some(HELPER_SUMMARY.to_owned()),
+        helper: domovoi_core::ports::HelperState::Ready,
+        helper_ops: ops.iter().map(|op| (*op).to_owned()).collect(),
+        ..HostWords::default()
+    }
+}
+
+#[tokio::test]
+async fn a_ceiling_entry_says_whether_the_helper_would_serve_it() {
+    let a = api().await;
+    let login = a.admin().await;
+
+    // Allowed by the agent's ceiling, but the helper has no `systemd` group: the row says so.
+    connect(&a, helper_words(&[]));
+    let reply = a.get("/api/v1/hosts/nas/ceiling", &login).await;
+    let entries = reply.body["entries"].as_array().expect("entries");
+    let restart = entries
+        .iter()
+        .find(|e| e["contract"] == "unit.restart")
+        .unwrap();
+    assert_eq!(restart["helper"]["state"], "not_offered");
+    assert_eq!(restart["helper"]["reason"], "helper_systemd_group_missing");
+    assert!(
+        restart["helper"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("/etc/domovoi/helper.toml"),
+        "{restart}"
+    );
+
+    connect(&a, helper_words(&["unit.restart"]));
+    let reply = a.get("/api/v1/hosts/nas/ceiling", &login).await;
+    let entries = reply.body["entries"].as_array().expect("entries");
+    let restart = entries
+        .iter()
+        .find(|e| e["contract"] == "unit.restart")
+        .unwrap();
+    assert_eq!(restart["helper"]["state"], "offered");
+}

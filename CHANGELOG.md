@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - *(installer)* a unit file that differs from the release is replaced, the old text is saved under `<prefix>/share/domovoi/unit-backups` and the change is printed; `--keep-units` keeps the installed file. The agent self-test checks the skill runner's sandbox directives
 - *(triage)* an unreachable model parks operations (`waiting_timer`) instead of ending them failed; Control room and Attention show one notice; a stale degraded advisory resolves on the first success after a restart
+- *(web)* the Host limits tab shows whether the helper offers each capability the ceiling allows
+- *(operator)* a question reads at most 12 times; a spent token budget returns what was read; an answer that used no tool says so
 - *(agent)* facts a check stops reporting are retired and shown as "No longer reported"
 - *(checks)* `disk.free` and the host overview report each filesystem once. Targets that were named after a bind mount (`/etc`, `/usr`, `/var/tmp`) are renamed to the shallowest mount of the same device, and incidents on the old names resolve on the next run
 
