@@ -153,9 +153,10 @@ impl AgentLink for WsAgentLink {
                 ToolOutcome::Err(f) if f.code == ToolFailureCode::Timeout => {
                     Err(LinkError::Timeout)
                 }
-                ToolOutcome::Err(f) => {
-                    Err(LinkError::Rejected(format!("{:?}: {}", f.code, f.message)))
-                }
+                ToolOutcome::Err(f) => Err(LinkError::Rejected(failure_text(
+                    &format!("{:?}", f.code),
+                    &f.message,
+                ))),
             },
             other => Err(unexpected(&other)),
         }
@@ -247,9 +248,10 @@ impl AgentLink for WsAgentLink {
                 SkillOutcome::Ok(out) => Ok(out.into()),
                 // A terminal answer from the agent: it refused the run or reported that the
                 // run failed. The code and the message are both kept.
-                SkillOutcome::Err(f) => {
-                    Err(LinkError::Rejected(format!("{:?}: {}", f.code, f.message)))
-                }
+                SkillOutcome::Err(f) => Err(LinkError::Rejected(failure_text(
+                    &format!("{:?}", f.code),
+                    &f.message,
+                ))),
             },
             Message::Refused(refused) => Err(LinkError::Rejected(format!(
                 "{}: {}",
@@ -471,3 +473,28 @@ mod package;
 #[cfg(test)]
 #[path = "link_tests.rs"]
 mod tests;
+
+/// The text of a refused tool or skill: the agent's code and message, except that the agent's
+/// internal "skill_runner_unavailable" token says in words what is missing and what to do.
+fn failure_text(code: &str, message: &str) -> String {
+    match message.strip_prefix("skill_runner_unavailable:") {
+        Some(reason) => format!(
+            "this host cannot run skills: its agent has no usable skill runner ({}). Install one with install.sh (see the Capabilities page for this host)",
+            reason.trim()
+        ),
+        None => format!("{code}: {message}"),
+    }
+}
+
+#[cfg(test)]
+mod failure_text_tests {
+    use super::failure_text;
+
+    #[test]
+    fn the_runner_token_is_said_in_words() {
+        let text = failure_text("Exec", "skill_runner_unavailable: absent");
+        assert!(text.contains("cannot run skills"), "{text}");
+        assert!(!text.contains("Exec"), "{text}");
+        assert_eq!(failure_text("Exec", "boom"), "Exec: boom");
+    }
+}

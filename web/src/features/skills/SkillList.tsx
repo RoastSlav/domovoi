@@ -43,8 +43,8 @@ export function SkillList({ host }: { host: string }) {
         <InlineMessage tone="warning" title="Skills cannot run on this host yet">
           <p>{runnerSentence(capability)}</p>
           <p>
-            You can still enable skills, but every run is refused until the agent has a skill
-            runner. The Capabilities page has the details.
+            Skills cannot be switched on until the agent has a skill runner. The Capabilities page
+            has the details.
           </p>
         </InlineMessage>
       )}
@@ -59,6 +59,9 @@ export function SkillList({ host }: { host: string }) {
           <SkillTable
             host={host}
             skills={list}
+            {...(cannotRun && capability
+              ? { enableBlocked: `Cannot be enabled: ${runnerSentence(capability)}` }
+              : {})}
             onOpen={(skill) => setOpened(skill.name)}
             onToggle={(skill, enabled) => toggle.mutate({ enabled, skill: skill.name })}
           />

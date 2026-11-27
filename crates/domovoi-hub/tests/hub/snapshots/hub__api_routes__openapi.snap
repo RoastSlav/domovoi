@@ -11699,6 +11699,16 @@ expression: spec
               }
             },
             "description": "No such host, or the agent does not report that skill"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The host cannot run skills (no skill runner), so the skill cannot be enabled"
           }
         },
         "summary": "Turns one of a host's skills on or off. The switch is saved in the settings table and\ntakes effect immediately: a disabled skill stays on the host, but the hub never runs it\nand never offers it to triage.",

@@ -18,6 +18,7 @@ mod floors;
 mod host;
 mod host_rules;
 mod registry;
+mod skill_gate;
 
 pub use catalogue::CatalogueCache;
 pub use ceiling::{

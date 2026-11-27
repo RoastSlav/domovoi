@@ -24,6 +24,11 @@ export interface SkillTableProps {
   rowActions?: (skill: Skill) => ReactNode;
   /** The skills to list, in any order. */
   skills: readonly Skill[];
+  /**
+   * Why a skill cannot be switched on here (the host has no way to run skills). A skill that is
+   * already on can still be switched off.
+   */
+  enableBlocked?: string;
   /** Extra tags after a skill's name, such as where the skill is managed. */
   tags?: (skill: Skill) => ReactNode;
 }
@@ -34,6 +39,7 @@ function columns({
   rowActions,
   onToggle,
   tags,
+  enableBlocked,
 }: Omit<SkillTableProps, "skills">): Column<Skill>[] {
   const base: Column<Skill>[] = [
     {
@@ -92,6 +98,7 @@ function columns({
         <Switch
           label={<span className="visually-hidden">{`Enable ${skill.name}`}</span>}
           checked={skill.enabled}
+          {...(!skill.enabled && enableBlocked ? { disabledReason: enableBlocked } : {})}
           onChange={(enabled) => onToggle(skill, enabled)}
         />
       ),

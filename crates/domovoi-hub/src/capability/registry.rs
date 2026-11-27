@@ -60,10 +60,10 @@ pub enum RegistryError {
 /// The hub's answer to "which contracts can this host run, and why not".
 pub struct HubRegistry {
     contracts: Arc<ContractIndex>,
-    agent: Arc<dyn HostCapabilities>,
+    pub(super) agent: Arc<dyn HostCapabilities>,
     hosts: Arc<dyn HostRepo>,
     clock: Arc<dyn Clock>,
-    enablement: Arc<Enablement>,
+    pub(super) enablement: Arc<Enablement>,
     floors: Arc<Floors>,
     catalogue: Arc<CatalogueCache>,
 }
@@ -200,22 +200,6 @@ impl HubRegistry {
         enabled: bool,
     ) -> Result<(), StoreError> {
         self.enablement.set(host, skill, enabled).await
-    }
-
-    /// Turns one skill on or off for `host`; `save` stores the settings value in the caller's
-    /// commit. Memory changes only when `save` succeeds.
-    pub async fn set_skill_enabled_with<F, Fut, E>(
-        &self,
-        host: &Host,
-        skill: SkillName,
-        enabled: bool,
-        save: F,
-    ) -> Result<(), E>
-    where
-        F: FnOnce(String, serde_json::Value) -> Fut,
-        Fut: std::future::Future<Output = Result<(), E>>,
-    {
-        self.enablement.set_with(host, skill, enabled, save).await
     }
 
     /// The host's state as one read: availability, the session's words and skills, and the

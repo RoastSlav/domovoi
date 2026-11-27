@@ -1605,3 +1605,22 @@ async fn write_skill_on_an_agent_that_is_not_root_is_unavailable_with_the_reason
             .contains("unit.restart")
     );
 }
+
+#[tokio::test]
+async fn a_host_with_no_skill_runner_says_why_skills_cannot_run_and_one_with_a_runner_does_not() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.words(HostWords {
+        runs_as_root: false,
+        runner: domovoi_core::ports::RunnerState::Absent,
+        ..HostWords::default()
+    });
+    let reason = fixture.registry.skills_cannot_run(fixture.host_id());
+    assert_eq!(reason, Some(UnavailableReason::SkillRunnerMissing));
+
+    fixture.words(HostWords {
+        runs_as_root: false,
+        runner: domovoi_core::ports::RunnerState::Ready,
+        ..HostWords::default()
+    });
+    assert_eq!(fixture.registry.skills_cannot_run(fixture.host_id()), None);
+}

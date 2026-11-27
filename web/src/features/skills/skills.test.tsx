@@ -392,3 +392,23 @@ test("skills_page_stays_quiet_when_a_runner_or_root_agent_can_run_them", async (
   await screen.findByText("docker_ps");
   expect(screen.queryByText("Skills cannot run on this host yet")).toBeNull();
 });
+
+test("a_skill_cannot_be_switched_on_where_no_runner_can_run_it", async () => {
+  route("GET /api/v1/hosts", () => [nas]);
+  route("GET /api/v1/hosts/{name}/skills", () => [
+    skill("docker_ps", "read", { enabled: false }),
+    skill("df_report", "read", { enabled: true }),
+  ]);
+  route("GET /api/v1/hosts/{name}/capabilities", () => capabilityRow(false, false));
+  renderAt("/skills?host=nas", "/skills", <SkillsPage />);
+  await screen.findByText("docker_ps");
+  expect(screen.getByRole("switch", { name: /Enable docker_ps/ })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  // A skill that is already on can still be switched off.
+  expect(screen.getByRole("switch", { name: "Enable df_report" })).not.toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+});
