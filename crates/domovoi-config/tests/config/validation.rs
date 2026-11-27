@@ -45,15 +45,10 @@ fn llm_base_url_must_be_http_or_https() {
 }
 
 #[test]
-fn zero_triage_runs_per_hour_with_triage_on_is_a_warning_not_an_error() {
+fn zero_triage_runs_per_hour_with_triage_on_is_an_error() {
     let text = "[llm.primary]\nkind = \"openai_compatible\"\nmodel = \"m\"\nbase_url = \"http://localhost:8080/v1\"\n[triage]\nenabled = true\nper_hour_runs = 0\n";
-    let (_, issues) = hub(text).expect("zero is still a valid setting");
-    assert!(
-        issues.iter().any(|i| !i.is_error()
-            && i.path == "triage.per_hour_runs"
-            && i.message.contains("skips every")),
-        "{issues:#?}"
-    );
+    let errors = hub_errors(text);
+    assert_issue(&errors, "triage.per_hour_runs", "skip every triage run");
     let off = text.replace("enabled = true", "enabled = false");
     let (_, issues) = hub(&off).expect("valid");
     assert!(issues.iter().all(|i| i.path != "triage.per_hour_runs"));

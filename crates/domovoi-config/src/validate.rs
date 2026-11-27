@@ -46,9 +46,9 @@ impl Validate for HubConfig {
             ));
         }
         if self.triage.enabled && self.triage.per_hour_runs == 0 {
-            issues.push(ConfigIssue::warning(
+            issues.push(ConfigIssue::error(
                 "triage.per_hour_runs",
-                "0 skips every triage run; set triage.enabled = false to turn triage off",
+                "0 would skip every triage run; set triage.enabled = false to turn triage off, or allow at least 1 run per hour",
             ));
         }
         // Only an explicit reservation can be wrong: an omitted one is derived from the
