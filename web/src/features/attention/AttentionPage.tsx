@@ -13,6 +13,7 @@ import {
 import { TIER_TITLES, type Tier } from "./attentionModel";
 import { ApprovalGroup } from "./ApprovalGroup";
 import { AttentionRows } from "./AttentionRows";
+import { ModelNotice } from "./ModelNotice";
 import { SourceFailures, TruncatedNote } from "./SourceNotices";
 import { useAttentionSources } from "./useAttentionSources";
 
@@ -40,6 +41,7 @@ export function AttentionPage() {
       />
       <Visible category="P0" id="attention.list">
         <Stack gap={6}>
+          <ModelNotice />
           <SourceFailures failed={state.failed} />
           <TruncatedNote truncated={state.truncated} />
           {state.pending && state.items.length === 0 && <Skeleton shape="rows" count={5} />}

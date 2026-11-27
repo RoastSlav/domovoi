@@ -18,6 +18,7 @@ import { hostConnectionOf } from "../../design/tone";
 import { HostCards } from "../hosts/HostCards";
 import { ApprovalGroup } from "../attention/ApprovalGroup";
 import { AttentionRows, PREVIEW_ROWS } from "../attention/AttentionRows";
+import { ModelNotice } from "../attention/ModelNotice";
 import { SourceFailures } from "../attention/SourceNotices";
 import { useAttentionSources } from "../attention/useAttentionSources";
 import { RunningNow } from "./RunningNow";
@@ -184,6 +185,7 @@ export function OverviewPage() {
         intro="What is running, what needs you and how your hosts are doing."
         docs="guide/control-room.html"
       />
+      <ModelNotice />
       <div className={styles.tiles}>
         <Visible category="P0" id="control.tiles">
           <QueryBoundary

@@ -18,6 +18,34 @@ const open = (url = "/attention") => renderAt(url, "/attention", <AttentionPage 
 const region = (name: string) => within(screen.getByRole("region", { name }));
 
 describe("attention page", () => {
+  it("shows_one_notice_when_triage_cannot_reach_its_model", async () => {
+    serveAttention({
+      advisories: [
+        {
+          id: "adv-1",
+          kind: "triage_degraded",
+          title: "Triage is degraded",
+          detail: "The last 3 triage runs failed, most recently: connection refused. Alerts still go out without triage.",
+          created_at: "2026-11-27T12:10:00Z",
+        },
+      ],
+    });
+    open();
+    expect(await screen.findByText("Triage cannot reach its model")).toBeVisible();
+    expect(screen.getByText(/connection refused/)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Model settings" })).toHaveAttribute(
+      "href",
+      "/settings/models",
+    );
+  });
+
+  it("shows_no_model_notice_when_the_model_works", async () => {
+    serveAttention();
+    open();
+    await screen.findByText("Nothing needs you");
+    expect(screen.queryByText("Triage cannot reach its model")).toBeNull();
+  });
+
   it("attention_lists_tiers_in_order_with_their_headings", async () => {
     serveAttention({
       hosts: [nas, incompatibleHost("old")],

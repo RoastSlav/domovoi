@@ -1,4 +1,4 @@
-import type { Host, IncidentSummary, OperationDetail, OperationSummary } from "../api/types";
+import type { Advisory, Host, IncidentSummary, OperationDetail, OperationSummary } from "../api/types";
 import type { ContainmentStatus } from "../api/types";
 import { route } from "./apiMock";
 import { EMPTY_PAGE } from "./attentionFixtures";
@@ -10,6 +10,7 @@ import { operationDetail } from "./operationFixtures";
 export interface Served {
   /** Each host's blocks by host name; a host not listed has none and no gate answer. */
   containment?: Record<string, ContainmentStatus>;
+  advisories?: Advisory[];
   details?: Record<string, OperationDetail>;
   hosts?: Host[];
   incidents?: IncidentSummary[];
@@ -27,6 +28,7 @@ export function waitingDetail(id: string, goal: string): OperationDetail {
 
 /** Registers every route the attention sources and the approval cards read. */
 export function serveAttention(served: Served = {}): void {
+  route("GET /api/v1/advisories", () => served.advisories ?? []);
   route("GET /api/v1/hosts", () => served.hosts ?? [nas]);
   route(
     "GET /api/v1/hosts/{name}/containment",
