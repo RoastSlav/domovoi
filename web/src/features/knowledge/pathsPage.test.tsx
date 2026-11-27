@@ -235,11 +235,11 @@ test("adding_a_path_uses_the_password_prompt_and_presets_predicate_and_host", as
   show();
 
   await user.click(await screen.findByRole("button", { name: "Add a management path" }));
-  const dialog = await screen.findByRole("dialog", { name: "Add a fact" });
+  const dialog = await screen.findByRole("dialog", { name: "Add a management path" });
   expect(within(dialog).queryByRole("combobox", { name: "Kind" })).toBeNull();
   expect(within(dialog).queryByRole("combobox", { name: "Host" })).toBeNull();
   await user.type(within(dialog).getByRole("textbox", { name: "Network" }), "10.9.0.0/24");
-  await user.click(within(dialog).getByRole("button", { name: "Save fact" }));
+  await user.click(within(dialog).getByRole("button", { name: "Save path" }));
   await askForPassword(user, "Save");
 
   await waitFor(() => expect(callsTo(ASSERT)).toHaveLength(1));

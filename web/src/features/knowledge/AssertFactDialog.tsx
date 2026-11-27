@@ -93,16 +93,18 @@ export function AssertFactDialog({
   if (stepUp.dialog) {
     return stepUp.dialog;
   }
+  // A management path is what the page calls it; any other kind is a fact.
+  const path = preset?.predicate === "management_path";
   return (
     <Dialog
-      title="Add a fact"
+      title={path ? "Add a management path" : "Add a fact"}
       onClose={onClose}
       wide
       actions={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" loading={feedback.isPending} onClick={save}>
-            Save fact
+            {path ? "Save path" : "Save fact"}
           </Button>
         </>
       }

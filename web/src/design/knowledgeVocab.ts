@@ -69,7 +69,7 @@ export const COVERAGE_STATES: Table<CoverageState> = {
   unavailable: {
     label: "Cannot be verified yet",
     tone: "warning",
-    hint: "The check that shows the helper protects a path is not available in this version. Paths can be listed and accepted, but not confirmed.",
+    hint: "The helper has not been verified yet, so a path cannot be confirmed. Paths can be listed and accepted. Verify the helper in the helper settings first.",
     icon: "alert-circle",
   },
   checkable: {

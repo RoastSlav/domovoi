@@ -11,7 +11,7 @@ import styles from "./paths.module.css";
 
 /** Why Confirm cannot be used while the helper check is not available. */
 export const CONFIRM_UNAVAILABLE =
-  "Coverage cannot be verified yet, so no path can be confirmed. The helper check is not available in this version.";
+  "Coverage cannot be verified yet, so no path can be confirmed. The helper has not been verified yet: run `sudo domovoi helper fingerprint` on the host and paste the result in the helper settings.";
 
 const ACCEPT_REASON =
   "This kind of fact can affect protective actions. Enter your password to save it.";
@@ -135,7 +135,7 @@ export function PathActions({
       {retracting && (
         <ConfirmDialog
           title="Retract this management path?"
-          consequence="It stops being used and disappears from this list. Its content is removed after the retention period. You can add it again later."
+          consequence="It stops being used and disappears from this list. Retracting does not need your password; it is logged. Its content is removed after the retention period. You can add it again later."
           confirmLabel="Retract"
           tone="danger"
           busy={retract.isPending}

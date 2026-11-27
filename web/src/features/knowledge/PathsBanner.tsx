@@ -48,7 +48,7 @@ export function CoverageRow({ available }: { available: boolean }) {
         <Text muted>
           {available
             ? "When you confirm a path, the hub asks the helper whether it covers it."
-            : "The check that shows the helper protects a path is not available in this version, so no path can be confirmed yet. You can add paths, accept the ones Domovoi found and retract wrong ones."}
+            : "The helper has not been verified yet, so no path can be confirmed. Verify it in the helper settings first. You can add paths, accept the ones Domovoi found and retract wrong ones."}
         </Text>
       </span>
     </div>
