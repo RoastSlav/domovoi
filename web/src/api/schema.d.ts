@@ -1048,7 +1048,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirms a management path against the helper's verified coverage. Needs the password. */
+        /**
+         * Confirms a management path against the helper's verified coverage. Needs the password.
+         * @description A refusal after the password is audited as `knowledge.management_path.confirm_refused`.
+         */
         post: operations["confirm_management_path"];
         delete?: never;
         options?: never;

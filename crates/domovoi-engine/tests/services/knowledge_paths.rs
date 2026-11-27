@@ -62,10 +62,13 @@ async fn owner_cannot_confirm_uncovered_management_path() {
             .unwrap()
             .is_none()
     );
+    // Nothing but the audit row of the refusal is written.
     assert_eq!(
         (journal_len(&r).await, all_audit(&r).await.len()),
-        (journal, audits)
+        (journal, audits + 1)
     );
+    let refused = audit(&r, "knowledge.management_path.confirm_refused").await;
+    assert_eq!(refused.len(), 1);
 }
 
 #[tokio::test]
@@ -91,10 +94,13 @@ async fn unavailable_coverage_refuses_every_confirmation() {
             .unwrap()
             .is_none()
     );
+    // Nothing but the audit row of the refusal is written.
     assert_eq!(
         (journal_len(&r).await, all_audit(&r).await.len()),
-        (journal, audits)
+        (journal, audits + 1)
     );
+    let refused = audit(&r, "knowledge.management_path.confirm_refused").await;
+    assert_eq!(refused.len(), 1);
 }
 
 #[tokio::test]

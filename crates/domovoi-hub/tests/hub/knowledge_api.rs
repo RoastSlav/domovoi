@@ -310,6 +310,43 @@ async fn confirm_needs_the_password_and_verified_coverage() {
     assert_eq!(refusal["reason"], blocked.body["message"], "{}", paths.text);
     assert!(refusal["at"].as_str().is_some());
 
+    // 38f: the refusal is in the audit log with who, which host, which path and why, and
+    // still without the path's value.
+    let refusals = "knowledge.management_path.confirm_refused";
+    let events = a.audit_events(refusals).await;
+    assert_eq!(events.len(), 1);
+    assert!(events[0].actor.starts_with("user:"), "{}", events[0].actor);
+    assert_eq!(events[0].subject, format!("fact:{id}"));
+    assert_eq!(events[0].detail["host"], a.nas.id.to_string());
+    assert_eq!(events[0].detail["reason"], blocked.body["message"]);
+    assert!(!events[0].detail.to_string().contains("192.168.1.0"));
+
+    a.coverage.cover(&["10.99.0.0/16"]);
+    let uncovered = a
+        .post(
+            &uri,
+            &login,
+            json!({ "expected_version": version, "password": PASSWORD }),
+        )
+        .await;
+    assert_eq!(uncovered.status, StatusCode::CONFLICT, "{}", uncovered.text);
+    let stale = a
+        .post(
+            &uri,
+            &login,
+            json!({ "expected_version": 999, "password": PASSWORD }),
+        )
+        .await;
+    assert_eq!(stale.status, StatusCode::CONFLICT, "{}", stale.text);
+    let reasons: Vec<_> = a
+        .audit_events(refusals)
+        .await
+        .iter()
+        .map(|e| e.detail["reason"].clone())
+        .collect();
+    assert_eq!(reasons.len(), 3);
+    assert!(reasons.contains(&uncovered.body["message"]), "{reasons:?}");
+
     a.coverage.cover(&["192.168.1.0/24"]);
     let wrong = a
         .post(
@@ -337,6 +374,11 @@ async fn confirm_needs_the_password_and_verified_coverage() {
         .await;
     assert_eq!(done.status, StatusCode::OK, "{}", done.text);
     assert_eq!(done.body["state"], "confirmed");
+    assert_eq!(
+        a.audit_events(refusals).await.len(),
+        3,
+        "a confirmation, a wrong password and a missing one add no refusal row"
+    );
     assert!(done.body["confirmation"]["confirmed_by"].as_str().is_some());
     assert!(done.body["confirmation"].get("evidence").is_none());
     assert!(!done.text.contains("fake-evidence"));

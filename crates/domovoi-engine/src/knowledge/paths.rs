@@ -2,8 +2,9 @@
 //! them stale when the network changed.
 
 use domovoi_core::knowledge::{
-    CoverageVerdict, Fact, FactSource, FactUpdate, KnowledgeStatus, KnowledgeWrite,
-    PathConfirmation, PathState, Predicate, SubjectRef, UnverifiableReason, path_state,
+    CoverageEvidence, CoverageVerdict, Fact, FactSource, FactUpdate, KnowledgeStatus,
+    KnowledgeWrite, PathConfirmation, PathState, Predicate, SubjectRef, UnverifiableReason,
+    path_state,
 };
 use domovoi_core::ports::{AuditDraft, StateWrite, Transaction, Versioned};
 use domovoi_core::{Actor, FactRecordId, HostId, UserId};
@@ -134,7 +135,8 @@ impl KnowledgeService {
     }
 
     /// Confirms the owner's management path, but only when the helper's verified attestation
-    /// shows it covered. With no attestor wired in, nothing is written.
+    /// shows it covered. A refusal changes nothing but is audited with its reason; with no
+    /// attestor wired in, that is all that is written.
     pub async fn confirm_management_path(
         &self,
         id: FactRecordId,
@@ -145,39 +147,30 @@ impl KnowledgeService {
         let now = self.now();
         let actor = Actor::User(user);
         let found = self.load(id).await?;
-        if found.version != expected {
-            return Err(KnowledgeError::Conflict);
-        }
-        let fact = &found.value;
-        if fact.predicate != Predicate::ManagementPath {
+        if found.value.predicate != Predicate::ManagementPath {
             return Err(KnowledgeError::InvalidInput(
                 "only a management path can be confirmed".to_owned(),
             ));
         }
-        if fact.source != FactSource::User {
-            return Err(KnowledgeError::NotOwnerFact);
-        }
-        let status = fact.effective_status(now);
-        if !matches!(status, KnowledgeStatus::Current | KnowledgeStatus::Stale) {
-            return Err(KnowledgeError::NotLive { status });
-        }
-        let host = fact.subject.host().ok_or_else(|| {
+        let host = found.value.subject.host().ok_or_else(|| {
             KnowledgeError::InvalidInput("a management path belongs to a host".to_owned())
         })?;
-        let cidr = fact
-            .value
-            .as_ref()
-            .and_then(|v| v.get("cidr"))
-            .and_then(|c| c.as_str())
-            .ok_or(KnowledgeError::NotLive { status })?
-            .to_owned();
-        let evidence = match self.deps.coverage.verdict(host, &cidr).await {
-            CoverageVerdict::Covered { evidence } => evidence,
-            CoverageVerdict::Uncovered => return Err(KnowledgeError::PathUncovered),
-            CoverageVerdict::Unverifiable { reason } => {
-                return Err(KnowledgeError::CoverageUnverifiable(reason));
+        let evidence = match self.confirmable(&found, expected, host, now).await {
+            Ok(evidence) => evidence,
+            Err(why) => {
+                // The row names the fact, never its value, like every knowledge audit row.
+                let refused = AuditDraft::new(
+                    actor,
+                    now,
+                    "knowledge.management_path.confirm_refused".to_owned(),
+                    format!("fact:{id}"),
+                    json!({"host": host.to_string(), "reason": why.to_string()}),
+                );
+                self.apply(Transaction::new().audit(refused)).await?;
+                return Err(why);
             }
         };
+        let fact = &found.value;
         let update = FactUpdate {
             status: Some(KnowledgeStatus::Current),
             last_verified_at: Some(now),
@@ -216,6 +209,40 @@ impl KnowledgeService {
             confirmation,
             state,
         })
+    }
+
+    /// The coverage evidence that allows confirming `found`, or why it may not be confirmed.
+    async fn confirmable(
+        &self,
+        found: &Versioned<Fact>,
+        expected: u64,
+        host: HostId,
+        now: jiff::Timestamp,
+    ) -> Result<CoverageEvidence, KnowledgeError> {
+        if found.version != expected {
+            return Err(KnowledgeError::Conflict);
+        }
+        let fact = &found.value;
+        if fact.source != FactSource::User {
+            return Err(KnowledgeError::NotOwnerFact);
+        }
+        let status = fact.effective_status(now);
+        if !matches!(status, KnowledgeStatus::Current | KnowledgeStatus::Stale) {
+            return Err(KnowledgeError::NotLive { status });
+        }
+        let cidr = fact
+            .value
+            .as_ref()
+            .and_then(|v| v.get("cidr"))
+            .and_then(|c| c.as_str())
+            .ok_or(KnowledgeError::NotLive { status })?;
+        match self.deps.coverage.verdict(host, cidr).await {
+            CoverageVerdict::Covered { evidence } => Ok(evidence),
+            CoverageVerdict::Uncovered => Err(KnowledgeError::PathUncovered),
+            CoverageVerdict::Unverifiable { reason } => {
+                Err(KnowledgeError::CoverageUnverifiable(reason))
+            }
+        }
     }
 
     /// Marks the host's current management paths stale because the network changed. Their

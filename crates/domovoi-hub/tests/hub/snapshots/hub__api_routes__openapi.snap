@@ -13321,6 +13321,7 @@ expression: spec
     },
     "/api/v1/knowledge/facts/{id}/confirm": {
       "post": {
+        "description": "A refusal after the password is audited as `knowledge.management_path.confirm_refused`.",
         "operationId": "confirm_management_path",
         "parameters": [
           {

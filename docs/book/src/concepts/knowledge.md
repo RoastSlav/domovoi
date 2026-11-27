@@ -60,6 +60,8 @@ Relations follow the same rule: retracting one removes it at once, and its conte
 
 Journal and audit entries never contain fact values. They name the fact by its id and record what changed.
 
+Confirming a management path writes `knowledge.management_path.confirmed`. A confirmation that is refused writes `knowledge.management_path.confirm_refused` with who asked, the host, the path (as `fact:<id>`) and the reason: the helper does not cover it, coverage cannot be verified, the fact changed meanwhile, or it is not a live fact of yours. A wrong or locked-out password is refused before that and is not in this row; the hub logs it, as for every other action that asks for the password again.
+
 ## The Knowledge pages
 
 Open **Knowledge** in the sidebar to see and correct what Domovoi knows. The page follows the host

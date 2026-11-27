@@ -350,6 +350,8 @@ pub(super) async fn retract(
 }
 
 /// Confirms a management path against the helper's verified coverage. Needs the password.
+///
+/// A refusal after the password is audited as `knowledge.management_path.confirm_refused`.
 #[utoipa::path(
     post, path = "/api/v1/knowledge/facts/{id}/confirm", operation_id = "confirm_management_path",
     tag = "knowledge",
