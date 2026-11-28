@@ -98,6 +98,34 @@ mod tests {
     }
 
     #[test]
+    fn check_config_lists_every_error_and_counts_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("hub.toml");
+        fs::write(
+            &bad,
+            "[hub]
+name = \"box\"
+[web]
+bind = \"nope\"
+[retention]
+signals_days = 0
+[notify.digest]
+time = \"25:61\"
+",
+        )
+        .unwrap();
+        domovoi()
+            .args(["check", "config"])
+            .arg(&bad)
+            .assert()
+            .failure()
+            .stdout(contains("error: web.bind"))
+            .stdout(contains("error: retention.signals_days"))
+            .stdout(contains("error: notify.digest.time"))
+            .stdout(contains("3 error(s)"));
+    }
+
+    #[test]
     fn check_config_judges_helper_toml_with_the_helpers_parser() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("helper.toml");

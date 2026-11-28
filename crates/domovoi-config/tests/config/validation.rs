@@ -344,3 +344,35 @@ fn orchestration_rejects_zero_limits() {
             .any(|e| e.path == "orchestration.question_timeout")
     );
 }
+
+#[test]
+fn every_error_of_a_file_is_reported_in_one_run() {
+    let text = "[hub]
+name = \"box\"
+nmae = \"typo\"
+        [web]
+bind = \"nope\"
+        [retention]
+signals_days = 0
+        [notify.digest]
+time = \"25:61\"
+        [llm.primary]
+kind = \"openai_compatible\"
+model = \"m\"
+base_url = \"http://localhost:8080/v1\"
+        [triage]
+enabled = true
+per_hour_runs = 0
+";
+    let errors = hub_errors(text);
+    assert_issue(&errors, "hub.nmae", "unknown key");
+    assert_issue(&errors, "web.bind", "invalid socket address");
+    assert_issue(&errors, "notify.digest.time", "");
+    assert_issue(&errors, "retention.signals_days", "must be 1 to 3650 days");
+    assert_issue(
+        &errors,
+        "triage.per_hour_runs",
+        "would skip every triage run",
+    );
+    assert_eq!(errors.len(), 5, "{errors:?}");
+}

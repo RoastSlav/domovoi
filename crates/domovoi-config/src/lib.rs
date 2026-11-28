@@ -88,13 +88,13 @@ where
     if issues.iter().any(ConfigIssue::is_error) {
         return Err(issues);
     }
-    let mut config: T =
-        serde_path_to_error::deserialize(toml::Value::Table(table)).map_err(|err| {
-            issues.push(issue::from_path_error(&err));
-            issues.clone()
-        })?;
+    let mut config: T = match deserialize_collecting(table, &mut issues) {
+        Some(config) => config,
+        None => return Err(issues),
+    };
     config.secrets_mut(&mut |path, secret| secret.resolve(path, env, stored, &mut issues));
     config.validate(&mut issues);
+    // Errors found while deserializing count even when the rest then validates.
     if issues.iter().any(ConfigIssue::is_error) {
         Err(issues)
     } else {
@@ -103,6 +103,73 @@ where
 }
 
 /// One error for every key of `required` that `table` lacks.
+/// The most keys dropped to see past a wrong value; a file with more mistakes than this is
+/// reported with what was found so far.
+const MAX_DESERIALIZE_ISSUES: usize = 64;
+
+/// Deserializes `table`, and when a value is wrong records that and carries on without that
+/// key (its default applies), so one run reports every wrong value and unknown key, not
+/// only the first. `None` when no config could be built (a required key is missing, or an
+/// error cannot be located); `issues` then holds everything found.
+fn deserialize_collecting<T>(mut table: toml::Table, issues: &mut Vec<ConfigIssue>) -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    let mut dropped: Vec<String> = Vec::new();
+    for _ in 0..MAX_DESERIALIZE_ISSUES {
+        let err = match serde_path_to_error::deserialize(toml::Value::Table(table.clone())) {
+            Ok(config) => return Some(config),
+            Err(err) => err,
+        };
+        let path = err.path().to_string();
+        let path = if path == "." { String::new() } else { path };
+        let raw = err.inner().message().trim().to_owned();
+        let field = quoted_field(&raw, "unknown field ");
+        let missing = quoted_field(&raw, "missing field ");
+        let key_path = match (&field, &missing) {
+            // The path of an unknown key already ends with it.
+            (Some(field), _) if path.rsplit('.').next() == Some(field.as_str()) => path.clone(),
+            (Some(field), _) | (None, Some(field)) => join_path(&path, field),
+            (None, None) => path.clone(),
+        };
+        // A required key that was just dropped for being wrong is reported once, as wrong.
+        if missing.is_some() && dropped.contains(&key_path) {
+            return None;
+        }
+        issues.push(issue::from_path_error(&err));
+        if missing.is_some() || !remove_key(&mut table, &key_path) {
+            return None;
+        }
+        dropped.push(key_path);
+    }
+    None
+}
+
+/// The name in a message such as ``unknown field `bnd`, expected ...`` for `prefix`.
+fn quoted_field(message: &str, prefix: &str) -> Option<String> {
+    let rest = message.strip_prefix(prefix)?.strip_prefix('`')?;
+    rest.split_once('`').map(|(name, _)| name.to_owned())
+}
+
+fn join_path(path: &str, key: &str) -> String {
+    if path.is_empty() {
+        key.to_owned()
+    } else {
+        format!("{path}.{key}")
+    }
+}
+
+/// Removes the key at dotted `path`; false when the path goes through a list or is absent.
+fn remove_key(table: &mut toml::Table, path: &str) -> bool {
+    let Some((head, rest)) = path.split_once('.') else {
+        return table.remove(path).is_some();
+    };
+    match table.get_mut(head) {
+        Some(toml::Value::Table(inner)) => remove_key(inner, rest),
+        _ => false,
+    }
+}
+
 fn missing_keys(table: &toml::Table, required: &[&str]) -> Vec<ConfigIssue> {
     required
         .iter()
