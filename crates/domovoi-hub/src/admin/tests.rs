@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use domovoi_config::MapEnv;
 use domovoi_core::audit_chain::{ChainStatus, VerifyScope};
-use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, Page, UserRepo};
+use domovoi_core::ports::{AuditEvent, AuditFilter, AuditLog, HostRepo, Page, UserRepo};
 use domovoi_store::{Store, StoreOptions};
 use domovoi_testkit::FakeClock;
 use jiff::SignedDuration;
@@ -80,6 +80,54 @@ async fn token_then_revoke_and_list() {
         admin.revoke("nope").await,
         Err(AdminError::Invalid(_))
     ));
+    admin.close().await;
+}
+
+#[tokio::test]
+async fn token_create_and_agent_revoke_from_the_command_line_leave_audit_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let admin = OfflineAdmin::open(config(dir.path()), clock())
+        .await
+        .unwrap();
+    let invite = admin
+        .create_token("web-1", SignedDuration::from_mins(30))
+        .await
+        .unwrap();
+    let host = admin
+        .store
+        .get_host_by_name(&domovoi_core::HostName::parse("web-1").unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    admin
+        .store
+        .put_agent(&domovoi_core::AgentIdentity {
+            agent: domovoi_core::AgentId::new(),
+            host: host.id,
+            public_key: [0; 32],
+            version: "0.0.1".to_owned(),
+            enrolled_at: "2026-11-01T12:00:00Z".parse().unwrap(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(admin.revoke("web-1").await.unwrap());
+    let rows = AuditLog::list(&*admin.store, &AuditFilter::default(), &Page::first(50))
+        .await
+        .unwrap()
+        .items;
+    let find = |kind: &str| rows.iter().find(|row| row.kind == kind);
+    let invited = find("host.invite_created").expect("an invite row");
+    assert_eq!(invited.actor, "system:cli");
+    assert_eq!(invited.subject, "host:web-1");
+    let revoked = find("host.agent_revoked").expect("a revoke row");
+    assert_eq!(revoked.actor, "system:cli");
+    assert_eq!(revoked.subject, "host:web-1");
+    assert!(
+        rows.iter()
+            .all(|row| !row.detail.to_string().contains(invite.token.expose())),
+        "no row holds the token"
+    );
     admin.close().await;
 }
 

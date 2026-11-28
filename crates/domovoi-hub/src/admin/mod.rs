@@ -192,7 +192,33 @@ impl OfflineAdmin {
             return Err(AdminError::Invalid("the TTL must be positive".to_owned()));
         }
         let name = host_name(host)?;
-        Ok(self.server.create_token_valid_for(&name, ttl).await?)
+        let invite = self.server.create_token_valid_for(&name, ttl).await?;
+        // The same row the web UI writes; the token itself is never recorded.
+        self.audit_cli(
+            "host.invite_created",
+            format!("host:{name}"),
+            serde_json::json!({ "expires_at": invite.expires_at.to_string() }),
+        )
+        .await?;
+        Ok(invite)
+    }
+
+    /// Appends an audit row whose actor is the command line: who cannot be known offline.
+    async fn audit_cli(
+        &self,
+        kind: &str,
+        subject: String,
+        detail: serde_json::Value,
+    ) -> Result<(), AdminError> {
+        let event = AuditEvent {
+            at: self.clock.now(),
+            actor: "system:cli".to_owned(),
+            kind: kind.to_owned(),
+            subject,
+            detail,
+        };
+        AuditLog::append(&*self.store, &event).await?;
+        Ok(())
     }
 
     /// Every host and its enrolled agent, sorted by name.
@@ -220,7 +246,16 @@ impl OfflineAdmin {
         let Some(host) = self.store.get_host_by_name(&name).await? else {
             return Err(AdminError::Invalid(format!("no host named {name}")));
         };
-        Ok(self.server.revoke_agent(host.id).await?)
+        let revoked = self.server.revoke_agent(host.id).await?;
+        if revoked {
+            self.audit_cli(
+                "host.agent_revoked",
+                format!("host:{}", host.name),
+                serde_json::json!({}),
+            )
+            .await?;
+        }
+        Ok(revoked)
     }
 
     /// Sets the admin password and returns the username and how many web sessions it ended.
