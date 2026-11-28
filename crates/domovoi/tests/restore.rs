@@ -133,6 +133,85 @@ mod tests {
         );
     }
 
+    /// A backup whose audit chain is broken: three rows, the second edited.
+    async fn tampered_backup(dir: &Path) -> PathBuf {
+        use domovoi_core::ports::{AuditEvent, AuditLog};
+        let path = dir.join("tampered.db");
+        let store = Store::open(&path, StoreOptions::beside(&path, T0))
+            .await
+            .unwrap();
+        for kind in ["test.1", "test.2", "test.3"] {
+            let event = AuditEvent {
+                at: T0,
+                actor: "system:test".to_owned(),
+                kind: kind.to_owned(),
+                subject: "subject".to_owned(),
+                detail: serde_json::Value::Null,
+            };
+            store.append(&event).await.unwrap();
+        }
+        store.edit_audit_row_for_tests(2).await.unwrap();
+        store.close().await;
+        path
+    }
+
+    #[tokio::test]
+    async fn restore_refuses_a_backup_with_a_broken_audit_chain_unless_told_otherwise() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = data_dir(dir.path(), "live-theme").await;
+        let file = tampered_backup(dir.path()).await;
+        let before = fs::read(data.join("hub.db")).unwrap();
+        let config = dir.path().join("hub.toml");
+
+        // The description runs the same check and says so.
+        domovoi()
+            .args(["restore"])
+            .arg(&file)
+            .args(["--config", config.to_str().unwrap()])
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("audit chain is broken at seq 2"))
+            .stderr(predicates::str::contains("--allow-broken-audit"));
+        domovoi()
+            .args(["restore"])
+            .arg(&file)
+            .args(["--config", config.to_str().unwrap()])
+            .arg("--yes")
+            .assert()
+            .failure()
+            .stderr(predicates::str::contains("audit chain is broken at seq 2"));
+        assert_eq!(
+            fs::read(data.join("hub.db")).unwrap(),
+            before,
+            "the live database is untouched"
+        );
+
+        domovoi()
+            .args(["restore"])
+            .arg(&file)
+            .args(["--config", config.to_str().unwrap()])
+            .args(["--yes", "--allow-broken-audit"])
+            .assert()
+            .success()
+            .stdout(predicates::str::contains(
+                "BROKEN at seq 2: a row was edited",
+            ));
+    }
+
+    #[tokio::test]
+    async fn restore_says_the_audit_chain_is_intact_in_the_description() {
+        let dir = tempfile::tempdir().unwrap();
+        data_dir(dir.path(), "live-theme").await;
+        let file = backup(dir.path(), "backup-theme").await;
+        domovoi()
+            .args(["restore"])
+            .arg(&file)
+            .args(["--config", dir.path().join("hub.toml").to_str().unwrap()])
+            .assert()
+            .code(2)
+            .stdout(predicates::str::contains("audit chain: "));
+    }
+
     #[tokio::test]
     async fn restore_refuses_while_a_hub_holds_the_data_directory() {
         let dir = tempfile::tempdir().unwrap();

@@ -307,7 +307,7 @@ async fn a_restore_leaves_an_audit_row_in_the_restored_history() {
     let file = admin.store.backup_to(backups.path(), now).await.unwrap();
     admin.close().await;
 
-    super::restore(dir.path(), &file, now).await.unwrap();
+    super::restore(dir.path(), &file, now, false).await.unwrap();
 
     let store = Store::open(
         &dir.path().join("hub.db"),

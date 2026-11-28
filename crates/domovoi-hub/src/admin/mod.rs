@@ -21,7 +21,9 @@ use domovoi_core::{HostKind, HostName, Signal, User, UserId};
 use domovoi_store::Store;
 use jiff::{SignedDuration, Timestamp};
 
-pub use domovoi_store::{BackupReport, Depth, RestoreError, RestoreReport, verify_backup};
+pub use domovoi_store::{
+    BackupReport, Depth, RestoreError, RestoreReport, verify_backup, verify_backup_audit,
+};
 pub(crate) use notify::test_card;
 pub use notify::{NotifyOutcome, notify_test};
 
@@ -65,6 +67,16 @@ pub enum AdminError {
     /// Nothing to send through, or sending failed.
     #[error("{0}")]
     Delivery(String),
+    /// The backup's audit history does not hold together, so it may have been edited.
+    #[error(
+        "the backup's audit chain is broken at seq {seq}: {reason}; the backup may have been          tampered with. Restore it anyway only if you accept that, with --allow-broken-audit"
+    )]
+    AuditBroken {
+        /// The sequence number of the first row that does not hold the chain together.
+        seq: u64,
+        /// What was wrong with that row.
+        reason: domovoi_core::audit_chain::BreakReason,
+    },
     /// The backup could not be installed; the previous database is where it was.
     #[error(transparent)]
     Restore(#[from] RestoreError),
@@ -82,17 +94,46 @@ impl From<LockError> for AdminError {
     }
 }
 
+/// What the audit chain of a backup file is like, as a sentence for the operator.
+/// `Err` when the chain is broken, so a caller cannot read the result without noticing.
+pub async fn check_backup_audit(
+    backup: &std::path::Path,
+) -> Result<domovoi_core::audit_chain::ChainStatus, AdminError> {
+    use domovoi_core::audit_chain::ChainStatus;
+    match verify_backup_audit(backup)
+        .await
+        .map_err(RestoreError::from)?
+    {
+        ChainStatus::Broken {
+            first_broken_seq,
+            reason,
+            ..
+        } => Err(AdminError::AuditBroken {
+            seq: first_broken_seq,
+            reason,
+        }),
+        other => Ok(other),
+    }
+}
+
 /// Installs `backup` as `data_dir`'s database, refusing while a hub holds the directory.
 ///
 /// This is the offline operator's restore; it is never reachable from the running hub or
-/// the web UI. The backup is verified in full first, and the database it replaces is
-/// kept beside it.
+/// the web UI. The backup is verified in full first, including its audit chain: a chain
+/// that does not hold together refuses the restore unless `allow_broken_audit`, which the
+/// audit row then records. The database it replaces is kept beside it.
 pub async fn restore(
     data_dir: &std::path::Path,
     backup: &std::path::Path,
     now: Timestamp,
+    allow_broken_audit: bool,
 ) -> Result<RestoreReport, AdminError> {
     let _lock = HubLock::acquire(data_dir)?;
+    let audit_broken = match check_backup_audit(backup).await {
+        Ok(_) => false,
+        Err(AdminError::AuditBroken { .. }) if allow_broken_audit => true,
+        Err(err) => return Err(err),
+    };
     let report = domovoi_store::restore_from_backup(&data_dir.join("hub.db"), backup, now).await?;
     // The restore replaced the database, so the row goes into the restored history. A hub
     // owner reads it in the audit log: who cannot be known offline, so the actor is the
@@ -112,6 +153,7 @@ pub async fn restore(
         detail: serde_json::json!({
             "backup": backup.display().to_string(),
             "previous_database": report.previous.as_ref().map(|p| p.display().to_string()),
+            "audit_chain_broken_accepted": audit_broken,
         }),
     };
     let appended = AuditLog::append(&store, &event).await;

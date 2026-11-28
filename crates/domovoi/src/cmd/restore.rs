@@ -3,8 +3,9 @@
 use std::path::PathBuf;
 
 use clap::Args;
+use domovoi_core::audit_chain::ChainStatus;
 use domovoi_core::ports::Clock;
-use domovoi_hub::admin::{self, BackupReport, Depth, RestoreReport, verify_backup};
+use domovoi_hub::admin::{self, AdminError, BackupReport, Depth, RestoreReport, verify_backup};
 
 use crate::ExitCode;
 use crate::cmd::HubConfigArg;
@@ -30,6 +31,10 @@ pub struct RestoreArgs {
     /// Restore without asking. Without it, the command only describes what it would do.
     #[arg(long)]
     pub yes: bool,
+    /// Restore a backup whose audit chain is broken (a row was edited, removed or added).
+    /// Without it a broken chain refuses the restore, with or without `--yes`.
+    #[arg(long)]
+    pub allow_broken_audit: bool,
 }
 
 pub async fn run(args: RestoreArgs) -> anyhow::Result<ExitCode> {
@@ -48,23 +53,50 @@ pub(crate) async fn execute(args: RestoreArgs, clock: &dyn Clock) -> anyhow::Res
     let report = verify_backup(&args.backup, Depth::Full)
         .await
         .map_err(|err| anyhow::anyhow!("{err}"))?;
+    // The same check for the description and for the restore itself.
+    let chain = match admin::check_backup_audit(&args.backup).await {
+        Ok(status) => describe_chain(&status),
+        Err(AdminError::AuditBroken { seq, reason }) if args.allow_broken_audit => format!(
+            "BROKEN at seq {seq}: {reason}; restoring anyway because of --allow-broken-audit"
+        ),
+        Err(err) => anyhow::bail!("{err}"),
+    };
     if !args.yes {
         print_plan(&args.backup, &database, &report);
+        println!("  audit chain: {chain}");
         println!("Nothing changed. Run again with --yes to restore.");
         return Ok(Outcome::NotConfirmed);
     }
     // `admin::restore` holds the data directory's lock throughout: no hub may be running.
-    let report = admin::restore(&data_dir, &args.backup, clock.now())
-        .await
-        .map_err(|err| match err {
-            domovoi_hub::admin::AdminError::HubRunning(_) => anyhow::anyhow!(
-                "a hub is running on {}; stop it before restoring",
-                data_dir.display()
-            ),
-            other => anyhow::anyhow!("{other}"),
-        })?;
+    println!("Audit chain of the backup: {chain}");
+    let report = admin::restore(
+        &data_dir,
+        &args.backup,
+        clock.now(),
+        args.allow_broken_audit,
+    )
+    .await
+    .map_err(|err| match err {
+        domovoi_hub::admin::AdminError::HubRunning(_) => anyhow::anyhow!(
+            "a hub is running on {}; stop it before restoring",
+            data_dir.display()
+        ),
+        other => anyhow::anyhow!("{other}"),
+    })?;
     print_report(&report);
     Ok(Outcome::Restored(report))
+}
+
+fn describe_chain(status: &ChainStatus) -> String {
+    match status {
+        ChainStatus::Empty => "no audit rows".to_owned(),
+        ChainStatus::Intact { checked, .. } => format!("intact ({checked} rows checked)"),
+        ChainStatus::Broken {
+            first_broken_seq,
+            reason,
+            ..
+        } => format!("BROKEN at seq {first_broken_seq}: {reason}"),
+    }
 }
 
 fn print_plan(backup: &std::path::Path, database: &std::path::Path, report: &BackupReport) {

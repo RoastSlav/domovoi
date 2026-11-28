@@ -32,6 +32,7 @@ mod repos;
 mod restore;
 mod uow;
 
+pub use audit_verify::verify_backup_audit;
 pub use backup::{
     BACKUP_PREFIX, BackupError, BackupReport, Depth, PRE_MIGRATE_PREFIX, pre_migrate_name,
     prune_pre_migrate_for_tests, verify_backup, verify_or_track_for_tests,

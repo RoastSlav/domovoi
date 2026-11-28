@@ -271,11 +271,13 @@ domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db          # 
 domovoi restore /var/lib/domovoi/backups/domovoi-20261114T040000Z.db --yes    # do it
 ```
 
-Without `--yes` it verifies the file in full and prints what would happen, then exits with code 2: nothing changes.
+Without `--yes` it verifies the file in full, including its audit chain, and prints what would happen, then exits with code 2: nothing changes. The audit chain line says `intact (N rows checked)`, `no audit rows` or `BROKEN at seq N: <reason>`.
+
+A backup whose audit chain does not hold together (a row was edited, removed or added) is refused, with or without `--yes`: the error names the first broken row and says the backup may have been tampered with. `--allow-broken-audit` restores it anyway; the `backup.restored` audit row then carries `audit_chain_broken_accepted: true`, and the hub reports the break again when it starts.
 
 With `--yes` it prepares the backup before touching the live database, and only then installs it:
 
-1. verifies the backup in full;
+1. verifies the backup in full, including the audit chain;
 2. copies it beside the database as `hub.db.restore-tmp`;
 3. makes the copy owner-only on Unix, and syncs the file and, on Unix, its directory;
 4. opens the copy and runs any pending migrations on it, so a backup older than this release is brought up to date before it becomes live;

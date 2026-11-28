@@ -5,11 +5,13 @@ use domovoi_core::audit_chain::{
 };
 use domovoi_core::ports::StoreError;
 use serde_json::Value;
-use sqlx::SqliteConnection;
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::{ConnectOptions, Connection, SqliteConnection};
 
 use crate::audit_chain::{
     BATCH, checked_anchor, checkpoints, first_chained, newest_chained, newest_rows, rows_after,
 };
+use crate::backup::BackupError;
 use crate::db::Store;
 use crate::error::db;
 
@@ -27,6 +29,29 @@ impl Store {
         }
     }
 
+    /// Edits the detail of audit row `seq` behind the append-only triggers, so a test can
+    /// hand the verifier a history that was tampered with.
+    #[doc(hidden)]
+    pub async fn edit_audit_row_for_tests(&self, seq: u64) -> Result<(), StoreError> {
+        let pool = self.pool_for_tests();
+        sqlx::query("DROP TRIGGER audit_log_no_update")
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        sqlx::query("UPDATE audit_log SET detail = '{\"edited\":true}' WHERE seq = ?")
+            .bind(i64::try_from(seq).unwrap_or(i64::MAX))
+            .execute(pool)
+            .await
+            .map_err(db)?;
+        sqlx::query(
+            "CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log BEGIN              SELECT RAISE(ABORT, 'audit_log is append-only'); END",
+        )
+        .execute(pool)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
     /// The newest row's sequence number and hash, or `None` before the first row.
     pub async fn audit_head(&self) -> Result<Option<(u64, Hash)>, StoreError> {
         let mut conn = self.read.acquire().await.map_err(db)?;
@@ -38,6 +63,33 @@ impl Store {
         let mut conn = self.read.acquire().await.map_err(db)?;
         checked_anchor(&mut conn).await
     }
+}
+
+/// Verifies the whole audit chain of a backup file, opened read-only and never changed.
+///
+/// A backup with no audit anchor and no audit rows has nothing to check and reads as
+/// [`ChainStatus::Empty`]; rows without an anchor are an error, as in a live database.
+pub async fn verify_backup_audit(path: &std::path::Path) -> Result<ChainStatus, BackupError> {
+    let unreadable = |err: &dyn std::fmt::Display| BackupError::Unreadable(err.to_string());
+    let mut conn = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(true)
+        .create_if_missing(false)
+        .connect()
+        .await
+        .map_err(|err| unreadable(&err))?;
+    let outcome = async {
+        match checked_anchor(&mut conn).await? {
+            Some(anchor) => Ok(verify_full(&mut conn, anchor).await?.chained),
+            None => match first_chained(&mut conn).await? {
+                None => Ok(ChainStatus::Empty),
+                Some(_) => Err(StoreError::Backend("audit anchor is missing".to_owned())),
+            },
+        }
+    }
+    .await;
+    let _ = conn.close().await;
+    outcome.map_err(|err: StoreError| unreadable(&err))
 }
 
 async fn verify_full(
