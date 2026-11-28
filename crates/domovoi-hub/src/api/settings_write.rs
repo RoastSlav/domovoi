@@ -219,7 +219,7 @@ async fn run_test(
         .admit_test(current.session_hash)
         .map_err(api_error)?;
     settings
-        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .require_test_step_up(&current.user, ip, &req.changes, req.password.as_deref())
         .await
         .map_err(api_error)?;
     let result = settings
@@ -308,7 +308,7 @@ pub(super) async fn list_models(
         .admit_test(current.session_hash)
         .map_err(api_error)?;
     settings
-        .require_cli_step_up(&current.user, ip, &req.changes, req.password.as_deref())
+        .require_test_step_up(&current.user, ip, &req.changes, req.password.as_deref())
         .await
         .map_err(api_error)?;
     let secondary = req.slot.as_deref() == Some("secondary");

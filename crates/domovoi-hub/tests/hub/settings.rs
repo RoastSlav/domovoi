@@ -330,7 +330,10 @@ async fn test_endpoints_persist_nothing_and_are_rate_limited() {
     let a = api().await;
     let login = a.admin().await;
     let secret_url = "http://127.0.0.1:9/ping/test-endpoint-secret";
-    let body = json!({ "changes": { "heartbeat": { "url": { "set": secret_url } } } });
+    let body = json!({
+        "changes": { "heartbeat": { "url": { "set": secret_url } } },
+        "password": PASSWORD,
+    });
     let reply = a
         .post("/api/v1/settings/test/heartbeat", &login, body.clone())
         .await;
@@ -356,6 +359,42 @@ async fn test_endpoints_persist_nothing_and_are_rate_limited() {
 }
 
 #[tokio::test]
+async fn testing_a_candidate_with_a_secret_needs_the_password_and_sends_nothing_without_it() {
+    let a = api().await;
+    let login = a.admin().await;
+    let probe = wiremock::MockServer::start().await;
+    let url = format!("{}/internal-probe", probe.uri());
+    let candidate = |password: Option<&str>| {
+        let mut body = json!({ "changes": { "heartbeat": { "url": { "set": url } } } });
+        if let Some(password) = password {
+            body["password"] = json!(password);
+        }
+        body
+    };
+    let discord = json!({ "changes": { "discord": {
+        "enabled": true, "channel_id": 42, "bot_token": { "set": DISCORD_SECRET }
+    } } });
+    for (path, body) in [
+        ("/api/v1/settings/test/heartbeat", candidate(None)),
+        ("/api/v1/settings/test/heartbeat", candidate(Some("wrong"))),
+        ("/api/v1/settings/test/discord", discord),
+    ] {
+        let reply = a.post(path, &login, body).await;
+        assert_eq!(
+            reply.status,
+            StatusCode::FORBIDDEN,
+            "{path}: {}",
+            reply.text
+        );
+        assert!(reply.text.contains("password"), "{path}: {}", reply.text);
+    }
+    assert!(
+        probe.received_requests().await.unwrap().is_empty(),
+        "the hub must not have requested the URL without the password"
+    );
+}
+
+#[tokio::test]
 async fn discord_connection_test_passes_validation_before_approvers_are_saved() {
     let a = api().await;
     let login = a.admin().await;
@@ -363,7 +402,7 @@ async fn discord_connection_test_passes_validation_before_approvers_are_saved() 
         "enabled": true,
         "channel_id": 42,
         "bot_token": { "set": DISCORD_SECRET }
-    } } });
+    } }, "password": PASSWORD });
     let reply = a
         .post("/api/v1/settings/test/discord", &login, body.clone())
         .await;

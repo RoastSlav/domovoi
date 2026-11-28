@@ -213,11 +213,13 @@ impl SettingsService {
             })
     }
 
-    /// Asks for the password when a connection test would run a different CLI program than
-    /// the one saved. Testing runs the candidate `llm.*.cli` command, so it needs the same
-    /// step-up as saving it; a candidate that changes nothing under `llm.*.cli` (the stored
-    /// program, or an API provider) needs none.
-    pub async fn require_cli_step_up(
+    /// Asks for the password when a connection test would use something a person has not
+    /// confirmed: a different `llm.*.cli` program, or a secret in the candidate (a heartbeat
+    /// URL, a bot token, an API key). A test sends that secret to a host the caller chooses
+    /// or runs the program, so it needs the same step-up as saving it. A candidate that
+    /// changes neither (the stored settings, or an API provider without a new secret) needs
+    /// none.
+    pub async fn require_test_step_up(
         &self,
         user: &User,
         ip: IpAddr,
@@ -227,11 +229,12 @@ impl SettingsService {
         let stored = self.stored().await?;
         let patched = patch::apply(&stored.doc.document, patch)
             .map_err(|e| SettingsError::Invalid(vec![ConfigIssue::error(e.path, e.message)]))?;
-        let runs_a_program = patched.changes.iter().any(|change| {
+        let carries_more_than_a_plain_value = patched.changes.iter().any(|change| {
             let path = change.path();
-            path.starts_with("llm.") && super::step_up::path_needs_step_up(path)
+            matches!(change, patch::Change::Secret { set: true, .. })
+                || (path.starts_with("llm.") && super::step_up::path_needs_step_up(path))
         });
-        if runs_a_program {
+        if carries_more_than_a_plain_value {
             self.confirm_step_up(user, ip, password).await?;
         }
         Ok(())

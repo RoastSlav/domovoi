@@ -591,7 +591,7 @@ mod api {
             .post(
                 "/api/v1/settings/test/heartbeat",
                 &login,
-                json!({ "changes": { "heartbeat": { "url": { "set": format!("http://127.0.0.1:9/{UI_SECRET}") } } } }),
+                json!({ "changes": { "heartbeat": { "url": { "set": format!("http://127.0.0.1:9/{UI_SECRET}") } } }, "password": crate::api_harness::PASSWORD }),
             )
             .await;
         bodies.push(tested.text);

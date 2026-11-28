@@ -204,7 +204,7 @@ The body:
   - `403` when the password is missing or wrong.
   - `409` for a stale revision, or a field set in `hub.toml` or the environment.
 
-`POST /api/v1/settings/test/{discord,llm,heartbeat}` takes `{ changes }` in the same shape and tries the connection with those candidate values without saving them. A Discord test whose changes list no `discord.allowed_user_ids` is tried with a placeholder approver, so Test in the first run works before you choose approvers. A secret left as `{ "keep": true }` uses the stored one. Each session may run 10 tests a minute, and each test times out after 15 seconds.
+`POST /api/v1/settings/test/{discord,llm,heartbeat}` takes `{ changes }` in the same shape and tries the connection with those candidate values without saving them. A Discord test whose changes list no `discord.allowed_user_ids` is tried with a placeholder approver, so Test in the first run works before you choose approvers. A secret left as `{ "keep": true }` uses the stored one. A test whose candidate sets a new secret (a heartbeat URL, a bot token, an API key) or a new `llm.*.cli` command needs `"password"` in the body, as saving it does: the test would otherwise send that secret to an address the caller picks, or run the program. Without it the answer is 403 `enter your password to make this change`, and nothing is requested. A candidate with no new secret or command (or `{ "keep": true }`) needs no password. Each session may run 10 tests a minute, and each test times out after 15 seconds.
 
 `GET` and `PUT /api/v1/hosts/{name}/checks` read and replace a host's check overrides. Each override has `enabled`, `interval_seconds` and `thresholds`. A saved change goes to the connected agent at once, or when it reconnects.
 
