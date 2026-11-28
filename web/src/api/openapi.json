@@ -71,7 +71,7 @@
             }
           },
           "400": {
-            "description": "Invalid rule",
+            "description": "Invalid rule, or one that covers too much of a security check",
             "content": {
               "application/json": {
                 "schema": {
@@ -82,6 +82,26 @@
           },
           "401": {
             "description": "Not logged in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A security check needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong passwords",
             "content": {
               "application/json": {
                 "schema": {
@@ -176,7 +196,7 @@
             }
           },
           "400": {
-            "description": "Invalid change",
+            "description": "Invalid change, or one that covers too much of a security check",
             "content": {
               "application/json": {
                 "schema": {
@@ -195,8 +215,28 @@
               }
             }
           },
+          "403": {
+            "description": "A security check needs the password",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No such rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong passwords",
             "content": {
               "application/json": {
                 "schema": {
@@ -9132,12 +9172,22 @@
           "id",
           "check",
           "predicates",
-          "note"
+          "note",
+          "covers_every_host",
+          "covers_every_target"
         ],
         "properties": {
           "check": {
             "type": "string",
             "description": "The check the rule matches, for example `security.ssh_login`."
+          },
+          "covers_every_host": {
+            "type": "boolean",
+            "description": "True when the rule is not limited to one host, so it applies on every host."
+          },
+          "covers_every_target": {
+            "type": "boolean",
+            "description": "True when the rule has no target pattern, or only `*`, so it applies to every target\nof its check."
           },
           "created_at": {
             "type": [
@@ -9231,6 +9281,13 @@
             "type": "string",
             "description": "Why the condition is acceptable, 1 to 500 characters."
           },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The admin's password, typed again. Needed when the check is a security check or\n`kernel.errors`."
+          },
           "predicates": {
             "type": "array",
             "items": {
@@ -9280,6 +9337,13 @@
               "null"
             ],
             "description": "Why the condition is acceptable, 1 to 500 characters."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The admin's password, typed again. Needed to change what a rule for a security check\nor `kernel.errors` covers (its host, target pattern, conditions or expiry)."
           },
           "predicates": {
             "type": [

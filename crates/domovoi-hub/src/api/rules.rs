@@ -1,8 +1,8 @@
 //! Ack rules: known conditions that never notify.
 
 use axum::Json;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{HeaderMap, StatusCode};
 use domovoi_core::{
     AckRule, AckRuleId, CheckKey, EvidencePredicate, EvidenceValue, HostId, TargetPattern,
     valid_cidr,
@@ -10,11 +10,12 @@ use domovoi_core::{
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::net::SocketAddr;
 use utoipa::ToSchema;
 
 use super::error::{ApiError, ErrorBody};
 use super::{ApiState, Authed, host_named};
-use crate::auth::Current;
+use crate::auth::{Current, proxy};
 
 /// The longest note of a rule, in characters.
 pub const MAX_NOTE_CHARS: usize = 500;
@@ -78,6 +79,11 @@ pub struct AckRuleDto {
     pub created_at: Option<String>,
     /// The username of the person who created the rule; null when unknown.
     pub created_by: Option<String>,
+    /// True when the rule is not limited to one host, so it applies on every host.
+    pub covers_every_host: bool,
+    /// True when the rule has no target pattern, or only `*`, so it applies to every target
+    /// of its check.
+    pub covers_every_target: bool,
 }
 
 /// A new rule.
@@ -100,6 +106,10 @@ pub struct AckRuleInput {
     /// with its original expiry; an unparseable value is refused.
     #[serde(default)]
     pub expires_at: Option<String>,
+    /// The admin's password, typed again. Needed when the check is a security check or
+    /// `kernel.errors`.
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 pub(super) fn parse_id(id: &str) -> Result<AckRuleId, ApiError> {
@@ -247,6 +257,8 @@ pub(super) async fn rule_to_dto(state: &ApiState, rule: &AckRule) -> Result<AckR
         expires_at: rule.expires_at.map(|at| at.to_string()),
         created_at: rule.created_at.map(|at| at.to_string()),
         created_by: rule.created_by.clone(),
+        covers_every_host: rule.host.is_none(),
+        covers_every_target: super::rules_scope::covers_every_target(rule),
     })
 }
 
@@ -370,12 +382,16 @@ pub(crate) async fn put_rule_audited(
     request_body = AckRuleInput,
     responses(
         (status = 201, description = "Created", body = AckRuleDto),
-        (status = 400, description = "Invalid rule", body = ErrorBody),
+        (status = 400, description = "Invalid rule, or one that covers too much of a security check", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A security check needs the password", body = ErrorBody),
+        (status = 429, description = "Too many wrong passwords", body = ErrorBody),
     )
 )]
 pub(super) async fn create(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Json(input): Json<AckRuleInput>,
 ) -> Result<(StatusCode, Json<AckRuleDto>), ApiError> {
@@ -407,6 +423,12 @@ pub(super) async fn create(
         created_at: Some(now),
         created_by: Some(current.user.username.clone()),
     };
+    super::rules_scope::check_scope(&rule, now)?;
+    if super::rules_scope::is_guarded(&rule.check) {
+        let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+        super::rules_scope::require_password(&state, &current, ip, input.password.as_deref())
+            .await?;
+    }
     put_rule_audited(&state, &current, &rule).await?;
     Ok((StatusCode::CREATED, Json(rule_to_dto(&state, &rule).await?)))
 }

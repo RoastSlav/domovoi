@@ -100,6 +100,7 @@ mod readiness;
 mod reconciliation;
 #[cfg(test)]
 mod rules;
+mod rules_scope;
 #[cfg(test)]
 mod security_events;
 #[cfg(test)]

@@ -9,7 +9,7 @@ use domovoi_engine::{DomainEvent, EventKind};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-use crate::api_harness::{Api, Login, api};
+use crate::api_harness::{Api, Login, PASSWORD, api};
 
 /// The valid body of a rule, with one field replaced by `value`.
 fn rule_body(field: &str, value: Value) -> Value {
@@ -130,15 +130,19 @@ async fn creates_lists_and_deletes_a_known_condition() {
             "target_pattern": null,
             "predicates": [{ "key": "user", "op": "equals", "value": "root" }],
             "note": "the deploy key logs in as root from the build box",
-            "expires_in_minutes": null,
+            "expires_in_minutes": 1440,
+            "password": PASSWORD,
         }),
     )
     .await;
     assert_eq!(ssh["host"], Value::Null, "no host means every host");
+    assert_eq!(ssh["covers_every_host"], true);
+    assert_eq!(ssh["covers_every_target"], true);
+    assert_eq!(nightly["covers_every_host"], false);
+    assert_eq!(nightly["covers_every_target"], false);
     assert_eq!(
-        ssh["expires_at"],
-        Value::Null,
-        "no minutes means never expires"
+        ssh["expires_at"], "2026-11-01T12:00:00Z",
+        "a day from the fake clock"
     );
 
     let rules = listed_rules(&a, &login).await;
@@ -153,7 +157,7 @@ async fn creates_lists_and_deletes_a_known_condition() {
     );
     assert_eq!(
         rules[1]["id"], ssh["id"],
-        "a rule that never expires comes last"
+        "the rule expiring later comes last"
     );
 
     let created = a.audit_events("ack_rule.created").await;
@@ -491,6 +495,7 @@ async fn a_login_from_an_expected_address_range_never_alerts() {
             "predicates": [{ "key": "ip", "op": "in_network", "value": "192.168.1.0/24" }],
             "note": "alice logs in from the office",
             "expires_in_minutes": null,
+            "password": PASSWORD,
         }),
     )
     .await;
@@ -561,6 +566,7 @@ async fn a_login_from_the_one_expected_address_is_known() {
             "predicates": [{ "key": "ip", "op": "in_network", "value": "192.168.1.20" }],
             "note": "alice logs in from her laptop",
             "expires_in_minutes": null,
+            "password": PASSWORD,
         }),
     )
     .await;
@@ -761,5 +767,14 @@ async fn a_check_name_nothing_raises_is_refused_with_a_clear_message() {
             rule_body("check", json!("security.new_port")),
         )
         .await;
+    assert_eq!(
+        ok.status,
+        StatusCode::FORBIDDEN,
+        "known, but a security check asks for the password: {}",
+        ok.text
+    );
+    let mut with_password = rule_body("check", json!("security.new_port"));
+    with_password["password"] = json!(PASSWORD);
+    let ok = a.post("/api/v1/ack-rules", &login, with_password).await;
     assert_eq!(ok.status, StatusCode::CREATED, "{}", ok.text);
 }

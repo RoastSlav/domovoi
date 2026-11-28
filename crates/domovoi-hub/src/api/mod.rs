@@ -61,6 +61,7 @@ pub(crate) mod profile;
 pub mod readiness;
 mod rules;
 mod rules_patch;
+mod rules_scope;
 pub(crate) mod settings;
 mod settings_skill;
 mod settings_write;

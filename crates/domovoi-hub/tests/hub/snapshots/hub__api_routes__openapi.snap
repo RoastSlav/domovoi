@@ -62,6 +62,14 @@ expression: spec
             "description": "The check the rule matches, for example `security.ssh_login`.",
             "type": "string"
           },
+          "covers_every_host": {
+            "description": "True when the rule is not limited to one host, so it applies on every host.",
+            "type": "boolean"
+          },
+          "covers_every_target": {
+            "description": "True when the rule has no target pattern, or only `*`, so it applies to every target\nof its check.",
+            "type": "boolean"
+          },
           "created_at": {
             "description": "When the rule was created; null for rules made before this was recorded.",
             "type": [
@@ -117,7 +125,9 @@ expression: spec
           "id",
           "check",
           "predicates",
-          "note"
+          "note",
+          "covers_every_host",
+          "covers_every_target"
         ],
         "type": "object"
       },
@@ -154,6 +164,13 @@ expression: spec
           "note": {
             "description": "Why the condition is acceptable, 1 to 500 characters.",
             "type": "string"
+          },
+          "password": {
+            "description": "The admin's password, typed again. Needed when the check is a security check or\n`kernel.errors`.",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "predicates": {
             "description": "Conditions, all of which must hold; at most 10.",
@@ -205,6 +222,13 @@ expression: spec
           },
           "note": {
             "description": "Why the condition is acceptable, 1 to 500 characters.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password": {
+            "description": "The admin's password, typed again. Needed to change what a rule for a security check\nor `kernel.errors` covers (its host, target pattern, conditions or expiry).",
             "type": [
               "string",
               "null"
@@ -9207,7 +9231,7 @@ expression: spec
                 }
               }
             },
-            "description": "Invalid rule"
+            "description": "Invalid rule, or one that covers too much of a security check"
           },
           "401": {
             "content": {
@@ -9218,6 +9242,26 @@ expression: spec
               }
             },
             "description": "Not logged in"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A security check needs the password"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
           }
         },
         "summary": "Creates a rule.",
@@ -9312,7 +9356,7 @@ expression: spec
                 }
               }
             },
-            "description": "Invalid change"
+            "description": "Invalid change, or one that covers too much of a security check"
           },
           "401": {
             "content": {
@@ -9324,6 +9368,16 @@ expression: spec
             },
             "description": "Not logged in"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A security check needs the password"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9333,6 +9387,16 @@ expression: spec
               }
             },
             "description": "No such rule"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many wrong passwords"
           }
         },
         "summary": "Edits a rule: its host, target pattern, note, conditions or expiry. The check cannot change;\ndelete the rule and make a new one for that. The same checks as on create apply.",

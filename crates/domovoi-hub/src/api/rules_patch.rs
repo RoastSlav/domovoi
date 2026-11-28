@@ -1,7 +1,10 @@
 //! Editing a known condition, and the check names a rule may name.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use std::net::SocketAddr;
+
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::HeaderMap;
 use domovoi_core::CheckKey;
 use domovoi_core::ports::{IncidentFilter, Page};
 use serde::{Deserialize, Deserializer};
@@ -14,6 +17,7 @@ use super::rules::{
     parse_pattern, predicate_to_core, rule_to_dto,
 };
 use super::{ApiState, Authed};
+use crate::auth::proxy;
 
 /// The agent checks this build ships. A rule may also name a check an agent reports, a probe,
 /// a webhook source, or one an incident has been raised for.
@@ -123,6 +127,10 @@ pub struct AckRulePatch {
     /// Minutes from now until the rule stops applying. Ignored when `expires_at` is given.
     #[serde(default)]
     pub expires_in_minutes: Option<u32>,
+    /// The admin's password, typed again. Needed to change what a rule for a security check
+    /// or `kernel.errors` covers (its host, target pattern, conditions or expiry).
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 /// Edits a rule: its host, target pattern, note, conditions or expiry. The check cannot change;
@@ -133,13 +141,17 @@ pub struct AckRulePatch {
     request_body = AckRulePatch,
     responses(
         (status = 200, description = "Updated", body = AckRuleDto),
-        (status = 400, description = "Invalid change", body = ErrorBody),
+        (status = 400, description = "Invalid change, or one that covers too much of a security check", body = ErrorBody),
         (status = 401, description = "Not logged in", body = ErrorBody),
+        (status = 403, description = "A security check needs the password", body = ErrorBody),
         (status = 404, description = "No such rule", body = ErrorBody),
+        (status = 429, description = "Too many wrong passwords", body = ErrorBody),
     )
 )]
 pub(super) async fn update(
     State(state): State<ApiState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Authed(current): Authed,
     Path(id): Path<String>,
     Json(patch): Json<AckRulePatch>,
@@ -200,6 +212,16 @@ pub(super) async fn update(
              or expires_at"
                 .to_owned(),
         ));
+    }
+    // A note alone changes nothing about what the rule silences; anything else does.
+    let reach_changed = changed.iter().any(|field| *field != "note");
+    if reach_changed {
+        super::rules_scope::check_scope(&rule, now)?;
+        if super::rules_scope::is_guarded(&rule.check) {
+            let ip = proxy::client_ip(peer, &headers, &state.auth.web().trusted_proxies);
+            super::rules_scope::require_password(&state, &current, ip, patch.password.as_deref())
+                .await?;
+        }
     }
     super::audit_note::decide(
         &state,
