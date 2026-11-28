@@ -44,6 +44,9 @@ pub struct HostWords {
     pub ceiling_hash: Option<String>,
     /// Whether the agent reports a usable container runtime.
     pub container_runtime: bool,
+    /// Programs a built-in read needs that the host does not have, from `hello.missing_tools`
+    /// (`smartctl`). Empty from an older agent.
+    pub missing_tools: Vec<String>,
 }
 
 /// One host's announced facts, all read from one authenticated session.

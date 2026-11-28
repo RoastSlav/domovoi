@@ -132,6 +132,7 @@ fn live_session(outbox: mpsc::Sender<String>) -> (Live, SessionId) {
         ceiling_hash: None,
         checks: Vec::new(),
         docker: None,
+        missing_tools: Vec::new(),
         journal_epoch: Uuid::nil(),
         authoritative_absence: true,
         agent_status: None,

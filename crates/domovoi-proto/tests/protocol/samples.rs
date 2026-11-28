@@ -172,6 +172,7 @@ pub fn all() -> Vec<Message> {
                 enabled: false,
                 reason: Some("stored, not enabled".to_owned()),
             }],
+            missing_tools: Vec::new(),
         }
         .into(),
         Challenge {

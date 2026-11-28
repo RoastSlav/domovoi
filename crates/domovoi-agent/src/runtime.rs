@@ -362,6 +362,7 @@ impl AgentRuntime {
                 .ceiling
                 .as_ref()
                 .map(|c| c.summary().to_owned()),
+            missing_tools: self.requests.commands.missing_tools(),
             ..HelloExtensions::default()
         };
         let status = crate::link::handshake::AgentStatusSource::new(extensions.status());

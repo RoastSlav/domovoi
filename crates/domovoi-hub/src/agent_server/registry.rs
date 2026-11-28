@@ -502,7 +502,13 @@ impl Registry {
                 },
                 ceiling_summary: live.ceiling_summary.clone(),
                 ceiling_hash: live.ceiling_hash.clone(),
-                container_runtime: live.docker.as_ref().is_some_and(|report| report.available),
+                // Usable now: an engine answered, and `agent.toml` has not fixed the
+                // integration to off.
+                container_runtime: live
+                    .docker
+                    .as_ref()
+                    .is_some_and(|report| report.available && (!report.locked || report.enabled)),
+                missing_tools: live.missing_tools.clone(),
             },
             skills: live.skills.clone(),
         })

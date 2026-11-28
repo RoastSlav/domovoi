@@ -228,6 +228,11 @@ pub struct Hello {
     /// ones that are off with the reason. Empty from older agents and from hosts with no packages.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub package_skills: Vec<PackageSkillState>,
+    /// Programs a built-in read needs that the agent looked for and did not find (`smartctl`),
+    /// so the hub does not offer that read here. Empty from older agents, which the hub then
+    /// treats as having everything.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_tools: Vec<String>,
 }
 
 /// One skill of a stored package and whether it can run.

@@ -68,6 +68,11 @@ async fn runtime_shuts_down_within_two_seconds_on_cancel() {
         hello.journal_epoch, epoch,
         "a running agent reports its real journal epoch"
     );
+    assert_eq!(
+        hello.missing_tools,
+        ["smartctl"],
+        "a host with no smartctl says so in hello"
+    );
     let announced: Vec<&str> = hello.skills.iter().map(|s| s.name.as_str()).collect();
     // Skills load on Unix only; elsewhere the catalogue is empty.
     let expected: &[&str] = if cfg!(unix) { &["restart_app"] } else { &[] };

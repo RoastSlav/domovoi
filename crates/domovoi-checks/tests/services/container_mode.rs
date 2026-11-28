@@ -55,7 +55,10 @@ async fn tools_are_looked_up_in_the_filesystem_given_not_the_host() {
     assert_eq!(err, CommandError::NotInstalled("smartctl"));
     assert!(err.is_unavailable());
 
+    assert_eq!(missing.missing_tools(), ["smartctl"]);
+
     let found = Commands::resolve(&own, ToolHost::Container).await;
+    assert!(found.missing_tools().is_empty());
     assert_eq!(found.smartctl_scan().unwrap().program, "/usr/sbin/smartctl");
     assert!(matches!(
         found.systemctl_failed(),

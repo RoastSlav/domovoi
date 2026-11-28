@@ -527,6 +527,77 @@ async fn container_runtime_unavailable_is_reported() {
 }
 
 #[tokio::test]
+async fn reads_of_the_container_engine_are_unavailable_without_one_even_when_they_name_no_container()
+ {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.complete(&[
+        ("container.list", 1),
+        ("container.events", 1),
+        ("container.logs", 1),
+        ("container.inspect", 1),
+        ("host.overview", 1),
+    ]);
+    fixture.words(HostWords {
+        container_runtime: false,
+        ..HostWords::default()
+    });
+    for contract in [
+        "container.list",
+        "container.events",
+        "container.logs",
+        "container.inspect",
+    ] {
+        assert_eq!(
+            fixture.availability(contract).await,
+            missing(UnavailableReason::ContainerRuntimeUnavailable),
+            "{contract}"
+        );
+    }
+    assert_eq!(
+        fixture.availability("host.overview").await,
+        Availability::Available,
+        "a read that needs no engine is untouched"
+    );
+    fixture.words(HostWords {
+        container_runtime: true,
+        ..HostWords::default()
+    });
+    assert_eq!(
+        fixture.availability("container.list").await,
+        Availability::Available
+    );
+}
+
+#[tokio::test]
+async fn smart_report_is_unavailable_when_smartctl_is_missing_and_no_helper_reads_smart() {
+    let fixture = Fixture::new(Vec::new()).await;
+    fixture.complete(&[("disk.smart_report", 1)]);
+    let words = |missing_tools: &[&str], helper, ops: &[&str]| HostWords {
+        helper,
+        helper_ops: ops.iter().map(|op| (*op).to_owned()).collect(),
+        missing_tools: missing_tools.iter().map(|t| (*t).to_owned()).collect(),
+        ..HostWords::default()
+    };
+    fixture.words(words(&["smartctl"], HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("disk.smart_report").await,
+        missing(UnavailableReason::SmartctlMissing)
+    );
+    // The helper reads SMART in the agent's place.
+    fixture.words(words(&["smartctl"], HelperState::Ready, &["smart.read"]));
+    assert_eq!(
+        fixture.availability("disk.smart_report").await,
+        Availability::Available
+    );
+    // smartctl is there, or an older agent said nothing.
+    fixture.words(words(&[], HelperState::Absent, &[]));
+    assert_eq!(
+        fixture.availability("disk.smart_report").await,
+        Availability::Available
+    );
+}
+
+#[tokio::test]
 async fn precedence_host_state_outranks_everything() {
     let fixture = Fixture::with_settings(
         Vec::new(),

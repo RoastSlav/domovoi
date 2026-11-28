@@ -144,6 +144,7 @@ pub fn hello_running(agent: AgentId, protocol: ProtocolVersion, version: &str) -
         checks: Vec::new(),
         docker: None,
         package_skills: Vec::new(),
+        missing_tools: Vec::new(),
     })
 }
 

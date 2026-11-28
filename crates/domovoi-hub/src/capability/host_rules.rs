@@ -59,6 +59,26 @@ pub(crate) fn helper_refusal(
     None
 }
 
+/// Whether the contract reads the container engine: one that targets a container, and the
+/// two reads that list the host's containers and their events.
+fn needs_container_runtime(contract: &CapabilityContract) -> bool {
+    contract.target_kind == TargetKind::Container
+        || matches!(contract.id.as_str(), "container.list" | "container.events")
+}
+
+/// `disk.smart_report` needs `smartctl` in the agent's own tool path, or a helper that serves
+/// SMART reads. The agent reports what it did not find; an older agent reports nothing, and
+/// then the read is offered as before.
+fn smart_report_cannot_run(contract: &CapabilityContract, words: &HostWords) -> bool {
+    contract.id.as_str() == "disk.smart_report"
+        && words.missing_tools.iter().any(|tool| tool == "smartctl")
+        && !(words.helper == HelperState::Ready
+            && words
+                .helper_ops
+                .iter()
+                .any(|op| op == "smart.read" || op == "smart_report"))
+}
+
 /// Rows 11 and 12 for a compiled contract: ceiling, helper, container runtime.
 pub(super) fn host_allows(
     contract: &CapabilityContract,
@@ -73,9 +93,14 @@ pub(super) fn host_allows(
     if let Some(reason) = helper_refusal(contract, words) {
         return Err(Availability::Unavailable { reason });
     }
-    if contract.target_kind == TargetKind::Container && !words.container_runtime {
+    if needs_container_runtime(contract) && !words.container_runtime {
         return Err(Availability::Unavailable {
             reason: UnavailableReason::ContainerRuntimeUnavailable,
+        });
+    }
+    if smart_report_cannot_run(contract, words) {
+        return Err(Availability::Unavailable {
+            reason: UnavailableReason::SmartctlMissing,
         });
     }
     Ok(())

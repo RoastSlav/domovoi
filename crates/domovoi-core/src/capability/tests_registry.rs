@@ -91,6 +91,7 @@ fn availability_reasons_have_codes() {
             UnavailableReason::ContainerRuntimeUnavailable,
             "container_runtime_unavailable",
         ),
+        (UnavailableReason::SmartctlMissing, "smartctl_missing"),
         (
             UnavailableReason::DockerWriteUnsupported,
             "docker_write_unsupported",

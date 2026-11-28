@@ -46,6 +46,8 @@ pub struct HelloExtensions {
     pub in_container: bool,
     /// The helper's public key when one is present.
     pub helper_identity: Option<HelperIdentity>,
+    /// Programs a built-in read needs that this host does not have.
+    pub missing_tools: Vec<String>,
 }
 
 impl Default for HelloExtensions {
@@ -62,6 +64,7 @@ impl Default for HelloExtensions {
             runs_as_root: false,
             in_container: false,
             helper_identity: None,
+            missing_tools: Vec::new(),
         }
     }
 }
@@ -213,6 +216,7 @@ pub async fn handshake(
         checks: announce.checks.to_vec(),
         docker: announce.docker.cloned(),
         package_skills: announce.package_skills.to_vec(),
+        missing_tools: announce.extensions.missing_tools.clone(),
     };
     frame::send(transport, &Message::Hello(hello), None).await?;
     let challenge = match frame::expect(transport).await?.message {

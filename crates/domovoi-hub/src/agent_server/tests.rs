@@ -138,6 +138,7 @@ fn hello(agent: AgentId) -> Message {
         checks: Vec::new(),
         docker: None,
         package_skills: Vec::new(),
+        missing_tools: Vec::new(),
     })
 }
 

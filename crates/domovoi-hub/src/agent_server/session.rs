@@ -58,6 +58,7 @@ pub(crate) async fn run_session(
         ceiling_hash: hello.ceiling_hash.map(|hash| hex::encode(hash.as_bytes())),
         checks: hello.checks,
         docker: hello.docker,
+        missing_tools: hello.missing_tools,
         journal_epoch: hello.journal_epoch,
         authoritative_absence: hello
             .features

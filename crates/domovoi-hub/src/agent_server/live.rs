@@ -57,6 +57,8 @@ pub(crate) struct Live {
     pub ceiling_hash: Option<String>,
     pub checks: Vec<CheckInfo>,
     pub docker: Option<DockerReport>,
+    /// `hello.missing_tools`: programs a built-in read needs that the host does not have.
+    pub missing_tools: Vec<String>,
     /// The action journal's epoch the agent announced.
     pub journal_epoch: Uuid,
     /// Whether this agent promised that every action execution is in its journal, so a

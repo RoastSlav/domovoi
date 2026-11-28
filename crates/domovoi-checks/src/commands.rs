@@ -313,6 +313,17 @@ impl Commands {
         }
     }
 
+    /// The tools some read needs that were looked for and not found, by program name. The
+    /// agent announces them so the hub does not offer a read that cannot run here.
+    #[must_use]
+    pub fn missing_tools(&self) -> Vec<String> {
+        let mut missing = Vec::new();
+        if self.smartctl == Tool::Missing {
+            missing.push("smartctl".to_owned());
+        }
+        missing
+    }
+
     fn tool<'a>(tool: &'a Tool, name: &'static str) -> Result<&'a str, CommandError> {
         match tool {
             Tool::Found(path) => Ok(path),

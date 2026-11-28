@@ -90,6 +90,9 @@ pub enum UnavailableReason {
     /// A container-targeted contract on a host whose agent reports no usable container
     /// runtime.
     ContainerRuntimeUnavailable,
+    /// `disk.smart_report` on a host where neither the helper's SMART read nor `smartctl`
+    /// for the agent is there.
+    SmartctlMissing,
     /// `container.restart`: Docker write access needs its own helper decision and has no
     /// dispatch path, for either authorization kind.
     DockerWriteUnsupported,
@@ -231,6 +234,7 @@ impl UnavailableReason {
             Self::CatalogueStale => "catalogue_stale",
             Self::CatalogueInconsistent => "catalogue_inconsistent",
             Self::ContainerRuntimeUnavailable => "container_runtime_unavailable",
+            Self::SmartctlMissing => "smartctl_missing",
             Self::DockerWriteUnsupported => "docker_write_unsupported",
             Self::AgentInContainer => "agent_in_container",
             Self::WriteSkillNeedsRoot => "write_skill_needs_root",
@@ -266,6 +270,9 @@ impl UnavailableReason {
             Self::CatalogueStale => "the catalogue read for this host is out of date",
             Self::CatalogueInconsistent => "the agent's skill list and its catalogue disagree",
             Self::ContainerRuntimeUnavailable => "this host has no usable container runtime",
+            Self::SmartctlMissing => {
+                "smartctl is not installed on this host (install smartmontools), and the helper                  does not offer SMART reads"
+            }
             Self::DockerWriteUnsupported => {
                 "Docker write access needs its own helper decision and is not available"
             }
