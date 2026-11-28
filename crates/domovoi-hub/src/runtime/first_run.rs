@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use domovoi_core::ports::{AckRepo, AuditEvent, AuditLog, Clock, IngestError, SignalSink};
-use domovoi_core::{AckRule, AckRuleId, EvidenceValue, Signal, TargetPattern};
+use domovoi_core::{AckRule, AckRuleId, EvidenceValue, HostId, Signal, TargetPattern};
 use serde_json::json;
 
 /// The note of an entry made from a first run; editing the note marks the entry reviewed.
@@ -22,10 +22,14 @@ pub const FIRST_RUN_NOTE: &str = "Found on first run (not reviewed)";
 /// The check whose first run is recorded.
 const CHECK: &str = "security.new_port";
 
+/// How many targets one `ack_rule.matched` row lists; the row's `rules` and `signals` give
+/// the full counts.
+const MAX_TARGETS_LISTED: usize = 10;
+
 /// A [`SignalSink`] that turns first-run listeners into known conditions.
 pub struct FirstRunSink {
-    /// The day (UTC date text) each known condition last wrote its audit row.
-    audited: std::sync::Mutex<std::collections::HashMap<AckRuleId, String>>,
+    /// The day (UTC date text) each known condition last wrote its audit row, per host.
+    audited: std::sync::Mutex<std::collections::HashMap<(AckRuleId, HostId), String>>,
     inner: Arc<dyn SignalSink>,
     acks: Arc<dyn AckRepo>,
     audit: Arc<dyn AuditLog>,
@@ -60,10 +64,11 @@ fn is_first_run(signal: &Signal) -> bool {
 }
 
 impl FirstRunSink {
-    /// Writes one audit row per known condition per day for the event signals it explains.
-    /// The manager stores those signals without an incident; this row is how a person
-    /// sees, in the audit log, that a known condition was used. A restart may write one
-    /// extra row for the day.
+    /// Writes one audit row per host and day for the event signals that known conditions
+    /// explain, however many conditions and signals that is (the row carries the counts and
+    /// the first targets). The manager stores those signals without an incident; this row is
+    /// how a person sees, in the audit log, that known conditions were used. A restart may
+    /// write one extra row per host for the day.
     async fn audit_expected(&self, signals: &[Signal]) -> Result<(), IngestError> {
         let candidates: Vec<&Signal> = signals
             .iter()
@@ -82,15 +87,20 @@ impl FirstRunSink {
             .await
             .map_err(|e| IngestError::Unavailable(e.to_string()))?;
         let day = now.to_string().chars().take(10).collect::<String>();
-        let mut counts: Vec<(AckRule, u32, String)> = Vec::new();
+        // One entry per (rule, host): how many signals it explained and on which target.
+        let mut counts: Vec<(AckRule, HostId, u32, String)> = Vec::new();
         for signal in candidates {
             let Some(rule) = rules.iter().find(|rule| rule.matches(signal, now)) else {
                 continue;
             };
-            match counts.iter_mut().find(|(r, _, _)| r.id == rule.id) {
-                Some(entry) => entry.1 += 1,
+            match counts
+                .iter_mut()
+                .find(|(r, h, _, _)| r.id == rule.id && *h == signal.host())
+            {
+                Some(entry) => entry.2 += 1,
                 None => counts.push((
                     rule.clone(),
+                    signal.host(),
                     1,
                     signal
                         .target()
@@ -99,25 +109,51 @@ impl FirstRunSink {
                 )),
             }
         }
-        for (rule, count, target) in counts {
-            {
-                let mut seen = self.audited.lock().unwrap_or_else(|e| e.into_inner());
-                if seen.get(&rule.id) == Some(&day) {
-                    continue;
-                }
-                seen.insert(rule.id, day.clone());
+        // Only matches that have not been written today; a restart forgets the day, so the
+        // first run after one writes again, but as one row per host and not one per rule.
+        let fresh: Vec<(AckRule, HostId, u32, String)> = {
+            let mut seen = self.audited.lock().unwrap_or_else(|e| e.into_inner());
+            counts
+                .into_iter()
+                .filter(|(rule, host, _, _)| {
+                    if seen.get(&(rule.id, *host)) == Some(&day) {
+                        return false;
+                    }
+                    seen.insert((rule.id, *host), day.clone());
+                    true
+                })
+                .collect()
+        };
+        let mut hosts: Vec<HostId> = Vec::new();
+        for (_, host, _, _) in &fresh {
+            if !hosts.contains(host) {
+                hosts.push(*host);
             }
+        }
+        for host in hosts {
+            let group: Vec<&(AckRule, HostId, u32, String)> =
+                fresh.iter().filter(|(_, h, _, _)| *h == host).collect();
+            let mut checks: Vec<&str> = group.iter().map(|(r, _, _, _)| r.check.as_str()).collect();
+            checks.sort_unstable();
+            checks.dedup();
+            let signals: u32 = group.iter().map(|(_, _, n, _)| n).sum();
+            let targets: Vec<&str> = group
+                .iter()
+                .take(MAX_TARGETS_LISTED)
+                .map(|(_, _, _, t)| t.as_str())
+                .collect();
             self.audit
                 .append(&AuditEvent {
                     at: now,
                     actor: "hub:known-condition".to_owned(),
                     kind: "ack_rule.matched".to_owned(),
-                    subject: format!("ack_rule:{}", rule.id),
+                    subject: format!("host:{host}"),
                     detail: json!({
-                        "check": rule.check.as_str(),
-                        "target": target,
-                        "note": rule.note,
-                        "signals": count,
+                        "checks": checks,
+                        "rules": group.len(),
+                        "signals": signals,
+                        "targets": targets,
+                        "targets_listed": targets.len(),
                     }),
                 })
                 .await
@@ -288,5 +324,42 @@ mod tests {
             .filter(|row| row.kind == "ack_rule.matched")
             .count();
         assert_eq!(matched, 1);
+    }
+
+    #[tokio::test]
+    async fn many_known_conditions_matching_at_once_write_one_row_per_host_with_counts() {
+        use domovoi_core::ports::{AuditFilter, AuditLog, Page};
+        let (sink, store, _inner) = rig();
+        let (nas, web) = (HostId::new(), HostId::new());
+        let targets = ["0.0.0.0:22/tcp", "0.0.0.0:80/tcp", "0.0.0.0:443/tcp"];
+        let firsts: Vec<Signal> = targets
+            .iter()
+            .map(|t| listener(nas, t, true))
+            .chain([listener(web, "0.0.0.0:22/tcp", true)])
+            .collect();
+        sink.submit(firsts).await.unwrap();
+        // A reconnect: every listener of both hosts is reported again.
+        let again: Vec<Signal> = targets
+            .iter()
+            .map(|t| listener(nas, t, false))
+            .chain([listener(web, "0.0.0.0:22/tcp", false)])
+            .collect();
+        sink.submit(again).await.unwrap();
+        let rows = AuditLog::list(&*store, &AuditFilter::default(), &Page::first(100))
+            .await
+            .unwrap();
+        let matched: Vec<_> = rows
+            .items
+            .iter()
+            .filter(|row| row.kind == "ack_rule.matched")
+            .collect();
+        assert_eq!(matched.len(), 2, "one row per host, not one per rule");
+        let nas_row = matched
+            .iter()
+            .find(|row| row.subject == format!("host:{nas}"))
+            .unwrap();
+        assert_eq!(nas_row.detail["rules"], 3);
+        assert_eq!(nas_row.detail["signals"], 3);
+        assert_eq!(nas_row.detail["checks"], json!([CHECK]));
     }
 }
